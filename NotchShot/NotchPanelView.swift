@@ -3,6 +3,64 @@ import AppKit
 import CoreGraphics
 import Combine
 
+// MARK: - Shared state (used by controller)
+
+enum CaptureMode: CaseIterable {
+    case selection
+    case window
+    case screen
+
+    var title: String {
+        switch self {
+        case .selection: return "Selection"
+        case .window: return "Window"
+        case .screen: return "Entire Screen"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .selection: return "rectangle.dashed"
+        case .window: return "macwindow"
+        case .screen: return "menubar.dock.rectangle"
+        }
+    }
+}
+
+enum CaptureDelay: CaseIterable {
+    case off
+    case s3
+    case s5
+    case s10
+
+    var seconds: Int {
+        switch self {
+        case .off: return 0
+        case .s3: return 3
+        case .s5: return 5
+        case .s10: return 10
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .off: return "No Delay"
+        case .s3: return "3 Seconds"
+        case .s5: return "5 Seconds"
+        case .s10: return "10 Seconds"
+        }
+    }
+
+    var shortLabel: String? {
+        switch self {
+        case .off: return nil
+        case .s3: return "3"
+        case .s5: return "5"
+        case .s10: return "10"
+        }
+    }
+}
+
 struct NotchPanelView: View {
     let cornerRadius: CGFloat
     let hasNotch: Bool
@@ -13,6 +71,7 @@ struct NotchPanelView: View {
 
     @ObservedObject var interaction: NotchPanelInteractionState
     let onClose: () -> Void
+    let onCapture: (_ mode: CaptureMode, _ delay: CaptureDelay) -> Void
 
     // Figma sizes
     private let height: CGFloat = 34
@@ -25,7 +84,8 @@ struct NotchPanelView: View {
     private let timerIconToValueGap: CGFloat = 6
 
     @State private var mode: CaptureMode = .selection
-    @State private var delay: Delay = .s10
+    /// Системное поведение: по умолчанию без задержки.
+    @State private var delay: CaptureDelay = .off
 
     var body: some View {
         Group {
@@ -106,11 +166,9 @@ struct NotchPanelView: View {
 
     private var modeCell: some View {
         Menu {
-            Button("Selection") { mode = .selection }
-            Button("Window") { mode = .window }
-            Button("Entire Screen") { mode = .screen }
-            Divider()
-            Button("Pick Color") { mode = .color }
+            ForEach(CaptureMode.allCases, id: \.self) { m in
+                Button(m.title) { mode = m }
+            }
         } label: {
             Image(systemName: mode.icon)
                 .font(.system(size: 14, weight: .semibold))
@@ -125,10 +183,9 @@ struct NotchPanelView: View {
 
     private var timerCell: some View {
         Menu {
-            Button("No Delay") { delay = .off }
-            Button("3 Seconds") { delay = .s3 }
-            Button("5 Seconds") { delay = .s5 }
-            Button("10 Seconds") { delay = .s10 }
+            ForEach(CaptureDelay.allCases, id: \.self) { d in
+                Button(d.title) { delay = d }
+            }
         } label: {
             HStack(spacing: timerIconToValueGap) {
                 Image(systemName: "timer")
@@ -153,7 +210,8 @@ struct NotchPanelView: View {
     }
 
     private var photoCell: some View {
-        Button { NSSound.beep() } label: {
+        // Быстрый "сделать скрин" (дублирует Capture)
+        Button { onCapture(mode, delay) } label: {
             Image(systemName: "photo.stack")
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.9))
@@ -166,8 +224,9 @@ struct NotchPanelView: View {
 
     private var moreCell: some View {
         Menu {
-            Button("Settings") {}
-            Button("Help") {}
+            Button("Settings") {
+                NSApp.sendAction(Selector(("showPreferencesWindow:")), to: nil, from: nil)
+            }
         } label: {
             Image(systemName: "ellipsis.circle")
                 .font(.system(size: 14, weight: .semibold))
@@ -181,63 +240,37 @@ struct NotchPanelView: View {
     }
 
     private var captureButton: some View {
-        Button { NSSound.beep() } label: {
-            Text(mode == .color ? "Start" : "Capture")
+        Button {
+            onCapture(mode, delay)
+        } label: {
+            Text("Capture")
                 .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.95))
                 .frame(width: captureButtonSize.width, height: captureButtonSize.height)
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(Color.white.opacity(0.14))
+                )
         }
         .buttonStyle(.plain)
-        .background(
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .fill(Color.accentColor)
-        )
-        .foregroundStyle(.white)
         .contentShape(Rectangle())
     }
 
+    // MARK: - “Native-ish” content appearance during panel expand/collapse
+
     private var contentOpacity: Double {
-        let t = interaction.contentVisibility
-        if t <= 0 { return 0.0 }
-        if t >= 1 { return 1.0 }
-        let held = max(0.0, (t - 0.15) / 0.85)
-        return held
+        interaction.contentVisibility
     }
 
     private var contentBlur: CGFloat {
-        // Сильнее заметно чем чистый opacity, похоже на системные popover’ы.
-        let t = interaction.contentVisibility
-        return CGFloat((1.0 - t) * 6.0)
+        // чуть блюра, пока панель “едет”
+        let t = CGFloat(1.0 - interaction.contentVisibility)
+        return 3.0 * t
     }
 
     private var contentScale: CGFloat {
-        // Едва заметный “подъезд” контента.
-        let t = interaction.contentVisibility
-        return CGFloat(0.985 + 0.015 * t)
-    }
-}
-
-// MARK: - State
-
-private enum CaptureMode {
-    case selection, window, screen, color
-    var icon: String {
-        switch self {
-        case .selection: return "rectangle.dashed"
-        case .window: return "macwindow"
-        case .screen: return "menubar.dock.rectangle"
-        case .color: return "eyedropper.halffull"
-        }
-    }
-}
-
-private enum Delay {
-    case off, s3, s5, s10
-    var shortLabel: String? {
-        switch self {
-        case .off: return nil
-        case .s3: return "3"
-        case .s5: return "5"
-        case .s10: return "10"
-        }
+        // лёгкий scale, как у системных popover-ish анимаций
+        let t = CGFloat(1.0 - interaction.contentVisibility)
+        return 1.0 - 0.03 * t
     }
 }
