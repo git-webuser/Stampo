@@ -4,24 +4,33 @@ import Combine
 import CoreGraphics
 import QuartzCore
 
-/// Управляет интерактивностью и "живостью" SwiftUI-контента внутри панели.
-/// Пока идёт анимация — isEnabled = false → .allowsHitTesting(false).
+// MARK: - Interaction state
+
 final class NotchPanelInteractionState: ObservableObject {
     @Published var isEnabled: Bool = true
-
-    /// 0...1 — видимость контента внутри панели (не влияет на фон панели).
-    /// View сам превращает это в opacity+blur+scale.
     @Published var contentVisibility: Double = 1.0
 }
+
+// MARK: - Panel controller
 
 final class NotchPanelController: NSObject {
     private var panel: NSPanel?
     private var currentScreen: NSScreen?
 
     private let interactionState = NotchPanelInteractionState()
+    private let model = NotchPanelModel()
+    
+    private enum NotchPanelState {
+            case main
+            case tray
+        }
+
+    private var state: NotchPanelState = .main
+    private let trayModel = NotchTrayModel()
+
     private let screenshot = ScreenshotService()
 
-    // Base sizes (Figma)
+    // Base sizes
     private let height: CGFloat = 34
     private let cornerRadius: CGFloat = 10
     private let outerSideInset: CGFloat = 5
@@ -35,9 +44,11 @@ final class NotchPanelController: NSObject {
     private let captureButtonWidth: CGFloat = 71
 
     // Timer internals
+    private let timerOneDigitWidth: CGFloat = 8
+    private let timerTwoDigitsWidth: CGFloat = 16
     private let timerValueWidth: CGFloat = 13
     private let timerIconToValueGap: CGFloat = 6
-    private let timerTrailingInset: CGFloat = 8
+    private let timerTrailingInsetWithValue: CGFloat = 8
 
     // Dynamic screen metrics
     private var hasNotch: Bool = true
@@ -48,20 +59,34 @@ final class NotchPanelController: NSObject {
         outerSideInset + (hasNotch ? earInsetNotch : 0)
     }
 
+    private var timerCellWidth: CGFloat {
+        // Dynamic width matters on no-notch screens so the panel doesn't keep "air".
+        // Off -> only icon cell (28pt). 3/5 -> 1 digit. 10 -> 2 digits.
+        guard let label = model.delay.shortLabel else { return cellWidth }
+
+        let digitCount = label.count
+        let digitsWidth: CGFloat = (digitCount <= 1) ? timerOneDigitWidth : timerTwoDigitsWidth
+
+        // In the view the icon is 24pt inside a 28pt cell. The label itself isn't forced to 28pt,
+        // so to keep controller sizing close to the SwiftUI label we use iconSize = cellWidth - 4.
+        let iconSize = cellWidth - 4
+        return iconSize + timerIconToValueGap + digitsWidth + timerTrailingInsetWithValue
+    }
+
     private var expandedWidth: CGFloat {
-        // Notch: “весы” (shoulders равные)
         if hasNotch {
-            let timerCell = cellWidth + timerIconToValueGap + timerValueWidth + timerTrailingInset
+            // Notch: “весы” — берём максимальную геометрию, чтобы не плясало
+            let timerCell = cellWidth + timerIconToValueGap + timerValueWidth + timerTrailingInsetWithValue
 
             let leftMin = edgeSafe
-                + cellWidth + gap
-                + cellWidth + gap
+                + cellWidth + gap             // close
+                + cellWidth + gap             // mode
                 + timerCell
                 + leftMinToNotch
 
             let rightMin = rightMinFromNotch
-                + cellWidth + gap
-                + cellWidth + gap
+                + cellWidth + gap             // tray
+                + cellWidth + gap             // more
                 + captureButtonWidth
                 + edgeSafe
 
@@ -69,17 +94,15 @@ final class NotchPanelController: NSObject {
             return collapsedWidth + 2 * shoulder
         }
 
-        // No-notch: обычная “таблетка” без разделения на левую/правую часть
-        let timerCell = cellWidth + timerIconToValueGap + timerValueWidth + timerTrailingInset
-
+        // No-notch: ширина зависит от текущей задержки (timerCellWidth)
         let left = edgeSafe
-            + cellWidth + gap
-            + cellWidth + gap
-            + timerCell
+            + cellWidth + gap                 // close
+            + cellWidth + gap                 // mode
+            + timerCellWidth
 
         let right = edgeSafe
-            + cellWidth + gap
-            + cellWidth + gap
+            + cellWidth + gap                 // tray
+            + cellWidth + gap                 // more
             + captureButtonWidth
 
         return left + right
@@ -101,7 +124,7 @@ final class NotchPanelController: NSObject {
         if panel == nil { create() }
         guard let panel else { return }
 
-        refreshRootViewIfNeeded()
+        refreshRootView()
 
         interactionState.isEnabled = false
         interactionState.contentVisibility = 0.0
@@ -147,11 +170,6 @@ final class NotchPanelController: NSObject {
                 self?.interactionState.isEnabled = true
             }
         }
-    }
-
-    func showAnimated() {
-        guard let screen = NSScreen.main else { return }
-        showAnimated(on: screen)
     }
 
     func hideAnimated() {
@@ -218,19 +236,32 @@ final class NotchPanelController: NSObject {
         panel.isFloatingPanel = true
         panel.level = .statusBar
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = false
         panel.hidesOnDeactivate = false
         panel.ignoresMouseEvents = false
-
         panel.appearance = NSAppearance(named: .darkAqua)
+
         panel.contentView = NSHostingView(rootView: makeRootView())
         self.panel = panel
     }
 
-    private func makeRootView() -> NotchPanelView {
+    private func refreshRootView() {
+        guard let hosting = panel?.contentView as? NSHostingView<AnyView> else { return }
+        hosting.rootView = makeRootView()
+    }
+
+    private func makeRootView() -> AnyView {
+        switch state {
+        case .main:
+            return AnyView(mainPanelView())
+        case .tray:
+            return AnyView(trayPanelView())
+        }
+    }
+
+private func mainPanelView() -> NotchPanelView {
         NotchPanelView(
             cornerRadius: cornerRadius,
             hasNotch: hasNotch,
@@ -239,19 +270,128 @@ final class NotchPanelController: NSObject {
             leftMinToNotch: leftMinToNotch,
             rightMinFromNotch: rightMinFromNotch,
             interaction: interactionState,
+            model: model,
             onClose: { [weak self] in self?.hideAnimated() },
             onCapture: { [weak self] mode, delay in
                 guard let self else { return }
                 let screen = self.currentScreen ?? NSScreen.main
-                self.hideAnimated() // важно: чтобы панель не попала в кадр
+                self.hideAnimated()
                 self.screenshot.capture(mode: mode, delaySeconds: delay.seconds, preferredScreen: screen)
+            },
+            onToggleTray: { [weak self] in
+                self?.switchToTray()
+            },
+            onPickColor: { [weak self] in
+                self?.pickColor()
+            },
+            onModeDelayChanged: { [weak self] in
+                self?.updateWidthForNoNotchIfNeeded()
             }
         )
     }
+    
+    private func trayPanelView() -> some View {
+        NotchTrayView(
+            hasNotch: hasNotch,
+            notchGap: notchGap,
+            edgeSafe: edgeSafe,
+            trayModel: trayModel,
+            onBack: { [weak self] in
+                self?.switchToMain()
+            }
+        )
+    }
+    
+    private func switchToTray() {
+        state = .tray
+        refreshRootView()
+        animateWidthForCurrentState()
+    }
 
-    private func refreshRootViewIfNeeded() {
-        guard let hosting = panel?.contentView as? NSHostingView<NotchPanelView> else { return }
-        hosting.rootView = makeRootView()
+    private func switchToMain() {
+        state = .main
+        refreshRootView()
+        animateWidthForCurrentState()
+    }
+    
+    private func animateWidthForCurrentState() {
+        guard let panel else { return }
+        guard let screen = currentScreen ?? NSScreen.main else { return }
+
+        let targetWidth: CGFloat
+
+        switch state {
+        case .main:
+            targetWidth = clampedWidth(expandedWidth, on: screen)
+        case .tray:
+            targetWidth = clampedWidth(trayWidth, on: screen)
+        }
+
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = 0.18
+            ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            panel.animator().setFrame(frameForWidth(targetWidth, on: screen), display: true)
+        }
+    }
+    
+    private var trayWidth: CGFloat {
+        let baseSide = edgeSafe
+
+        let swatchWidth: CGFloat = 30
+        let spacing: CGFloat = 6
+
+        let count = max(1, trayModel.colors.count)
+        let contentWidth = CGFloat(count) * swatchWidth
+            + CGFloat(max(0, count - 1)) * spacing
+
+        let schemeControlWidth: CGFloat = 80
+        let backButtonWidth: CGFloat = 28
+
+        if hasNotch {
+            let shoulder = baseSide
+                + backButtonWidth
+                + 12
+                + schemeControlWidth
+                + 12
+                + min(contentWidth, 240)
+
+            return notchGap + 2 * shoulder
+        }
+
+        return baseSide
+            + backButtonWidth
+            + 12
+            + schemeControlWidth
+            + 12
+            + min(contentWidth, 300)
+            + baseSide
+    }
+
+    private func pickColor() {
+        // Системное "eyedropper" поведение
+        let sampler = NSColorSampler()
+        sampler.show { [weak self] color in
+            guard let self else { return }
+            guard let color else { return } // cancelled
+            self.trayModel.add(color: color)
+            // После пипетки логично показать трей с сохранёнными цветами.
+            self.switchToTray()
+        }
+    }
+
+    private func updateWidthForNoNotchIfNeeded() {
+        guard !hasNotch else { return }
+        guard let panel else { return }
+        guard let screen = currentScreen ?? NSScreen.main ?? NSScreen.screens.first else { return }
+
+        let w = clampedWidth(expandedWidth, on: screen)
+        let target = frameForWidth(w, on: screen)
+
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = 0.12
+            ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            panel.animator().setFrame(target, display: true)
+        }
     }
 
     private func updateScreenMetrics(for screen: NSScreen) {
@@ -266,7 +406,7 @@ final class NotchPanelController: NSObject {
     }
 
     private func clampedWidth(_ w: CGFloat, on screen: NSScreen) -> CGFloat {
-        let maxW = screen.frame.width - 16 // 8pt слева/справа
+        let maxW = screen.frame.width - 16
         return min(max(w, collapsedWidth), maxW)
     }
 
@@ -331,15 +471,12 @@ final class NotchPanelController: NSObject {
     }
 }
 
-// MARK: - Screenshot
+// MARK: - Screenshot service
 
-/// Минимальная и надёжная реализация скриншотов через системную утилиту `screencapture`.
-/// Скрины сохраняются в ~/Downloads/NotchShot и копируются в буфер обмена.
 final class ScreenshotService {
     private let fm = FileManager.default
     private(set) var lastCaptureURL: URL?
 
-    /// Показывает системно-похожую миниатюру в правом нижнем углу.
     private let thumbnailHUD = ScreenshotThumbnailHUD()
 
     func capture(mode: CaptureMode, delaySeconds: Int, preferredScreen: NSScreen?) {
@@ -347,7 +484,6 @@ final class ScreenshotService {
             self?.runCapture(mode: mode, preferredScreen: preferredScreen)
         }
 
-        // Делай delay до старта, чтобы панель точно успела исчезнуть.
         if delaySeconds > 0 {
             DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + .seconds(delaySeconds), execute: workItem)
         } else {
@@ -356,15 +492,13 @@ final class ScreenshotService {
     }
 
     private func runCapture(mode: CaptureMode, preferredScreen: NSScreen?) {
-        let targetDir = ensureOutputDirectory()
+        let downloads = ensureDownloadsDirectory()
         let filename = makeFilename()
-        let finalURL = targetDir.appendingPathComponent(filename)
+        let finalURL = downloads.appendingPathComponent(filename)
 
-        // Пишем сначала во временный файл, чтобы не оставлять мусор при cancel.
         let tmpURL = fm.temporaryDirectory.appendingPathComponent("notchshot-\(UUID().uuidString).png")
 
-        // Запускаем "тихо" и сами проигрываем звук после успешного снимка — так звук будет всегда,
-        // независимо от системных настроек и без риска получить двойное проигрывание.
+        // "-x" чтобы не было системного UI; звук проигрываем сами после сохранения
         var args: [String] = ["-x"]
 
         switch mode {
@@ -372,17 +506,15 @@ final class ScreenshotService {
             args.append(contentsOf: ["-i", "-s"])
 
         case .window:
-            // Системно: при выборе "Активное окно" оно подхватывается автоматически.
-            // Не показываем интерактивную подсветку и не ждём клика — снимаем фронтальное окно.
+            // Системно: снимаем фронтальное окно автоматически.
             if let windowID = FrontmostWindowResolver.frontmostWindowID() {
                 args.append(contentsOf: ["-l", String(windowID)])
             } else {
-                // Фолбек: интерактивный режим (как было раньше).
+                // Фолбек: интерактивный выбор окна
                 args.append(contentsOf: ["-i", "-w"])
             }
 
         case .screen:
-            // Просим конкретный экран (если можем).
             if let displayID = preferredScreen?.displayID {
                 args.append(contentsOf: ["-D", String(displayID)])
             }
@@ -392,9 +524,7 @@ final class ScreenshotService {
 
         let ok = runScreencapture(arguments: args)
         guard ok else { return }
-
-        // При cancel в interactive режиме файл не создаётся.
-        guard fm.fileExists(atPath: tmpURL.path) else { return }
+        guard fm.fileExists(atPath: tmpURL.path) else { return } // cancel
 
         do {
             if fm.fileExists(atPath: finalURL.path) {
@@ -402,9 +532,10 @@ final class ScreenshotService {
             }
             try fm.moveItem(at: tmpURL, to: finalURL)
             lastCaptureURL = finalURL
+
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
-                self.playScreenshotSound()
+                ScreenshotSoundPlayer.play()
                 self.copyToPasteboard(imageAt: finalURL)
                 self.thumbnailHUD.show(imageURL: finalURL, on: preferredScreen)
             }
@@ -412,15 +543,11 @@ final class ScreenshotService {
             lastCaptureURL = tmpURL
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
-                self.playScreenshotSound()
+                ScreenshotSoundPlayer.play()
                 self.copyToPasteboard(imageAt: tmpURL)
                 self.thumbnailHUD.show(imageURL: tmpURL, on: preferredScreen)
             }
         }
-    }
-
-    private func playScreenshotSound() {
-        ScreenshotSoundPlayer.play()
     }
 
     private func runScreencapture(arguments: [String]) -> Bool {
@@ -441,24 +568,17 @@ final class ScreenshotService {
         }
     }
 
-    private func ensureOutputDirectory() -> URL {
-        let downloads = fm.urls(for: .downloadsDirectory, in: .userDomainMask).first
-            ?? fm.homeDirectoryForCurrentUser
-
-        let dir = downloads.appendingPathComponent("NotchShot", isDirectory: true)
-
-        if !fm.fileExists(atPath: dir.path) {
-            try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
-        }
-
-        return dir
+    /// Требование: стандартная папка Downloads (у каждого пользователя своя).
+    private func ensureDownloadsDirectory() -> URL {
+        fm.urls(for: .downloadsDirectory, in: .userDomainMask).first
+        ?? fm.homeDirectoryForCurrentUser
     }
 
     private func makeFilename() -> String {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyy-MM-dd_HH-mm-ss"
-        return "NotchShot_\(formatter.string(from: Date())).png"
+        return "Screenshot \(formatter.string(from: Date())).png" // ближе к системному неймингу
     }
 
     private func copyToPasteboard(imageAt url: URL) {
@@ -469,10 +589,9 @@ final class ScreenshotService {
     }
 }
 
-// MARK: - Frontmost window resolver
+// MARK: - Frontmost window resolver (fixed)
 
 private enum FrontmostWindowResolver {
-    /// Возвращает windowID активного (фронтального) окна, если удаётся определить.
     static func frontmostWindowID() -> CGWindowID? {
         guard let app = NSWorkspace.shared.frontmostApplication else { return nil }
         let pid = app.processIdentifier
@@ -482,23 +601,19 @@ private enum FrontmostWindowResolver {
             return nil
         }
 
-        // Список обычно отсортирован от фронта к бэку. Берём первое "нормальное" окно владельца.
         for info in infoList {
             guard let ownerPID = info[kCGWindowOwnerPID as String] as? pid_t, ownerPID == pid else { continue }
             guard let layer = info[kCGWindowLayer as String] as? Int, layer == 0 else { continue }
             guard let isOnscreen = info[kCGWindowIsOnscreen as String] as? Bool, isOnscreen else { continue }
             guard let windowNumber = info[kCGWindowNumber as String] as? UInt32 else { continue }
 
-            // Игнорируем слишком маленькие "служебные" окна, если есть bounds.
+            // FIX: никаких if-let на Double (не optional)
             if let bounds = info[kCGWindowBounds as String] as? [String: Any] {
                 let wAny = bounds["Width"]
                 let hAny = bounds["Height"]
 
-                let w: Double = (wAny as? Double)
-                    ?? Double((wAny as? CGFloat) ?? 0)
-
-                let h: Double = (hAny as? Double)
-                    ?? Double((hAny as? CGFloat) ?? 0)
+                let w: Double = (wAny as? Double) ?? Double((wAny as? CGFloat) ?? 0)
+                let h: Double = (hAny as? Double) ?? Double((hAny as? CGFloat) ?? 0)
 
                 if (w > 0 && h > 0) && (w < 60 || h < 60) {
                     continue
@@ -512,7 +627,7 @@ private enum FrontmostWindowResolver {
     }
 }
 
-// MARK: - Screenshot sound
+// MARK: - Screenshot sound (macOS 15-friendly)
 
 private enum ScreenshotSoundPlayer {
     static func play() {
@@ -533,10 +648,8 @@ private enum ScreenshotSoundPlayer {
     }
 }
 
-// MARK: - Thumbnail HUD
+// MARK: - Thumbnail HUD (native-ish)
 
-/// Миниатюра, как в системном UI: появляется справа снизу, исчезает автоматически.
-/// Достаточно простая реализация: без drag-to-drop, но кликабельная (показывает файл в Finder).
 private final class ScreenshotThumbnailHUD {
     private var panel: NSPanel?
     private var dismissWorkItem: DispatchWorkItem?
@@ -560,7 +673,16 @@ private final class ScreenshotThumbnailHUD {
 
             let view = ScreenshotThumbnailView(
                 imageURL: imageURL,
-                onDismiss: { [weak self] in self?.hide(animated: true) }
+                onDismiss: { [weak self] in self?.hide(animated: true) },
+                onHoverChanged: { [weak self] hovering in
+                    guard let self else { return }
+                    if hovering {
+                        self.dismissWorkItem?.cancel()
+                        self.dismissWorkItem = nil
+                    } else {
+                        self.scheduleAutoHide()
+                    }
+                }
             )
 
             if let hosting = panel.contentView as? NSHostingView<ScreenshotThumbnailView> {
@@ -578,12 +700,17 @@ private final class ScreenshotThumbnailHUD {
                 panel.animator().alphaValue = 1
             }
 
-            let work = DispatchWorkItem { [weak self] in
-                self?.hide(animated: true)
-            }
-            self.dismissWorkItem = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + 3.0, execute: work)
+            self.scheduleAutoHide()
         }
+    }
+
+    private func scheduleAutoHide() {
+        dismissWorkItem?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            self?.hide(animated: true)
+        }
+        dismissWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0, execute: work)
     }
 
     private func hide(animated: Bool) {
@@ -606,7 +733,6 @@ private final class ScreenshotThumbnailHUD {
         }
     }
 
-
     private func makePanel(frame: NSRect) -> NSPanel {
         let p = NSPanel(
             contentRect: frame,
@@ -620,7 +746,7 @@ private final class ScreenshotThumbnailHUD {
         p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         p.isOpaque = false
         p.backgroundColor = .clear
-        p.hasShadow = false // тень сделаем в SwiftUI, будет ближе к системной
+        p.hasShadow = false // тень в SwiftUI
         p.hidesOnDeactivate = false
         p.ignoresMouseEvents = false
         p.appearance = NSAppearance(named: .darkAqua)
@@ -628,9 +754,7 @@ private final class ScreenshotThumbnailHUD {
     }
 
     private func frameBottomRight(on screen: NSScreen?) -> NSRect {
-        guard let screen else {
-            return NSRect(x: 0, y: 0, width: size.width, height: size.height)
-        }
+        guard let screen else { return NSRect(x: 0, y: 0, width: size.width, height: size.height) }
         let vf = screen.visibleFrame
         let margin: CGFloat = 18
         let x = vf.maxX - margin - size.width
@@ -642,6 +766,7 @@ private final class ScreenshotThumbnailHUD {
 private struct ScreenshotThumbnailView: View {
     let imageURL: URL
     let onDismiss: () -> Void
+    let onHoverChanged: (Bool) -> Void
 
     @State private var dragOffset: CGSize = .zero
     @GestureState private var isDragging: Bool = false
@@ -650,20 +775,18 @@ private struct ScreenshotThumbnailView: View {
         let image = NSImage(contentsOf: imageURL)
 
         ZStack {
-            // фон как "native thumbnail plate"
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .fill(Color.black.opacity(0.72))
                 .overlay(
                     RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .stroke(Color.white.opacity(0.12), lineWidth: 1) // обводка
+                        .stroke(Color.white.opacity(0.12), lineWidth: 1)
                 )
-                .shadow(radius: 18, y: 10) // мягкая системная тень
+                .shadow(radius: 18, y: 10)
 
             if let image {
                 Image(nsImage: image)
                     .resizable()
                     .scaledToFill()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .clipped()
                     .cornerRadius(12)
                     .padding(8)
@@ -692,27 +815,37 @@ private struct ScreenshotThumbnailView: View {
             NSWorkspace.shared.activateFileViewerSelecting([imageURL])
         }
         .onDrag {
-            // Drag-to-drop файла (как системный thumbnail)
-            return NSItemProvider(contentsOf: imageURL) ?? NSItemProvider()
+            NSItemProvider(contentsOf: imageURL) ?? NSItemProvider()
+        }
+        .contextMenu {
+            Button("Copy") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.writeObjects([imageURL as NSURL])
+            }
+            Button("Show in Finder") {
+                NSWorkspace.shared.activateFileViewerSelecting([imageURL])
+            }
+            Divider()
+            Button("Delete") {
+                try? FileManager.default.removeItem(at: imageURL)
+                onDismiss()
+            }
+        }
+        .onHover { hovering in
+            onHoverChanged(hovering)
         }
     }
 
-    // Свайп/drag для dismiss: тянем в сторону или вниз — улетает и скрывается
     private var dismissDragGesture: some Gesture {
         DragGesture(minimumDistance: 6)
-            .updating($isDragging) { _, state, _ in
-                state = true
-            }
+            .updating($isDragging) { _, state, _ in state = true }
             .onChanged { value in
                 dragOffset = value.translation
             }
             .onEnded { value in
                 let t = value.translation
                 let distance = hypot(t.width, t.height)
-
-                // Порог "системный": если дёрнул заметно — закрываем.
                 if distance > 90 {
-                    // улетает в сторону жеста
                     withAnimation(.easeIn(duration: 0.16)) {
                         dragOffset = CGSize(width: t.width * 2.2, height: t.height * 2.2)
                     }
@@ -736,6 +869,27 @@ private struct ScreenshotThumbnailView: View {
         let d = min(1.0, CGFloat(hypot(dragOffset.width, dragOffset.height) / 220.0))
         return 1.0 - 0.05 * d
     }
+}
+
+// MARK: - Tray (colors)
+
+final class NotchTrayModel: ObservableObject {
+    @Published private(set) var colors: [TrayColor] = []
+
+    func add(color: NSColor) {
+        let c = color.usingColorSpace(.sRGB) ?? color
+        let hex = c.hexString
+        if colors.first?.hex == hex { return }
+        colors.removeAll { $0.hex == hex }
+        colors.insert(TrayColor(color: c, hex: hex), at: 0)
+        if colors.count > 8 { colors = Array(colors.prefix(8)) }
+    }
+}
+
+struct TrayColor: Identifiable, Equatable {
+    let id = UUID()
+    let color: NSColor
+    let hex: String
 }
 
 // MARK: - Notch helpers
