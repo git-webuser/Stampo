@@ -73,6 +73,8 @@ final class NotchPanelController: NSObject {
     private let model = NotchPanelModel()
     private let trayModel = NotchTrayModel()
     private let screenshot = ScreenshotService()
+    private let colorPickerHUD = ColorPickerHUD()
+    private var activeSampler: ColorSampler?
 
     private var menuTrackingDepth: Int = 0
     private var trayTransitionInFlight: Bool = false
@@ -409,18 +411,56 @@ final class NotchPanelController: NSObject {
         return baseSide + backButtonWidth + metrics.gap + schemeControlWidth + metrics.gap + min(contentWidth, 300) + baseSide
     }
 
+    @MainActor
     private func pickColor() {
+        guard !colorSamplerInFlight else { return }
         colorSamplerInFlight = true
 
-        let sampler = NSColorSampler()
-        sampler.show { [weak self] color in
+        let screen = currentScreen ?? NSScreen.main
+
+        // Сохраняем sampler как свойство — иначе ARC уничтожит его сразу после выхода из метода
+        let sampler = ColorSampler()
+        activeSampler = sampler
+        colorPickerHUD.beginSession(format: sampler.format)
+
+        // Live preview — на каждый тик мыши
+        sampler.onColorChanged = { [weak self] color, position in
+            guard let self else { return }
+            // Синхронизируем формат (пользователь мог нажать F)
+            self.colorPickerHUD.setFormat(sampler.format)
+            self.colorPickerHUD.update(color: color, cursorPosition: position)
+        }
+
+        // Подтверждение — левый клик
+        sampler.onConfirmed = { [weak self] color in
             guard let self else { return }
             self.colorSamplerInFlight = false
+            self.activeSampler = nil
 
-            guard let color else { return }
-            self.trayModel.add(color: color)
+            let sRGB = color.usingColorSpace(.sRGB) ?? color
+
+            // Success state: паркуем HUD в угол, показываем «Copied», скрываем через 350 мс
+            self.colorPickerHUD.showSuccess(color: sRGB, on: screen, autoHideAfter: 0.35)
+
+            // Копируем в буфер обмена в текущем формате
+            let formatted = self.colorPickerHUD.currentFormat.format(sRGB)
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(formatted, forType: .string)
+
+            self.trayModel.add(color: sRGB)
             self.switchToTray()
         }
+
+        // Отмена — Escape или правый клик
+        sampler.onCancelled = { [weak self] in
+            guard let self else { return }
+            self.colorSamplerInFlight = false
+            self.activeSampler = nil
+            self.colorPickerHUD.hide()
+            self.switchToMain()
+        }
+
+        sampler.start()
     }
 
     private func updateWidthForNoNotchIfNeeded() {
@@ -1011,7 +1051,7 @@ private func snapToPixel(_ value: CGFloat, scale: CGFloat) -> CGFloat {
 
 // MARK: - Notch helpers
 
-private extension NSScreen {
+extension NSScreen {
     var displayID: CGDirectDisplayID? {
         guard let num = deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else {
             return nil

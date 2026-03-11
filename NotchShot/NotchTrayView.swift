@@ -155,15 +155,7 @@ enum ColorSchemeType: CaseIterable, Equatable {
     }
 }
 
-private extension NSColor {
-    var rgbString: String {
-        let c = usingColorSpace(.sRGB) ?? self
-        let r = Int(round(c.redComponent * 255))
-        let g = Int(round(c.greenComponent * 255))
-        let b = Int(round(c.blueComponent * 255))
-        return "rgb(\(r), \(g), \(b))"
-    }
-}
+
 
 final class NotchTrayModel: ObservableObject {
     @Published private(set) var colors: [TrayColor] = []
@@ -183,14 +175,4 @@ struct TrayColor: Identifiable, Equatable {
     let id = UUID()
     let color: NSColor
     let hex: String
-}
-
-private extension NSColor {
-    var hexString: String {
-        let c = usingColorSpace(.sRGB) ?? self
-        let r = Int(round(c.redComponent * 255))
-        let g = Int(round(c.greenComponent * 255))
-        let b = Int(round(c.blueComponent * 255))
-        return String(format: "#%02X%02X%02X", r, g, b)
-    }
 }
