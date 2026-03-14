@@ -19,17 +19,15 @@ final class ColorSampler {
 
     private var lastColor: NSColor = .black
     private var isStopped = false
-    private var clicksToIgnore: Int = 0
 
     private var captureInFlight = false
     private var pendingPosition: NSPoint? = nil
 
     private let cursorOverlay = CursorOverlay()
 
-    func start(ignoreFirstClicks: Int = 1) {
+    /// Одноразовый запуск. После stop() создавай новый экземпляр.
+    func start() {
         guard !isStopped else { return }
-        clicksToIgnore = ignoreFirstClicks
-
         // Движение через FullscreenTrackingView — надёжнее глобального монитора
         cursorOverlay.onMouseMoved = { [weak self] pos in
             guard let self else { return }
@@ -78,10 +76,6 @@ final class ColorSampler {
             guard let self else { return event }
             DispatchQueue.main.async {
                 guard !self.isStopped else { return }
-                if self.clicksToIgnore > 0 {
-                    self.clicksToIgnore -= 1
-                    return
-                }
                 self.confirm()
             }
             return event

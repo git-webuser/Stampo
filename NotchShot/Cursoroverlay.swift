@@ -64,6 +64,17 @@ private final class FullscreenTrackingView: NSView {
 
     var onMouseMoved: ((NSPoint) -> Void)?
 
+    /// Прозрачный курсор 1×1 — переустанавливается на каждый mouseMoved.
+    /// Повторный .set() не даёт системе восстановить курсор другого приложения.
+    private lazy var transparentCursor: NSCursor = {
+        let img = NSImage(size: NSSize(width: 1, height: 1))
+        img.lockFocus()
+        NSColor.clear.set()
+        NSRect(origin: .zero, size: img.size).fill()
+        img.unlockFocus()
+        return NSCursor(image: img, hotSpot: .zero)
+    }()
+
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         trackingAreas.forEach { removeTrackingArea($0) }
@@ -76,9 +87,9 @@ private final class FullscreenTrackingView: NSView {
     }
 
     override func mouseMoved(with event: NSEvent) {
-        // Повторный hide() на каждый тик — не даёт системе восстановить курсор.
-        NSCursor.hide()
-        CursorOverlay.hideCallCount += 1
+        // Переустанавливаем прозрачный курсор на каждый тик.
+        // Стандартный паттерн для color picker — никакого hide/unhide.
+        transparentCursor.set()
 
         guard let win = window else { return }
         let pos = NSPoint(
@@ -88,17 +99,14 @@ private final class FullscreenTrackingView: NSView {
         onMouseMoved?(pos)
     }
 
-    // mouseDown и mouseUp нужно переопределить чтобы view стал first responder
-    // и локальный монитор в ColorSampler получал эти события.
-    override func mouseDown(with event: NSEvent) {
-        // Принимаем mouseDown — это делает view первым responder'ом
-        // и гарантирует что следующий mouseUp придёт в тот же view.
+    override func mouseEntered(with event: NSEvent) {
+        transparentCursor.set()
     }
 
-    override func mouseUp(with event: NSEvent) {
-        // Принимаем mouseUp — локальный монитор ColorSampler его получит.
-    }
-
+    // mouseDown/mouseUp — принимаем чтобы view стал first responder
+    // и локальный монитор в ColorSampler получал события.
+    override func mouseDown(with event: NSEvent) {}
+    override func mouseUp(with event: NSEvent) {}
     override var acceptsFirstResponder: Bool { true }
 }
 
@@ -111,11 +119,12 @@ private final class FullscreenCursorWindow: NSPanel {
 
 // MARK: - CursorOverlay
 
+/// Overlay с кастомным crosshair-курсором.
+///
+/// Скрытие системного курсора: прозрачный NSCursor переустанавливается на
+/// каждый mouseMoved. Никакого NSCursor.hide/unhide — только .set().
 @MainActor
 final class CursorOverlay {
-
-    /// Счётчик вызовов NSCursor.hide() — для симметричного unhide().
-    static var hideCallCount: Int = 0
 
     private var fullscreenWindow: FullscreenCursorWindow?
     private var crosshairPanel: NSPanel?
@@ -126,26 +135,35 @@ final class CursorOverlay {
 
     // MARK: - Public API
 
+    /// Вызывается немедленно при выборе "Pick Color" в меню —
+    /// до анимации скрытия панели. Устанавливает прозрачный курсор
+    /// чтобы системный курсор исчез без задержки.
+    static func hideSystemCursorImmediately() {
+        let img = NSImage(size: NSSize(width: 1, height: 1))
+        img.lockFocus()
+        NSColor.clear.set()
+        NSRect(origin: .zero, size: img.size).fill()
+        img.unlockFocus()
+        NSCursor(image: img, hotSpot: .zero).set()
+    }
+
     func show() {
-        let screen = NSScreen.main ?? NSScreen.screens[0]
+        let cursorPos = NSEvent.mouseLocation
+        let screen = NSScreen.screens.first(where: { $0.frame.contains(cursorPos) })
+                     ?? NSScreen.main ?? NSScreen.screens[0]
+
         ensureFullscreenWindow(on: screen)
         ensureCrosshairPanel()
+        installGlobalMouseMonitor()
         guard let fw = fullscreenWindow, let cp = crosshairPanel else { return }
 
-        let pos = NSEvent.mouseLocation
-        cp.setFrame(frameForCursor(pos), display: false)
+        cp.setFrame(frameForCursor(cursorPos), display: false)
         refreshCrosshair()
-
-        // Курсор уже скрыт из pickColor() — просто инициализируем счётчик.
-        // hide() вызовет unhide() ровно столько раз сколько было hide().
-        if CursorOverlay.hideCallCount == 0 {
-            NSCursor.hide()
-        }
-        CursorOverlay.hideCallCount = max(1, CursorOverlay.hideCallCount)
 
         fw.orderFrontRegardless()
         fw.makeKey()
         cp.orderFrontRegardless()
+        // Прозрачный курсор установится при первом mouseMoved
     }
 
     func move(to position: NSPoint) {
@@ -161,18 +179,36 @@ final class CursorOverlay {
     func hide() {
         crosshairPanel?.orderOut(nil)
         fullscreenWindow?.orderOut(nil)
-
-        // Балансируем счётчик hide/unhide.
-        // Минимум 1 unhide — на случай если hide() вызван до первого mouseMoved.
-        let count = max(1, CursorOverlay.hideCallCount)
-        CursorOverlay.hideCallCount = 0
-        for _ in 0..<count {
-            NSCursor.unhide()
-        }
+        removeGlobalMouseMonitor()
         NSCursor.arrow.set()
     }
 
     // MARK: - Private
+
+    /// Глобальный монитор движения мыши — покрывает все дисплеи,
+    /// включая те на которых нет FullscreenTrackingView.
+    private var globalMouseMonitor: Any?
+
+    private func installGlobalMouseMonitor() {
+        guard globalMouseMonitor == nil else { return }
+        globalMouseMonitor = NSEvent.addGlobalMonitorForEvents(
+            matching: [.mouseMoved, .leftMouseDragged]
+        ) { [weak self] _ in
+            guard let self else { return }
+            let pos = NSEvent.mouseLocation
+            DispatchQueue.main.async {
+                self.move(to: pos)
+                self.onMouseMoved?(pos)
+            }
+        }
+    }
+
+    private func removeGlobalMouseMonitor() {
+        if let m = globalMouseMonitor {
+            NSEvent.removeMonitor(m)
+            globalMouseMonitor = nil
+        }
+    }
 
     private func frameForCursor(_ cursor: NSPoint) -> NSRect {
         NSRect(x: cursor.x - overlaySize.width / 2,

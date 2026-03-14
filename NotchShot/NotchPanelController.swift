@@ -235,8 +235,11 @@ final class NotchPanelController: NSObject {
         }
     }
 
-    func hideAnimated() {
-        guard let panel, panel.isVisible else { return }
+    func hideAnimated(completion: (() -> Void)? = nil) {
+        guard let panel, panel.isVisible else {
+            completion?()
+            return
+        }
 
         interactionState.isEnabled = false
 
@@ -262,6 +265,7 @@ final class NotchPanelController: NSObject {
                 panel?.orderOut(nil)
                 self?.interactionState.isEnabled = true
                 self?.isExpanded = false
+                completion?()
             }
         } else {
             isExpanded = false
@@ -280,6 +284,7 @@ final class NotchPanelController: NSObject {
                 panel?.orderOut(nil)
                 self?.interactionState.isEnabled = true
                 self?.isExpanded = false
+                completion?()
             }
         }
     }
@@ -418,18 +423,13 @@ final class NotchPanelController: NSObject {
 
         let screen = currentScreen ?? NSScreen.main
 
-        // Сначала скрываем панель — NSCursor.hide() работает только когда
-        // наше окно уже не активно, иначе macOS восстанавливает курсор
-        // чужого приложения как только фокус уходит от нашей панели.
-        hideAnimated()
+        // Скрываем системный курсор сразу при выборе пункта меню —
+        // до анимации скрытия панели. Пользователь уже принял решение,
+        // ждать нечего. CursorOverlay.show() потом подхватит состояние.
+        CursorOverlay.hideSystemCursorImmediately()
 
-        // Скрываем курсор немедленно — до задержки 220мс.
-        // Иначе macOS восстанавливает курсор другого приложения пока наша панель скрывается.
-        CursorOverlay.hideCallCount = 1
-        NSCursor.hide()
-
-        // Запускаем sampler после завершения анимации скрытия (~200мс)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) { [weak self] in
+        // Запускаем sampler точно после завершения анимации — без magic delay.
+        hideAnimated { [weak self] in
             guard let self else { return }
 
             // Сохраняем sampler как свойство — иначе ARC уничтожит его сразу после выхода из метода
@@ -476,7 +476,7 @@ final class NotchPanelController: NSObject {
             }
 
             // Передаём время клика — игнорируем mouseUp от закрытия меню
-            sampler.start(ignoreFirstClicks: 2)  // меню генерирует 2 лишних mouseUp
+            sampler.start()
         }
     }
 
