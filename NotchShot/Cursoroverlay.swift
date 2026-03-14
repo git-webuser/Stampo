@@ -62,10 +62,11 @@ private struct CrosshairShape: Shape {
 
 private final class FullscreenTrackingView: NSView {
 
-    var onMouseMoved: ((NSPoint) -> Void)?
+    // Единственная ответственность этого view:
+    // 1. Устанавливать прозрачный курсор на каждый mouseMoved
+    // 2. Принимать mouseDown/mouseUp для работы локального монитора в ColorSampler
+    // Позиция мыши НЕ обрабатывается здесь — только через globalMouseMonitor в CursorOverlay.
 
-    /// Прозрачный курсор 1×1 — переустанавливается на каждый mouseMoved.
-    /// Повторный .set() не даёт системе восстановить курсор другого приложения.
     private lazy var transparentCursor: NSCursor = {
         let img = NSImage(size: NSSize(width: 1, height: 1))
         img.lockFocus()
@@ -87,24 +88,13 @@ private final class FullscreenTrackingView: NSView {
     }
 
     override func mouseMoved(with event: NSEvent) {
-        // Переустанавливаем прозрачный курсор на каждый тик.
-        // Стандартный паттерн для color picker — никакого hide/unhide.
         transparentCursor.set()
-
-        guard let win = window else { return }
-        let pos = NSPoint(
-            x: event.locationInWindow.x + win.frame.minX,
-            y: event.locationInWindow.y + win.frame.minY
-        )
-        onMouseMoved?(pos)
     }
 
     override func mouseEntered(with event: NSEvent) {
         transparentCursor.set()
     }
 
-    // mouseDown/mouseUp — принимаем чтобы view стал first responder
-    // и локальный монитор в ColorSampler получал события.
     override func mouseDown(with event: NSEvent) {}
     override func mouseUp(with event: NSEvent) {}
     override var acceptsFirstResponder: Bool { true }
@@ -135,16 +125,33 @@ final class CursorOverlay {
 
     // MARK: - Public API
 
-    /// Вызывается немедленно при выборе "Pick Color" в меню —
-    /// до анимации скрытия панели. Устанавливает прозрачный курсор
-    /// чтобы системный курсор исчез без задержки.
-    static func hideSystemCursorImmediately() {
-        let img = NSImage(size: NSSize(width: 1, height: 1))
-        img.lockFocus()
-        NSColor.clear.set()
-        NSRect(origin: .zero, size: img.size).fill()
-        img.unlockFocus()
-        NSCursor(image: img, hotSpot: .zero).set()
+    /// Вызывается при выборе "Pick Color" в меню.
+    /// Подписывается на NSMenu.didEndTrackingNotification и устанавливает
+    /// прозрачный курсор как только меню гарантированно закрылось.
+    /// macOS восстанавливает курсор при закрытии меню, поэтому нельзя
+    /// просто вызвать .set() раньше — нужно дождаться конца трекинга.
+    static func hideCursorAfterMenuCloses() {
+        NotificationCenter.default.addObserver(
+            forName: NSMenu.didEndTrackingNotification,
+            object: nil,
+            queue: .main
+        ) { _ in
+            // Снимаем подписку сразу — нас интересует только ближайшее закрытие
+            NotificationCenter.default.removeObserver(
+                self,
+                name: NSMenu.didEndTrackingNotification,
+                object: nil
+            )
+            // Небольшой runloop-цикл: даём системе завершить восстановление курсора
+            DispatchQueue.main.async {
+                let img = NSImage(size: NSSize(width: 1, height: 1))
+                img.lockFocus()
+                NSColor.clear.set()
+                NSRect(origin: .zero, size: img.size).fill()
+                img.unlockFocus()
+                NSCursor(image: img, hotSpot: .zero).set()
+            }
+        }
     }
 
     func show() {
@@ -240,11 +247,6 @@ final class CursorOverlay {
         let trackingView = FullscreenTrackingView(frame: screen.frame)
         trackingView.wantsLayer = true
         trackingView.layer?.backgroundColor = CGColor.clear
-        trackingView.onMouseMoved = { [weak self] pos in
-            guard let self else { return }
-            self.move(to: pos)
-            self.onMouseMoved?(pos)
-        }
         fw.contentView = trackingView
         self.fullscreenWindow = fw
     }

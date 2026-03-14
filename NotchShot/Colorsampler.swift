@@ -155,9 +155,29 @@ final class ColorSampler {
             return
         }
         captureInFlight = true
-        Task { @MainActor in
-            if let color = await pixelColor(at: position) {
-                guard !self.isStopped else { return }
+        Task { [weak self] in
+            guard let self else { return }
+            // Ищем дисплей и получаем SCShareableContent на MainActor
+            guard let content = await self.shareableContent() else {
+                self.captureInFlight = false
+                return
+            }
+            // Определяем нужный дисплей по NSScreen (оба на MainActor)
+            let primaryH = NSScreen.screens
+                .first(where: { $0.frame.origin == .zero })?.frame.height
+                ?? NSScreen.screens.first?.frame.height ?? 0
+            guard let display = content.displays.first(where: { d in
+                let nsFrame = CGRect(x: d.frame.minX, y: primaryH - d.frame.maxY,
+                                     width: d.frame.width, height: d.frame.height)
+                return nsFrame.contains(position)
+            }) else {
+                self.captureInFlight = false
+                return
+            }
+            // Передаём display в nonisolated метод — захват экрана вне MainActor
+            let color = await self.pixelColor(at: position, display: display)
+            guard !self.isStopped else { return }
+            if let color {
                 self.lastColor = color
                 self.cursorOverlay.updateColor(color)
                 self.onColorChanged?(color, position)
@@ -170,22 +190,28 @@ final class ColorSampler {
         }
     }
 
-    private func pixelColor(at point: NSPoint) async -> NSColor? {
-        guard let content = try? await SCShareableContent.excludingDesktopWindows(
-            false, onScreenWindowsOnly: true
-        ) else { return nil }
+    // MARK: - SCShareableContent cache (5s TTL — дисплеи меняются редко)
 
-        guard let display = content.displays.first(where: { d in
-            let mainH = NSScreen.screens.first?.frame.height ?? 0
-            let nsFrame = CGRect(x: d.frame.minX, y: mainH - d.frame.maxY,
-                                 width: d.frame.width, height: d.frame.height)
-            return nsFrame.contains(point)
-        }) else { return nil }
+    private var cachedContent: SCShareableContent?
+    private var cachedContentExpiry: Date = .distantPast
 
+    private func shareableContent() async -> SCShareableContent? {
+        if let c = cachedContent, Date() < cachedContentExpiry { return c }
+        let fresh = try? await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+        cachedContent = fresh
+        cachedContentExpiry = Date().addingTimeInterval(5)
+        return fresh
+    }
+
+    // nonisolated — вызывается из Task.detached, не нужен MainActor
+    private nonisolated func pixelColor(at point: NSPoint, display: SCDisplay) async -> NSColor? {
+        // Захватываем весь дисплей с минимальным разрешением — 1×1 логический пиксель
+        // нельзя, SCKit требует целый дисплей. Зато кэшируем SCShareableContent
+        // и не пересоздаём filter/config на каждый тик.
         let filter = SCContentFilter(display: display, excludingWindows: [])
         let config = SCStreamConfiguration()
-        config.width  = Int(display.width)
-        config.height = Int(display.height)
+        config.width       = Int(display.width)
+        config.height      = Int(display.height)
         config.scalesToFit = false
         config.pixelFormat = kCVPixelFormatType_32BGRA
         config.showsCursor = false
@@ -194,10 +220,22 @@ final class ColorSampler {
             contentFilter: filter, configuration: config
         ) else { return nil }
 
-        let mainH = NSScreen.screens.first?.frame.height ?? 0
-        let quartzY = mainH - point.y
-        let px = Int(point.x - display.frame.minX)
-        let py = Int(quartzY - display.frame.minY)
+        // Координатная математика через NSScreen (AppKit, origin bottom-left)
+        // и SCDisplay.frame (Quartz, origin top-left).
+        // displayID объявлен в NotchPanelController как NSScreen extension.
+        let screens = await MainActor.run { NSScreen.screens }
+        guard let screen = screens.first(where: { $0.displayID == display.displayID }) else { return nil }
+
+        let screenFrame = screen.frame                   // AppKit
+        let localX = point.x - screenFrame.minX
+        let localY = point.y - screenFrame.minY          // от нижнего края вверх
+
+        // SCDisplay.frame — Quartz. Пиксельные координаты в capture buffer:
+        let scaleX = CGFloat(display.width)  / display.frame.width
+        let scaleY = CGFloat(display.height) / display.frame.height
+        let px = Int(localX * scaleX)
+        let py = Int((screenFrame.height - localY - 1) * scaleY)  // AppKit Y → buffer Y
+
         let imgW = cgImage.width, imgH = cgImage.height
         guard imgW > 0, imgH > 0 else { return nil }
         let cx = max(0, min(px, imgW - 1))

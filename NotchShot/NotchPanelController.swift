@@ -426,7 +426,7 @@ final class NotchPanelController: NSObject {
         // Скрываем системный курсор сразу при выборе пункта меню —
         // до анимации скрытия панели. Пользователь уже принял решение,
         // ждать нечего. CursorOverlay.show() потом подхватит состояние.
-        CursorOverlay.hideSystemCursorImmediately()
+        CursorOverlay.hideCursorAfterMenuCloses()
 
         // Запускаем sampler точно после завершения анимации — без magic delay.
         hideAnimated { [weak self] in

@@ -264,6 +264,10 @@ final class ColorPickerHUD {
 
         refreshContent()
 
+        // Позиционируем HUD по текущей позиции курсора немедленно —
+        // не ждём первого update(color:cursorPosition:).
+        moveToPosition(NSEvent.mouseLocation)
+
         if !panel.isVisible {
             panel.alphaValue = 0
             panel.orderFrontRegardless()
