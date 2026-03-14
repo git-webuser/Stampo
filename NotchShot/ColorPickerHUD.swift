@@ -112,15 +112,7 @@ struct ColorPickerHUDView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color.black.opacity(0.82))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .stroke(Color.white.opacity(0.10), lineWidth: 1)
-                )
-        )
-        .shadow(color: .black.opacity(0.4), radius: 14, y: 6)
+        .background(HUDBackground())
         .animation(.easeOut(duration: 0.14), value: phase)
         .animation(.easeOut(duration: 0.2), value: showHint)
     }
@@ -195,6 +187,38 @@ private struct CheckerboardView: View {
             }
         }
     }
+}
+
+// MARK: - HUDBackground
+
+/// Фон HUD с тенью нарисованной через CALayer — не обрезается bounds панели.
+private struct HUDBackground: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        let v = HUDBackgroundView()
+        v.wantsLayer = true
+        return v
+    }
+    func updateNSView(_ nsView: NSView, context: Context) {}
+}
+
+private final class HUDBackgroundView: NSView {
+    override func makeBackingLayer() -> CALayer {
+        let layer = CALayer()
+        layer.cornerRadius = 12
+        layer.cornerCurve = .continuous
+        layer.backgroundColor = NSColor.black.withAlphaComponent(0.82).cgColor
+        layer.borderColor = NSColor.white.withAlphaComponent(0.10).cgColor
+        layer.borderWidth = 1
+        // Тень через CALayer — не обрезается bounds окна
+        layer.shadowColor = NSColor.black.cgColor
+        layer.shadowOpacity = 0.45
+        layer.shadowRadius = 10
+        layer.shadowOffset = CGSize(width: 0, height: -4)
+        layer.masksToBounds = false
+        return layer
+    }
+
+    override var isFlipped: Bool { true }
 }
 
 // MARK: - ColorPickerHUD (floating panel controller)
@@ -396,11 +420,24 @@ final class ColorPickerHUD {
 
     private func refreshContent() {
         guard let panel else { return }
+        guard let rootView = panel.contentView,
+              let blur = rootView.subviews.compactMap({ $0 as? NSVisualEffectView }).first
+        else { return }
         let view = ColorPickerHUDView(phase: currentPhase, format: currentFormat, showHint: showHint)
-        if let hosting = panel.contentView as? NSHostingView<ColorPickerHUDView> {
+        if let hosting = blur.subviews.compactMap({ $0 as? NSHostingView<ColorPickerHUDView> }).first {
             hosting.rootView = view
         } else {
-            panel.contentView = NSHostingView(rootView: view)
+            let hosting = NSHostingView(rootView: view)
+            hosting.translatesAutoresizingMaskIntoConstraints = false
+            hosting.wantsLayer = true
+            hosting.layer?.backgroundColor = .clear
+            blur.addSubview(hosting)
+            NSLayoutConstraint.activate([
+                hosting.topAnchor.constraint(equalTo: blur.topAnchor),
+                hosting.bottomAnchor.constraint(equalTo: blur.bottomAnchor),
+                hosting.leadingAnchor.constraint(equalTo: blur.leadingAnchor),
+                hosting.trailingAnchor.constraint(equalTo: blur.trailingAnchor),
+            ])
         }
     }
 
@@ -419,7 +456,25 @@ final class ColorPickerHUD {
         p.hasShadow        = false
         p.hidesOnDeactivate = false
         p.ignoresMouseEvents = true   // обязательно — иначе ломает sampler
-        p.appearance       = NSAppearance(named: .darkAqua)
+        p.appearance       = nil  // следуем системной теме
+
+        // NSVisualEffectView как subview contentView — правильный паттерн.
+        // Это даёт скруглённые углы без прямоугольной тени окна.
+        let rootView = NSView(frame: NSRect(origin: .zero, size: frame.size))
+        rootView.wantsLayer = true
+        rootView.layer?.backgroundColor = .clear
+        p.contentView = rootView
+
+        let blur = NSVisualEffectView(frame: rootView.bounds)
+        blur.autoresizingMask = [.width, .height]
+        blur.material     = .hudWindow
+        blur.blendingMode = .behindWindow
+        blur.state        = .active
+        blur.wantsLayer   = true
+        blur.layer?.cornerRadius  = 12
+        blur.layer?.cornerCurve   = .continuous
+        blur.layer?.masksToBounds = true
+        rootView.addSubview(blur)
         return p
     }
 

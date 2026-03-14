@@ -418,49 +418,65 @@ final class NotchPanelController: NSObject {
 
         let screen = currentScreen ?? NSScreen.main
 
-        // Сохраняем sampler как свойство — иначе ARC уничтожит его сразу после выхода из метода
-        let sampler = ColorSampler()
-        activeSampler = sampler
-        colorPickerHUD.beginSession(format: sampler.format)
+        // Сначала скрываем панель — NSCursor.hide() работает только когда
+        // наше окно уже не активно, иначе macOS восстанавливает курсор
+        // чужого приложения как только фокус уходит от нашей панели.
+        hideAnimated()
 
-        // Live preview — на каждый тик мыши
-        sampler.onColorChanged = { [weak self] color, position in
+        // Запоминаем время клика ДО задержки — чтобы ignoreClicksUntil
+        // отсчитывался от момента клика по меню, а не от старта sampler'а.
+        let clickTime = Date()
+        
+        // Запускаем sampler после завершения анимации скрытия (~200мс)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) { [weak self] in
             guard let self else { return }
-            // Синхронизируем формат (пользователь мог нажать F)
-            self.colorPickerHUD.setFormat(sampler.format)
-            self.colorPickerHUD.update(color: color, cursorPosition: position)
+
+            // Сохраняем sampler как свойство — иначе ARC уничтожит его сразу после выхода из метода
+            let sampler = ColorSampler()
+            self.activeSampler = sampler
+            self.colorPickerHUD.beginSession(format: sampler.format)
+
+            // Live preview — на каждый тик мыши
+            sampler.onColorChanged = { [weak self] color, position in
+                guard let self else { return }
+                // Синхронизируем формат (пользователь мог нажать F)
+                self.colorPickerHUD.setFormat(sampler.format)
+                self.colorPickerHUD.update(color: color, cursorPosition: position)
+            }
+
+            // Подтверждение — левый клик
+            sampler.onConfirmed = { [weak self] color in
+                guard let self else { return }
+                self.colorSamplerInFlight = false
+                self.activeSampler = nil
+
+                let sRGB = color.usingColorSpace(.sRGB) ?? color
+
+                // Success state: паркуем HUD в угол, показываем «Copied», скрываем через 350 мс
+                self.colorPickerHUD.showSuccess(color: sRGB, on: screen, autoHideAfter: 0.35)
+
+                // Копируем в буфер обмена в текущем формате
+                let formatted = self.colorPickerHUD.currentFormat.format(sRGB)
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(formatted, forType: .string)
+
+                self.trayModel.add(color: sRGB)
+                // Возвращаемся в main — tray открывается только явно через кнопку
+                self.switchToMain()
+            }
+
+            // Отмена — Escape или правый клик
+            sampler.onCancelled = { [weak self] in
+                guard let self else { return }
+                self.colorSamplerInFlight = false
+                self.activeSampler = nil
+                self.colorPickerHUD.hide()
+                self.switchToMain()
+            }
+
+            // Передаём время клика — игнорируем mouseUp от закрытия меню
+            sampler.start(ignoreClicksUntil: clickTime.addingTimeInterval(1.5))
         }
-
-        // Подтверждение — левый клик
-        sampler.onConfirmed = { [weak self] color in
-            guard let self else { return }
-            self.colorSamplerInFlight = false
-            self.activeSampler = nil
-
-            let sRGB = color.usingColorSpace(.sRGB) ?? color
-
-            // Success state: паркуем HUD в угол, показываем «Copied», скрываем через 350 мс
-            self.colorPickerHUD.showSuccess(color: sRGB, on: screen, autoHideAfter: 0.35)
-
-            // Копируем в буфер обмена в текущем формате
-            let formatted = self.colorPickerHUD.currentFormat.format(sRGB)
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(formatted, forType: .string)
-
-            self.trayModel.add(color: sRGB)
-            self.switchToTray()
-        }
-
-        // Отмена — Escape или правый клик
-        sampler.onCancelled = { [weak self] in
-            guard let self else { return }
-            self.colorSamplerInFlight = false
-            self.activeSampler = nil
-            self.colorPickerHUD.hide()
-            self.switchToMain()
-        }
-
-        sampler.start()
     }
 
     private func updateWidthForNoNotchIfNeeded() {
