@@ -438,11 +438,11 @@ final class NotchPanelController: NSObject {
             self.colorPickerHUD.beginSession(format: sampler.format)
 
             // Live preview — на каждый тик мыши
-            sampler.onColorChanged = { [weak self] color, position in
+            sampler.onColorChanged = { [weak self] color, position, magnifier in
                 guard let self else { return }
                 // Синхронизируем формат (пользователь мог нажать F)
                 self.colorPickerHUD.setFormat(sampler.format)
-                self.colorPickerHUD.update(color: color, cursorPosition: position)
+                self.colorPickerHUD.update(color: color, cursorPosition: position, magnifier: magnifier)
             }
 
             // Подтверждение — левый клик

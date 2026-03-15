@@ -25,44 +25,54 @@ enum ColorPickerHUDPhase: Equatable {
 enum HUDColorFormat: CaseIterable, Equatable {
     case hex
     case rgb
+    case hsl
+    case hsb
     case cmyk
 
     var title: String {
         switch self {
         case .hex:  return "HEX"
         case .rgb:  return "RGB"
+        case .hsl:  return "HSL"
+        case .hsb:  return "HSB"
         case .cmyk: return "CMYK"
         }
     }
 
     var placeholderDashes: String {
         switch self {
-        case .hex, .rgb: return "— — —"
-        case .cmyk:      return "— — — —"
+        case .hex:        return "—"
+        case .rgb:        return "— — —"
+        case .hsl, .hsb:  return "— — —"
+        case .cmyk:       return "— — — —"
         }
     }
 
     func format(_ color: NSColor) -> String {
         let c = color.usingColorSpace(.sRGB) ?? color
         switch self {
-        case .hex:
-            return c.hexString
-        case .rgb:
-            let r = Int(round(c.redComponent   * 255))
-            let g = Int(round(c.greenComponent * 255))
-            let b = Int(round(c.blueComponent  * 255))
-            return "\(r)  \(g)  \(b)"
-        case .cmyk:
-            let r = c.redComponent, g = c.greenComponent, b = c.blueComponent
-            let k = 1 - max(r, g, b)
-            if k >= 1 { return "0  0  0  100" }
-            let d = 1 - k
-            let cv = Int(round(((1 - r - k) / d) * 100))
-            let mv = Int(round(((1 - g - k) / d) * 100))
-            let yv = Int(round(((1 - b - k) / d) * 100))
-            let kv = Int(round(k * 100))
-            return "\(cv)  \(mv)  \(yv)  \(kv)"
+        case .hex:  return c.hexString
+        case .rgb:  return c.rgbString
+        case .hsl:  return c.hslString
+        case .hsb:  return c.hsbString
+        case .cmyk: return c.cmykString
         }
+    }
+}
+
+// MARK: - MagnifierGrid
+
+/// Данные лупы: 9×9 ячеек цветов + координата центрального пикселя.
+struct MagnifierData: Equatable {
+    /// Цвета в порядке row-major, (0,0) = верхний левый.
+    let pixels: [[NSColor]]
+    let gridSize: Int
+
+    static let empty = MagnifierData(pixels: [], gridSize: 5)
+
+    static func == (lhs: MagnifierData, rhs: MagnifierData) -> Bool {
+        // Сравниваем только размер — цвет центра достаточен для refresh
+        lhs.gridSize == rhs.gridSize && lhs.pixels.count == rhs.pixels.count
     }
 }
 
@@ -71,127 +81,164 @@ enum HUDColorFormat: CaseIterable, Equatable {
 struct ColorPickerHUDView: View {
     let phase: ColorPickerHUDPhase
     let format: HUDColorFormat
-    /// Показывать ли подсказку про переключение формата клавишей F.
     let showHint: Bool
+    let magnifier: MagnifierData
+
+    // 5×5 сетка, ячейки 9pt = 45pt итого — пропорционально высоте текстового блока
+    private let gridSize = 5
+    private let cellSize: CGFloat = 9
+    private var magnifierSize: CGFloat { CGFloat(gridSize) * cellSize }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            HStack(spacing: 8) {
-                swatchView
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(format.title)
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(.white.opacity(0.5))
-                        .transaction { $0.animation = nil }
-
-                    Text(valueText)
-                        .font(.system(size: 12, weight: .medium).monospacedDigit())
-                        .foregroundStyle(.white.opacity(valueOpacity))
-                        .lineLimit(1)
-                        .fixedSize()
-                        .transaction { $0.animation = nil }
-                }
-
-                if case .success = phase {
-                    Text("Copied")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(.white.opacity(0.55))
-                        .padding(.leading, 2)
-                        .transition(.opacity.combined(with: .scale(scale: 0.85)))
-                }
-            }
-
-            // Подсказка — показываем только первые несколько секунд
-            if showHint {
-                Text("F — switch format  ·  Esc — cancel")
-                    .font(.system(size: 9, weight: .regular))
-                    .foregroundStyle(.white.opacity(0.3))
-                    .transition(.opacity)
-            }
+        HStack(alignment: .center, spacing: 10) {
+            magnifierView
+            textPanel
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .padding(8)
         .background(HUDBackground())
-        .animation(.easeOut(duration: 0.14), value: phase)
-        .animation(.easeOut(duration: 0.2), value: showHint)
+        .fixedSize()
     }
 
-    // MARK: Private
-
-    private var resolvedColor: NSColor? {
-        switch phase {
-        case .livePreview(let c), .success(let c): return c
-        default: return nil
-        }
-    }
+    // MARK: - Magnifier / Success swatch
 
     @ViewBuilder
-    private var swatchView: some View {
-        ZStack {
-            // Шахматная подложка для прозрачных цветов
-            CheckerboardView()
+    private var magnifierView: some View {
+        if case .success(let c) = phase {
+            // Success: лупа заменяется цветным квадратом
+            Color(nsColor: c)
+                .frame(width: magnifierSize, height: magnifierSize)
                 .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
-
-            RoundedRectangle(cornerRadius: 5, style: .continuous)
-                .fill(swatchFill)
+                .overlay(RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    .stroke(Color.white.opacity(0.2), lineWidth: 1))
+                .transition(.opacity)
+        } else {
+            liveMagnifier
         }
-        .frame(width: 22, height: 22)
-        .overlay(
-            RoundedRectangle(cornerRadius: 5, style: .continuous)
-                .stroke(Color.white.opacity(0.18), lineWidth: 1)
-        )
     }
 
-    private var swatchFill: Color {
-        if let c = resolvedColor { return Color(nsColor: c) }
-        return Color.white.opacity(0.10)
+    private var liveMagnifier: some View {
+        ZStack {
+            // Пиксели
+            if !magnifier.pixels.isEmpty {
+                Canvas { ctx, _ in
+                    for row in 0..<gridSize {
+                        guard row < magnifier.pixels.count else { break }
+                        for col in 0..<gridSize {
+                            guard col < magnifier.pixels[row].count else { break }
+                            ctx.fill(
+                                Path(CGRect(x: CGFloat(col) * cellSize, y: CGFloat(row) * cellSize,
+                                            width: cellSize, height: cellSize)),
+                                with: .color(Color(nsColor: magnifier.pixels[row][col]))
+                            )
+                        }
+                    }
+                }
+                .frame(width: magnifierSize, height: magnifierSize)
+            } else {
+                Rectangle().fill(Color.white.opacity(0.07))
+                    .frame(width: magnifierSize, height: magnifierSize)
+            }
+            // Сетка
+            Canvas { ctx, size in
+                var p = Path()
+                for i in 1..<gridSize {
+                    let v = CGFloat(i) * cellSize
+                    p.move(to: .init(x: v, y: 0));          p.addLine(to: .init(x: v, y: size.height))
+                    p.move(to: .init(x: 0, y: v));          p.addLine(to: .init(x: size.width, y: v))
+                }
+                ctx.stroke(p, with: .color(.white.opacity(0.15)), lineWidth: 0.5)
+            }
+            .frame(width: magnifierSize, height: magnifierSize)
+            // Рамка центральной ячейки
+            Rectangle().stroke(Color.white, lineWidth: 1.5)
+                .frame(width: cellSize, height: cellSize)
+        }
+        .frame(width: magnifierSize, height: magnifierSize)
+        .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 5, style: .continuous)
+            .stroke(Color.white.opacity(0.22), lineWidth: 1))
+        .transition(.opacity)
+    }
+
+    // MARK: - Text panel
+
+    @ViewBuilder
+    private var textPanel: some View {
+        if case .success = phase {
+            successContent
+                .transition(.opacity.combined(with: .scale(scale: 1.04, anchor: .leading)))
+        } else {
+            liveContent
+                .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .leading)))
+        }
+    }
+
+    private var liveContent: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(format.title)
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.4))
+                .transaction { $0.animation = nil }
+            Text(valueText)
+                .font(.system(size: 15, weight: .semibold).monospacedDigit())
+                .foregroundStyle(.white.opacity(valueOpacity))
+                .lineLimit(1)
+                .fixedSize()
+                .transaction { $0.animation = nil }
+            if showHint { hintRow.transition(.opacity) }
+        }
+        .frame(minWidth: 120, alignment: .leading)
+    }
+
+    private var successContent: some View {
+        HStack(spacing: 7) {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 18, weight: .medium))
+                .foregroundStyle(.white.opacity(0.9))
+                .symbolEffect(.bounce, value: phase)
+            Text("Copied")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.9))
+        }
+        .frame(minWidth: 120, alignment: .leading)
+    }
+
+    private var hintRow: some View {
+        HStack(spacing: 6) {
+            hintKey("F")
+            Text("Format").foregroundStyle(.white.opacity(0.3))
+            hintKey("Esc")
+            Text("Cancel").foregroundStyle(.white.opacity(0.3))
+        }
+        .font(.system(size: 10, weight: .regular))
+    }
+
+    private func hintKey(_ label: String) -> some View {
+        Text(label)
+            .font(.system(size: 9, weight: .medium))
+            .foregroundStyle(.white.opacity(0.5))
+            .padding(.horizontal, 5).padding(.vertical, 2)
+            .background(RoundedRectangle(cornerRadius: 3).stroke(Color.white.opacity(0.25), lineWidth: 1))
     }
 
     private var valueText: String {
         switch phase {
-        case .hidden, .idlePlaceholder:
-            return format.placeholderDashes
-        case .livePreview(let c), .success(let c):
-            return format.format(c)
+        case .hidden, .idlePlaceholder: return format.placeholderDashes
+        case .livePreview(let c), .success(let c): return format.format(c)
         }
     }
 
     private var valueOpacity: Double {
         switch phase {
-        case .hidden, .idlePlaceholder: return 0.3
-        default: return 0.95
+        case .hidden, .idlePlaceholder: return 0.25
+        default: return 1.0
         }
     }
 }
 
-// MARK: - CheckerboardView (для свотча с прозрачностью)
-
-private struct CheckerboardView: View {
-    var body: some View {
-        Canvas { ctx, size in
-            let s: CGFloat = 4
-            var toggle = false
-            var y: CGFloat = 0
-            while y < size.height {
-                var x: CGFloat = toggle ? s : 0
-                while x < size.width {
-                    ctx.fill(
-                        Path(CGRect(x: x, y: y, width: s, height: s)),
-                        with: .color(.white.opacity(0.15))
-                    )
-                    x += s * 2
-                }
-                toggle.toggle()
-                y += s
-            }
-        }
-    }
-}
 
 // MARK: - HUDBackground
 
-/// Фон HUD с тенью нарисованной через CALayer — не обрезается bounds панели.
 private struct HUDBackground: NSViewRepresentable {
     func makeNSView(context: Context) -> NSView {
         let v = HUDBackgroundView()
@@ -209,7 +256,6 @@ private final class HUDBackgroundView: NSView {
         layer.backgroundColor = NSColor.black.withAlphaComponent(0.82).cgColor
         layer.borderColor = NSColor.white.withAlphaComponent(0.10).cgColor
         layer.borderWidth = 1
-        // Тень через CALayer — не обрезается bounds окна
         layer.shadowColor = NSColor.black.cgColor
         layer.shadowOpacity = 0.45
         layer.shadowRadius = 10
@@ -217,15 +263,12 @@ private final class HUDBackgroundView: NSView {
         layer.masksToBounds = false
         return layer
     }
-
     override var isFlipped: Bool { true }
 }
 
-// MARK: - ColorPickerHUD (floating panel controller)
+// MARK: - ColorPickerHUD
 
 final class ColorPickerHUD {
-
-    // MARK: State
 
     private var panel: NSPanel?
     private var hideWorkItem: DispatchWorkItem?
@@ -234,16 +277,15 @@ final class ColorPickerHUD {
     private(set) var currentFormat: HUDColorFormat = .hex
     private var currentPhase: ColorPickerHUDPhase = .hidden
     private var showHint: Bool = false
+    private var currentMagnifier: MagnifierData = .empty
 
-    // Размер панели — зависит от того, виден ли hint
-    private var sizeWithHint    = CGSize(width: 210, height: 72)
-    private var sizeWithoutHint = CGSize(width: 210, height: 52)
+    // Фиксированный размер — не меняется со сменой формата/хинта
+    // Лупа 9×9 × 10pt = 90, padding 10×2 = 20, итого высота ~110
+    private let hudSize = CGSize(width: 240, height: 62)
+    private var currentSize: CGSize { hudSize }
 
-    private var currentSize: CGSize { showHint ? sizeWithHint : sizeWithoutHint }
-
-    // Текущий offset HUD относительно курсора (меняется при flip)
-    private var offsetX: CGFloat =  18
-    private var offsetY: CGFloat = -30   // вверх от курсора
+    private let offsetX: CGFloat =  18
+    private let offsetY: CGFloat = -30
 
     // MARK: - Public API
 
@@ -252,20 +294,16 @@ final class ColorPickerHUD {
         refreshContent()
     }
 
-    /// Показать HUD и привязать к курсору.
-    /// Вызывается один раз при старте сессии.
     func beginSession(format: HUDColorFormat) {
         currentFormat = format
         currentPhase  = .idlePlaceholder
+        currentMagnifier = .empty
         showHint = true
 
         ensurePanel()
         guard let panel else { return }
 
         refreshContent()
-
-        // Позиционируем HUD по текущей позиции курсора немедленно —
-        // не ждём первого update(color:cursorPosition:).
         moveToPosition(NSEvent.mouseLocation)
 
         if !panel.isVisible {
@@ -278,51 +316,29 @@ final class ColorPickerHUD {
             }
         }
 
-        // Скрываем hint через 3 секунды
         let hintWork = DispatchWorkItem { [weak self] in
             guard let self else { return }
             self.showHint = false
             self.refreshContent()
-            // Плавно уменьшаем панель
-            if let panel = self.panel, let screen = self.screenForPanel() {
-                let pos = NSEvent.mouseLocation
-                let frame = self.frameForCursor(pos, on: screen)
-                NSAnimationContext.runAnimationGroup { ctx in
-                    ctx.duration = 0.18
-                    ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-                    panel.animator().setFrame(frame, display: true)
-                }
-            }
         }
         hintWorkItem = hintWork
         DispatchQueue.main.asyncAfter(deadline: .now() + 3.0, execute: hintWork)
     }
 
-    /// Обновить цвет и позицию — вызывается на каждый mouseMoved.
-    func update(color: NSColor, cursorPosition: NSPoint) {
+    func update(color: NSColor, cursorPosition: NSPoint, magnifier: MagnifierData?) {
         currentPhase = .livePreview(color)
+        if let mag = magnifier { currentMagnifier = mag }
         refreshContent()
         moveToPosition(cursorPosition)
     }
 
-    /// Финальный успех — показываем success state, затем скрываем.
-    func showSuccess(color: NSColor, on screen: NSScreen?, autoHideAfter delay: TimeInterval = 0.35) {
+    func showSuccess(color: NSColor, on screen: NSScreen?, autoHideAfter delay: TimeInterval = 1.2) {
         hintWorkItem?.cancel()
         hintWorkItem = nil
         showHint = false
-
         currentPhase = .success(color)
         refreshContent()
-
-        // Паркуем панель в нижний правый угол экрана
-        let targetScreen = screen ?? NSScreen.main ?? NSScreen.screens.first
-        if let panel, let frame = frameBottomRight(on: targetScreen) {
-            NSAnimationContext.runAnimationGroup { ctx in
-                ctx.duration = 0.16
-                ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-                panel.animator().setFrame(frame, display: true)
-            }
-        }
+        // HUD остаётся на месте — никакого перемещения в угол
 
         let work = DispatchWorkItem { [weak self] in self?.hide(animated: true) }
         hideWorkItem = work
@@ -358,41 +374,32 @@ final class ColorPickerHUD {
         guard let panel else { return }
         guard let screen = screenForPoint(cursorPos) ?? NSScreen.main else { return }
         let frame = frameForCursor(cursorPos, on: screen)
-        // Без анимации — должно быть мгновенно чтобы следовать за курсором
         panel.setFrame(frame, display: false)
     }
 
-    /// Вычисляет позицию HUD с учётом краёв экрана.
-    /// При приближении к краю зеркалит offset по соответствующей оси.
     private func frameForCursor(_ cursor: NSPoint, on screen: NSScreen) -> NSRect {
         let sf = screen.frame
         let size = currentSize
         let margin: CGFloat = 8
 
-        // Начальный offset (по умолчанию: правее и выше курсора)
         var dx = offsetX
         var dy = offsetY
 
         var x = cursor.x + dx
         var y = cursor.y + dy
 
-        // Flip X: выходит за правый край → уходим влево
         if x + size.width > sf.maxX - margin {
             dx = -(size.width + 12)
             x = cursor.x + dx
         }
-        // Flip X: выходит за левый край → возвращаем вправо
         if x < sf.minX + margin {
             dx = 18
             x = cursor.x + dx
         }
-
-        // Flip Y: выходит за верхний край → уходим ниже курсора
         if y + size.height > sf.maxY - margin {
-            dy = 14   // ниже курсора
+            dy = 14
             y = cursor.y + dy
         }
-        // Flip Y: выходит за нижний край → уходим выше
         if y < sf.minY + margin {
             dy = -size.height - 12
             y = cursor.y + dy
@@ -401,25 +408,13 @@ final class ColorPickerHUD {
         return NSRect(x: x, y: y, width: size.width, height: size.height)
     }
 
-    private func frameBottomRight(on screen: NSScreen?) -> NSRect? {
-        guard let screen else { return nil }
-        let vf = screen.visibleFrame
-        let margin: CGFloat = 18
-        let size = currentSize
-        return NSRect(
-            x: vf.maxX - margin - size.width,
-            y: vf.minY + margin,
-            width: size.width,
-            height: size.height
-        )
-    }
 
     // MARK: - Panel management
 
     private func ensurePanel() {
         guard panel == nil else { return }
-        let initialFrame = NSRect(x: 0, y: 0, width: currentSize.width, height: currentSize.height)
-        panel = makePanel(frame: initialFrame)
+        let frame = NSRect(origin: .zero, size: currentSize)
+        panel = makePanel(frame: frame)
     }
 
     private func refreshContent() {
@@ -427,7 +422,13 @@ final class ColorPickerHUD {
         guard let rootView = panel.contentView,
               let blur = rootView.subviews.compactMap({ $0 as? NSVisualEffectView }).first
         else { return }
-        let view = ColorPickerHUDView(phase: currentPhase, format: currentFormat, showHint: showHint)
+
+        let view = ColorPickerHUDView(
+            phase: currentPhase,
+            format: currentFormat,
+            showHint: showHint,
+            magnifier: currentMagnifier
+        )
         if let hosting = blur.subviews.compactMap({ $0 as? NSHostingView<ColorPickerHUDView> }).first {
             hosting.rootView = view
         } else {
@@ -452,18 +453,16 @@ final class ColorPickerHUD {
             backing: .buffered,
             defer: false
         )
-        p.isFloatingPanel  = true
-        p.level            = .statusBar
+        p.isFloatingPanel    = true
+        p.level              = .statusBar
         p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        p.isOpaque         = false
-        p.backgroundColor  = .clear
-        p.hasShadow        = false
-        p.hidesOnDeactivate = false
-        p.ignoresMouseEvents = true   // обязательно — иначе ломает sampler
-        p.appearance       = nil  // следуем системной теме
+        p.isOpaque           = false
+        p.backgroundColor    = .clear
+        p.hasShadow          = false
+        p.hidesOnDeactivate  = false
+        p.ignoresMouseEvents = true
+        p.appearance         = nil
 
-        // NSVisualEffectView как subview contentView — правильный паттерн.
-        // Это даёт скруглённые углы без прямоугольной тени окна.
         let rootView = NSView(frame: NSRect(origin: .zero, size: frame.size))
         rootView.wantsLayer = true
         rootView.layer?.backgroundColor = .clear
@@ -480,11 +479,6 @@ final class ColorPickerHUD {
         blur.layer?.masksToBounds = true
         rootView.addSubview(blur)
         return p
-    }
-
-    private func screenForPanel() -> NSScreen? {
-        guard let panel else { return NSScreen.main }
-        return screenForPoint(NSPoint(x: panel.frame.midX, y: panel.frame.midY))
     }
 
     private func screenForPoint(_ p: NSPoint) -> NSScreen? {

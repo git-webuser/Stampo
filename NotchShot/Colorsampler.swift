@@ -6,7 +6,7 @@ import ScreenCaptureKit
 @MainActor
 final class ColorSampler {
 
-    var onColorChanged: ((NSColor, NSPoint) -> Void)?
+    var onColorChanged: ((NSColor, NSPoint, MagnifierData?) -> Void)?
     var onConfirmed: ((NSColor) -> Void)?
     var onCancelled: (() -> Void)?
     var format: HUDColorFormat = .hex
@@ -51,8 +51,6 @@ final class ColorSampler {
 
     private func installMonitors() {
         // Глобальный монитор для drag (FullscreenTrackingView не получает drag-события)
-        // .leftMouseDragged — единственный источник drag-событий.
-        // CursorOverlay.globalMouseMonitor не слушает drag — нет дублирования.
         mouseMonitor = NSEvent.addGlobalMonitorForEvents(
             matching: .leftMouseDragged
         ) { [weak self] _ in
@@ -80,8 +78,7 @@ final class ColorSampler {
                 guard !self.isStopped else { return }
                 self.confirm()
             }
-            // nil — поглощаем клик, не даём долететь до UI под курсором
-            return nil
+            return event
         }
 
         rightClickMonitor = NSEvent.addGlobalMonitorForEvents(
@@ -132,7 +129,7 @@ final class ColorSampler {
             let all = HUDColorFormat.allCases
             if let idx = all.firstIndex(of: format) {
                 format = all[(idx + 1) % all.count]
-                onColorChanged?(lastColor, NSEvent.mouseLocation)
+                onColorChanged?(lastColor, NSEvent.mouseLocation, nil)
             }
         default: break
         }
@@ -159,11 +156,12 @@ final class ColorSampler {
         }
         captureInFlight = true
         Task { @MainActor in
-            if let color = await pixelColor(at: position) {
+            if let result = await pixelColor(at: position) {
                 guard !self.isStopped else { return }
-                self.lastColor = color
-                self.cursorOverlay.updateColor(color)
-                self.onColorChanged?(color, position)
+                let magnifier = self.buildMagnifier(from: result.image, centerPx: result.centerPx)
+                self.lastColor = result.color
+                self.cursorOverlay.updateColor(result.color)
+                self.onColorChanged?(result.color, position, magnifier)
             }
             self.captureInFlight = false
             if let pending = self.pendingPosition {
@@ -187,7 +185,7 @@ final class ColorSampler {
         return fresh
     }
 
-    private func pixelColor(at point: NSPoint) async -> NSColor? {
+    private func pixelColor(at point: NSPoint) async -> (color: NSColor, image: CGImage, centerPx: CGPoint)? {
         guard let content = await shareableContent() else { return nil }
 
         // primary screen — тот у которого origin == .zero в AppKit-координатах.
@@ -244,11 +242,40 @@ final class ColorSampler {
 
         ctx.draw(cgImage, in: CGRect(x: -cx, y: -(imgH - cy - 1), width: imgW, height: imgH))
 
-        return NSColor(
+        let color = NSColor(
             srgbRed: CGFloat(pixelData[0]) / 255,
             green:   CGFloat(pixelData[1]) / 255,
             blue:    CGFloat(pixelData[2]) / 255,
             alpha:   CGFloat(pixelData[3]) / 255
         )
+        return (color, cgImage, CGPoint(x: cx, y: cy))
+    }
+
+    // MARK: - MagnifierData
+
+    func buildMagnifier(from cgImage: CGImage, centerPx: CGPoint, gridSize: Int = 5) -> MagnifierData {
+        let half = gridSize / 2
+        let imgW = cgImage.width, imgH = cgImage.height
+        var rows: [[NSColor]] = []
+        for row in 0..<gridSize {
+            var rowColors: [NSColor] = []
+            for col in 0..<gridSize {
+                let px = Int(centerPx.x) + (col - half)
+                let py = Int(centerPx.y) + (row - half)
+                let cx = max(0, min(px, imgW - 1))
+                let cy = max(0, min(py, imgH - 1))
+                var d: [UInt8] = [0, 0, 0, 0]
+                if let ctx = CGContext(data: &d, width: 1, height: 1,
+                    bitsPerComponent: 8, bytesPerRow: 4,
+                    space: CGColorSpaceCreateDeviceRGB(),
+                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) {
+                    ctx.draw(cgImage, in: CGRect(x: -cx, y: -(imgH - cy - 1), width: imgW, height: imgH))
+                }
+                rowColors.append(NSColor(srgbRed: CGFloat(d[0])/255, green: CGFloat(d[1])/255,
+                                         blue: CGFloat(d[2])/255, alpha: 1))
+            }
+            rows.append(rowColors)
+        }
+        return MagnifierData(pixels: rows, gridSize: gridSize)
     }
 }
