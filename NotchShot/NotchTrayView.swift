@@ -11,11 +11,13 @@ struct NotchTrayView: View {
 
     @State private var scheme: ColorSchemeType = .hex
 
-    private let scrollPadH:    CGFloat = 18
-    private let cellH:         CGFloat = 32
+    private let panelRounding: CGFloat = 15  // clearance for panel corner radius
+    private let innerInset:    CGFloat = 19  // inset from panel edge to first cell
+    private var scrollPadH:    CGFloat { panelRounding + innerInset }
     private let cellSpacing:   CGFloat = 8
-    private let badgeOffset:   CGFloat = 4
-    private let padTop:        CGFloat = 3
+    private let cellH:       CGFloat = 32
+    private let badgeBleed:  CGFloat = 3
+    private let labelOffset: CGFloat = 18
 
     var scrollRowHeight: CGFloat { 55 }
     var trayHeight:      CGFloat { metrics.panelHeight + scrollRowHeight }
@@ -119,6 +121,8 @@ struct NotchTrayView: View {
                         TrayScreenshotCell(
                             shot: shot,
                             height: cellH,
+                            badgeBleed: badgeBleed,
+                            labelOffset: labelOffset,
                             cornerRadius: metrics.buttonRadius,
                             onRemove: { trayModel.remove(id: shot.id) }
                         )
@@ -127,18 +131,24 @@ struct NotchTrayView: View {
                             item: c,
                             scheme: scheme,
                             height: cellH,
+                            badgeBleed: badgeBleed,
+                            labelOffset: labelOffset,
                             cornerRadius: metrics.buttonRadius,
                             onRemove: { trayModel.remove(id: c.id) }
                         )
                     }
                 }
             }
-            .padding(.leading, scrollPadH)
-            .padding(.trailing, scrollPadH)
-            .padding(.top, badgeOffset)
+            .padding(.horizontal, scrollPadH)
+            .padding(.top, badgeBleed)
+            // Pin content to top so it doesn't float in the middle of scrollRowHeight
+            .frame(maxHeight: .infinity, alignment: .top)
         }
-        .padding(.top, padTop - badgeOffset)
+        .frame(maxHeight: .infinity, alignment: .top)
+        .scrollClipDisabled()
     }
+
+    // MARK: - Buttons
 
     private var backButton: some View {
         PanelIconButton(systemName: "chevron.left", size: 14, weight: .semibold, action: onBack)
@@ -211,8 +221,8 @@ private struct TrayDeleteBadge: View {
             Image(systemName: "xmark.circle.fill")
                 .symbolRenderingMode(.palette)
                 .foregroundStyle(
-                    Color(red: 0.125, green: 0.125, blue: 0.125), // #202020 — xmark
-                    Color(white: 0.914)                            // #E9E9E9 — circle
+                    Color(red: 0.125, green: 0.125, blue: 0.125),
+                    Color(white: 0.914)
                 )
                 .font(.system(size: 16))
                 .overlay(Circle().strokeBorder(Color.black.opacity(0.25), lineWidth: 1))
@@ -228,68 +238,75 @@ private struct TrayColorCell: View {
     let item: TrayColor
     let scheme: ColorSchemeType
     let height: CGFloat
+    let badgeBleed: CGFloat
+    let labelOffset: CGFloat
     let cornerRadius: CGFloat
     let onRemove: () -> Void
 
-    @State private var isHovered = false
-    @State private var isPressed = false
+    @State private var isHovered  = false
+    @State private var isPressed  = false
     @State private var isRemoving = false
+    @State private var isCopied   = false
 
     var body: some View {
-        VStack(spacing: 1) {
-            // Swatch scales; badge is inside overlay so it doesn't scale
-            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .fill(Color(nsColor: item.color))
-                .frame(width: height, height: height)
-                .overlay(
-                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .stroke(Color.white.opacity(isHovered ? 0.35 : 0.12), lineWidth: 1)
-                )
-                .scaleEffect(isRemoving ? 0.6 : (isPressed ? 0.88 : (isHovered ? 1.0625 : 1.0)))
-                .overlay(alignment: .topTrailing) {
-                    TrayDeleteBadge {
-                        withAnimation(.easeIn(duration: 0.16)) { isRemoving = true }
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) { onRemove() }
-                    }
-                    .opacity(isHovered ? 1 : 0)
-                    .allowsHitTesting(isHovered)
-                    .offset(x: 4, y: -4)
+        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            .fill(Color(nsColor: item.color))
+            .frame(width: height, height: height)
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .stroke(Color.white.opacity(isHovered ? 0.35 : 0.12), lineWidth: 1)
+            )
+            .overlay(alignment: .topTrailing) {
+                TrayDeleteBadge {
+                    withAnimation(.easeIn(duration: 0.16)) { isRemoving = true }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) { onRemove() }
                 }
+                .opacity(isHovered ? 1 : 0)
+                .allowsHitTesting(isHovered)
+                .offset(x: badgeBleed, y: -badgeBleed)
+            }
+            .overlay(alignment: .bottom) {
+                ZStack {
+                    // Color value — shown when not copied
+                    Text(scheme.convert(item.color))
+                        .opacity(isCopied ? 0 : 1)
 
-            // Label doesn't scale
-            Text(scheme.convert(item.color))
+                    // Copied confirmation — shown briefly after copy
+                    Text("Copied!")
+                        .opacity(isCopied ? 1 : 0)
+                }
                 .font(.system(size: 11, weight: .regular, design: .default))
                 .textCase(nil)
                 .foregroundStyle(.white)
                 .fixedSize()
                 .padding(.horizontal, 4)
-                .padding(.vertical, 4)
-                .background(
-                    Capsule(style: .continuous)
-                        .fill(Color.black.opacity(0.65))
-                )
+                .padding(.vertical, 2)
+                .background(Capsule(style: .continuous).fill(Color.black.opacity(0.65)))
+                .fixedSize()
                 .opacity(isHovered ? 1 : 0)
                 .allowsHitTesting(false)
-                .frame(height: 16)
-        }
-        .padding(.top, 8)
-        .padding(.bottom, 16)
-        .padding(.top, -8)
-        .padding(.bottom, -16)
-        .opacity(isRemoving ? 0 : 1)
-        .animation(.spring(response: 0.2, dampingFraction: 0.7), value: isHovered)
-        .animation(.spring(response: 0.15, dampingFraction: 0.7), value: isPressed)
-        .animation(.easeIn(duration: 0.16), value: isRemoving)
-        .onHover { isHovered = $0 }
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 0)
-                .onChanged { _ in isPressed = true }
-                .onEnded { _ in
-                    isPressed = false
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(scheme.convert(item.color), forType: .string)
-                }
-        )
+                .offset(y: labelOffset)
+                .animation(.easeInOut(duration: 0.14), value: isCopied)
+            }
+            .scaleEffect(isPressed ? 0.88 : 1.0)
+            .opacity(isRemoving ? 0 : 1)
+            .animation(.spring(response: 0.2, dampingFraction: 0.8), value: isHovered)
+            .animation(.spring(response: 0.15, dampingFraction: 0.7), value: isPressed)
+            .animation(.easeIn(duration: 0.16), value: isRemoving)
+            .onHover { isHovered = $0 }
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { _ in isPressed = true }
+                    .onEnded { _ in
+                        isPressed = false
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(scheme.convert(item.color), forType: .string)
+                        withAnimation { isCopied = true }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                            withAnimation { isCopied = false }
+                        }
+                    }
+            )
     }
 }
 
@@ -298,6 +315,8 @@ private struct TrayColorCell: View {
 private struct TrayScreenshotCell: View {
     let shot: TrayScreenshot
     let height: CGFloat
+    let badgeBleed: CGFloat
+    let labelOffset: CGFloat
     let cornerRadius: CGFloat
     let onRemove: () -> Void
 
@@ -313,63 +332,54 @@ private struct TrayScreenshotCell: View {
     }
 
     var body: some View {
-        VStack(spacing: 1) {
-            // Thumbnail scales; badge overlay is applied after scaleEffect so it doesn't scale
-            ZStack {
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .fill(Color.white.opacity(0.08))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                            .stroke(Color.white.opacity(isHovered ? 0.35 : 0.12), lineWidth: 1)
-                    )
+        ZStack {
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                .fill(Color.white.opacity(0.08))
+                .overlay(
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .stroke(Color.white.opacity(isHovered ? 0.35 : 0.12), lineWidth: 1)
+                )
 
-                if let img = loader.image {
-                    Image(nsImage: img)
-                        .resizable()
-                        .scaledToFill()
-                        .frame(width: width, height: height)
-                        .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-                } else {
-                    Image(systemName: "photo")
-                        .font(.system(size: 11, weight: .regular))
-                        .foregroundStyle(.white.opacity(0.5))
-                }
+            if let img = loader.image {
+                Image(nsImage: img)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: width, height: height)
+                    .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            } else {
+                Image(systemName: "photo")
+                    .font(.system(size: 11, weight: .regular))
+                    .foregroundStyle(.white.opacity(0.5))
             }
-            .frame(width: width, height: height)
-            .scaleEffect(isRemoving ? 0.6 : (isPressed ? 0.88 : (isHovered ? 1.0625 : 1.0)))
-            .overlay(alignment: .topTrailing) {
-                TrayDeleteBadge {
-                    withAnimation(.easeIn(duration: 0.16)) { isRemoving = true }
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) { onRemove() }
-                }
-                .opacity(isHovered ? 1 : 0)
-                .allowsHitTesting(isHovered)
-                .offset(x: 4, y: -4)
+        }
+        .frame(width: width, height: height)
+        .overlay(alignment: .topTrailing) {
+            TrayDeleteBadge {
+                withAnimation(.easeIn(duration: 0.16)) { isRemoving = true }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) { onRemove() }
             }
-
-            // Label doesn't scale
+            .opacity(isHovered ? 1 : 0)
+            .allowsHitTesting(isHovered)
+            .offset(x: badgeBleed, y: -badgeBleed)
+        }
+        .overlay(alignment: .bottom) {
             Text(displayName)
                 .font(.system(size: 11, weight: .regular, design: .default))
                 .foregroundStyle(.white)
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .padding(.horizontal, 4)
-                .padding(.vertical, 4)
-                .background(
-                    Capsule(style: .continuous)
-                        .fill(Color.black.opacity(0.65))
-                )
+                .padding(.vertical, 2)
+                .background(Capsule(style: .continuous).fill(Color.black.opacity(0.65)))
                 .frame(maxWidth: width)
+                .fixedSize(horizontal: false, vertical: true)
                 .opacity(isHovered ? 1 : 0)
                 .allowsHitTesting(false)
-                .frame(height: 16)
+                .offset(y: labelOffset)
         }
-        .padding(.top, 8)
-        .padding(.bottom, 16)
-        .padding(.top, -8)
-        .padding(.bottom, -16)
+        .scaleEffect(isPressed ? 0.88 : 1.0)
         .opacity(isRemoving ? 0 : 1)
-        .animation(.spring(response: 0.2, dampingFraction: 0.7), value: isHovered)
+        .animation(.spring(response: 0.2, dampingFraction: 0.8), value: isHovered)
         .animation(.spring(response: 0.15, dampingFraction: 0.7), value: isPressed)
         .animation(.easeIn(duration: 0.16), value: isRemoving)
         .onHover { isHovered = $0 }
