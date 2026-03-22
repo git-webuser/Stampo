@@ -228,20 +228,24 @@ struct NotchTrayView: View {
 
 private struct TrayDeleteBadge: View {
     let action: () -> Void
+    @Binding var isActive: Bool
 
     var body: some View {
-        Button(action: action) {
-            Image(systemName: "xmark.circle.fill")
-                .symbolRenderingMode(.palette)
-                .foregroundStyle(
-                    Color(red: 0.125, green: 0.125, blue: 0.125),
-                    Color(white: 0.914)
-                )
-                .font(.system(size: 16))
-                .overlay(Circle().strokeBorder(Color.black.opacity(0.25), lineWidth: 1))
-        }
-        .buttonStyle(.plain)
-        .frame(width: 16, height: 16)
+        Image(systemName: "xmark.circle.fill")
+            .symbolRenderingMode(.palette)
+            .foregroundStyle(
+                Color(red: 0.125, green: 0.125, blue: 0.125),
+                Color(white: 0.914)
+            )
+            .font(.system(size: 16))
+            .overlay(Circle().strokeBorder(Color.black.opacity(0.25), lineWidth: 1))
+            .frame(width: 16, height: 16)
+            .contentShape(Rectangle())
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { _ in isActive = true }
+                    .onEnded   { _ in action() }
+            )
     }
 }
 
@@ -256,10 +260,11 @@ private struct TrayColorCell: View {
     let cornerRadius: CGFloat
     let onRemove: () -> Void
 
-    @State private var isHovered  = false
-    @State private var isPressed  = false
-    @State private var isRemoving = false
-    @State private var isCopied   = false
+    @State private var isHovered    = false
+    @State private var isPressed    = false
+    @State private var isRemoving   = false
+    @State private var isCopied     = false
+    @State private var isBadgeActive = false
 
     var body: some View {
         RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
@@ -270,10 +275,10 @@ private struct TrayColorCell: View {
                     .stroke(Color.white.opacity(isHovered ? 0.35 : 0.12), lineWidth: 1)
             )
             .overlay(alignment: .topTrailing) {
-                TrayDeleteBadge {
+                TrayDeleteBadge(action: {
                     withAnimation(.easeIn(duration: 0.16)) { isRemoving = true }
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) { onRemove() }
-                }
+                }, isActive: $isBadgeActive)
                 .opacity(isHovered ? 1 : 0)
                 .allowsHitTesting(isHovered)
                 .offset(x: badgeBleed, y: -badgeBleed)
@@ -306,9 +311,12 @@ private struct TrayColorCell: View {
             .onHover { isHovered = $0 }
             .simultaneousGesture(
                 DragGesture(minimumDistance: 0)
-                    .onChanged { _ in isPressed = true }
+                    .onChanged { _ in
+                        if !isBadgeActive { isPressed = true }
+                    }
                     .onEnded { _ in
                         isPressed = false
+                        guard !isBadgeActive else { isBadgeActive = false; return }
                         NSPasteboard.general.clearContents()
                         NSPasteboard.general.setString(scheme.convert(item.color), forType: .string)
                         withAnimation { isCopied = true }
@@ -331,9 +339,10 @@ private struct TrayScreenshotCell: View {
     let onRemove: () -> Void
 
     @StateObject private var loader = ThumbnailLoader()
-    @State private var isHovered = false
-    @State private var isPressed = false
-    @State private var isRemoving = false
+    @State private var isHovered    = false
+    @State private var isPressed    = false
+    @State private var isRemoving   = false
+    @State private var isBadgeActive = false
 
     private var width: CGFloat { height * 1.6 }
 
@@ -363,11 +372,12 @@ private struct TrayScreenshotCell: View {
             }
         }
         .frame(width: width, height: height)
+        .contentShape(Rectangle())
         .overlay(alignment: .topTrailing) {
-            TrayDeleteBadge {
+            TrayDeleteBadge(action: {
                 withAnimation(.easeIn(duration: 0.16)) { isRemoving = true }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) { onRemove() }
-            }
+            }, isActive: $isBadgeActive)
             .opacity(isHovered ? 1 : 0)
             .allowsHitTesting(isHovered)
             .offset(x: badgeBleed, y: -badgeBleed)
@@ -395,9 +405,12 @@ private struct TrayScreenshotCell: View {
         .onHover { isHovered = $0 }
         .simultaneousGesture(
             DragGesture(minimumDistance: 0)
-                .onChanged { _ in isPressed = true }
+                .onChanged { _ in
+                    if !isBadgeActive { isPressed = true }
+                }
                 .onEnded { _ in
                     isPressed = false
+                    guard !isBadgeActive else { isBadgeActive = false; return }
                     NSWorkspace.shared.open(shot.url)
                 }
         )
