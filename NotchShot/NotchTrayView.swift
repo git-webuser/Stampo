@@ -15,9 +15,9 @@ struct NotchTrayView: View {
     private let innerInset:    CGFloat = 19  // inset from panel edge to first cell
     private var scrollPadH:    CGFloat { panelRounding + innerInset }
     private let cellSpacing:   CGFloat = 8
-    private let cellH:       CGFloat = 32
-    private let badgeBleed:  CGFloat = 3
-    private let labelOffset: CGFloat = 18
+    private let cellH:         CGFloat = 32
+    private let badgeBleed:    CGFloat = 3
+    private let labelOffset:   CGFloat = 18
 
     var scrollRowHeight: CGFloat { 55 }
     var trayHeight:      CGFloat { metrics.panelHeight + scrollRowHeight }
@@ -59,8 +59,14 @@ struct NotchTrayView: View {
                     }
                     .frame(height: metrics.panelHeight)
 
-                    bottomContent
-                        .frame(height: scrollRowHeight)
+                    if !trayModel.items.isEmpty {
+                        scrollContent.frame(height: scrollRowHeight)
+                    }
+                }
+
+                // Empty state spans full trayHeight → centers relative to whole panel
+                if trayModel.items.isEmpty {
+                    emptyState.frame(height: trayHeight)
                 }
             }
         }
@@ -79,18 +85,15 @@ struct NotchTrayView: View {
                 .padding(.horizontal, scrollPadH)
                 .frame(height: metrics.panelHeight)
 
-                bottomContent
-                    .frame(height: scrollRowHeight)
+                if !trayModel.items.isEmpty {
+                    scrollContent.frame(height: scrollRowHeight)
+                }
             }
-        }
-    }
 
-    @ViewBuilder
-    private var bottomContent: some View {
-        if trayModel.items.isEmpty {
-            emptyState
-        } else {
-            scrollContent
+            // Empty state spans full trayHeight → centers relative to whole panel
+            if trayModel.items.isEmpty {
+                emptyState.frame(height: trayHeight)
+            }
         }
     }
 
@@ -141,7 +144,6 @@ struct NotchTrayView: View {
             }
             .padding(.horizontal, scrollPadH)
             .padding(.top, badgeBleed)
-            // Pin content to top so it doesn't float in the middle of scrollRowHeight
             .frame(maxHeight: .infinity, alignment: .top)
         }
         .frame(maxHeight: .infinity, alignment: .top)
@@ -267,12 +269,9 @@ private struct TrayColorCell: View {
             }
             .overlay(alignment: .bottom) {
                 ZStack {
-                    // Color value — shown when not copied
                     Text(scheme.convert(item.color))
                         .opacity(isCopied ? 0 : 1)
-
-                    // Copied confirmation — shown briefly after copy
-                    Text("Copied!")
+                    Text("Copied")
                         .opacity(isCopied ? 1 : 0)
                 }
                 .font(.system(size: 11, weight: .regular, design: .default))
@@ -407,3 +406,4 @@ private struct TrayScreenshotCell: View {
         .task(id: shot.url) { loader.load(imageURL: shot.url) }
     }
 }
+
