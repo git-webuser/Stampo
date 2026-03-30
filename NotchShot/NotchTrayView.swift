@@ -184,18 +184,8 @@ struct NotchTrayView: View {
     }
 
     private var moreButton: some View {
-        PanelMenuButton(
-            systemName: "ellipsis.circle",
-            size: 14,
-            weight: .semibold
-        ) {
-            Button("Settings") {
-                NSApp.sendAction(#selector(AppDelegate.openSettings), to: nil, from: nil)
-            }
-            Divider()
-            Button("Quit NotchShot") { NSApp.terminate(nil) }
-        }
-        .frame(width: metrics.cellWidth, height: metrics.iconSize)
+        PanelMoreMenuButton(metrics: metrics)
+            .frame(width: metrics.cellWidth, height: metrics.iconSize)
     }
 
     private var schemeMenuWidth: CGFloat { 68 }
