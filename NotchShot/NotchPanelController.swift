@@ -285,6 +285,41 @@ final class NotchPanelController: NSObject {
             return
         }
 
+        if route == .tray {
+            hideTrayThenMain(panel: panel, screen: screen, completion: completion)
+        } else {
+            hideMainPanel(panel: panel, screen: screen, completion: completion)
+        }
+    }
+
+    // Закрытие из состояния Tray: обратная последовательность открытия.
+    // Фаза 1 — контент скрывается мгновенно.
+    // Фаза 2 — форма морфирует обратно в Main (Y-ось).
+    // Фаза 3 — обычная анимация закрытия Main (X-ось).
+    private func hideTrayThenMain(panel: NSPanel, screen: NSScreen, completion: (() -> Void)?) {
+        // Мгновенно прячем и tray-контент, и main-контент (иначе он проявится в фазе 2)
+        rootState.trayContentVisible = 0.0
+        interactionState.contentVisibility = 0.0
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) { [weak self, weak panel] in
+            guard let self, let panel else { return }
+
+            // Фаза 2: морф формы tray → main (без смены ширины — только Y через progress)
+            self.route = .main
+            withAnimation(.easeIn(duration: 0.18)) {
+                self.rootState.progress = 0.0
+            }
+
+            // Фаза 3: запускаем стандартное закрытие main-панели
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) { [weak self, weak panel] in
+                guard let self, let panel else { return }
+                self.rootState.trayContentVisible = 1.0  // сброс для следующего открытия
+                self.hideMainPanel(panel: panel, screen: screen, completion: completion)
+            }
+        }
+    }
+
+    private func hideMainPanel(panel: NSPanel, screen: NSScreen, completion: (() -> Void)?) {
         if metrics.hasNotch {
             isExpanded = false
             let target = frameForWidth(collapsedWidth, on: screen, height: trayPanelHeight)
