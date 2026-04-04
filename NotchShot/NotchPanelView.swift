@@ -554,3 +554,131 @@ private struct PanelCaptureButton: View {
         return .white.opacity(0.14)
     }
 }
+
+// MARK: - CountdownView
+
+struct CountdownView: View {
+    let metrics: NotchMetrics
+    @ObservedObject var interaction: NotchPanelInteractionState
+    let secondsRemaining: Int
+    let totalSeconds: Int
+    let onStop: () -> Void
+    let onCaptureNow: () -> Void
+
+    var body: some View {
+        Group {
+            if metrics.hasNotch {
+                notchLayout
+            } else {
+                noNotchLayout
+            }
+        }
+        .frame(height: metrics.panelHeight)
+        .allowsHitTesting(interaction.isEnabled)
+        .animation(nil, value: interaction.isEnabled)
+    }
+
+    // MARK: - Notch layout
+
+    private var notchLayout: some View {
+        GeometryReader { geo in
+            let totalWidth = geo.size.width
+            let shoulders = max(0, (totalWidth - metrics.notchGap) / 2)
+
+            HStack(spacing: 0) {
+                HStack(spacing: metrics.gap) {
+                    stopCell
+                    arcIndicator
+                }
+                .padding(.leading, metrics.edgeSafe)
+                .padding(.trailing, metrics.leftMinToNotch)
+                .frame(width: shoulders, alignment: .leading)
+
+                Color.clear.frame(width: metrics.notchGap)
+
+                HStack(spacing: metrics.gap) {
+                    captureNowCell
+                }
+                .padding(.leading, metrics.rightMinFromNotch)
+                .padding(.trailing, metrics.edgeSafe)
+                .frame(width: shoulders, alignment: .trailing)
+            }
+            .frame(height: metrics.panelHeight)
+            .opacity(contentOpacity)
+            .animation(contentFade, value: interaction.contentVisibility)
+        }
+    }
+
+    // MARK: - No-notch layout
+
+    private var noNotchLayout: some View {
+        HStack(spacing: metrics.gap) {
+            stopCell
+            arcIndicator
+            Spacer()
+            captureNowCell
+        }
+        .padding(.horizontal, metrics.outerSideInset)
+        .frame(height: metrics.panelHeight)
+        .opacity(contentOpacity)
+        .animation(contentFade, value: interaction.contentVisibility)
+    }
+
+    // MARK: - Cells
+
+    private var stopCell: some View {
+        PanelIconButton(
+            systemName: "xmark.circle.fill",
+            size: 14,
+            weight: .semibold,
+            action: onStop
+        )
+        .frame(width: metrics.cellWidth, height: metrics.iconSize)
+    }
+
+    private var arcIndicator: some View {
+        HStack(spacing: 4) {
+            ZStack {
+                Circle()
+                    .stroke(.white.opacity(0.15), lineWidth: 2)
+                    .frame(width: 20, height: 20)
+
+                Circle()
+                    .trim(from: 0, to: arcProgress)
+                    .stroke(.white.opacity(0.8), style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                    .frame(width: 20, height: 20)
+                    .rotationEffect(.degrees(-90))
+                    .animation(.linear(duration: 1.0), value: arcProgress)
+            }
+            .frame(width: 24, height: 24)
+
+            Text("\(secondsRemaining)")
+                .font(.system(size: 12, weight: .medium))
+                .monospacedDigit()
+                .foregroundStyle(.white.opacity(0.9))
+                .frame(width: metrics.timerValueWidth, alignment: .leading)
+                .animation(nil, value: secondsRemaining)
+        }
+    }
+
+    private var captureNowCell: some View {
+        PanelCaptureButton(metrics: metrics, action: onCaptureNow)
+    }
+
+    // MARK: - Helpers
+
+    /// Elapsed fraction: 0 at start, approaches 1 as countdown ends.
+    private var arcProgress: Double {
+        guard totalSeconds > 0 else { return 0 }
+        return Double(totalSeconds - secondsRemaining) / Double(totalSeconds)
+    }
+
+    private var contentOpacity: Double {
+        let t = interaction.contentVisibility
+        if t <= 0 { return 0 }
+        if t >= 1 { return 1 }
+        return max(0, (t - 0.15) / 0.85)
+    }
+
+    private var contentFade: Animation { .easeOut(duration: 0.16) }
+}

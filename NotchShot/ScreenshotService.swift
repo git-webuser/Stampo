@@ -36,6 +36,34 @@ final class ScreenshotService {
         }
     }
 
+    /// Capture a specific screen rectangle (CG coordinates: top-left origin).
+    func captureRect(_ rect: CGRect, preferredScreen: NSScreen?) {
+        let args = [
+            "-x", "-R",
+            "\(Int(rect.minX)),\(Int(rect.minY)),\(Int(rect.width)),\(Int(rect.height))"
+        ]
+        runCaptureWithArgs(args, preferredScreen: preferredScreen)
+    }
+
+    /// Capture a specific window by its CGWindowID.
+    func captureWindowID(_ windowID: CGWindowID, preferredScreen: NSScreen?) {
+        let args = ["-x", "-l", String(windowID)]
+        runCaptureWithArgs(args, preferredScreen: preferredScreen)
+    }
+
+    private func runCaptureWithArgs(_ baseArgs: [String], preferredScreen: NSScreen?) {
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self else { return }
+            let tmpURL = self.fm.temporaryDirectory
+                .appendingPathComponent("notchshot-\(UUID().uuidString).png")
+            var args = baseArgs
+            args.append(tmpURL.path)
+            let ok = self.runScreencapture(arguments: args)
+            guard ok, self.fm.fileExists(atPath: tmpURL.path) else { return }
+            self.handleCapturedFile(at: tmpURL, preferredScreen: preferredScreen)
+        }
+    }
+
     private func runCapture(mode: CaptureMode, preferredScreen: NSScreen?) {
         // screencapture (a child process) cannot write to sandbox-protected directories
         // like Downloads directly. We write to tmp first, then move via FileManager
@@ -64,8 +92,10 @@ final class ScreenshotService {
 
         let ok = runScreencapture(arguments: args)
         guard ok, fm.fileExists(atPath: tmpURL.path) else { return }
+        handleCapturedFile(at: tmpURL, preferredScreen: preferredScreen)
+    }
 
-        // Move tmp → Downloads with the user-facing filename
+    private func handleCapturedFile(at tmpURL: URL, preferredScreen: NSScreen?) {
         let outputDir = saveDirectory()
         let finalURL = outputDir.appendingPathComponent(makeFilename())
 
@@ -84,7 +114,6 @@ final class ScreenshotService {
                 self.onCaptured?(finalURL)
             }
         } catch {
-            // Move failed — use tmp path as fallback (file exists, just not renamed)
             lastCaptureURL = tmpURL
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }

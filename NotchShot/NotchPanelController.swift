@@ -14,6 +14,7 @@ final class NotchPanelInteractionState: ObservableObject {
 private enum NotchPanelRoute {
     case main
     case tray
+    case cdwn
 }
 
 private final class NotchPanelRootState: ObservableObject {
@@ -23,6 +24,10 @@ private final class NotchPanelRootState: ObservableObject {
     @Published var progress: CGFloat = 0.0
     /// Pre-faded to 0.0 before tray→main morph starts; reset to 1.0 after close completes
     @Published var trayContentVisible: CGFloat = 1.0
+    /// 0.0 = Main visible, 1.0 = Countdown visible (crossfade, no morph)
+    @Published var countdownVisible: CGFloat = 0.0
+    @Published var countdownSeconds: Int = 0
+    @Published var countdownTotal: Int = 0
 }
 
 private struct NotchPanelRootView: View {
@@ -37,6 +42,8 @@ private struct NotchPanelRootView: View {
     let onPickColor: () -> Void
     let onModeDelayChanged: () -> Void
     let onBack: () -> Void
+    let onStopCountdown: () -> Void
+    let onCaptureNow: () -> Void
 
     private var m: NotchMetrics { rootState.metrics }
     private var trayScrollHeight: CGFloat { 55 }
@@ -51,7 +58,7 @@ private struct NotchPanelRootView: View {
                 .compositingGroup()
                 .frame(height: trayH)
 
-            // Main — появляется только в последних ~60% морфа (когда панель почти схлопнулась)
+            // Main — появляется только в последних ~60% морфа; скрывается при countdown
             NotchPanelView(
                 metrics: m,
                 interaction: interaction,
@@ -63,8 +70,23 @@ private struct NotchPanelRootView: View {
                 onPickColor: onPickColor,
                 onModeDelayChanged: onModeDelayChanged
             )
-            .opacity(max(0.0, min(1.0, (0.6 - p) / 0.6)))
-            .allowsHitTesting(p < 0.5)
+            .opacity(max(0.0, min(1.0, (0.6 - p) / 0.6)) * (1.0 - rootState.countdownVisible))
+            .animation(.easeOut(duration: 0.16), value: rootState.countdownVisible)
+            .allowsHitTesting(p < 0.5 && rootState.countdownVisible < 0.5)
+
+            // Countdown — crossfade поверх Main, без изменения размера панели
+            CountdownView(
+                metrics: m,
+                interaction: interaction,
+                secondsRemaining: rootState.countdownSeconds,
+                totalSeconds: rootState.countdownTotal,
+                onStop: onStopCountdown,
+                onCaptureNow: onCaptureNow
+            )
+            .opacity(rootState.countdownVisible)
+            .animation(.easeOut(duration: 0.16), value: rootState.countdownVisible)
+            .allowsHitTesting(rootState.countdownVisible >= 0.5)
+            .frame(height: m.panelHeight)
 
             // Tray — появляется при p→1; content pre-fade через trayContentVisible
             // Два отдельных модификатора: SwiftUI трекает их независимо,
@@ -100,6 +122,19 @@ final class NotchPanelController: NSObject {
     private var isMenuTracking: Bool = false
     private var trayTransitionInFlight: Bool = false
     private var colorSamplerInFlight: Bool = false
+    private enum CaptureTarget {
+        case screen
+        case rect(CGRect)
+        case windowID(CGWindowID)
+    }
+
+    private var countdownTimer: Timer?
+    private var countdownCaptureTarget: CaptureTarget = .screen
+    private var countdownScreen: NSScreen?
+
+    private let selectionOverlay = SelectionOverlay()
+    private let windowPickerOverlay = WindowPickerOverlay()
+    private var preSelectionInFlight: Bool = false
 
     override init() {
         super.init()
@@ -150,6 +185,7 @@ final class NotchPanelController: NSObject {
 
     var suppressesGlobalAutoHide: Bool {
         isMenuTracking || trayTransitionInFlight || colorSamplerInFlight
+            || route == .cdwn || preSelectionInFlight
     }
 
     private var metrics = NotchMetrics.fallback() {
@@ -277,6 +313,16 @@ final class NotchPanelController: NSObject {
             return
         }
 
+        // Cancel any active countdown before hiding
+        if route == .cdwn {
+            countdownTimer?.invalidate()
+            countdownTimer = nil
+            rootState.countdownVisible = 0.0
+            rootState.countdownSeconds = 0
+            rootState.countdownTotal = 0
+            route = .main
+        }
+
         interactionState.isEnabled = false
 
         guard let screen = (currentScreen ?? NSScreen.main ?? NSScreen.screens.first) else {
@@ -338,6 +384,7 @@ final class NotchPanelController: NSObject {
                 self?.isExpanded = false
                 self?.route = .main
                 self?.rootState.progress = 0.0
+                self?.rootState.countdownVisible = 0.0
                 completion?()
             }
         } else {
@@ -360,6 +407,7 @@ final class NotchPanelController: NSObject {
                 self?.isExpanded = false
                 self?.route = .main
                 self?.rootState.progress = 0.0
+                self?.rootState.countdownVisible = 0.0
                 completion?()
             }
         }
@@ -458,14 +506,23 @@ final class NotchPanelController: NSObject {
             onClose: { [weak self] in self?.hideAnimated() },
             onCapture: { [weak self] mode, delay in
                 guard let self else { return }
-                let screen = self.currentScreen ?? NSScreen.main
-                self.hideAnimated()
-                self.screenshot.capture(mode: mode, delaySeconds: delay.seconds, preferredScreen: screen)
+                if delay == .off {
+                    let screen = self.currentScreen ?? NSScreen.main
+                    self.hideAnimated {
+                        self.screenshot.capture(mode: mode, delaySeconds: 0, preferredScreen: screen)
+                    }
+                } else if mode == .screen {
+                    self.startScreenCountdown(seconds: delay.seconds)
+                } else {
+                    self.launchPreSelection(mode: mode, seconds: delay.seconds)
+                }
             },
             onToggleTray: { [weak self] in self?.switchToTray() },
             onPickColor: { [weak self] in self?.pickColor() },
             onModeDelayChanged: { [weak self] in self?.updateWidthForNoNotchIfNeeded() },
-            onBack: { [weak self] in self?.switchToMain() }
+            onBack: { [weak self] in self?.switchToMain() },
+            onStopCountdown: { [weak self] in self?.stopCountdown() },
+            onCaptureNow: { [weak self] in self?.captureNowFromCountdown() }
         )
     }
 
@@ -473,6 +530,7 @@ final class NotchPanelController: NSObject {
         switch route {
         case .main:  return expandedWidth
         case .tray:  return trayWidth
+        case .cdwn:  return expandedWidth
         }
     }
 
@@ -487,6 +545,124 @@ final class NotchPanelController: NSObject {
     private func switchToMain() {
         guard route != .main else { return }
         transitionBetweenStates(.main)
+    }
+
+    // MARK: - Countdown
+
+    /// Screen mode: panel stays open, crossfade to countdown.
+    private func startScreenCountdown(seconds: Int) {
+        countdownCaptureTarget = .screen
+        countdownScreen = currentScreen
+        rootState.countdownSeconds = seconds
+        rootState.countdownTotal = seconds
+        route = .cdwn
+        withAnimation(.easeOut(duration: 0.16)) {
+            rootState.countdownVisible = 1.0
+        }
+        startCountdownTimer()
+    }
+
+    /// Selection/Window mode: hide panel, show pre-selection overlay, then show panel with countdown.
+    private func launchPreSelection(mode: CaptureMode, seconds: Int) {
+        guard !preSelectionInFlight else { return }
+        preSelectionInFlight = true
+        let screen = currentScreen ?? NSScreen.main ?? NSScreen.screens[0]
+
+        hideAnimated { [weak self] in
+            guard let self else { return }
+            if mode == .selection {
+                self.selectionOverlay.onSelected = { [weak self] rect in
+                    guard let self else { return }
+                    self.preSelectionInFlight = false
+                    self.beginCountdownAfterPreSelection(target: .rect(rect), seconds: seconds, screen: screen)
+                }
+                self.selectionOverlay.onCancelled = { [weak self] in
+                    self?.preSelectionInFlight = false
+                }
+                self.selectionOverlay.start(on: screen)
+            } else {
+                // .window
+                self.windowPickerOverlay.onSelected = { [weak self] windowID in
+                    guard let self else { return }
+                    self.preSelectionInFlight = false
+                    self.beginCountdownAfterPreSelection(target: .windowID(windowID), seconds: seconds, screen: screen)
+                }
+                self.windowPickerOverlay.onCancelled = { [weak self] in
+                    self?.preSelectionInFlight = false
+                }
+                self.windowPickerOverlay.start(on: screen)
+            }
+        }
+    }
+
+    /// Called after pre-selection overlay completes: show panel in countdown state directly.
+    private func beginCountdownAfterPreSelection(target: CaptureTarget, seconds: Int, screen: NSScreen) {
+        countdownCaptureTarget = target
+        countdownScreen = screen
+        rootState.countdownSeconds = seconds
+        rootState.countdownTotal = seconds
+        // Set countdown visible instantly before panel appears (no crossfade needed)
+        rootState.countdownVisible = 1.0
+        route = .cdwn
+        showAnimated(on: screen)
+        startCountdownTimer()
+    }
+
+    private func startCountdownTimer() {
+        countdownTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            if self.rootState.countdownSeconds > 1 {
+                self.rootState.countdownSeconds -= 1
+            } else {
+                self.finishCountdown()
+            }
+        }
+    }
+
+    private func stopCountdown() {
+        countdownTimer?.invalidate()
+        countdownTimer = nil
+        route = .main
+        withAnimation(.easeOut(duration: 0.16)) {
+            rootState.countdownVisible = 0.0
+        }
+        // Reset arc values only after the fade-out completes,
+        // otherwise the arc would jump backwards while still visible.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) { [weak self] in
+            self?.rootState.countdownSeconds = 0
+            self?.rootState.countdownTotal = 0
+        }
+    }
+
+    private func captureNowFromCountdown() {
+        countdownTimer?.invalidate()
+        countdownTimer = nil
+        let target = countdownCaptureTarget
+        let screen = countdownScreen
+        hideAnimated { [weak self] in
+            self?.executeCapture(target: target, screen: screen)
+        }
+    }
+
+    private func finishCountdown() {
+        countdownTimer?.invalidate()
+        countdownTimer = nil
+        let target = countdownCaptureTarget
+        let screen = countdownScreen
+        hideAnimated { [weak self] in
+            self?.executeCapture(target: target, screen: screen)
+        }
+    }
+
+    private func executeCapture(target: CaptureTarget, screen: NSScreen?) {
+        switch target {
+        case .screen:
+            screenshot.capture(mode: .screen, delaySeconds: 0, preferredScreen: screen)
+        case .rect(let cgRect):
+            screenshot.captureRect(cgRect, preferredScreen: screen)
+        case .windowID(let id):
+            screenshot.captureWindowID(id, preferredScreen: screen)
+        }
     }
 
     private func transitionBetweenStates(_ targetRoute: NotchPanelRoute) {
