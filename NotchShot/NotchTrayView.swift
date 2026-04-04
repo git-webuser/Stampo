@@ -398,10 +398,13 @@ private struct PopUpSchemeButtonWrapper: NSViewRepresentable {
         let button = NSPopUpButton()
         button.isBordered       = false
         button.isTransparent    = true
-        button.pullsDown        = false
+        button.pullsDown        = true
         button.autoresizingMask = []
         (button.cell as? NSPopUpButtonCell)?.arrowPosition = .noArrow
 
+        // pullsDown=true: первый пункт используется как скрытый заголовок кнопки,
+        // добавляем пустой placeholder чтобы пункты выбора начинались с HEX.
+        button.addItem(withTitle: "")
         for s in ColorSchemeType.allCases {
             button.addItem(withTitle: s.title)
         }
@@ -426,7 +429,8 @@ private struct PopUpSchemeButtonWrapper: NSViewRepresentable {
     }
 
     func updateNSView(_ button: NSPopUpButton, context: Context) {
-        let idx = ColorSchemeType.allCases.firstIndex(of: selection) ?? 0
+        // +1 — смещение из-за пустого placeholder на индексе 0 (pullsDown = true)
+        let idx = (ColorSchemeType.allCases.firstIndex(of: selection) ?? 0) + 1
         NSAnimationContext.runAnimationGroup { ctx in
             ctx.duration = 0
             button.selectItem(at: idx)
@@ -443,7 +447,8 @@ private struct PopUpSchemeButtonWrapper: NSViewRepresentable {
 
         @objc func selectionChanged(_ sender: NSPopUpButton) {
             let cases = ColorSchemeType.allCases
-            let idx = sender.indexOfSelectedItem
+            // -1 — компенсируем пустой placeholder на индексе 0 (pullsDown = true)
+            let idx = sender.indexOfSelectedItem - 1
             guard idx >= 0, idx < cases.count else { return }
             DispatchQueue.main.async { self.parent.selection = cases[idx] }
         }
@@ -468,36 +473,31 @@ private struct TraySchemeMenuButton: View {
     @State private var isPressed  = false
     @State private var isMenuOpen = false
 
-    private let width: CGFloat = 68
-
     var body: some View {
-        ZStack {
+        HStack(spacing: 5) {
+            Text(scheme.title)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(labelColor)
+            Image(systemName: "chevron.down")
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(chevronColor)
+        }
+        .padding(.horizontal, 8)
+        .frame(height: metrics.buttonHeight)
+        .background(
+            RoundedRectangle(cornerRadius: metrics.buttonRadius, style: .continuous)
+                .fill(backgroundColor)
+        )
+        .overlay {
             PopUpSchemeButtonWrapper(
                 selection: $scheme,
                 onOpen:  { isMenuOpen = true  },
                 onClose: { isMenuOpen = false }
             )
-            .frame(width: width, height: metrics.buttonHeight)
-
-            HStack(spacing: 5) {
-                Text(scheme.title)
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(labelColor)
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(chevronColor)
-            }
-            .padding(.horizontal, 8)
-            .frame(width: width, height: metrics.buttonHeight)
-            .background(
-                RoundedRectangle(cornerRadius: metrics.buttonRadius, style: .continuous)
-                    .fill(backgroundColor)
-            )
-            .scaleEffect(isPressed ? 0.88 : 1.0)
-            .animation(.spring(response: 0.18, dampingFraction: 0.7), value: isPressed)
-            .allowsHitTesting(false)
         }
-        .frame(width: width, height: metrics.buttonHeight)
+        .fixedSize()
+        .scaleEffect(isPressed ? 0.88 : 1.0)
+        .animation(.spring(response: 0.18, dampingFraction: 0.7), value: isPressed)
         .contentShape(Rectangle())
         .clipped()
         .onHover { isHovered = $0 }

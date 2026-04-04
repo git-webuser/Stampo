@@ -31,19 +31,28 @@ struct TrayScreenshot: Identifiable, Equatable {
 enum ColorSchemeType: CaseIterable, Equatable {
     case hex
     case rgb
+    case hsl
+    case hsb
+    case cmyk
 
     var title: String {
         switch self {
-        case .hex: return "HEX"
-        case .rgb: return "RGB"
+        case .hex:  return "HEX"
+        case .rgb:  return "RGB"
+        case .hsl:  return "HSL"
+        case .hsb:  return "HSB"
+        case .cmyk: return "CMYK"
         }
     }
 
     func convert(_ color: NSColor) -> String {
         let c = color.usingColorSpace(.sRGB) ?? color
         switch self {
-        case .hex: return c.hexString
-        case .rgb: return c.rgbString
+        case .hex:  return c.hexString
+        case .rgb:  return c.rgbString
+        case .hsl:  return c.hslString
+        case .hsb:  return c.hsbString
+        case .cmyk: return c.cmykString
         }
     }
 }
