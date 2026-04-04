@@ -31,9 +31,13 @@ final class SelectionOverlay {
         panel.contentView = view
         self.panel = panel
 
-        NSCursor.crosshair.push()
-        panel.orderFrontRegardless()
+        let cursor = makeScreenshotCrosshairCursor()
+        cursor.push()
+        // NSCursor APIs require the app to be active and the window to be key.
+        // The main panel is already hidden at this point, so activation is safe.
+        NSApp.activate(ignoringOtherApps: true)
         panel.makeKeyAndOrderFront(nil)
+        cursor.set()
     }
 
     func cancel() {
@@ -75,6 +79,33 @@ private final class SelectionView: NSView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         window?.makeFirstResponder(self)
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.forEach { removeTrackingArea($0) }
+        addTrackingArea(NSTrackingArea(
+            rect: bounds,
+            options: [.mouseMoved, .mouseEnteredAndExited, .activeAlways, .inVisibleRect, .cursorUpdate],
+            owner: self,
+            userInfo: nil
+        ))
+    }
+
+    override func resetCursorRects() {
+        addCursorRect(bounds, cursor: makeScreenshotCrosshairCursor())
+    }
+
+    override func cursorUpdate(with event: NSEvent) {
+        makeScreenshotCrosshairCursor().set()
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        makeScreenshotCrosshairCursor().set()
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        makeScreenshotCrosshairCursor().set()
     }
 
     override func mouseDown(with event: NSEvent) {

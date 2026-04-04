@@ -5,7 +5,7 @@ import SwiftUI
 
 /// Точная копия системного screencapture crosshair.
 /// Геометрия и порядок слоёв из публичной библиотеки компонентов Apple в Figma.
-private func makeScreenshotCrosshairCursor(contrastAgainst _: NSColor? = nil) -> NSCursor {
+func makeScreenshotCrosshairCursor(contrastAgainst _: NSColor? = nil) -> NSCursor {
     let size: CGFloat = 25
     let cx = size / 2
     let cy = size / 2
