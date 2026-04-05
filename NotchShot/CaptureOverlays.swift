@@ -11,6 +11,7 @@ final class SelectionOverlay {
 
     private var panel: NSPanel?
     private var targetScreen: NSScreen?
+    private var escMonitors: [Any] = []
 
     func start(on screen: NSScreen) {
         targetScreen = screen
@@ -31,10 +32,17 @@ final class SelectionOverlay {
         panel.contentView = view
         self.panel = panel
 
+        if let m = NSEvent.addGlobalMonitorForEvents(matching: .keyDown, handler: { [weak self] event in
+            if event.keyCode == 53 { self?.cancel() }
+        }) { escMonitors.append(m) }
+
+        if let m = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: { [weak self] event in
+            if event.keyCode == 53 { self?.cancel(); return nil }
+            return event
+        }) { escMonitors.append(m) }
+
         let cursor = makeScreenshotCrosshairCursor()
         cursor.push()
-        // NSCursor APIs require the app to be active and the window to be key.
-        // The main panel is already hidden at this point, so activation is safe.
         NSApp.activate(ignoringOtherApps: true)
         panel.makeKeyAndOrderFront(nil)
         cursor.set()
@@ -46,6 +54,9 @@ final class SelectionOverlay {
     }
 
     private func dismiss() {
+        guard panel != nil else { return }
+        escMonitors.forEach { NSEvent.removeMonitor($0) }
+        escMonitors.removeAll()
         NSCursor.pop()
         panel?.orderOut(nil)
         panel = nil
@@ -166,6 +177,7 @@ final class WindowPickerOverlay {
 
     private var panel: NSPanel?
     private var targetScreen: NSScreen?
+    private var escMonitors: [Any] = []
 
     func start(on screen: NSScreen) {
         targetScreen = screen
@@ -185,9 +197,26 @@ final class WindowPickerOverlay {
         panel.contentView = view
         self.panel = panel
 
-        NSCursor.pointingHand.push()
+        // Глобальный + локальный мониторы для Escape — надёжнее keyDown на nonactivatingPanel
+        if let m = NSEvent.addGlobalMonitorForEvents(matching: .keyDown, handler: { [weak self] event in
+            if event.keyCode == 53 { self?.cancel() }
+        }) { escMonitors.append(m) }
+
+        if let m = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: { [weak self] event in
+            if event.keyCode == 53 { self?.cancel(); return nil }
+            return event
+        }) { escMonitors.append(m) }
+
+        NSApp.activate(ignoringOtherApps: true)
         panel.orderFrontRegardless()
         panel.makeKeyAndOrderFront(nil)
+        panel.makeFirstResponder(view)
+        // Запрещаем AppKit управлять cursor rects для нашей панели и всех её сабвью
+        // (включая softCursor NSImageView), иначе AppKit показывает системный курсор.
+        panel.disableCursorRects()
+        // Скрываем аппаратный курсор. Счётчик = 1; будет восстановлен в dismiss().
+        CGDisplayHideCursor(CGMainDisplayID())
+        view.hideCount = 1
     }
 
     func cancel() {
@@ -196,7 +225,12 @@ final class WindowPickerOverlay {
     }
 
     private func dismiss() {
-        NSCursor.pop()
+        guard panel != nil else { return }
+        // Балансируем каждый CGDisplayHideCursor одним CGDisplayShowCursor
+        let count = (panel?.contentView as? WindowPickerView)?.hideCount ?? 1
+        for _ in 0 ..< count { CGDisplayShowCursor(CGMainDisplayID()) }
+        escMonitors.forEach { NSEvent.removeMonitor($0) }
+        escMonitors.removeAll()
         panel?.orderOut(nil)
         panel = nil
     }
@@ -211,14 +245,43 @@ private final class WindowPickerView: NSView {
 
     private var hoveredWindowID: CGWindowID?
     private var hoveredViewRect: CGRect?
+    // Счётчик вызовов CGDisplayHideCursor — нужен для баланса в dismiss()
+    var hideCount = 0
+
+    // Software cursor: рисуем курсор сами — аппаратный скрыт через CGDisplayHideCursor
+    private let softCursor: NSImageView = {
+        let img  = makeWindowCaptureCursor().image
+        let view = NSImageView(frame: NSRect(origin: .zero, size: img.size))
+        view.image        = img
+        view.imageScaling = .scaleNone
+        view.wantsLayer   = true
+        return view
+    }()
 
     override var isOpaque: Bool { false }
     override var acceptsFirstResponder: Bool { true }
+
+    // Не даём AppKit трогать курсор
+    override func resetCursorRects() {}
+    override func cursorUpdate(with event: NSEvent) {}
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         window?.acceptsMouseMovedEvents = true
         window?.makeFirstResponder(self)
+        addSubview(softCursor)
+        // Начальная позиция по текущему положению мыши
+        if let win = window {
+            let screenPt = NSEvent.mouseLocation
+            let winPt    = win.convertPoint(fromScreen: screenPt)
+            let viewPt   = convert(winPt, from: nil)
+            placeSoftCursor(at: viewPt)
+        }
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.forEach { removeTrackingArea($0) }
         addTrackingArea(NSTrackingArea(
             rect: bounds,
             options: [.mouseMoved, .activeAlways, .inVisibleRect],
@@ -227,8 +290,26 @@ private final class WindowPickerView: NSView {
         ))
     }
 
+    private func placeSoftCursor(at viewPt: NSPoint) {
+        // Hotspot у кончика стрелки — верхний левый угол изображения.
+        // В NSView-координатах (y=0 внизу) «верх» = y + height.
+        let origin = NSPoint(x: viewPt.x, y: viewPt.y - softCursor.frame.height)
+        // Отключаем implicit CALayer-анимацию: без этого wantsLayer-вью
+        // плавно «едет» между позициями (~0.25s), создавая задвоение курсора.
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        softCursor.frame.origin = origin
+        CATransaction.commit()
+    }
+
     override func mouseMoved(with event: NSEvent) {
-        updateHover(at: convert(event.locationInWindow, from: nil))
+        // Повторно скрываем аппаратный курсор — WindowServer или другие приложения
+        // могут вернуть его (каретка над текстовым полем и т.п.)
+        CGDisplayHideCursor(CGMainDisplayID())
+        hideCount += 1
+        let pt = convert(event.locationInWindow, from: nil)
+        placeSoftCursor(at: pt)
+        updateHover(at: pt)
     }
 
     override func mouseDown(with event: NSEvent) {

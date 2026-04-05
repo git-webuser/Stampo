@@ -65,7 +65,71 @@ func makeScreenshotCrosshairCursor(contrastAgainst _: NSColor? = nil) -> NSCurso
     return NSCursor(image: image, hotSpot: NSPoint(x: cx, y: cy))
 }
 
+// MARK: - Window-capture cursor (arrow + camera badge)
 
+/// Стрелка macOS + белый закруглённый бейдж с иконкой camera.fill внизу справа.
+/// Стиль как у системного drag-курсора (стрелка + облако), но вместо облака — камера.
+func makeWindowCaptureCursor() -> NSCursor {
+    let arrowBase = NSCursor.arrow.image
+    let baseSize  = arrowBase.size          // ~17×22 pt logical
+
+    // Размеры бейджа
+    let badgeSize: CGFloat  = 14            // белый прямоугольник
+    let iconSize: CGFloat   = 9             // camera.fill внутри
+    let cornerR: CGFloat    = 3
+    let badgeOffset: CGFloat = 2            // сдвиг от кончика стрелки
+
+    let canvasW = baseSize.width  + badgeSize * 0.7
+    let canvasH = baseSize.height + badgeSize * 0.7
+    let canvasSize = NSSize(width: canvasW, height: canvasH)
+
+    let image = NSImage(size: canvasSize)
+    image.lockFocus()
+    defer { image.unlockFocus() }
+
+    guard let ctx = NSGraphicsContext.current?.cgContext else {
+        return NSCursor(image: image, hotSpot: .zero)
+    }
+
+    // Стрелка — верхний левый угол
+    arrowBase.draw(
+        in: NSRect(x: 0, y: canvasH - baseSize.height,
+                   width: baseSize.width, height: baseSize.height),
+        from: .zero, operation: .sourceOver, fraction: 1.0
+    )
+
+    // Позиция бейджа: правый нижний угол холста
+    let bx = canvasW - badgeSize - badgeOffset
+    let by = badgeOffset
+    let badgeRect = CGRect(x: bx, y: by, width: badgeSize, height: badgeSize)
+
+    // Тень под бейджем
+    ctx.saveGState()
+    ctx.setShadow(offset: CGSize(width: 0, height: -1), blur: 2,
+                  color: NSColor(white: 0, alpha: 0.35).cgColor)
+
+    // Белый закруглённый прямоугольник (как облако у drag-курсора)
+    let path = CGPath(roundedRect: badgeRect, cornerWidth: cornerR, cornerHeight: cornerR,
+                      transform: nil)
+    ctx.setFillColor(NSColor.white.cgColor)
+    ctx.addPath(path)
+    ctx.fillPath()
+    ctx.restoreGState()
+
+    // Иконка camera.fill внутри бейджа
+    if let sym = NSImage(systemSymbolName: "camera.fill",
+                         accessibilityDescription: nil) {
+        let cfg = NSImage.SymbolConfiguration(pointSize: iconSize, weight: .medium)
+            .applying(NSImage.SymbolConfiguration(paletteColors: [.black]))
+        if let icon = sym.withSymbolConfiguration(cfg) {
+            let ix = bx + (badgeSize - iconSize) / 2
+            let iy = by + (badgeSize - iconSize) / 2
+            icon.draw(in: NSRect(x: ix, y: iy, width: iconSize, height: iconSize))
+        }
+    }
+
+    return NSCursor(image: image, hotSpot: NSPoint(x: 0, y: 0))
+}
 
 
 // MARK: - FullscreenTrackingView
