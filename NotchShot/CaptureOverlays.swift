@@ -1,5 +1,18 @@
 import AppKit
 
+// MARK: - Private CGS cursor API
+
+// CGSSetConnectionProperty с ключом "SetsCursorInBackground" разрешает этому
+// процессу управлять курсором даже когда он не является foreground-приложением.
+// Используется в barrier, enthrall и других утилитах скрытия курсора.
+// Без этого window server передаёт управление чужому процессу при наведении на его окно.
+@_silgen_name("_CGSDefaultConnection")
+private func _CGSDefaultConnection() -> Int32
+
+@_silgen_name("CGSSetConnectionProperty")
+private func CGSSetConnectionProperty(
+    _ cid: Int32, _ targetCid: Int32, _ key: CFString, _ value: CFTypeRef)
+
 // MARK: - SelectionOverlay
 
 /// Full-screen drag-to-select overlay.
@@ -178,6 +191,8 @@ final class WindowPickerOverlay {
     private var panel: NSPanel?
     private var targetScreen: NSScreen?
     private var escMonitors: [Any] = []
+    private var hideTimer: Timer?
+    private var hideCount = 0
 
     func start(on screen: NSScreen) {
         targetScreen = screen
@@ -194,14 +209,14 @@ final class WindowPickerOverlay {
             self?.dismiss()
             self?.onCancelled?()
         }
+        view.onNeedsHide = { [weak self] in self?.hideCursor() }
         panel.contentView = view
         self.panel = panel
 
-        // Глобальный + локальный мониторы для Escape — надёжнее keyDown на nonactivatingPanel
+        // ESC — глобальный + локальный мониторы
         if let m = NSEvent.addGlobalMonitorForEvents(matching: .keyDown, handler: { [weak self] event in
             if event.keyCode == 53 { self?.cancel() }
         }) { escMonitors.append(m) }
-
         if let m = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: { [weak self] event in
             if event.keyCode == 53 { self?.cancel(); return nil }
             return event
@@ -211,12 +226,24 @@ final class WindowPickerOverlay {
         panel.orderFrontRegardless()
         panel.makeKeyAndOrderFront(nil)
         panel.makeFirstResponder(view)
-        // Запрещаем AppKit управлять cursor rects для нашей панели и всех её сабвью
-        // (включая softCursor NSImageView), иначе AppKit показывает системный курсор.
         panel.disableCursorRects()
-        // Скрываем аппаратный курсор. Счётчик = 1; будет восстановлен в dismiss().
-        CGDisplayHideCursor(CGMainDisplayID())
-        view.hideCount = 1
+
+        // Разрешаем управлять курсором в фоне — без этого window server
+        // передаёт контроль чужому процессу при наведении на его окно.
+        let cid = _CGSDefaultConnection()
+        CGSSetConnectionProperty(cid, cid, "SetsCursorInBackground" as CFString,
+                                 kCFBooleanTrue)
+
+        // Прячем курсор и повторяем каждые ~16 мс через .common — срабатывает
+        // и в .default, и в .eventTracking. Каждый вызов учитывается в hideCount,
+        // чтобы dismiss() мог точно восстановить баланс.
+        hideCount = 0
+        hideCursor()
+        let t = Timer(timeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in
+            self?.hideCursor()
+        }
+        RunLoop.main.add(t, forMode: .common)
+        hideTimer = t
     }
 
     func cancel() {
@@ -224,11 +251,25 @@ final class WindowPickerOverlay {
         onCancelled?()
     }
 
+    /// Единственное место где вызывается CGDisplayHideCursor — счётчик всегда точный.
+    private func hideCursor() {
+        CGDisplayHideCursor(CGMainDisplayID())
+        hideCount += 1
+    }
+
     private func dismiss() {
         guard panel != nil else { return }
-        // Балансируем каждый CGDisplayHideCursor одним CGDisplayShowCursor
-        let count = (panel?.contentView as? WindowPickerView)?.hideCount ?? 1
-        for _ in 0 ..< count { CGDisplayShowCursor(CGMainDisplayID()) }
+        hideTimer?.invalidate()
+        hideTimer = nil
+        let cid = _CGSDefaultConnection()
+        // Сначала показываем курсор, пока SetsCursorInBackground ещё true —
+        // иначе между сбросом флага и ShowCursor другой процесс (владелец
+        // окна B, ставшего активным) успевает перехватить управление курсором.
+        for _ in 0 ..< hideCount { CGDisplayShowCursor(CGMainDisplayID()) }
+        hideCount = 0
+        NSCursor.arrow.set()   // явно сбрасываем AppKit-стек курсора
+        CGSSetConnectionProperty(cid, cid, "SetsCursorInBackground" as CFString,
+                                 kCFBooleanFalse)
         escMonitors.forEach { NSEvent.removeMonitor($0) }
         escMonitors.removeAll()
         panel?.orderOut(nil)
@@ -242,15 +283,15 @@ private final class WindowPickerView: NSView {
     var targetScreen: NSScreen?
     var onSelected: ((CGWindowID) -> Void)?
     var onCancelled: (() -> Void)?
+    var onNeedsHide: (() -> Void)?   // вызывается при смене окна — оверлей учитывает в счётчике
 
     private var hoveredWindowID: CGWindowID?
     private var hoveredViewRect: CGRect?
-    // Счётчик вызовов CGDisplayHideCursor — нужен для баланса в dismiss()
-    var hideCount = 0
 
     // Software cursor: рисуем курсор сами — аппаратный скрыт через CGDisplayHideCursor
-    private let softCursor: NSImageView = {
-        let img  = makeWindowCaptureCursor().image
+    private let _wpcCursor: NSCursor = makeWindowCaptureCursor()
+    private lazy var softCursor: NSImageView = {
+        let img  = _wpcCursor.image
         let view = NSImageView(frame: NSRect(origin: .zero, size: img.size))
         view.image        = img
         view.imageScaling = .scaleNone
@@ -291,9 +332,13 @@ private final class WindowPickerView: NSView {
     }
 
     private func placeSoftCursor(at viewPt: NSPoint) {
-        // Hotspot у кончика стрелки — верхний левый угол изображения.
-        // В NSView-координатах (y=0 внизу) «верх» = y + height.
-        let origin = NSPoint(x: viewPt.x, y: viewPt.y - softCursor.frame.height)
+        // Смещаем изображение так, чтобы его hotspot совпал с позицией мыши.
+        // NSView: y=0 снизу. Hotspot (hx, hy) от верхнего-левого угла изображения:
+        //   origin.x = viewPt.x - hx
+        //   origin.y = viewPt.y - height + hy
+        let hs = _wpcCursor.hotSpot
+        let h  = softCursor.frame.height
+        let origin = NSPoint(x: viewPt.x - hs.x, y: viewPt.y - h + hs.y)
         // Отключаем implicit CALayer-анимацию: без этого wantsLayer-вью
         // плавно «едет» между позициями (~0.25s), создавая задвоение курсора.
         CATransaction.begin()
@@ -303,10 +348,6 @@ private final class WindowPickerView: NSView {
     }
 
     override func mouseMoved(with event: NSEvent) {
-        // Повторно скрываем аппаратный курсор — WindowServer или другие приложения
-        // могут вернуть его (каретка над текстовым полем и т.п.)
-        CGDisplayHideCursor(CGMainDisplayID())
-        hideCount += 1
         let pt = convert(event.locationInWindow, from: nil)
         placeSoftCursor(at: pt)
         updateHover(at: pt)
@@ -323,6 +364,9 @@ private final class WindowPickerView: NSView {
     private func updateHover(at viewPt: NSPoint) {
         guard let screen = targetScreen else { return }
         let result = windowAtViewPoint(viewPt, screen: screen)
+        if result?.0 != hoveredWindowID {
+            onNeedsHide?()   // смена окна → оверлей прячет курсор и учитывает в счётчике
+        }
         hoveredWindowID = result?.0
         hoveredViewRect = result?.1
         needsDisplay = true
