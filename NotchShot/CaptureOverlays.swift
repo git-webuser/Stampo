@@ -78,7 +78,7 @@ final class SelectionOverlay {
     /// NSRect in view coordinates (AppKit, y=0 bottom-left of screen)
     /// → CGRect in global CG screen coordinates (y=0 top-left of primary display).
     private func nsRectToCGRect(_ rect: NSRect, on screen: NSScreen) -> CGRect {
-        let primaryH = NSScreen.screens.first?.frame.height ?? screen.frame.height
+        let primaryH = NSScreen.screens.first(where: { $0.frame.origin == .zero })?.frame.height ?? screen.frame.height
         return CGRect(
             x: rect.minX + screen.frame.minX,
             y: primaryH - (rect.maxY + screen.frame.minY),
@@ -262,18 +262,25 @@ final class WindowPickerOverlay {
         hideTimer?.invalidate()
         hideTimer = nil
         let cid = _CGSDefaultConnection()
-        // Сначала показываем курсор, пока SetsCursorInBackground ещё true —
-        // иначе между сбросом флага и ShowCursor другой процесс (владелец
-        // окна B, ставшего активным) успевает перехватить управление курсором.
+        // ShowCursor пока SetsCursorInBackground ещё true — иначе другой процесс
+        // (владелец окна B, ставшего активным) успевает перехватить управление.
         for _ in 0 ..< hideCount { CGDisplayShowCursor(CGMainDisplayID()) }
         hideCount = 0
-        NSCursor.arrow.set()   // явно сбрасываем AppKit-стек курсора
         CGSSetConnectionProperty(cid, cid, "SetsCursorInBackground" as CFString,
                                  kCFBooleanFalse)
         escMonitors.forEach { NSEvent.removeMonitor($0) }
         escMonitors.removeAll()
         panel?.orderOut(nil)
         panel = nil
+        // Курсор восстанавливаем ПОСЛЕ orderOut: AppKit обрабатывает смену активного
+        // окна во время orderOut и может перезаписать cursor-состояние, установленное
+        // до этого. Синхронный вызов ловит большинство случаев, асинхронный — случаи
+        // когда AppKit завершает курсор-менеджмент уже после возврата из orderOut
+        // (например при переходе фокуса в окно другого приложения).
+        NSCursor.arrow.set()
+        DispatchQueue.main.async {
+            NSCursor.arrow.set()
+        }
     }
 }
 
@@ -373,7 +380,7 @@ private final class WindowPickerView: NSView {
     }
 
     private func windowAtViewPoint(_ viewPt: NSPoint, screen: NSScreen) -> (CGWindowID, CGRect)? {
-        let primaryH = NSScreen.screens.first?.frame.height ?? screen.frame.height
+        let primaryH = NSScreen.screens.first(where: { $0.frame.origin == .zero })?.frame.height ?? screen.frame.height
 
         // View → global AppKit → global CG
         let cgPt = CGPoint(

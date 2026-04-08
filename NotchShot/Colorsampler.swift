@@ -15,7 +15,6 @@ final class ColorSampler {
     private var localMouseMonitor: Any?
     private var rightClickMonitor: Any?
     private var leftClickMonitor: Any?
-    private var escMonitor: Any?
     private var escEventTap: CFMachPort?
     private var escEventTapSource: CFRunLoopSource?
 
@@ -135,14 +134,13 @@ final class ColorSampler {
     }
 
     private func removeMonitors() {
-        [mouseMonitor, localMouseMonitor, leftClickMonitor, rightClickMonitor, escMonitor]
+        [mouseMonitor, localMouseMonitor, leftClickMonitor, rightClickMonitor]
             .compactMap { $0 }
             .forEach { NSEvent.removeMonitor($0) }
         mouseMonitor = nil
         localMouseMonitor = nil
         leftClickMonitor = nil
         rightClickMonitor = nil
-        escMonitor = nil
 
         if let tap = escEventTap {
             CGEvent.tapEnable(tap: tap, enable: false)
@@ -329,26 +327,74 @@ final class ColorSampler {
     func buildMagnifier(from cgImage: CGImage, centerPx: CGPoint, gridSize: Int = 3) -> MagnifierData {
         let half = gridSize / 2
         let imgW = cgImage.width, imgH = cgImage.height
+
+        // Clamp patch origin so the entire gridSize×gridSize region stays inside the image.
+        let srcX = max(0, min(Int(centerPx.x) - half, imgW - gridSize))
+        let srcY = max(0, min(Int(centerPx.y) - half, imgH - gridSize))
+
+        let bytesPerRow = gridSize * 4
+        var data = [UInt8](repeating: 0, count: gridSize * bytesPerRow)
+
+        // Single render: draw the whole image shifted so pixel (srcX, srcY) lands at (0,0).
+        // Derivation: CGContext draws image pixel (px,py) at ctx pos (x0+px, y0+imgH-1-py).
+        // We want (srcX, srcY) → (0, 0): x0 = -srcX, y0 = srcY - (imgH - 1) = gridSize - imgH + srcY.
+        if let ctx = CGContext(
+            data: &data,
+            width: gridSize, height: gridSize,
+            bitsPerComponent: 8, bytesPerRow: bytesPerRow,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) {
+            ctx.draw(cgImage, in: CGRect(x: -srcX, y: gridSize - imgH + srcY, width: imgW, height: imgH))
+        }
+
+        // Read pixels from the flat bitmap.
+        // Despite CGContext having y=0 at the bottom (drawing coords), the bitmap
+        // data is stored TOP-DOWN in memory: data[0] is the topmost row
+        // (CGContext y = gridSize-1), data[(gridSize-1)*bytesPerRow] is the bottom row
+        // (CGContext y = 0). So memory row == canvas row — no inversion needed.
         var rows: [[NSColor]] = []
         for row in 0..<gridSize {
             var rowColors: [NSColor] = []
             for col in 0..<gridSize {
-                let px = Int(centerPx.x) + (col - half)
-                let py = Int(centerPx.y) + (row - half)
-                let cx = max(0, min(px, imgW - 1))
-                let cy = max(0, min(py, imgH - 1))
-                var d: [UInt8] = [0, 0, 0, 0]
-                if let ctx = CGContext(data: &d, width: 1, height: 1,
-                    bitsPerComponent: 8, bytesPerRow: 4,
-                    space: CGColorSpaceCreateDeviceRGB(),
-                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) {
-                    ctx.draw(cgImage, in: CGRect(x: -cx, y: -(imgH - cy - 1), width: imgW, height: imgH))
-                }
-                rowColors.append(NSColor(srgbRed: CGFloat(d[0])/255, green: CGFloat(d[1])/255,
-                                         blue: CGFloat(d[2])/255, alpha: 1))
+                let offset = (row * gridSize + col) * 4
+                rowColors.append(NSColor(
+                    srgbRed: CGFloat(data[offset])     / 255,
+                    green:   CGFloat(data[offset + 1]) / 255,
+                    blue:    CGFloat(data[offset + 2]) / 255,
+                    alpha:   1
+                ))
             }
             rows.append(rowColors)
         }
         return MagnifierData(pixels: rows, gridSize: gridSize)
+
+        // ── Old approach (kept for reference) ────────────────────────────────────────
+        // Each pixel used a separate CGContext(1×1) + full image render, which meant
+        // gridSize² render-passes of a potentially 5K image per mouse move.
+        // Kept here in case a color-space or premultiplied-alpha issue resurfaces.
+        //
+        // var rows: [[NSColor]] = []
+        // for row in 0..<gridSize {
+        //     var rowColors: [NSColor] = []
+        //     for col in 0..<gridSize {
+        //         let px = Int(centerPx.x) + (col - half)
+        //         let py = Int(centerPx.y) + (row - half)
+        //         let cx = max(0, min(px, imgW - 1))
+        //         let cy = max(0, min(py, imgH - 1))
+        //         var d: [UInt8] = [0, 0, 0, 0]
+        //         if let ctx = CGContext(data: &d, width: 1, height: 1,
+        //             bitsPerComponent: 8, bytesPerRow: 4,
+        //             space: CGColorSpaceCreateDeviceRGB(),
+        //             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) {
+        //             ctx.draw(cgImage, in: CGRect(x: -cx, y: -(imgH - cy - 1), width: imgW, height: imgH))
+        //         }
+        //         rowColors.append(NSColor(srgbRed: CGFloat(d[0])/255, green: CGFloat(d[1])/255,
+        //                                  blue: CGFloat(d[2])/255, alpha: 1))
+        //     }
+        //     rows.append(rowColors)
+        // }
+        // return MagnifierData(pixels: rows, gridSize: gridSize)
+        // ─────────────────────────────────────────────────────────────────────────────
     }
 }

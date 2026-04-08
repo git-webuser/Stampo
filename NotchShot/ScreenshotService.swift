@@ -209,6 +209,12 @@ private enum FrontmostWindowResolver {
 
 enum ScreenshotSoundPlayer {
     static func play() {
+        // Primary: system sound by name — works across macOS versions without path coupling
+        if let sound = NSSound(named: "Screen Capture") {
+            sound.play()
+            return
+        }
+        // Fallback: known file paths for macOS 12–14
         let candidates: [String] = [
             "/System/Library/Components/CoreAudio.component/Contents/SharedSupport/SystemSounds/system/Screen Capture.aiff",
             "/System/Library/Components/CoreAudio.component/Contents/SharedSupport/SystemSounds/system/screenshot.aiff",

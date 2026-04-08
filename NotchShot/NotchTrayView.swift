@@ -146,11 +146,19 @@ struct NotchTrayView: View {
                     }
                 }
             }
-            .padding(.horizontal, scrollPadH)
+            // innerInset only: the panelRounding portion is now part of the
+            // ScrollView's own frame inset below, so the scroll clip boundary
+            // sits inside the beveled corners and cells never render over them.
+            .padding(.horizontal, innerInset)
             .padding(.top, badgeBleed)
             .frame(maxHeight: .infinity, alignment: .top)
         }
         .frame(maxHeight: .infinity, alignment: .top)
+        // Inset the scroll frame by panelRounding on each side so its clip boundary
+        // aligns with the inner edge of the beveled top corners of the tray shape.
+        // scrollClipDisabled() is still needed so hover labels (−18 pt below cells)
+        // and delete badges (+3 pt above the HStack) can render outside the scroll rect.
+        .padding(.horizontal, panelRounding)
         .scrollClipDisabled()
     }
 

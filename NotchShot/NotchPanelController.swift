@@ -11,13 +11,13 @@ final class NotchPanelInteractionState: ObservableObject {
 
 // MARK: - Root state
 
-private enum NotchPanelRoute {
+enum NotchPanelRoute {
     case main
     case tray
     case cdwn
 }
 
-private final class NotchPanelRootState: ObservableObject {
+final class NotchPanelRootState: ObservableObject {
     @Published var route: NotchPanelRoute = .main
     @Published var metrics: NotchMetrics = .fallback()
     /// 0.0 = Main, 1.0 = Tray
@@ -108,33 +108,49 @@ private struct NotchPanelRootView: View {
 // MARK: - Panel controller
 
 final class NotchPanelController: NSObject {
+    // MARK: Private (main-file only)
     private var panel: NSPanel?
-    private var currentScreen: NSScreen?
-
     private let interactionState = NotchPanelInteractionState()
-    private let rootState = NotchPanelRootState()
-    private let model = NotchPanelModel()
-    private let trayModel = NotchTrayModel()
-    private let screenshot = ScreenshotService()
-    private let colorPickerHUD = ColorPickerHUD()
-    private var activeSampler: ColorSampler?
-
     private var isMenuTracking: Bool = false
     private var trayTransitionInFlight: Bool = false
-    private var colorSamplerInFlight: Bool = false
-    private enum CaptureTarget {
+    private(set) var isExpanded: Bool = false
+    private var escEventTap: CFMachPort?
+    private var escEventTapSource: CFRunLoopSource?
+
+    // MARK: Internal (accessible from extension files)
+    var currentScreen: NSScreen?
+    let rootState = NotchPanelRootState()
+    let model = NotchPanelModel()
+    let trayModel = NotchTrayModel()
+    let screenshot = ScreenshotService()
+    let colorPickerHUD = ColorPickerHUD()
+    var activeSampler: ColorSampler?
+    var colorSamplerInFlight: Bool = false
+
+    enum CaptureTarget {
         case screen
         case rect(CGRect)
         case windowID(CGWindowID)
     }
 
-    private var countdownTimer: Timer?
-    private var countdownCaptureTarget: CaptureTarget = .screen
-    private var countdownScreen: NSScreen?
+    var countdownTimer: Timer?
+    var countdownCaptureTarget: CaptureTarget = .screen
+    var countdownScreen: NSScreen?
 
-    private let selectionOverlay = SelectionOverlay()
-    private let windowPickerOverlay = WindowPickerOverlay()
-    private var preSelectionInFlight: Bool = false
+    let selectionOverlay = SelectionOverlay()
+    let windowPickerOverlay = WindowPickerOverlay()
+    var preSelectionInFlight: Bool = false
+
+    var metrics = NotchMetrics.fallback() {
+        didSet { rootState.metrics = metrics }
+    }
+
+    var route: NotchPanelRoute {
+        get { rootState.route }
+        set { rootState.route = newValue }
+    }
+
+    // MARK: - Init
 
     override init() {
         super.init()
@@ -183,61 +199,14 @@ final class NotchPanelController: NSObject {
         isMenuTracking = false
     }
 
+    // MARK: - Public API
+
     var suppressesGlobalAutoHide: Bool {
         isMenuTracking || trayTransitionInFlight || colorSamplerInFlight
             || route == .cdwn || preSelectionInFlight
     }
 
-    private var metrics = NotchMetrics.fallback() {
-        didSet {
-            rootState.metrics = metrics
-        }
-    }
-
-    private var route: NotchPanelRoute {
-        get { rootState.route }
-        set { rootState.route = newValue }
-    }
-
-    private var collapsedWidth: CGFloat { metrics.notchGap }
-
-    private var expandedWidth: CGFloat {
-        if metrics.hasNotch {
-            let timerCell = metrics.timerMaxCellWidth
-
-            let leftMin = metrics.edgeSafe
-                + metrics.cellWidth + metrics.gap
-                + metrics.cellWidth + metrics.gap
-                + timerCell
-                + metrics.leftMinToNotch
-
-            let rightMin = metrics.rightMinFromNotch
-                + metrics.cellWidth + metrics.gap
-                + metrics.cellWidth + metrics.gap
-                + metrics.captureButtonWidth
-                + metrics.edgeSafe
-
-            let shoulder = max(leftMin, rightMin)
-            return collapsedWidth + 2 * shoulder
-        }
-
-        let left = metrics.edgeSafe
-            + metrics.cellWidth + metrics.gap
-            + metrics.cellWidth + metrics.gap
-            + metrics.timerCellWidth(for: model.delay.shortLabel)
-
-        let right = metrics.edgeSafe
-            + metrics.cellWidth + metrics.gap
-            + metrics.cellWidth + metrics.gap
-            + metrics.captureButtonWidth
-
-        return left + right
-    }
-
-    private(set) var isExpanded: Bool = false
     var isVisible: Bool { panel?.isVisible == true }
-
-    // MARK: - Public
 
     func toggleAnimated(on screen: NSScreen) {
         isVisible ? hideAnimated() : showAnimated(on: screen)
@@ -418,7 +387,7 @@ final class NotchPanelController: NSObject {
         return panel.frame.contains(point)
     }
 
-    // MARK: - Private
+    // MARK: - Panel lifecycle
 
     private func create() {
         let panel = NSPanel(
@@ -443,9 +412,6 @@ final class NotchPanelController: NSObject {
 
         installEscMonitor()
     }
-
-    private var escEventTap: CFMachPort?
-    private var escEventTapSource: CFRunLoopSource?
 
     private func installEscMonitor() {
         let escTapCallback: CGEventTapCallBack = { _, type, event, userInfo in
@@ -526,146 +492,18 @@ final class NotchPanelController: NSObject {
         )
     }
 
-    private var currentWidthForCurrentRoute: CGFloat {
-        switch route {
-        case .main:  return expandedWidth
-        case .tray:  return trayWidth
-        case .cdwn:  return expandedWidth
-        }
-    }
+    // MARK: - State routing
 
-    // Панель всегда имеет высоту Tray — анимация через SwiftUI progress, не через setFrame
-    private var trayScrollRowHeight: CGFloat { 55 }
-    private var trayPanelHeight: CGFloat { metrics.panelHeight + trayScrollRowHeight }
-
-    private func switchToTray() {
+    func switchToTray() {
         if route == .tray { switchToMain() } else { transitionBetweenStates(.tray) }
     }
 
-    private func switchToMain() {
+    func switchToMain() {
         guard route != .main else { return }
         transitionBetweenStates(.main)
     }
 
-    // MARK: - Countdown
-
-    /// Screen mode: panel stays open, crossfade to countdown.
-    private func startScreenCountdown(seconds: Int) {
-        countdownCaptureTarget = .screen
-        countdownScreen = currentScreen
-        rootState.countdownSeconds = seconds
-        rootState.countdownTotal = seconds
-        route = .cdwn
-        withAnimation(.easeOut(duration: 0.16)) {
-            rootState.countdownVisible = 1.0
-        }
-        startCountdownTimer()
-    }
-
-    /// Selection/Window mode: hide panel, show pre-selection overlay, then show panel with countdown.
-    private func launchPreSelection(mode: CaptureMode, seconds: Int) {
-        guard !preSelectionInFlight else { return }
-        preSelectionInFlight = true
-        let screen = currentScreen ?? NSScreen.main ?? NSScreen.screens[0]
-
-        hideAnimated { [weak self] in
-            guard let self else { return }
-            if mode == .selection {
-                self.selectionOverlay.onSelected = { [weak self] rect in
-                    guard let self else { return }
-                    self.preSelectionInFlight = false
-                    self.beginCountdownAfterPreSelection(target: .rect(rect), seconds: seconds, screen: screen)
-                }
-                self.selectionOverlay.onCancelled = { [weak self] in
-                    self?.preSelectionInFlight = false
-                }
-                self.selectionOverlay.start(on: screen)
-            } else {
-                // .window
-                self.windowPickerOverlay.onSelected = { [weak self] windowID in
-                    guard let self else { return }
-                    self.preSelectionInFlight = false
-                    self.beginCountdownAfterPreSelection(target: .windowID(windowID), seconds: seconds, screen: screen)
-                }
-                self.windowPickerOverlay.onCancelled = { [weak self] in
-                    self?.preSelectionInFlight = false
-                }
-                self.windowPickerOverlay.start(on: screen)
-            }
-        }
-    }
-
-    /// Called after pre-selection overlay completes: show panel in countdown state directly.
-    private func beginCountdownAfterPreSelection(target: CaptureTarget, seconds: Int, screen: NSScreen) {
-        countdownCaptureTarget = target
-        countdownScreen = screen
-        rootState.countdownSeconds = seconds
-        rootState.countdownTotal = seconds
-        // Set countdown visible instantly before panel appears (no crossfade needed)
-        rootState.countdownVisible = 1.0
-        route = .cdwn
-        showAnimated(on: screen)
-        startCountdownTimer()
-    }
-
-    private func startCountdownTimer() {
-        countdownTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
-            guard let self else { return }
-            if self.rootState.countdownSeconds > 1 {
-                self.rootState.countdownSeconds -= 1
-            } else {
-                self.finishCountdown()
-            }
-        }
-    }
-
-    private func stopCountdown() {
-        countdownTimer?.invalidate()
-        countdownTimer = nil
-        route = .main
-        withAnimation(.easeOut(duration: 0.16)) {
-            rootState.countdownVisible = 0.0
-        }
-        // Reset arc values only after the fade-out completes,
-        // otherwise the arc would jump backwards while still visible.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) { [weak self] in
-            self?.rootState.countdownSeconds = 0
-            self?.rootState.countdownTotal = 0
-        }
-    }
-
-    private func captureNowFromCountdown() {
-        countdownTimer?.invalidate()
-        countdownTimer = nil
-        let target = countdownCaptureTarget
-        let screen = countdownScreen
-        hideAnimated { [weak self] in
-            self?.executeCapture(target: target, screen: screen)
-        }
-    }
-
-    private func finishCountdown() {
-        countdownTimer?.invalidate()
-        countdownTimer = nil
-        let target = countdownCaptureTarget
-        let screen = countdownScreen
-        hideAnimated { [weak self] in
-            self?.executeCapture(target: target, screen: screen)
-        }
-    }
-
-    private func executeCapture(target: CaptureTarget, screen: NSScreen?) {
-        switch target {
-        case .screen:
-            screenshot.capture(mode: .screen, delaySeconds: 0, preferredScreen: screen)
-        case .rect(let cgRect):
-            screenshot.captureRect(cgRect, preferredScreen: screen)
-        case .windowID(let id):
-            screenshot.captureWindowID(id, preferredScreen: screen)
-        }
-    }
-
-    private func transitionBetweenStates(_ targetRoute: NotchPanelRoute) {
+    func transitionBetweenStates(_ targetRoute: NotchPanelRoute) {
         guard let panel else { return }
         guard let screen = currentScreen ?? NSScreen.main else { return }
 
@@ -730,93 +568,13 @@ final class NotchPanelController: NSObject {
         }
     }
 
-    private var trayWidth: CGFloat {
-        // На устройствах с нотчем Tray использует ту же ширину что и Main —
-        // контент скроллируется внутри, ширина панели не меняется.
-        if metrics.hasNotch {
-            return expandedWidth
-        }
+    // MARK: - Layout helpers that require panel access
 
-        let baseSide = metrics.edgeSafe
-        let swatchWidth: CGFloat = metrics.buttonHeight + 2
-        let shotWidth: CGFloat = swatchWidth * 1.6
-        let spacing: CGFloat = 6
-
-        let colorCount = trayModel.colors.count
-        let shotCount = trayModel.items.count - colorCount
-        let totalCount = max(1, trayModel.items.count)
-        let contentWidth = CGFloat(colorCount) * swatchWidth
-            + CGFloat(shotCount) * shotWidth
-            + CGFloat(max(0, totalCount - 1)) * spacing
-
-        let schemeControlWidth: CGFloat = 68
-        let backButtonWidth: CGFloat = metrics.cellWidth
-
-        return baseSide + backButtonWidth + metrics.gap + schemeControlWidth + metrics.gap + min(contentWidth, 300) + baseSide
+    func updateScreenMetrics(for screen: NSScreen) {
+        metrics = NotchMetrics.from(screen: screen)
     }
 
-    @MainActor
-    private func pickColor() {
-        guard !colorSamplerInFlight else { return }
-        colorSamplerInFlight = true
-
-        let screen = currentScreen ?? NSScreen.main
-
-        let launch = { [weak self] in
-            guard let self else { return }
-
-            let sampler = ColorSampler()
-            self.activeSampler = sampler
-            self.colorPickerHUD.beginSession(format: sampler.format)
-
-            sampler.onColorChanged = { [weak self] color, position, magnifier in
-                guard let self else { return }
-                self.colorPickerHUD.setFormat(sampler.format)
-                self.colorPickerHUD.update(color: color, cursorPosition: position, magnifier: magnifier)
-            }
-
-            sampler.onConfirmed = { [weak self] color in
-                guard let self else { return }
-                self.colorSamplerInFlight = false
-                self.activeSampler = nil
-
-                let sRGB = color.usingColorSpace(.sRGB) ?? color
-                self.colorPickerHUD.showSuccess(color: sRGB, on: screen, autoHideAfter: 0.35)
-
-                let formatted = self.colorPickerHUD.currentFormat.format(sRGB)
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(formatted, forType: .string)
-
-                self.trayModel.add(color: sRGB)
-                // Reset route without showing panel
-                self.route = .main
-                self.rootState.progress = 0.0
-            }
-
-            sampler.onCancelled = { [weak self] in
-                guard let self else { return }
-                self.colorSamplerInFlight = false
-                self.activeSampler = nil
-                self.colorPickerHUD.hide()
-                // Reset route without showing panel
-                self.route = .main
-                self.rootState.progress = 0.0
-            }
-
-            sampler.start()
-        }
-
-        if isVisible {
-            // Panel is open — hide it first, then launch sampler
-            CursorOverlay.hideCursorAfterMenuCloses()
-            hideAnimated { launch() }
-        } else {
-            // Panel already hidden — launch sampler directly, no show/hide cycle
-            launch()
-        }
-    }
-
-    private func updateWidthForNoNotchIfNeeded() {
+    func updateWidthForNoNotchIfNeeded() {
         guard !metrics.hasNotch else { return }
         guard let panel else { return }
         guard route == .main else { return }
@@ -830,71 +588,5 @@ final class NotchPanelController: NSObject {
             ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
             panel.animator().setFrame(target, display: true)
         }
-    }
-
-    private func updateScreenMetrics(for screen: NSScreen) {
-        metrics = NotchMetrics.from(screen: screen)
-    }
-
-    private func clampedWidth(_ w: CGFloat, on screen: NSScreen) -> CGFloat {
-        let maxW = screen.frame.width - 16
-        return min(max(w, collapsedWidth), maxW)
-    }
-
-    private func frameForWidth(_ width: CGFloat, on screen: NSScreen?, height: CGFloat? = nil) -> NSRect {
-        let h = height ?? metrics.panelHeight
-        guard let screen else { return NSRect(x: 0, y: 0, width: width, height: h) }
-
-        let sf = screen.frame
-        let margin = snapToPixel(8, scale: metrics.scale)
-
-        var x = sf.midX - width / 2
-        x = max(sf.minX + margin, min(x, sf.maxX - margin - width))
-        x = snapToPixel(x, scale: metrics.scale)
-
-        let topInsetNoNotch = snapToPixel(metrics.outerSideInset, scale: metrics.scale)
-
-        let y: CGFloat
-        if metrics.hasNotch {
-            // Панель прижата к верхнему краю экрана; при расширении растёт вниз
-            y = snapToPixel(sf.maxY - h, scale: metrics.scale)
-        } else {
-            y = snapToPixel(screen.visibleFrame.maxY - h - topInsetNoNotch, scale: metrics.scale)
-        }
-
-        return NSRect(x: x, y: y, width: snapToPixel(width, scale: metrics.scale), height: snapToPixel(h, scale: metrics.scale))
-    }
-
-    private func frameNoNotchHiddenAbove(width: CGFloat, on screen: NSScreen?, height: CGFloat? = nil) -> NSRect {
-        let h = height ?? metrics.panelHeight
-        guard let screen else { return NSRect(x: 0, y: 0, width: width, height: h) }
-
-        let sf = screen.frame
-        let margin = snapToPixel(8, scale: metrics.scale)
-
-        var x = sf.midX - width / 2
-        x = max(sf.minX + margin, min(x, sf.maxX - margin - width))
-        x = snapToPixel(x, scale: metrics.scale)
-
-        let y = snapToPixel(sf.maxY + metrics.pixel, scale: metrics.scale)
-        return NSRect(x: x, y: y, width: snapToPixel(width, scale: metrics.scale), height: snapToPixel(h, scale: metrics.scale))
-    }
-}
-
-// MARK: - Pixel snapping
-
-private func snapToPixel(_ value: CGFloat, scale: CGFloat) -> CGFloat {
-    let s = max(scale, 1)
-    return (value * s).rounded() / s
-}
-
-// MARK: - Notch helpers
-
-extension NSScreen {
-    var displayID: CGDirectDisplayID? {
-        guard let num = deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else {
-            return nil
-        }
-        return CGDirectDisplayID(num.uint32Value)
     }
 }
