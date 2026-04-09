@@ -9,7 +9,7 @@ struct NotchTrayView: View {
     @ObservedObject var trayModel: NotchTrayModel
     let onBack: () -> Void
 
-    @State private var scheme: ColorSchemeType = .hex
+    @State private var scheme: ColorSchemeType = AppSettings.defaultColorFormat
 
     private func handleBack() {
         onBack()  // контроллер управляет fade-out контента
@@ -449,6 +449,8 @@ private struct PopUpSchemeButtonWrapper: NSViewRepresentable {
         var parent: PopUpSchemeButtonWrapper
 
         init(_ parent: PopUpSchemeButtonWrapper) { self.parent = parent }
+
+        deinit { NotificationCenter.default.removeObserver(self) }
 
         @objc func selectionChanged(_ sender: NSPopUpButton) {
             let cases = ColorSchemeType.allCases

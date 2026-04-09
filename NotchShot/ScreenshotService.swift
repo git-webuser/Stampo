@@ -54,9 +54,12 @@ final class ScreenshotService {
     private func runCaptureWithArgs(_ baseArgs: [String], preferredScreen: NSScreen?) {
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self else { return }
+            let ext = self.fileExtension()
             let tmpURL = self.fm.temporaryDirectory
-                .appendingPathComponent("notchshot-\(UUID().uuidString).png")
+                .appendingPathComponent("notchshot-\(UUID().uuidString).\(ext)")
             var args = baseArgs
+            self.appendFormatFlag(to: &args)
+            if AppSettings.includeCursor { args.append("-C") }
             args.append(tmpURL.path)
             let ok = self.runScreencapture(arguments: args)
             guard ok, self.fm.fileExists(atPath: tmpURL.path) else { return }
@@ -68,21 +71,27 @@ final class ScreenshotService {
         // screencapture (a child process) cannot write to sandbox-protected directories
         // like Downloads directly. We write to tmp first, then move via FileManager
         // which has the app's full entitlements including Downloads access.
+        let ext = fileExtension()
         let tmpURL = fm.temporaryDirectory
-            .appendingPathComponent("notchshot-\(UUID().uuidString).png")
+            .appendingPathComponent("notchshot-\(UUID().uuidString).\(ext)")
 
         var args: [String] = ["-x"]
+        appendFormatFlag(to: &args)
 
         switch mode {
         case .selection:
+            if AppSettings.includeCursor { args.append("-C") }
             args.append(contentsOf: ["-i", "-s"])
         case .window:
+            if AppSettings.includeCursor   { args.append("-C") }
+            if !AppSettings.includeWindowShadow { args.append("-o") }
             if let windowID = FrontmostWindowResolver.frontmostWindowID() {
                 args.append(contentsOf: ["-l", String(windowID)])
             } else {
                 args.append(contentsOf: ["-i", "-w"])
             }
         case .screen:
+            if AppSettings.includeCursor { args.append("-C") }
             if let displayID = preferredScreen?.displayID {
                 args.append(contentsOf: ["-D", String(displayID)])
             }
@@ -96,8 +105,8 @@ final class ScreenshotService {
     }
 
     private func handleCapturedFile(at tmpURL: URL, preferredScreen: NSScreen?) {
-        let outputDir = saveDirectory()
-        let finalURL = outputDir.appendingPathComponent(makeFilename())
+        let outputDir = AppSettings.saveDirectoryURL
+        let finalURL  = outputDir.appendingPathComponent(makeFilename())
 
         do {
             if fm.fileExists(atPath: finalURL.path) {
@@ -108,17 +117,22 @@ final class ScreenshotService {
             lastCaptureURL = finalURL
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
-                ScreenshotSoundPlayer.play()
-                NSPasteboard.general.writeImage(at: finalURL)
+                if AppSettings.playSound { ScreenshotSoundPlayer.play() }
+                if AppSettings.copyToClipboard { NSPasteboard.general.writeImage(at: finalURL) }
                 self.thumbnailHUD.show(imageURL: finalURL, on: preferredScreen)
                 self.onCaptured?(finalURL)
             }
         } catch {
+            // Move failed — keep the temp file as a fallback but warn the user.
             lastCaptureURL = tmpURL
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
-                ScreenshotSoundPlayer.play()
-                NSPasteboard.general.writeImage(at: tmpURL)
+                let alert = NSAlert()
+                alert.alertStyle = .warning
+                alert.messageText = "Screenshot saved to temporary folder"
+                alert.informativeText = "Could not save to the selected folder: \(error.localizedDescription)\n\nThe file was kept in the temporary folder instead."
+                alert.addButton(withTitle: "OK")
+                alert.runModal()
                 self.thumbnailHUD.show(imageURL: tmpURL, on: preferredScreen)
                 self.onCaptured?(tmpURL)
             }
@@ -145,27 +159,21 @@ final class ScreenshotService {
         }
     }
 
-    /// Default save location is Downloads. Will be user-configurable via Settings later.
-    private func saveDirectory() -> URL {
-        fm.urls(for: .downloadsDirectory, in: .userDomainMask).first
-            ?? fm.homeDirectoryForCurrentUser
+    private func makeFilename() -> String {
+        AppSettings.resolveFilename(
+            template: AppSettings.filenameTemplate,
+            date:     Date(),
+            format:   AppSettings.fileFormat
+        )
     }
 
-    private func makeFilename() -> String {
-        let cal = Calendar(identifier: .gregorian)
-        let d = cal.dateComponents(in: .current, from: Date())
-        let months = ["JAN","FEB","MAR","APR","MAY","JUN",
-                      "JUL","AUG","SEP","OCT","NOV","DEC"]
-        let mon = months[max(0, min((d.month ?? 1) - 1, 11))]
-        // Format: MAR·25-19·34·55  (interpunct U+00B7 as time separator)
-        return String(
-            format: "%@\u{00B7}%02d-%02d\u{00B7}%02d\u{00B7}%02d.png",
-            mon,
-            d.day ?? 0,
-            d.hour ?? 0,
-            d.minute ?? 0,
-            d.second ?? 0
-        )
+    private func fileExtension() -> String {
+        let fmt = AppSettings.fileFormat
+        return fmt == "jpg" ? "jpg" : (fmt == "tiff" ? "tiff" : "png")
+    }
+
+    private func appendFormatFlag(to args: inout [String]) {
+        args.append(contentsOf: ["-t", AppSettings.fileFormat])
     }
 }
 

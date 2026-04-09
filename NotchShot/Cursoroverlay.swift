@@ -179,10 +179,11 @@ final class CursorOverlay {
 
     func show() {
         let cursorPos = NSEvent.mouseLocation
-        let screen =
+        guard let screen =
             NSScreen.screens.first(where: { $0.frame.contains(cursorPos) }) ??
             NSScreen.main ??
-            NSScreen.screens.first ?? NSScreen()
+            NSScreen.screens.first
+        else { return }
 
         ensureFullscreenWindow(on: screen)
         installGlobalMouseMonitor()

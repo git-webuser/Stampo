@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import Foundation
 
 // MARK: - Tray Item
 
@@ -57,13 +58,30 @@ enum ColorSchemeType: CaseIterable, Equatable {
     }
 }
 
+// MARK: - Tray Persistence (Codable)
+
+private struct PersistedTrayItem: Codable {
+    enum Kind: String, Codable { case color, screenshot }
+    let kind: Kind
+    let hex:  String?   // color items
+    let path: String?   // screenshot items
+}
+
 // MARK: - NotchTrayModel
 
 final class NotchTrayModel: ObservableObject {
     @Published private(set) var items: [TrayItem] = []
 
-    // Hardcoded for now, will move to Settings later
-    private let maxItems = 20
+    private var cancellables = Set<AnyCancellable>()
+
+    init() {
+        restoreIfNeeded()
+        // Persist whenever items change and persistTray is on
+        $items
+            .dropFirst()
+            .sink { [weak self] _ in self?.persistIfNeeded() }
+            .store(in: &cancellables)
+    }
 
     var colors: [TrayColor] {
         items.compactMap {
@@ -97,21 +115,54 @@ final class NotchTrayModel: ObservableObject {
     }
 
     private func trim() {
-        // When over limit, remove oldest items from the tail.
-        // For screenshots, also delete the file from disk.
-        guard items.count > maxItems else { return }
-        let excess = items.suffix(from: maxItems)
+        let limit = AppSettings.trayMaxItems
+        guard items.count > limit else { return }
+        let excess = items.suffix(from: limit)
         for item in excess {
             if case .screenshot(let s) = item {
-                do {
-                    try FileManager.default.removeItem(at: s.url)
-                } catch {
-                    #if DEBUG
-                    print("[TrayModel] removeItem failed: \(error)")
-                    #endif
-                }
+                try? FileManager.default.removeItem(at: s.url)
             }
         }
-        items = Array(items.prefix(maxItems))
+        items = Array(items.prefix(limit))
     }
+
+    // MARK: Persistence
+
+    private func persistIfNeeded() {
+        guard AppSettings.persistTray else { return }
+        let encoded: [PersistedTrayItem] = items.compactMap {
+            switch $0 {
+            case .color(let c):
+                return PersistedTrayItem(kind: .color, hex: c.hex, path: nil)
+            case .screenshot(let s):
+                return PersistedTrayItem(kind: .screenshot, hex: nil, path: s.url.path)
+            }
+        }
+        if let data = try? JSONEncoder().encode(encoded) {
+            UserDefaults.standard.set(data, forKey: AppSettings.Keys.trayPersistedData)
+        }
+    }
+
+    private func restoreIfNeeded() {
+        guard AppSettings.persistTray,
+              let data = UserDefaults.standard.data(forKey: AppSettings.Keys.trayPersistedData),
+              let decoded = try? JSONDecoder().decode([PersistedTrayItem].self, from: data)
+        else { return }
+
+        let restored: [TrayItem] = decoded.compactMap { p in
+            switch p.kind {
+            case .color:
+                guard let hex = p.hex, let color = NSColor(hexString: hex) else { return nil }
+                return .color(TrayColor(color: color, hex: hex))
+            case .screenshot:
+                guard let path = p.path else { return nil }
+                let url = URL(fileURLWithPath: path)
+                guard FileManager.default.fileExists(atPath: path) else { return nil }
+                return .screenshot(TrayScreenshot(url: url))
+            }
+        }
+        items = restored
+    }
+
+
 }

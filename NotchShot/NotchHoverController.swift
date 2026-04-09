@@ -35,12 +35,40 @@ final class NotchHoverController: NSObject {
         installStatusItem()
         installHotKey()
         installEventTap()
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(onSettingsDidClose),
+            name: .settingsWindowDidClose,
+            object: nil
+        )
     }
 
     func stop() {
+        NotificationCenter.default.removeObserver(self, name: .settingsWindowDidClose, object: nil)
         uninstallEventTap()
         uninstallHotKey()
         uninstallStatusItem()
+    }
+
+    @objc private func onSettingsDidClose() {
+        reinstallHotKeysIfNeeded()
+    }
+
+    private var lastHotkeyEnabledState: [UInt32: Bool] = [
+        1: true, 2: true, 3: true, 4: true, 5: true
+    ]
+
+    private func reinstallHotKeysIfNeeded() {
+        let current: [UInt32: Bool] = [
+            1: AppSettings.hotkeyPanelEnabled,
+            2: AppSettings.hotkeySelectionEnabled,
+            3: AppSettings.hotkeyFullscreenEnabled,
+            4: AppSettings.hotkeyWindowEnabled,
+            5: AppSettings.hotkeyColorEnabled
+        ]
+        guard current != lastHotkeyEnabledState else { return }
+        uninstallHotKey()
+        installHotKey()
     }
 
     private func installStatusItem() {
@@ -105,15 +133,32 @@ final class NotchHoverController: NSObject {
         let sig = fourCharCode("NTSH")
 
         // id=1  Ctrl+Opt+Cmd+N  — toggle panel
-        registerHotKey(code: UInt32(kVK_ANSI_N), mods: mods, id: 1, sig: sig, ref: &hotKeyRef)
+        if AppSettings.hotkeyPanelEnabled {
+            registerHotKey(code: UInt32(kVK_ANSI_N), mods: mods, id: 1, sig: sig, ref: &hotKeyRef)
+        }
         // id=2  Ctrl+Opt+Cmd+R  — selection screenshot
-        registerHotKey(code: UInt32(kVK_ANSI_R), mods: mods, id: 2, sig: sig, ref: &hotKeyRefSelection)
+        if AppSettings.hotkeySelectionEnabled {
+            registerHotKey(code: UInt32(kVK_ANSI_R), mods: mods, id: 2, sig: sig, ref: &hotKeyRefSelection)
+        }
         // id=3  Ctrl+Opt+Cmd+G  — fullscreen screenshot
-        registerHotKey(code: UInt32(kVK_ANSI_G), mods: mods, id: 3, sig: sig, ref: &hotKeyRefFullscreen)
+        if AppSettings.hotkeyFullscreenEnabled {
+            registerHotKey(code: UInt32(kVK_ANSI_G), mods: mods, id: 3, sig: sig, ref: &hotKeyRefFullscreen)
+        }
         // id=4  Ctrl+Opt+Cmd+B  — window screenshot
-        registerHotKey(code: UInt32(kVK_ANSI_B), mods: mods, id: 4, sig: sig, ref: &hotKeyRefWindow)
+        if AppSettings.hotkeyWindowEnabled {
+            registerHotKey(code: UInt32(kVK_ANSI_B), mods: mods, id: 4, sig: sig, ref: &hotKeyRefWindow)
+        }
         // id=5  Ctrl+Opt+Cmd+C  — pick color
-        registerHotKey(code: UInt32(kVK_ANSI_C), mods: mods, id: 5, sig: sig, ref: &hotKeyRefColor)
+        if AppSettings.hotkeyColorEnabled {
+            registerHotKey(code: UInt32(kVK_ANSI_C), mods: mods, id: 5, sig: sig, ref: &hotKeyRefColor)
+        }
+        lastHotkeyEnabledState = [
+            1: AppSettings.hotkeyPanelEnabled,
+            2: AppSettings.hotkeySelectionEnabled,
+            3: AppSettings.hotkeyFullscreenEnabled,
+            4: AppSettings.hotkeyWindowEnabled,
+            5: AppSettings.hotkeyColorEnabled
+        ]
     }
 
     private func registerHotKey(code: UInt32, mods: UInt32, id: UInt32, sig: OSType, ref: inout EventHotKeyRef?) {
@@ -271,7 +316,10 @@ final class NotchHoverController: NSObject {
 
     private func preferredScreenForOpen() -> NSScreen {
         let mouse = NSEvent.mouseLocation
-        return screenForPoint(mouse) ?? NSScreen.main ?? NSScreen.screens.first ?? NSScreen()
+        guard let screen = screenForPoint(mouse) ?? NSScreen.main ?? NSScreen.screens.first else {
+            fatalError("No screens available")
+        }
+        return screen
     }
 
     private func screenForPoint(_ p: NSPoint) -> NSScreen? {
@@ -296,7 +344,8 @@ final class NotchHoverController: NSObject {
 }
 
 private func fourCharCode(_ string: String) -> OSType {
-    precondition(string.utf16.count == 4, "Hotkey signature must be 4 characters")
+    assert(string.utf16.count == 4, "Hotkey signature must be 4 characters")
+    guard string.utf16.count == 4 else { return 0 }
     return string.utf16.reduce(0) { partial, scalar in
         (partial << 8) + OSType(scalar)
     }

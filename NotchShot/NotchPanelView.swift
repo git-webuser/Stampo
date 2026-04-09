@@ -71,8 +71,8 @@ enum CaptureDelay: CaseIterable, Equatable {
 // MARK: - NotchPanelModel
 
 final class NotchPanelModel: ObservableObject {
-    @Published var mode: CaptureMode   = .selection
-    @Published var delay: CaptureDelay = .off
+    @Published var mode: CaptureMode   = AppSettings.defaultCaptureMode
+    @Published var delay: CaptureDelay = AppSettings.defaultTimerDelay
 }
 
 // MARK: - NotchPanelView
@@ -294,6 +294,8 @@ private struct PopUpModeButtonWrapper: NSViewRepresentable {
 
         init(_ parent: PopUpModeButtonWrapper) { self.parent = parent }
 
+        deinit { NotificationCenter.default.removeObserver(self) }
+
         @objc func selectionChanged(_ sender: NSPopUpButton) {
             let cases = CaptureMode.allCases
             let idx = sender.indexOfSelectedItem
@@ -368,6 +370,8 @@ private struct PopUpButtonWrapper: NSViewRepresentable {
         var parent: PopUpButtonWrapper
 
         init(_ parent: PopUpButtonWrapper) { self.parent = parent }
+
+        deinit { NotificationCenter.default.removeObserver(self) }
 
         @objc func selectionChanged(_ sender: NSPopUpButton) {
             let cases = CaptureDelay.allCases

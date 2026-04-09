@@ -42,6 +42,8 @@ final class ColorSampler {
         scheduleCapture(at: NSEvent.mouseLocation)
     }
 
+    deinit { MainActor.assumeIsolated { stop() } }
+
     func stop() {
         guard !isStopped else { return }
         isStopped = true

@@ -6,6 +6,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         hover.start()
+        interceptSettingsMenuItem()
+    }
+
+    /// Перехватывает пункт «Settings...» (⌘,) в app menu, который SwiftUI
+    /// автоматически добавляет через Settings-сцену, и направляет его к
+    /// SettingsWindowController — без вызова showSettingsWindow:.
+    private func interceptSettingsMenuItem() {
+        DispatchQueue.main.async {
+            for topItem in NSApp.mainMenu?.items ?? [] {
+                guard let submenu = topItem.submenu else { continue }
+                for item in submenu.items {
+                    if item.action == Selector(("showSettingsWindow:")) {
+                        item.action = #selector(self.openSettings)
+                        item.target = self
+                    }
+                }
+            }
+        }
+    }
+
+    @objc func openSettings() {
+        SettingsWindowController.shared.open()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -17,7 +39,4 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         CGDisplayShowCursor(CGMainDisplayID())
     }
     
-    @objc func openSettings(_ sender: Any?) {
-        NSApp.sendAction(Selector(("showPreferencesWindow:")), to: nil, from: nil)
-    }
 }

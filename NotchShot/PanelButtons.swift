@@ -87,12 +87,11 @@ struct PopUpMoreButtonWrapper: NSViewRepresentable {
         )
         button.menu?.addItem(quitItem)
 
-        // Disable selection tracking — this is an action menu, not a picker
         button.menu?.autoenablesItems = false
         settingsItem.state = .off
         quitItem.state     = .off
 
-        button.target = context.coordinator
+        button.target       = context.coordinator
         settingsItem.target = context.coordinator
         quitItem.target     = context.coordinator
 
@@ -124,8 +123,10 @@ struct PopUpMoreButtonWrapper: NSViewRepresentable {
 
         init(_ parent: PopUpMoreButtonWrapper) { self.parent = parent }
 
+        deinit { NotificationCenter.default.removeObserver(self) }
+
         @objc func settingsTapped() {
-            NSApp.sendAction(#selector(AppDelegate.openSettings), to: nil, from: nil)
+            SettingsWindowController.shared.open()
         }
 
         @objc func quitTapped() {

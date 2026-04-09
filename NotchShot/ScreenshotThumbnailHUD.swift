@@ -13,6 +13,7 @@ final class ScreenshotThumbnailHUD {
     var onTapped: (() -> Void)?
 
     func show(imageURL: URL, on screen: NSScreen?) {
+        guard AppSettings.showThumbnailHUD else { return }
         DispatchQueue.main.async {
             self.dismissWorkItem?.cancel()
             self.dismissWorkItem = nil
@@ -68,7 +69,7 @@ final class ScreenshotThumbnailHUD {
         dismissWorkItem?.cancel()
         let work = DispatchWorkItem { [weak self] in self?.hide(animated: true) }
         dismissWorkItem = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0, execute: work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + AppSettings.thumbnailDismissDelay, execute: work)
     }
 
     private func hide(animated: Bool) {
