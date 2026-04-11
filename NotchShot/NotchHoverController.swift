@@ -151,13 +151,13 @@ final class NotchHoverController: NSObject {
         if AppSettings.hotkeySelectionEnabled {
             registerHotKey(code: UInt32(kVK_ANSI_R), mods: mods, id: 2, sig: sig, ref: &hotKeyRefSelection)
         }
-        // id=3  Ctrl+Opt+Cmd+G  — fullscreen screenshot
+        // id=3  Ctrl+Opt+Cmd+B  — fullscreen screenshot
         if AppSettings.hotkeyFullscreenEnabled {
-            registerHotKey(code: UInt32(kVK_ANSI_G), mods: mods, id: 3, sig: sig, ref: &hotKeyRefFullscreen)
+            registerHotKey(code: UInt32(kVK_ANSI_B), mods: mods, id: 3, sig: sig, ref: &hotKeyRefFullscreen)
         }
-        // id=4  Ctrl+Opt+Cmd+B  — window screenshot
+        // id=4  Ctrl+Opt+Cmd+G  — window screenshot
         if AppSettings.hotkeyWindowEnabled {
-            registerHotKey(code: UInt32(kVK_ANSI_B), mods: mods, id: 4, sig: sig, ref: &hotKeyRefWindow)
+            registerHotKey(code: UInt32(kVK_ANSI_G), mods: mods, id: 4, sig: sig, ref: &hotKeyRefWindow)
         }
         // id=5  Ctrl+Opt+Cmd+C  — pick color
         if AppSettings.hotkeyColorEnabled {

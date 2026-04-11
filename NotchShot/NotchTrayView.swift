@@ -9,7 +9,7 @@ struct NotchTrayView: View {
     @ObservedObject var trayModel: NotchTrayModel
     let onBack: () -> Void
 
-    @State private var scheme: ColorSchemeType = AppSettings.defaultColorFormat
+    @AppStorage(AppSettings.Keys.defaultColorFormat) private var scheme: ColorSchemeType = .hex
 
     private func handleBack() {
         onBack()  // контроллер управляет fade-out контента

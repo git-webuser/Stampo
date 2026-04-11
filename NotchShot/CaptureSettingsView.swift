@@ -56,9 +56,14 @@ struct CaptureSettingsView: View {
                 }
 
                 LabeledContent("Tokens") {
-                    Text("{YYYY} {MM} {MON} {DD} {HH} {mm} {ss}")
-                        .font(.system(.caption, design: .monospaced))
-                        .foregroundStyle(.secondary)
+                    VStack(alignment: .trailing, spacing: 2) {
+                        Text("{YYYY} {MM} {MON} {DD} {HH} {mm} {ss}")
+                            .font(.system(.caption, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                        Text("MM = 01–12  ·  MON = Jan–Dec")
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundStyle(.tertiary)
+                    }
                 }
 
                 LabeledContent("Preview") {

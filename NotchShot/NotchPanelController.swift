@@ -170,6 +170,9 @@ final class NotchPanelController: NSObject {
                 }
             }
         }
+        screenshot.onDelete = { [weak self] url in
+            self?.trayModel.remove(screenshotURL: url)
+        }
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(menuDidBeginTracking),

@@ -191,16 +191,13 @@ struct ScreenshotThumbnailView: View {
                 NSWorkspace.shared.activateFileViewerSelecting([imageURL])
             }
             Divider()
-            Button("Delete") {
-                do {
-                    try FileManager.default.removeItem(at: imageURL)
-                } catch {
-                    #if DEBUG
-                    print("[ThumbnailHUD] removeItem failed: \(error)")
-                    #endif
+            Button("Move to Trash", role: .destructive) {
+                NSWorkspace.shared.recycle([imageURL]) { _, _ in
+                    DispatchQueue.main.async {
+                        onDelete()
+                        onDismiss()
+                    }
                 }
-                onDelete()
-                onDismiss()
             }
         }
         .onHover { onHoverChanged($0) }

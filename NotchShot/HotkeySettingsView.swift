@@ -12,8 +12,8 @@ struct HotkeySettingsView: View {
             Section {
                 HotkeyRow(action: "Toggle Panel",         combo: "⌃⌥⌘N", isEnabled: $panelEnabled)
                 HotkeyRow(action: "Selection Screenshot", combo: "⌃⌥⌘R", isEnabled: $selectionEnabled)
-                HotkeyRow(action: "Fullscreen Screenshot",combo: "⌃⌥⌘G", isEnabled: $fullscreenEnabled)
-                HotkeyRow(action: "Window Screenshot",    combo: "⌃⌥⌘B", isEnabled: $windowEnabled)
+                HotkeyRow(action: "Fullscreen Screenshot",combo: "⌃⌥⌘B", isEnabled: $fullscreenEnabled)
+                HotkeyRow(action: "Window Screenshot",    combo: "⌃⌥⌘G", isEnabled: $windowEnabled)
                 HotkeyRow(action: "Pick Color",           combo: "⌃⌥⌘C", isEnabled: $colorEnabled)
             }
         }

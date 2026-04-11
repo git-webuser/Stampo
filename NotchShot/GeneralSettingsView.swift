@@ -33,7 +33,7 @@ struct GeneralSettingsView: View {
                 }
             }
 
-            Section("Thumbnail Preview") {
+            Section {
                 Toggle("Show after capture", isOn: $showThumbnailHUD)
 
                 LabeledContent("Auto-dismiss after") {
@@ -48,6 +48,10 @@ struct GeneralSettingsView: View {
                     .frame(width: 130)
                     .disabled(!showThumbnailHUD)
                 }
+            } header: {
+                Text("Thumbnail Preview")
+            } footer: {
+                Text("Click the preview thumbnail to open the tray.")
             }
         }
         .formStyle(.grouped)

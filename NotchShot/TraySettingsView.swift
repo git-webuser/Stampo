@@ -7,7 +7,7 @@ struct TraySettingsView: View {
 
     var body: some View {
         Form {
-            Section("History") {
+            Section {
                 LabeledContent("Maximum items") {
                     HStack {
                         Stepper(
@@ -25,6 +25,10 @@ struct TraySettingsView: View {
                 }
 
                 Toggle("Persist between sessions", isOn: $persistTray)
+            } header: {
+                Text("History")
+            } footer: {
+                Text("Older items are removed from the tray when the limit is reached. Files on disk are not affected.")
             }
 
             Section("Color") {
