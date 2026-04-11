@@ -190,16 +190,18 @@ struct NotchTrayView: View {
 
 // MARK: - Delete Badge
 
-private struct TrayDeleteBadge: View {
+struct TrayDeleteBadge: View {
+    var systemName: String = "xmark.circle.fill"
+    var isOn: Bool = false
     let action: () -> Void
-    @Binding var isActive: Bool
+    @Binding var isPressed: Bool
 
     var body: some View {
-        Image(systemName: "xmark.circle.fill")
+        Image(systemName: systemName)
             .symbolRenderingMode(.palette)
             .foregroundStyle(
-                Color(red: 0.125, green: 0.125, blue: 0.125),
-                Color(white: 0.914)
+                isOn ? Color.white : Color(red: 0.125, green: 0.125, blue: 0.125),
+                isOn ? Color(red: 0.25, green: 0.55, blue: 1.0) : Color(white: 0.914)
             )
             .font(.system(size: 16))
             .overlay(Circle().strokeBorder(Color.black.opacity(0.25), lineWidth: 1))
@@ -207,7 +209,7 @@ private struct TrayDeleteBadge: View {
             .contentShape(Rectangle())
             .simultaneousGesture(
                 DragGesture(minimumDistance: 0)
-                    .onChanged { _ in isActive = true }
+                    .onChanged { _ in isPressed = true }
                     .onEnded   { _ in action() }
             )
     }
@@ -242,7 +244,7 @@ private struct TrayColorCell: View {
                 TrayDeleteBadge(action: {
                     withAnimation(.easeIn(duration: 0.16)) { isRemoving = true }
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) { onRemove() }
-                }, isActive: $isBadgeActive)
+                }, isPressed: $isBadgeActive)
                 .opacity(isHovered ? 1 : 0)
                 .allowsHitTesting(isHovered)
                 .offset(x: badgeBleed, y: -badgeBleed)
@@ -342,7 +344,7 @@ private struct TrayScreenshotCell: View {
             TrayDeleteBadge(action: {
                 withAnimation(.easeIn(duration: 0.16)) { isRemoving = true }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) { onRemove() }
-            }, isActive: $isBadgeActive)
+            }, isPressed: $isBadgeActive)
             .opacity(isHovered ? 1 : 0)
             .allowsHitTesting(isHovered)
             .offset(x: badgeBleed, y: -badgeBleed)
