@@ -392,7 +392,15 @@ struct ScreenshotThumbnailView: View {
         )
         .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .onTapGesture {
-            NSWorkspace.shared.open(imageURL)
+            let saveDir = AppSettings.saveDirectoryURL
+            let hasBookmark = UserDefaults.standard.data(
+                forKey: AppSettings.Keys.saveDirectoryBookmark) != nil
+            let accessing = hasBookmark && saveDir.startAccessingSecurityScopedResource()
+            let cfg = NSWorkspace.OpenConfiguration()
+            cfg.activates = true
+            NSWorkspace.shared.open(imageURL, configuration: cfg) { _, _ in
+                if accessing { saveDir.stopAccessingSecurityScopedResource() }
+            }
             if !isPinned { onDismiss() }
         }
         .contextMenu {

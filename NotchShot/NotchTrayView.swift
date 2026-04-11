@@ -620,12 +620,27 @@ final class TrayDragShimView: NSView, NSDraggingSource {
         updateTrackingAreas()
     }
 
+    override func layout() {
+        super.layout()
+        updateTrackingAreas()
+    }
+
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         trackingAreas.forEach { removeTrackingArea($0) }
+        guard !bounds.isEmpty else { return }
+        // isFlipped=true: origin top-left, y increases downward.
+        // The badge is rendered above the cell (y < 0) via SwiftUI offset.
+        // Extend the tracking rect upward so mouseEntered/Exited stays true
+        // while the cursor is over the badge.
+        let bleed = badgeExcludeSize
+        let expanded = bounds.union(NSRect(x: bounds.maxX - bleed,
+                                           y: -bleed,
+                                           width: bleed + bleed,
+                                           height: bleed))
         addTrackingArea(NSTrackingArea(
-            rect: .zero,
-            options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+            rect: expanded,
+            options: [.mouseEnteredAndExited, .activeAlways],
             owner: self,
             userInfo: nil
         ))
