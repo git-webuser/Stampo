@@ -369,7 +369,6 @@ private struct TrayScreenshotCell: View {
         .animation(.spring(response: 0.2, dampingFraction: 0.8), value: isHovered)
         .animation(.spring(response: 0.15, dampingFraction: 0.7), value: isPressed)
         .animation(.easeIn(duration: 0.16), value: isRemoving)
-        .onHover { isHovered = $0 }
         .overlay {
             TrayDragShim(
                 url: shot.url,
@@ -377,6 +376,7 @@ private struct TrayScreenshotCell: View {
                 cellSize: CGSize(width: width, height: height),
                 isPressed: $isPressed,
                 isDragging: $isDragging,
+                isHovered: $isHovered,
                 onTap: {
                     let saveDir = AppSettings.saveDirectoryURL
                     let hasBookmark = UserDefaults.standard.data(
@@ -569,10 +569,12 @@ private struct TrayDragShim: NSViewRepresentable {
     let cellSize: CGSize
     @Binding var isPressed: Bool
     @Binding var isDragging: Bool
+    @Binding var isHovered: Bool
     let onTap: () -> Void
 
     func makeNSView(context: Context) -> TrayDragShimView {
-        TrayDragShimView(isPressed: $isPressed, isDragging: $isDragging, onTap: onTap)
+        TrayDragShimView(isPressed: $isPressed, isDragging: $isDragging,
+                         isHovered: $isHovered, onTap: onTap)
     }
 
     func updateNSView(_ nsView: TrayDragShimView, context: Context) {
@@ -591,14 +593,17 @@ final class TrayDragShimView: NSView, NSDraggingSource {
 
     @Binding var isPressed: Bool
     @Binding var isDragging: Bool
+    @Binding var isHovered: Bool
     let onTap: () -> Void
 
     private var mouseDownPoint: NSPoint?
     private var dragAccessing = false
 
-    init(isPressed: Binding<Bool>, isDragging: Binding<Bool>, onTap: @escaping () -> Void) {
+    init(isPressed: Binding<Bool>, isDragging: Binding<Bool>,
+         isHovered: Binding<Bool>, onTap: @escaping () -> Void) {
         self._isPressed = isPressed
         self._isDragging = isDragging
+        self._isHovered = isHovered
         self.onTap = onTap
         super.init(frame: .zero)
     }
@@ -610,7 +615,31 @@ final class TrayDragShimView: NSView, NSDraggingSource {
     /// Match SwiftUI coordinate system: origin top-left, y increases downward
     override var isFlipped: Bool { true }
 
-    /// Exclude top-right badge corner so SwiftUI's delete badge can receive events
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        updateTrackingAreas()
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.forEach { removeTrackingArea($0) }
+        addTrackingArea(NSTrackingArea(
+            rect: .zero,
+            options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        ))
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        DispatchQueue.main.async { self.isHovered = true }
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        DispatchQueue.main.async { self.isHovered = false }
+    }
+
+    /// Exclude top-right badge corner so the delete badge can receive events
     override func hitTest(_ point: NSPoint) -> NSView? {
         if point.x >= bounds.width - badgeExcludeSize && point.y <= badgeExcludeSize {
             return nil
