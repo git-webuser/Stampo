@@ -172,8 +172,8 @@ struct NotchPanelView: View {
             action: onClose
         )
         .frame(width: metrics.cellWidth, height: metrics.iconSize)
-        .help("Закрыть панель")
-        .accessibilityLabel("Закрыть панель")
+        .help("Close panel")
+        .accessibilityLabel("Close panel")
     }
 
     private var modeMenuCell: some View {
@@ -183,8 +183,8 @@ struct NotchPanelView: View {
             onPickColor: onPickColor
         )
         .animation(nil, value: model.mode)
-        .help("Режим захвата")
-        .accessibilityLabel("Режим захвата: \(model.mode.title)")
+        .help("Capture mode")
+        .accessibilityLabel("Capture mode: \(model.mode.title)")
     }
 
     private var timerMenuCell: some View {
@@ -197,8 +197,8 @@ struct NotchPanelView: View {
             cellWidth: metrics.timerCellWidth(for: shortLabel)
         )
         .animation(nil, value: model.delay)
-        .help("Задержка перед захватом")
-        .accessibilityLabel(shortLabel == nil ? "Без задержки" : "Задержка \(shortLabel ?? "")")
+        .help("Capture delay")
+        .accessibilityLabel(shortLabel == nil ? "No delay" : "Delay: \(shortLabel ?? "") seconds")
     }
 
     private var trayButtonCell: some View {
@@ -210,15 +210,15 @@ struct NotchPanelView: View {
             action: onToggleTray
         )
         .frame(width: metrics.cellWidth, height: metrics.iconSize)
-        .help(isTrayOpen ? "Скрыть трей" : "Показать трей")
-        .accessibilityLabel(isTrayOpen ? "Скрыть трей" : "Показать трей")
+        .help(isTrayOpen ? "Hide tray" : "Show tray")
+        .accessibilityLabel(isTrayOpen ? "Hide tray" : "Show tray")
     }
 
     private var moreCell: some View {
         PanelMoreMenuButton(metrics: metrics)
             .frame(width: metrics.cellWidth, height: metrics.iconSize)
-            .help("Настройки и выход")
-            .accessibilityLabel("Настройки и выход")
+            .help("Settings and quit")
+            .accessibilityLabel("Settings and quit")
     }
 
     private var captureButton: some View {
@@ -226,8 +226,8 @@ struct NotchPanelView: View {
             metrics: metrics,
             action: { onCapture(model.mode, model.delay) }
         )
-        .accessibilityLabel("Сделать скриншот")
-        .accessibilityHint("Захватить экран в режиме \(model.mode.title)")
+        .accessibilityLabel("Take screenshot")
+        .accessibilityHint("Capture in \(model.mode.title) mode")
     }
 
     // MARK: - Helpers
@@ -257,7 +257,7 @@ private struct PopUpModeButtonWrapper: NSViewRepresentable {
         button.pullsDown         = false
         button.autoresizingMask  = []
         (button.cell as? NSPopUpButtonCell)?.arrowPosition = .noArrow
-        button.setAccessibilityLabel("Режим захвата")
+        button.setAccessibilityLabel("Capture mode")
 
         for mode in CaptureMode.allCases {
             button.addItem(withTitle: mode.title)
@@ -343,7 +343,7 @@ private struct PopUpButtonWrapper: NSViewRepresentable {
         button.pullsDown         = false
         button.autoresizingMask  = []
         (button.cell as? NSPopUpButtonCell)?.arrowPosition = .noArrow
-        button.setAccessibilityLabel("Задержка захвата")
+        button.setAccessibilityLabel("Capture delay")
 
         for delay in CaptureDelay.allCases {
             button.addItem(withTitle: delay.title)

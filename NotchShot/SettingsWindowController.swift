@@ -7,6 +7,20 @@ extension Notification.Name {
     static let settingsWindowDidClose = Notification.Name("NotchShotSettingsWindowDidClose")
 }
 
+// MARK: - FixedTitleTabViewController
+
+/// NSTabViewController that keeps the window title fixed to "Settings"
+/// regardless of the selected tab's view controller title.
+private final class FixedTitleTabViewController: NSTabViewController {
+    /// NSWindow observes contentViewController.title via KVO and mirrors it
+    /// to window.title on every tab switch. Locking the getter to "Settings"
+    /// keeps the window title stable regardless of which tab is active.
+    override var title: String? {
+        get { "Settings" }
+        set { /* intentionally ignored */ }
+    }
+}
+
 // MARK: - SettingsWindowController
 
 final class SettingsWindowController: NSObject, NSWindowDelegate {
@@ -50,7 +64,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     // MARK: - Tab view controller
 
     private func makeTabViewController() -> NSTabViewController {
-        let tabs = NSTabViewController()
+        let tabs = FixedTitleTabViewController()
         tabs.tabStyle = .toolbar
 
         let items: [(label: String, image: String, view: AnyView)] = [

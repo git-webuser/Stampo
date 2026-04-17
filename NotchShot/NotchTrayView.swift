@@ -155,6 +155,15 @@ struct NotchTrayView: View {
             .frame(maxHeight: .infinity, alignment: .top)
         }
         .frame(maxHeight: .infinity, alignment: .top)
+        .mask(
+            HStack(spacing: 0) {
+                LinearGradient(colors: [.clear, .black], startPoint: .leading, endPoint: .trailing)
+                    .frame(width: contentInset)
+                Color.black
+                LinearGradient(colors: [.black, .clear], startPoint: .leading, endPoint: .trailing)
+                    .frame(width: contentInset)
+            }
+        )
         .padding(.horizontal, innerInset)
     }
 
@@ -163,8 +172,8 @@ struct NotchTrayView: View {
     private var backButton: some View {
         PanelIconButton(systemName: "chevron.left", size: 14, weight: .semibold, action: handleBack)
             .frame(width: metrics.cellWidth, height: metrics.iconSize)
-            .help("Назад к панели")
-            .accessibilityLabel("Назад к панели")
+            .help("Back to panel")
+            .accessibilityLabel("Back to panel")
     }
 
     private var trayIconButton: some View {
@@ -174,21 +183,21 @@ struct NotchTrayView: View {
             action: handleBack
         )
         .frame(width: metrics.cellWidth, height: metrics.iconSize)
-        .help("Назад к панели")
-        .accessibilityLabel("Назад к панели")
+        .help("Back to panel")
+        .accessibilityLabel("Back to panel")
     }
 
     private var moreButton: some View {
         PanelMoreMenuButton(metrics: metrics)
             .frame(width: metrics.cellWidth, height: metrics.iconSize)
-            .help("Настройки и выход")
-            .accessibilityLabel("Настройки и выход")
+            .help("Settings and quit")
+            .accessibilityLabel("Settings and quit")
     }
 
     private var schemeMenu: some View {
         TraySchemeMenuButton(scheme: $scheme, metrics: metrics)
-            .help("Формат цвета")
-            .accessibilityLabel("Формат цвета: \(scheme.title)")
+            .help("Color format")
+            .accessibilityLabel("Color format: \(scheme.title)")
     }
 }
 
@@ -217,7 +226,7 @@ struct TrayDeleteBadge: View {
                     .onEnded   { _ in action() }
             )
             .accessibilityAddTraits(.isButton)
-            .accessibilityLabel(systemName == "xmark.circle.fill" ? "Переместить в корзину" : (isOn ? "Открепить" : "Закрепить"))
+            .accessibilityLabel(systemName == "xmark.circle.fill" ? "Move to trash" : (isOn ? "Unpin" : "Pin"))
     }
 }
 
@@ -436,7 +445,7 @@ private struct PopUpSchemeButtonWrapper: NSViewRepresentable {
         button.pullsDown        = true
         button.autoresizingMask = []
         (button.cell as? NSPopUpButtonCell)?.arrowPosition = .noArrow
-        button.setAccessibilityLabel("Формат цвета")
+        button.setAccessibilityLabel("Color format")
 
         // pullsDown=true: первый пункт используется как скрытый заголовок кнопки,
         // добавляем пустой placeholder чтобы пункты выбора начинались с HEX.

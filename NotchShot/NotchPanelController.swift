@@ -398,6 +398,8 @@ final class NotchPanelController: NSObject {
                 self?.route = .main
                 self?.rootState.progress = 0.0
                 self?.rootState.countdownVisible = 0.0
+                self?.rootState.countdownSeconds = 0
+                self?.rootState.countdownTotal = 0
                 completion?()
             }
         } else {
@@ -421,6 +423,8 @@ final class NotchPanelController: NSObject {
                 self?.route = .main
                 self?.rootState.progress = 0.0
                 self?.rootState.countdownVisible = 0.0
+                self?.rootState.countdownSeconds = 0
+                self?.rootState.countdownTotal = 0
                 completion?()
             }
         }

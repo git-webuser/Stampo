@@ -4,6 +4,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let panel = NotchPanelController()
     private lazy var hover = NotchHoverController(panel: panel)
 
+    /// Called before any nib/window is loaded — the right place to set
+    /// AppleLanguages so the entire SwiftUI hierarchy picks up the override.
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        let lang = UserDefaults.standard.string(forKey: AppSettings.Keys.preferredLanguage) ?? "system"
+        switch lang {
+        case "en": UserDefaults.standard.set(["en"],       forKey: "AppleLanguages")
+        case "ru": UserDefaults.standard.set(["ru", "en"], forKey: "AppleLanguages")
+        default:   UserDefaults.standard.removeObject(forKey: "AppleLanguages")
+        }
+        UserDefaults.standard.synchronize()
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         AppSettings.migrateLegacySaveDirectoryIfNeeded()
         hover.start()

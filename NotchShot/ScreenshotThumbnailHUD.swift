@@ -219,7 +219,7 @@ final class ThumbnailHostingView: NSHostingView<ScreenshotThumbnailView> {
     }
 
     override func mouseUp(with event: NSEvent) {
-        defer { super.mouseUp(with: event) }
+        super.mouseUp(with: event)
     }
 
     // MARK: File drag

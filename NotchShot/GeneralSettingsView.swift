@@ -1,9 +1,11 @@
 import SwiftUI
+import AppKit
 
 struct GeneralSettingsView: View {
     @AppStorage(AppSettings.Keys.showThumbnailHUD)      private var showThumbnailHUD      = true
     @AppStorage(AppSettings.Keys.thumbnailDismissDelay) private var thumbnailDismissDelay = 3.0
     @AppStorage(AppSettings.Keys.settingsAppearance)    private var settingsAppearance     = SettingsAppearance.system
+    @AppStorage(AppSettings.Keys.preferredLanguage)     private var preferredLanguage      = "system"
 
     @State private var launchAtLogin = AppSettings.launchAtLoginEnabled
 
@@ -30,6 +32,17 @@ struct GeneralSettingsView: View {
                         SettingsWindowController.shared.applyAppearance(newValue)
                     }
                 }
+
+                LabeledContent("App language") {
+                    Picker("", selection: $preferredLanguage) {
+                        Text("System").tag("system")
+                        Text("English").tag("en")
+                        Text("Русский").tag("ru")
+                    }
+                    .pickerStyle(.menu)
+                    .labelsHidden()
+                    .onChange(of: preferredLanguage) { _, _ in promptRestart() }
+                }
             }
 
             Section {
@@ -54,5 +67,24 @@ struct GeneralSettingsView: View {
         }
         .formStyle(.grouped)
         .padding(.vertical, 8)
+    }
+
+    // MARK: - Language restart
+
+    private func promptRestart() {
+        DispatchQueue.main.async {
+            let alert = NSAlert()
+            alert.messageText = "Restart Required"
+            alert.informativeText = "NotchShot needs to restart to apply the new language setting."
+            alert.addButton(withTitle: "Restart Now")
+            alert.addButton(withTitle: "Later")
+            guard alert.runModal() == .alertFirstButtonReturn else { return }
+            guard let appURL = Bundle.main.bundleURL as URL? else { NSApp.terminate(nil); return }
+            let task = Process()
+            task.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+            task.arguments = [appURL.path]
+            try? task.run()
+            NSApp.terminate(nil)
+        }
     }
 }

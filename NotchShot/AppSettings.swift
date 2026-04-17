@@ -18,7 +18,7 @@ enum AppSettings {
         static let saveDirectory         = "saveDirectory"
         static let saveDirectoryBookmark = "saveDirectoryBookmark"
         static let fileFormat            = "fileFormat"
-        static let filenameTemplate      = "filenameTemplate"  // legacy, не используется
+        static let filenameTemplate      = "filenameTemplate"  // legacy, unused
         static let filenamePreset        = "filenamePreset"
         static let captureCounter        = "captureCounter"
         static let playSound             = "playSound"
@@ -32,8 +32,9 @@ enum AppSettings {
         static let persistTray           = "persistTray"
         static let trayPersistedData     = "trayPersistedData"
         static let defaultColorFormat    = "defaultColorFormat"
-        // Appearance
+        // Appearance / Language
         static let settingsAppearance      = "settingsAppearance"
+        static let preferredLanguage       = "preferredLanguage"
         // Hotkeys
         static let hotkeyPanelEnabled      = "hotkeyPanelEnabled"
         static let hotkeySelectionEnabled  = "hotkeySelectionEnabled"
@@ -370,7 +371,7 @@ enum AppSettingsError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .securityScopeAccessDenied(let url):
-            return "Нет доступа к папке «\(url.lastPathComponent)». Переназначьте папку сохранения в настройках."
+            return "Cannot access folder \"\(url.lastPathComponent)\". Reassign the save folder in Settings."
         }
     }
 }
