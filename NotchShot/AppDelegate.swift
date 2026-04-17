@@ -7,6 +7,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         hover.start()
         interceptSettingsMenuItem()
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(openSettings),
+            name: .requestOpenSettings,
+            object: nil
+        )
     }
 
     /// Перехватывает пункт «Settings...» (⌘,) в app menu, который SwiftUI

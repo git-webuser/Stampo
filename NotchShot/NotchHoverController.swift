@@ -103,7 +103,7 @@ final class NotchHoverController: NSObject {
 
     @objc
     private func statusItemClicked() {
-        let screen = preferredScreenForOpen()
+        guard let screen = preferredScreenForOpen() else { return }
         panel.toggleAnimated(on: screen)
     }
 
@@ -195,7 +195,7 @@ final class NotchHoverController: NSObject {
     }
 
     private func handleHotKey(_ hotKeyID: EventHotKeyID) {
-        let screen = preferredScreenForOpen()
+        guard let screen = preferredScreenForOpen() else { return }
         switch hotKeyID.id {
         case 1:
             // Toggle panel
@@ -325,13 +325,12 @@ final class NotchHoverController: NSObject {
         }
     }
 
-    private func preferredScreenForOpen() -> NSScreen {
+    /// Returns the screen best suited to present the panel on, or nil if no
+    /// screen is currently available (headless / mid-reconfiguration). Callers
+    /// must guard nil and skip the action rather than crashing on screens[0].
+    private func preferredScreenForOpen() -> NSScreen? {
         let mouse = NSEvent.mouseLocation
-        if let screen = screenForPoint(mouse) ?? NSScreen.main ?? NSScreen.screens.first {
-            return screen
-        }
-        assertionFailure("[NotchHoverController] preferredScreenForOpen: no screens available")
-        return NSScreen.screens[0]  // недостижимо в штатной работе
+        return screenForPoint(mouse) ?? NSScreen.main ?? NSScreen.screens.first
     }
 
     private func screenForPoint(_ p: NSPoint) -> NSScreen? {

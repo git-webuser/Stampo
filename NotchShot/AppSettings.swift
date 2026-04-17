@@ -72,7 +72,20 @@ enum AppSettings {
                 }
                 return url
             }
+            // Bookmark data exists but can’t be resolved — folder was likely
+            // moved, deleted, or on an unmounted volume. Surface once via the
+            // centralized presenter (throttled) so the user gets a remediation
+            // path instead of silently writing to Downloads.
+            let fallback = legacyOrDownloadsURL()
+            UserFacingError.present(.saveDirectoryInaccessible(url: fallback))
+            return fallback
         }
+        return legacyOrDownloadsURL()
+    }
+
+    /// Fallback resolution when no (resolvable) bookmark exists: prefer the
+    /// legacy plain-string path if present, otherwise Downloads, otherwise home.
+    private static func legacyOrDownloadsURL() -> URL {
         let path = UserDefaults.standard.string(forKey: Keys.saveDirectory) ?? ""
         if !path.isEmpty { return URL(fileURLWithPath: path) }
         return FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first

@@ -242,6 +242,14 @@ final class ColorPickerHUD {
     private var panel: NSPanel?
     private var hideWorkItem: DispatchWorkItem?
 
+    deinit {
+        // Cancel any pending auto-hide so it can't fire into a dangling instance,
+        // and tear down the panel deterministically.
+        hideWorkItem?.cancel()
+        hideWorkItem = nil
+        panel?.orderOut(nil)
+    }
+
     private(set) var currentFormat: HUDColorFormat = .hex
     private var currentPhase: ColorPickerHUDPhase = .hidden
     private var currentMagnifier: MagnifierData = .empty

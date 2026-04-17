@@ -213,6 +213,9 @@ final class NotchPanelController: NSObject {
         }
         notificationObservers.removeAll()
         removeEscMonitor()
+        // Ensure the scheduled Timer can't fire into a deallocated controller.
+        countdownTimer?.invalidate()
+        countdownTimer = nil
     }
 
     /// Форсирует пересчёт Space-binding у панели. Просто переприсваивание того
@@ -327,8 +330,7 @@ final class NotchPanelController: NSObject {
 
         // Cancel any active countdown before hiding
         if route == .cdwn {
-            countdownTimer?.invalidate()
-            countdownTimer = nil
+            cancelCountdownTimer()
             rootState.countdownVisible = 0.0
             rootState.countdownSeconds = 0
             rootState.countdownTotal = 0
@@ -548,7 +550,7 @@ final class NotchPanelController: NSObject {
 
     func transitionBetweenStates(_ targetRoute: NotchPanelRoute) {
         guard let panel else { return }
-        guard let screen = currentScreen ?? NSScreen.main else { return }
+        guard let screen = currentScreen ?? NSScreen.main ?? NSScreen.screens.first else { return }
 
         trayTransitionInFlight = true
         interactionState.isEnabled = false

@@ -252,6 +252,11 @@ final class ColorSampler {
             #if DEBUG
             print("[ColorSampler] SCShareableContent failed: \(error)")
             #endif
+            // Surface the failure to the user once (throttled internally) and
+            // abort the picker so they aren't left with a frozen magnifier.
+            UserFacingError.present(.colorPickerUnavailable(
+                reason: error.localizedDescription))
+            cancel()
             fresh = nil
         }
         cachedContent = fresh
@@ -296,6 +301,11 @@ final class ColorSampler {
             #if DEBUG
             print("[ColorSampler] captureImage failed: \(error)")
             #endif
+            // Single throttled alert on persistent capture failure — typically
+            // means screen-recording permission was revoked mid-session.
+            UserFacingError.present(.colorPickerUnavailable(
+                reason: error.localizedDescription))
+            cancel()
             return nil
         }
 

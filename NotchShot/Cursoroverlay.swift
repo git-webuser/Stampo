@@ -217,6 +217,17 @@ final class CursorOverlay {
         NSCursor.arrow.set()
     }
 
+    deinit {
+        // Defensive cleanup: callers normally invoke hide() explicitly, but if the
+        // overlay is deallocated without it (early release of its owner), we still
+        // want the global monitor and space observer unregistered so they can't
+        // fire into a dangling instance.
+        MainActor.assumeIsolated {
+            fullscreenWindow?.orderOut(nil)
+            removeGlobalMouseMonitor()
+        }
+    }
+
     // MARK: - Private
 
     private var globalMouseMonitor: Any?

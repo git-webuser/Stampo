@@ -15,8 +15,9 @@ struct NotchTrayView: View {
         onBack()  // контроллер управляет fade-out контента
     }
 
-    private let panelRounding: CGFloat = 15  // clearance for panel corner radius
-    private let innerInset:    CGFloat = 19  // inset from panel edge to first cell
+    private let panelRounding: CGFloat = 19  // clearance for panel corner radius
+    private let innerInset:    CGFloat = 15  // scroll container inset from panel edge
+    private let contentInset:  CGFloat = 18  // leading/trailing padding inside scroll content
     private var scrollPadH:    CGFloat { panelRounding + innerInset }
     private let cellSpacing:   CGFloat = 8
     private let cellH:         CGFloat = 32
@@ -149,20 +150,12 @@ struct NotchTrayView: View {
                     }
                 }
             }
-            // innerInset only: the panelRounding portion is now part of the
-            // ScrollView's own frame inset below, so the scroll clip boundary
-            // sits inside the beveled corners and cells never render over them.
-            .padding(.horizontal, innerInset)
+            .padding(.horizontal, contentInset)
             .padding(.top, badgeBleed)
             .frame(maxHeight: .infinity, alignment: .top)
         }
         .frame(maxHeight: .infinity, alignment: .top)
-        // Inset the scroll frame by panelRounding on each side so its clip boundary
-        // aligns with the inner edge of the beveled top corners of the tray shape.
-        // scrollClipDisabled() is still needed so hover labels (−18 pt below cells)
-        // and delete badges (+3 pt above the HStack) can render outside the scroll rect.
-        .padding(.horizontal, panelRounding)
-        .scrollClipDisabled()
+        .padding(.horizontal, innerInset)
     }
 
     // MARK: - Buttons
@@ -613,7 +606,11 @@ final class TrayDragShimView: NSView, NSDraggingSource {
     let onTap: () -> Void
 
     private var mouseDownPoint: NSPoint?
-    private var dragAccessing = false
+    /// URL whose security scope we currently hold for an active drag session.
+    /// Storing the exact URL (rather than re-reading AppSettings.saveDirectoryURL
+    /// at stop time) guarantees start/stop pair on the same path, even if the
+    /// save directory changes while dragging.
+    private var dragAccessedURL: URL?
 
     init(isPressed: Binding<Bool>, isDragging: Binding<Bool>,
          isHovered: Binding<Bool>, onTap: @escaping () -> Void) {
@@ -708,7 +705,7 @@ final class TrayDragShimView: NSView, NSDraggingSource {
         let saveDir = AppSettings.saveDirectoryURL
         let hasBookmark = UserDefaults.standard.data(
             forKey: AppSettings.Keys.saveDirectoryBookmark) != nil
-        dragAccessing = hasBookmark && saveDir.startAccessingSecurityScopedResource()
+        dragAccessedURL = (hasBookmark && saveDir.startAccessingSecurityScopedResource()) ? saveDir : nil
 
         let item = NSDraggingItem(pasteboardWriter: url as NSURL)
         let previewSize = NSSize(width: cellSize.width * 0.75, height: cellSize.height * 0.75)
@@ -723,9 +720,9 @@ final class TrayDragShimView: NSView, NSDraggingSource {
 
     func draggingSession(_ session: NSDraggingSession,
                          endedAt screenPoint: NSPoint, operation: NSDragOperation) {
-        if dragAccessing {
-            AppSettings.saveDirectoryURL.stopAccessingSecurityScopedResource()
-            dragAccessing = false
+        if let url = dragAccessedURL {
+            url.stopAccessingSecurityScopedResource()
+            dragAccessedURL = nil
         }
         DispatchQueue.main.async { self.isDragging = false }
     }

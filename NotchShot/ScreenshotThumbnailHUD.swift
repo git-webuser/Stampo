@@ -230,7 +230,14 @@ final class ThumbnailHostingView: NSHostingView<ScreenshotThumbnailView> {
         let saveDir     = AppSettings.saveDirectoryURL
         let hasBookmark = UserDefaults.standard.data(
             forKey: AppSettings.Keys.saveDirectoryBookmark) != nil
-        dragSource.accessing = hasBookmark && saveDir.startAccessingSecurityScopedResource()
+        // Store the URL we started access on, so we stop on the SAME URL in
+        // draggingSession(endedAt:) even if the user changes save directory
+        // during the drag.
+        if hasBookmark && saveDir.startAccessingSecurityScopedResource() {
+            dragSource.accessedURL = saveDir
+        } else {
+            dragSource.accessedURL = nil
+        }
 
         let item        = NSDraggingItem(pasteboardWriter: url as NSURL)
         let previewSize = NSSize(width: max(bounds.width * 0.75, 1),
@@ -244,7 +251,12 @@ final class ThumbnailHostingView: NSHostingView<ScreenshotThumbnailView> {
 // Separate NSDraggingSource because NSHostingView already inherits the
 // conformance from NSView and its draggingSession methods are public (not open).
 private final class DragSource: NSObject, NSDraggingSource {
-    var accessing      = false
+    /// Non-nil while we hold an active security scope for this URL.
+    /// Must be released on the SAME URL that start was called on — re-reading
+    /// AppSettings.saveDirectoryURL could return a different path if the user
+    /// changed the save folder mid-drag, which would leak the first scope and
+    /// attempt to release a scope we never held.
+    var accessedURL: URL?
     var onSessionEnded: (() -> Void)?
 
     func draggingSession(_ session: NSDraggingSession,
@@ -255,9 +267,9 @@ private final class DragSource: NSObject, NSDraggingSource {
     func draggingSession(_ session: NSDraggingSession,
                          endedAt screenPoint: NSPoint,
                          operation: NSDragOperation) {
-        if accessing {
-            AppSettings.saveDirectoryURL.stopAccessingSecurityScopedResource()
-            accessing = false
+        if let url = accessedURL {
+            url.stopAccessingSecurityScopedResource()
+            accessedURL = nil
         }
         onSessionEnded?()
     }

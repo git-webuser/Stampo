@@ -67,10 +67,13 @@ final class ScreenshotService {
             let ok = self.runScreencapture(arguments: args)
             guard ok else {
                 print("[ScreenshotService] screencapture failed, args: \(args)")
+                UserFacingError.present(.screenCaptureFailed(reason: nil))
                 return
             }
             guard self.fm.fileExists(atPath: tmpURL.path) else {
                 print("[ScreenshotService] output file missing: \(tmpURL.path)")
+                UserFacingError.present(.screenCaptureFailed(
+                    reason: "No output file was produced."))
                 return
             }
             self.handleCapturedFile(at: tmpURL, preferredScreen: preferredScreen)
@@ -112,10 +115,13 @@ final class ScreenshotService {
         let ok = runScreencapture(arguments: args)
         guard ok else {
             print("[ScreenshotService] screencapture failed, args: \(args)")
+            UserFacingError.present(.screenCaptureFailed(reason: nil))
             return
         }
         guard fm.fileExists(atPath: tmpURL.path) else {
             print("[ScreenshotService] output file missing: \(tmpURL.path)")
+            UserFacingError.present(.screenCaptureFailed(
+                reason: "No output file was produced."))
             return
         }
         handleCapturedFile(at: tmpURL, preferredScreen: preferredScreen)
@@ -143,12 +149,21 @@ final class ScreenshotService {
             lastCaptureURL = tmpURL
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
-                let alert = NSAlert()
-                alert.alertStyle = .warning
-                alert.messageText = "Screenshot saved to temporary folder"
-                alert.informativeText = "Could not save to the selected folder: \(error.localizedDescription)\n\nThe file was kept in the temporary folder instead."
-                alert.addButton(withTitle: "OK")
-                alert.runModal()
+
+                // Permission/bookmark failure routes to the centralized error
+                // presenter so the user gets a single, throttled alert with a
+                // remediation button (open NotchShot Settings).
+                if case AppSettingsError.securityScopeAccessDenied(let url) = error {
+                    UserFacingError.present(.saveDirectoryInaccessible(url: url))
+                } else {
+                    let alert = NSAlert()
+                    alert.alertStyle = .warning
+                    alert.messageText = "Screenshot saved to temporary folder"
+                    alert.informativeText = "Could not save to the selected folder: \(error.localizedDescription)\n\nThe file was kept in the temporary folder instead."
+                    alert.addButton(withTitle: "OK")
+                    alert.runModal()
+                }
+
                 self.thumbnailHUD.onDelete = { [weak self] in self?.onDelete?(tmpURL) }
                 self.thumbnailHUD.show(imageURL: tmpURL, on: preferredScreen)
                 self.onCaptured?(tmpURL)
@@ -213,64 +228,5 @@ final class ScreenshotService {
     }
 }
 
-// MARK: - FrontmostWindowResolver
-
-private enum FrontmostWindowResolver {
-    static func frontmostWindowID() -> CGWindowID? {
-        guard let app = NSWorkspace.shared.frontmostApplication else { return nil }
-        let pid = app.processIdentifier
-
-        let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
-        guard let infoList = CGWindowListCopyWindowInfo(options, kCGNullWindowID)
-                as? [[String: Any]] else { return nil }
-
-        for info in infoList {
-            guard let ownerPID = info[kCGWindowOwnerPID as String] as? pid_t,
-                  ownerPID == pid else { continue }
-            guard let layer = info[kCGWindowLayer as String] as? Int,
-                  layer == 0 else { continue }
-            guard let isOnscreen = info[kCGWindowIsOnscreen as String] as? Bool,
-                  isOnscreen else { continue }
-            guard let windowNumber = info[kCGWindowNumber as String] as? UInt32
-            else { continue }
-
-            if let bounds = info[kCGWindowBounds as String] as? [String: Any] {
-                let wAny = bounds["Width"]
-                let hAny = bounds["Height"]
-                let w: Double = (wAny as? Double) ?? Double((wAny as? CGFloat) ?? 0)
-                let h: Double = (hAny as? Double) ?? Double((hAny as? CGFloat) ?? 0)
-                if w <= 0 || h <= 0 { continue }
-                if (w < 60 && h < 60) || (w * h < 3600) { continue }
-            }
-
-            return CGWindowID(windowNumber)
-        }
-        return nil
-    }
-}
-
-// MARK: - ScreenshotSoundPlayer
-
-enum ScreenshotSoundPlayer {
-    static func play() {
-        // Primary: system sound by name — works across macOS versions without path coupling
-        if let sound = NSSound(named: "Screen Capture") {
-            sound.play()
-            return
-        }
-        // Fallback: known file paths for macOS 12–14
-        let candidates: [String] = [
-            "/System/Library/Components/CoreAudio.component/Contents/SharedSupport/SystemSounds/system/Screen Capture.aiff",
-            "/System/Library/Components/CoreAudio.component/Contents/SharedSupport/SystemSounds/system/screenshot.aiff",
-            "/System/Library/Library/Sounds/Screen Capture.aiff",
-            "/System/Library/Sounds/Glass.aiff"
-        ]
-        for path in candidates where FileManager.default.fileExists(atPath: path) {
-            if let sound = NSSound(contentsOfFile: path, byReference: true) {
-                sound.play()
-                return
-            }
-        }
-        NSSound.beep()
-    }
-}
+// FrontmostWindowResolver lives in FrontmostWindowResolver.swift
+// ScreenshotSoundPlayer lives in ScreenshotSoundPlayer.swift

@@ -23,8 +23,13 @@ extension NotchPanelController {
     /// Selection/Window mode: hide panel, show pre-selection overlay, then show panel with countdown.
     func launchPreSelection(mode: CaptureMode, seconds: Int) {
         guard !preSelectionInFlight else { return }
+        // Fail closed if there's no screen to present the overlay on (headless
+        // Mac or mid-reconfiguration). Previously this forced `screens[0]` and
+        // crashed on empty screens.
+        guard let screen = currentScreen ?? NSScreen.main ?? NSScreen.screens.first else {
+            return
+        }
         preSelectionInFlight = true
-        let screen = currentScreen ?? NSScreen.main ?? NSScreen.screens[0]
 
         hideAnimated { [weak self] in
             guard let self else { return }
@@ -67,7 +72,7 @@ extension NotchPanelController {
     }
 
     func startCountdownTimer() {
-        countdownTimer?.invalidate()
+        cancelCountdownTimer()
         countdownTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
             guard let self else { return }
             if self.rootState.countdownSeconds > 1 {
@@ -78,9 +83,16 @@ extension NotchPanelController {
         }
     }
 
-    func stopCountdown() {
+    /// Single authoritative place to kill the countdown Timer.
+    /// Called from every exit path (stop / capture-now / finish / hideAnimated /
+    /// deinit) so the tick closure can never fire into a freed controller.
+    func cancelCountdownTimer() {
         countdownTimer?.invalidate()
         countdownTimer = nil
+    }
+
+    func stopCountdown() {
+        cancelCountdownTimer()
         route = .main
         withAnimation(.easeOut(duration: 0.16)) {
             rootState.countdownVisible = 0.0
@@ -94,8 +106,7 @@ extension NotchPanelController {
     }
 
     func captureNowFromCountdown() {
-        countdownTimer?.invalidate()
-        countdownTimer = nil
+        cancelCountdownTimer()
         let target = countdownCaptureTarget
         let screen = countdownScreen
         hideAnimated { [weak self] in
@@ -104,8 +115,7 @@ extension NotchPanelController {
     }
 
     func finishCountdown() {
-        countdownTimer?.invalidate()
-        countdownTimer = nil
+        cancelCountdownTimer()
         let target = countdownCaptureTarget
         let screen = countdownScreen
         hideAnimated { [weak self] in
@@ -121,69 +131,6 @@ extension NotchPanelController {
             screenshot.captureRect(cgRect, preferredScreen: screen)
         case .windowID(let id):
             screenshot.captureWindowID(id, preferredScreen: screen)
-        }
-    }
-
-    // MARK: Color picker
-
-    @MainActor
-    func pickColor() {
-        guard !colorSamplerInFlight else { return }
-        colorSamplerInFlight = true
-
-        let screen = currentScreen ?? NSScreen.main
-
-        let launch = { [weak self] in
-            guard let self else { return }
-
-            let sampler = ColorSampler()
-            self.activeSampler = sampler
-            self.colorPickerHUD.beginSession(format: sampler.format)
-
-            sampler.onColorChanged = { [weak self] color, position, magnifier in
-                guard let self else { return }
-                self.colorPickerHUD.setFormat(sampler.format)
-                self.colorPickerHUD.update(color: color, cursorPosition: position, magnifier: magnifier)
-            }
-
-            sampler.onConfirmed = { [weak self] color in
-                guard let self else { return }
-                self.colorSamplerInFlight = false
-                self.activeSampler = nil
-
-                let sRGB = color.usingColorSpace(.sRGB) ?? color
-                self.colorPickerHUD.showSuccess(color: sRGB, on: screen, autoHideAfter: 0.35)
-
-                let formatted = self.colorPickerHUD.currentFormat.format(sRGB)
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(formatted, forType: .string)
-
-                self.trayModel.add(color: sRGB)
-                // Reset route without showing panel
-                self.route = .main
-                self.rootState.progress = 0.0
-            }
-
-            sampler.onCancelled = { [weak self] in
-                guard let self else { return }
-                self.colorSamplerInFlight = false
-                self.activeSampler = nil
-                self.colorPickerHUD.hide()
-                // Reset route without showing panel
-                self.route = .main
-                self.rootState.progress = 0.0
-            }
-
-            sampler.start()
-        }
-
-        if isVisible {
-            // Panel is open — hide it first, then launch sampler
-            CursorOverlay.hideCursorAfterMenuCloses()
-            hideAnimated { launch() }
-        } else {
-            // Panel already hidden — launch sampler directly, no show/hide cycle
-            launch()
         }
     }
 }
