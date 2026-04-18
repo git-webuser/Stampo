@@ -3,8 +3,8 @@ import SwiftUI
 
 // MARK: - Screenshot-style crosshair cursor
 
-/// Точная копия системного screencapture crosshair.
-/// Геометрия и порядок слоёв из публичной библиотеки компонентов Apple в Figma.
+/// Exact replica of the system screencapture crosshair cursor.
+/// Geometry and layer order sourced from Apple's public Figma component library.
 func makeScreenshotCrosshairCursor(contrastAgainst _: NSColor? = nil) -> NSCursor {
     let size: CGFloat = 25
     let cx = size / 2
@@ -57,9 +57,9 @@ func makeScreenshotCrosshairCursor(contrastAgainst _: NSColor? = nil) -> NSCurso
     ctx.setLineWidth(ringStrokeW)
     ctx.strokeEllipse(in: CGRect(x: cx-ringStrokeR, y: cy-ringStrokeR,
                                  width: ringStrokeR*2, height: ringStrokeR*2))
-    // 3. Halo — полная длина, поверх кольца
+    // 3. Halo — full length, drawn on top of the ring
     strokeArms(color: haloColor, width: haloWidth, from: 0, to: armEnd + armGap)
-    // 4. Arms поверх гало
+    // 4. Arms on top of the halo
     strokeArms(color: armColor, width: armCore, from: armGap, to: armEnd)
 
     return NSCursor(image: image, hotSpot: NSPoint(x: cx, y: cy))
@@ -67,14 +67,14 @@ func makeScreenshotCrosshairCursor(contrastAgainst _: NSColor? = nil) -> NSCurso
 
 // MARK: - Window-capture cursor (system screenshotwindow)
 
-/// Загружает системный курсор "Камера для создания снимка окна и меню" из HIServices.
-/// Файл cursor.pdf + hotspot из info.plist — те же данные, что использует screencapture.
+/// Loads the system "Camera for capturing a window and menu" cursor from HIServices.
+/// Uses cursor.pdf + hotspot from info.plist — the same assets that screencapture uses.
 func makeWindowCaptureCursor() -> NSCursor {
     let dir = "/System/Library/Frameworks/ApplicationServices.framework" +
               "/Versions/A/Frameworks/HIServices.framework" +
               "/Versions/A/Resources/cursors/screenshotwindow"
 
-    // Hotspot из plist; фолбэк на известные значения
+    // Hotspot from plist; fall back to known values.
     var hotX: CGFloat = 14
     var hotY: CGFloat = 11
     if let info = NSDictionary(contentsOfFile: dir + "/info.plist") {

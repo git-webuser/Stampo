@@ -17,16 +17,16 @@ func CGSSetConnectionProperty(
 
 // MARK: - ESC monitor helper
 
-/// Installs both a global and a local monitor for keyCode 53 (Esc).
+/// Installs both a global and a local monitor for the Escape key.
 /// Tokens are appended to `monitors`; the caller must remove them via
 /// `NSEvent.removeMonitor` when the overlay is dismissed.
 func installEscMonitors(into monitors: inout [Any], action: @escaping () -> Void) {
     if let m = NSEvent.addGlobalMonitorForEvents(matching: .keyDown, handler: { event in
-        if event.keyCode == 53 { action() }
+        if event.keyCode == KeyCode.escape { action() }
     }) { monitors.append(m) }
 
     if let m = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: { event in
-        if event.keyCode == 53 { action(); return nil }
+        if event.keyCode == KeyCode.escape { action(); return nil }
         return event
     }) { monitors.append(m) }
 }

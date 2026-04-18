@@ -1,4 +1,5 @@
 import AppKit
+import OSLog
 import ServiceManagement
 
 // MARK: - AppSettings
@@ -103,7 +104,7 @@ enum AppSettings {
         ) {
             UserDefaults.standard.set(data, forKey: Keys.saveDirectoryBookmark)
             UserDefaults.standard.removeObject(forKey: Keys.saveDirectory)
-            print("[AppSettings] Migrated legacy saveDirectory to security-scoped bookmark.")
+            Log.settings.debug("Migrated legacy saveDirectory to security-scoped bookmark.")
         }
     }
 
@@ -123,7 +124,7 @@ enum AppSettings {
         if hasBookmark {
             accessing = url.startAccessingSecurityScopedResource()
             guard accessing else {
-                print("[AppSettings] startAccessingSecurityScopedResource failed for: \(url.path)")
+                Log.settings.error("startAccessingSecurityScopedResource failed for: \(url.path)")
                 throw AppSettingsError.securityScopeAccessDenied(url)
             }
         }
@@ -135,12 +136,12 @@ enum AppSettings {
         return FilenamePreset(rawValue: raw) ?? .compact
     }
 
-    /// Читает текущее значение счётчика без инкремента — для превью в настройках.
+    /// Returns the current counter value without incrementing — for settings preview.
     static var captureCounter: Int {
         UserDefaults.standard.integer(forKey: Keys.captureCounter)
     }
 
-    /// Атомарно инкрементирует и возвращает счётчик — вызывать только при реальном захвате.
+    /// Atomically increments and returns the counter — call only on an actual capture.
     static func nextCaptureCounter() -> Int {
         let n = UserDefaults.standard.integer(forKey: Keys.captureCounter) + 1
         UserDefaults.standard.set(n, forKey: Keys.captureCounter)

@@ -28,9 +28,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
     }
 
-    /// Перехватывает пункт «Settings...» (⌘,) в app menu, который SwiftUI
-    /// автоматически добавляет через Settings-сцену, и направляет его к
-    /// SettingsWindowController — без вызова showSettingsWindow:.
+    /// Intercepts the "Settings…" (⌘,) menu item that SwiftUI automatically
+    /// adds via the Settings scene, and redirects it to SettingsWindowController
+    /// — without invoking showSettingsWindow:.
     private func interceptSettingsMenuItem() {
         DispatchQueue.main.async {
             for topItem in NSApp.mainMenu?.items ?? [] {
@@ -54,7 +54,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        // Страховка: возвращаем курсор если приложение завершилось во время сэмплинга
+        // Safety net: restore cursor in case the app terminated during color sampling.
         CGDisplayShowCursor(CGMainDisplayID())
     }
     

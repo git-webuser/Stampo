@@ -1,4 +1,5 @@
 import AppKit
+import OSLog
 import ScreenCaptureKit
 
 // MARK: - ColorSampler
@@ -26,10 +27,10 @@ final class ColorSampler {
 
     private let cursorOverlay = CursorOverlay()
 
-    /// Одноразовый запуск. После stop() создавай новый экземпляр.
+    /// One-shot start. After stop() create a fresh instance.
     func start() {
         guard !isStopped else { return }
-        // Движение через FullscreenTrackingView — надёжнее глобального монитора
+        // Mouse movement via FullscreenTrackingView — more reliable than a global monitor.
         cursorOverlay.onMouseMoved = { [weak self] pos in
             guard let self else { return }
             Task { @MainActor in
@@ -53,7 +54,7 @@ final class ColorSampler {
     }
 
     private func installMonitors() {
-        // Глобальный монитор для drag (FullscreenTrackingView не получает drag-события)
+        // Global monitor for drag — FullscreenTrackingView does not receive drag events.
         mouseMonitor = NSEvent.addGlobalMonitorForEvents(
             matching: .leftMouseDragged
         ) { [weak self] _ in
@@ -71,8 +72,8 @@ final class ColorSampler {
             return nil
         }
 
-        // Используем локальный монитор — глобальный не получает события
-        // собственного приложения когда оно является key window (FullscreenCursorWindow).
+        // Local monitor — a global monitor would not receive events from our own app
+        // when it is the key window (FullscreenCursorWindow).
         leftClickMonitor = NSEvent.addLocalMonitorForEvents(
             matching: .leftMouseUp
         ) { [weak self] event in
@@ -94,9 +95,9 @@ final class ColorSampler {
             }
         }
 
-        // CGEventTap для Esc — работает даже когда другое приложение
-        // перехватывает фокус (например поле ввода на другом Space).
-        // Глобальный NSEvent монитор в этом случае не получает keyDown.
+        // CGEventTap for Esc — fires even when another app has focus (e.g. a
+        // text field on a different Space) where a global NSEvent monitor would
+        // never receive keyDown.
         let escTapCallback: CGEventTapCallBack = { _, type, event, userInfo in
             guard let userInfo else { return Unmanaged.passUnretained(event) }
             let sampler = Unmanaged<ColorSampler>.fromOpaque(userInfo).takeUnretainedValue()
@@ -107,7 +108,7 @@ final class ColorSampler {
             }
 
             guard type == .keyDown else { return Unmanaged.passUnretained(event) }
-            guard event.getIntegerValueField(.keyboardEventKeycode) == 53 else {
+            guard event.getIntegerValueField(.keyboardEventKeycode) == Int64(KeyCode.escape) else {
                 return Unmanaged.passUnretained(event)
             }
 
@@ -115,7 +116,7 @@ final class ColorSampler {
                 guard !sampler.isStopped else { return }
                 sampler.cancel()
             }
-            // Поглощаем Esc чтобы он не попал в поле ввода
+            // Consume the event so Esc does not reach any active text field.
             return nil
         }
 
@@ -129,10 +130,10 @@ final class ColorSampler {
             userInfo: selfPtr
         ) {
             guard let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0) else {
-                // tap создан, но source не получился — явно выключаем порт,
-                // чтобы не оставлять его висеть в системе.
+                // Tap was created but the run-loop source failed — explicitly
+                // disable the port so it does not linger in the system.
                 CGEvent.tapEnable(tap: tap, enable: false)
-                print("[ColorSampler] CFMachPortCreateRunLoopSource failed")
+                Log.color.error("CFMachPortCreateRunLoopSource failed — event tap leaked.")
                 return
             }
             escEventTap = tap
@@ -170,10 +171,13 @@ final class ColorSampler {
     }
 
     private func handleKeyDown(_ event: NSEvent) {
-        // Стрелки для точного позиционирования
-        // Стрелка = 1pt, Shift = 10pt, Shift+Option = 50pt
+        // Arrow keys for precise positioning.
+        // Arrow = 1 pt, Shift = 10 pt, Shift+Option = 50 pt.
         let arrowMap: [UInt16: (CGFloat, CGFloat)] = [
-            126: (0, -1), 125: (0, 1), 123: (-1, 0), 124: (1, 0)
+            KeyCode.arrowUp:    (0, -1),
+            KeyCode.arrowDown:  (0,  1),
+            KeyCode.arrowLeft:  (-1, 0),
+            KeyCode.arrowRight: (1,  0),
         ]
         if let (dx, dy) = arrowMap[event.keyCode] {
             let mods = event.modifierFlags
@@ -190,8 +194,8 @@ final class ColorSampler {
             return
         }
         switch event.keyCode {
-        case 53: cancel()
-        case 3 where AppSettings.hotkeyHUDFormatEnabled:
+        case KeyCode.escape: cancel()
+        case KeyCode.f where AppSettings.hotkeyHUDFormatEnabled:
             let all = HUDColorFormat.allCases
             if let idx = all.firstIndex(of: format) {
                 format = all[(idx + 1) % all.count]
@@ -250,7 +254,7 @@ final class ColorSampler {
             fresh = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
         } catch {
             #if DEBUG
-            print("[ColorSampler] SCShareableContent failed: \(error)")
+            Log.color.debug("SCShareableContent failed: \(error)")
             #endif
             // Surface the failure to the user once (throttled internally) and
             // abort the picker so they aren't left with a frozen magnifier.
@@ -267,15 +271,15 @@ final class ColorSampler {
     private func pixelColor(at point: NSPoint) async -> (color: NSColor, image: CGImage, centerPx: CGPoint)? {
         guard let content = await shareableContent() else { return nil }
 
-        // primary screen — тот у которого origin == .zero в AppKit-координатах.
-        // Именно относительно его высоты AppKit отсчитывает Y снизу вверх.
+        // Primary screen — the one whose origin is .zero in AppKit coordinates.
+        // AppKit measures Y upward from the bottom of this screen.
         let primaryH = NSScreen.screens
             .first(where: { $0.frame.origin == .zero })?
             .frame.height ?? NSScreen.screens.first?.frame.height ?? 0
 
-        // SCDisplay.frame — в Quartz (origin top-left, Y вниз).
-        // AppKit NSPoint — origin bottom-left, Y вверх.
-        // Конвертация: nsY = primaryH - quartzMaxY, где quartzMaxY = d.frame.minY + d.frame.height
+        // SCDisplay.frame is in Quartz space (origin top-left, Y downward).
+        // AppKit NSPoint has origin bottom-left, Y upward.
+        // Conversion: nsY = primaryH - quartzMaxY, where quartzMaxY = d.frame.minY + d.frame.height.
         guard let display = content.displays.first(where: { d in
             let nsFrame = CGRect(
                 x: d.frame.minX,
@@ -299,7 +303,7 @@ final class ColorSampler {
             cgImage = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)
         } catch {
             #if DEBUG
-            print("[ColorSampler] captureImage failed: \(error)")
+            Log.color.debug("captureImage failed: \(error)")
             #endif
             // Single throttled alert on persistent capture failure — typically
             // means screen-recording permission was revoked mid-session.
@@ -309,8 +313,8 @@ final class ColorSampler {
             return nil
         }
 
-        // Конвертируем AppKit point → Quartz point → пиксель в capture buffer.
-        // capture buffer соответствует display.frame в Quartz-координатах.
+        // Convert AppKit point → Quartz point → pixel index in the capture buffer.
+        // The capture buffer coordinate space matches display.frame in Quartz coordinates.
         let quartzY = primaryH - point.y
         let scaleX = CGFloat(display.width)  / display.frame.width
         let scaleY = CGFloat(display.height) / display.frame.height
@@ -341,7 +345,7 @@ final class ColorSampler {
         return (color, cgImage, CGPoint(x: cx, y: cy))
     }
 
-    // MARK: - MagnifierData (3×3 из уже захваченного снимка)
+    // MARK: - MagnifierData (3×3 patch from the already-captured screenshot)
 
     func buildMagnifier(from cgImage: CGImage, centerPx: CGPoint, gridSize: Int = 3) -> MagnifierData {
         let half = gridSize / 2

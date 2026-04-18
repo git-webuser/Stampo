@@ -2,7 +2,7 @@ import SwiftUI
 
 // MARK: - PanelIconButton
 
-/// Единая кнопка-иконка для панели с hover и active состояниями.
+/// Unified icon button for the panel with hover and active states.
 struct PanelIconButton: View {
     let systemName: String
     let size: CGFloat
@@ -201,7 +201,7 @@ struct PanelMoreMenuButton: View {
 
 // MARK: - PanelButtonStyle
 
-/// Кастомный ButtonStyle — перехватывает hover и press без отмены стандартного поведения кнопки.
+/// Custom ButtonStyle that tracks hover and press without cancelling standard button behaviour.
 struct PanelButtonStyle: ButtonStyle {
     @Binding var isHovered: Bool
     @Binding var isPressed: Bool

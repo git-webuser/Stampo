@@ -5,10 +5,10 @@ struct NotchShotApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 
     var body: some Scene {
-        // EmptyView — окном управляет SettingsWindowController,
-        // чтобы не вызывать showSettingsWindow: и не получать предупреждение.
-        // Сцена нужна только чтобы SwiftUI зарегистрировал ⌘, в app menu;
-        // сам пункт меню перехватывается в AppDelegate.
+        // EmptyView — the window is managed by SettingsWindowController so we
+        // never call showSettingsWindow: and avoid the SwiftUI warning.
+        // The scene exists solely so SwiftUI registers ⌘, in the app menu;
+        // the menu item itself is intercepted and redirected in AppDelegate.
         Settings {
             EmptyView()
         }

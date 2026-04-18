@@ -12,7 +12,7 @@ struct NotchTrayView: View {
     @AppStorage(AppSettings.Keys.defaultColorFormat) private var scheme: ColorSchemeType = .hex
 
     private func handleBack() {
-        onBack()  // контроллер управляет fade-out контента
+        onBack()  // controller drives the content fade-out
     }
 
     private let panelRounding: CGFloat = 19  // clearance for panel corner radius
@@ -447,8 +447,8 @@ private struct PopUpSchemeButtonWrapper: NSViewRepresentable {
         (button.cell as? NSPopUpButtonCell)?.arrowPosition = .noArrow
         button.setAccessibilityLabel("Color format")
 
-        // pullsDown=true: первый пункт используется как скрытый заголовок кнопки,
-        // добавляем пустой placeholder чтобы пункты выбора начинались с HEX.
+        // pullsDown=true: the first item acts as the hidden button title,
+        // so we add an empty placeholder to make HEX the first visible option.
         button.addItem(withTitle: "")
         for s in ColorSchemeType.allCases {
             button.addItem(withTitle: s.title)
@@ -474,7 +474,7 @@ private struct PopUpSchemeButtonWrapper: NSViewRepresentable {
     }
 
     func updateNSView(_ button: NSPopUpButton, context: Context) {
-        // +1 — смещение из-за пустого placeholder на индексе 0 (pullsDown = true)
+        // +1 — offset for the empty placeholder at index 0 (pullsDown = true)
         let idx = (ColorSchemeType.allCases.firstIndex(of: selection) ?? 0) + 1
         NSAnimationContext.runAnimationGroup { ctx in
             ctx.duration = 0
@@ -494,7 +494,7 @@ private struct PopUpSchemeButtonWrapper: NSViewRepresentable {
 
         @objc func selectionChanged(_ sender: NSPopUpButton) {
             let cases = ColorSchemeType.allCases
-            // -1 — компенсируем пустой placeholder на индексе 0 (pullsDown = true)
+            // -1 — compensate for the empty placeholder at index 0 (pullsDown = true)
             let idx = sender.indexOfSelectedItem - 1
             guard idx >= 0, idx < cases.count else { return }
             DispatchQueue.main.async { self.parent.selection = cases[idx] }

@@ -1,5 +1,6 @@
 import AppKit
 import ImageIO
+import OSLog
 
 // MARK: - ScreenshotService
 
@@ -66,12 +67,12 @@ final class ScreenshotService {
             args.append(tmpURL.path)
             let ok = self.runScreencapture(arguments: args)
             guard ok else {
-                print("[ScreenshotService] screencapture failed, args: \(args)")
+                Log.capture.error("screencapture failed, args: \(args)")
                 UserFacingError.present(.screenCaptureFailed(reason: nil))
                 return
             }
             guard self.fm.fileExists(atPath: tmpURL.path) else {
-                print("[ScreenshotService] output file missing: \(tmpURL.path)")
+                Log.capture.error("output file missing: \(tmpURL.path)")
                 UserFacingError.present(.screenCaptureFailed(
                     reason: "No output file was produced."))
                 return
@@ -114,12 +115,12 @@ final class ScreenshotService {
 
         let ok = runScreencapture(arguments: args)
         guard ok else {
-            print("[ScreenshotService] screencapture failed, args: \(args)")
+            Log.capture.error("screencapture failed, args: \(args)")
             UserFacingError.present(.screenCaptureFailed(reason: nil))
             return
         }
         guard fm.fileExists(atPath: tmpURL.path) else {
-            print("[ScreenshotService] output file missing: \(tmpURL.path)")
+            Log.capture.error("output file missing: \(tmpURL.path)")
             UserFacingError.present(.screenCaptureFailed(
                 reason: "No output file was produced."))
             return
@@ -185,11 +186,11 @@ final class ScreenshotService {
                 try process.run()
                 process.waitUntilExit()
                 if process.terminationStatus != 0 {
-                    print("[ScreenshotService] screencapture exited with status \(process.terminationStatus), args: \(arguments)")
+                    Log.capture.error("screencapture exited with status \(process.terminationStatus), args: \(arguments)")
                 }
                 return process.terminationStatus == 0
             } catch {
-                print("[ScreenshotService] screencapture launch failed: \(error), args: \(arguments)")
+                Log.capture.error("screencapture launch failed: \(error), args: \(arguments)")
                 return false
             }
         }
@@ -204,8 +205,8 @@ final class ScreenshotService {
         )
     }
 
-    /// Возвращает URL для сохранения, избегая перезаписи существующих файлов.
-    /// При коллизии добавляет суффикс " 2", " 3" и т.д.
+    /// Returns a destination URL that does not collide with any existing file.
+    /// Appends " 2", " 3", etc. on conflict.
     private func uniqueDestURL(in dir: URL, filename: String) -> URL {
         let base = URL(fileURLWithPath: filename).deletingPathExtension().lastPathComponent
         let ext  = URL(fileURLWithPath: filename).pathExtension

@@ -4,10 +4,10 @@ import QuartzCore
 
 // MARK: - PanelMorphShape
 //
-// 7 keyframes из Figma (Main + 5 транзитов + Tray).
-// progress 0.0→1.0 интерполирует между ними попарно.
-// Каждый keyframe — массив из 82 CGFloat (41 точка × 2 координаты).
-// Порядок точек одинаков во всех фреймах — только координаты меняются.
+// 7 keyframes from Figma (Main + 5 transitions + Tray).
+// progress 0.0→1.0 interpolates between them pairwise.
+// Each keyframe is a flat array of 82 CGFloat values (41 points × 2 coordinates).
+// Point order is identical across all frames — only the coordinates change.
 
 struct PanelMorphShape: Shape {
     var progress: CGFloat
@@ -18,15 +18,15 @@ struct PanelMorphShape: Shape {
         set { progress = newValue }
     }
 
-    // 7 keyframes. Каждый — плоский массив координат точек пути:
-    // [x0,y0, cx1,cy1, cx2,cy2, x1,y1, ...] в порядке команд SVG.
-    // Путь: M p0 → C p1,p2→p3 → C p4,p5→p6 → C p7,p8→p9 →
+    // 7 keyframes. Each is a flat array of path-point coordinates:
+    // [x0,y0, cx1,cy1, cx2,cy2, x1,y1, ...] following SVG command order.
+    // Path: M p0 → C p1,p2→p3 → C p4,p5→p6 → C p7,p8→p9 →
     //        L p10 → C p11,p12→p13 → C p14,p15→p16 → C p17,p18→p19 →
     //        L p20 →
     //        C p21,p22→p23 → C p24,p25→p26 → C p27,p28→p29 →
     //        L p30 → C p31,p32→p33 → C p34,p35→p36 → C p37,p38→p39 →
     //        L p40 → close
-    // Всего 41 точка = 82 значения на keyframe.
+    // Total: 41 points = 82 values per keyframe.
 
     private static let frames: [[CGFloat]] = [
         // 0: Main (536×34)
@@ -107,8 +107,8 @@ struct PanelMorphShape: Shape {
 
         func lerp(_ ai: CGFloat, _ bi: CGFloat) -> CGFloat { ai + (bi - ai) * t }
 
-        // X масштабируется на ширину панели (SVG viewBox = 536)
-        // Y — 1:1, координаты SVG уже в логических пикселях
+        // X is scaled to the panel width (SVG viewBox = 536).
+        // Y is 1:1 — SVG coordinates are already in logical pixels.
         let sx = rect.width / 536
 
         func pt(_ idx: Int) -> CGPoint {

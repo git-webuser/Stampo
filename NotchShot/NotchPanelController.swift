@@ -1,6 +1,26 @@
 import AppKit
 import SwiftUI
 
+// MARK: - Panel timing constants
+
+/// Animation durations and dispatch delays used throughout NotchPanelController.
+/// Centralised here so every phase of the open/close/morph choreography is
+/// documented and easy to tune without hunting for magic numbers.
+enum PanelTiming {
+    /// Content fade-out before a tray→main morph (easeIn).
+    static let hideAnimation:       TimeInterval = 0.18
+    /// Countdown / tray-content crossfade (easeOut).
+    static let crossfade:           TimeInterval = 0.16
+    /// One-frame settle: lets SwiftUI process a visibility change before
+    /// starting the shape morph that follows it.
+    static let oneFrameSettle:      TimeInterval = 0.03
+    /// Full tray-close morph (shape + position, cubic easing).
+    static let trayCloseMorph:      TimeInterval = 0.28
+    /// Delay between showAnimated() and switchToTray() so the open
+    /// animation has a head-start before tray content appears.
+    static let showBeforeTray:      TimeInterval = 0.25
+}
+
 // MARK: - Interaction state
 
 @Observable final class NotchPanelInteractionState {
@@ -51,13 +71,13 @@ private struct NotchPanelRootView: View {
 
     var body: some View {
         ZStack(alignment: .top) {
-            // Единый морфирующий фон
+            // Single morphing background shape
             PanelMorphShape(progress: p, pixel: m.pixel)
                 .fill(Color.black)
                 .compositingGroup()
                 .frame(height: trayH)
 
-            // Main — появляется только в последних ~60% морфа; скрывается при countdown
+            // Main — visible only in the last ~60% of the morph; hidden during countdown
             NotchPanelView(
                 metrics: m,
                 interaction: interaction,
@@ -70,10 +90,10 @@ private struct NotchPanelRootView: View {
                 onModeDelayChanged: onModeDelayChanged
             )
             .opacity(max(0.0, min(1.0, (0.6 - p) / 0.6)) * (1.0 - rootState.countdownVisible))
-            .animation(.easeOut(duration: 0.16), value: rootState.countdownVisible)
+            .animation(.easeOut(duration: PanelTiming.crossfade), value: rootState.countdownVisible)
             .allowsHitTesting(p < 0.5 && rootState.countdownVisible < 0.5)
 
-            // Countdown — crossfade поверх Main, без изменения размера панели
+            // Countdown — crossfades over Main without resizing the panel
             CountdownView(
                 metrics: m,
                 interaction: interaction,
@@ -83,13 +103,13 @@ private struct NotchPanelRootView: View {
                 onCaptureNow: onCaptureNow
             )
             .opacity(rootState.countdownVisible)
-            .animation(.easeOut(duration: 0.16), value: rootState.countdownVisible)
+            .animation(.easeOut(duration: PanelTiming.crossfade), value: rootState.countdownVisible)
             .allowsHitTesting(rootState.countdownVisible >= 0.5)
             .frame(height: m.panelHeight)
 
-            // Tray — появляется при p→1; content pre-fade через trayContentVisible
-            // Два отдельных модификатора: SwiftUI трекает их независимо,
-            // чтобы анимация progress не "затягивала" trayContentVisible
+            // Tray — appears as p→1; content is pre-faded via trayContentVisible.
+            // Two separate opacity modifiers: SwiftUI tracks them independently so
+            // the progress animation does not "drag" trayContentVisible along with it.
             NotchTrayView(
                 metrics: m,
                 trayModel: trayModel,
@@ -165,7 +185,7 @@ final class NotchPanelController: NSObject {
                 guard let screen = self.currentScreen ?? NSScreen.main else { return }
                 self.showAnimated(on: screen)
                 // Slight delay so show animation starts before tray transition
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + PanelTiming.showBeforeTray) {
                     self.switchToTray()
                 }
             }
@@ -187,10 +207,10 @@ final class NotchPanelController: NSObject {
         ) { [weak self] _ in
             self?.isMenuTracking = false
         }
-        // Space switched — если панель видима, перепривязываем её к активному
-        // пространству. Без этого после длительной работы / выхода из сна
-        // macOS может оставить панель залипшей на старом Space и хоткей
-        // показа перестаёт отрабатывать на других рабочих столах.
+        // Space switched — if the panel is visible, rebind it to the active space.
+        // Without this, after extended use or wake-from-sleep macOS can leave the
+        // panel stuck on the old Space, causing the show hotkey to stop working on
+        // other desktops.
         let t3 = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.activeSpaceDidChangeNotification,
             object: nil,
@@ -204,8 +224,8 @@ final class NotchPanelController: NSObject {
     }
 
     deinit {
-        // Часть наблюдателей зарегистрирована в NSWorkspace.notificationCenter,
-        // часть — в NotificationCenter.default. Снимаем в обоих.
+        // Some observers are registered on NSWorkspace.notificationCenter,
+        // others on NotificationCenter.default — remove from both.
         notificationObservers.forEach {
             NotificationCenter.default.removeObserver($0)
             NSWorkspace.shared.notificationCenter.removeObserver($0)
@@ -217,10 +237,10 @@ final class NotchPanelController: NSObject {
         countdownTimer = nil
     }
 
-    /// Форсирует пересчёт Space-binding у панели. Просто переприсваивание того
-    /// же collectionBehavior после `orderOut` не помогает: AppKit считает, что
-    /// ничего не изменилось. Тумблер через пустой набор заставляет систему
-    /// заново привязать окно к активному пространству.
+    /// Forces the panel to rebind to the active Space. Simply reassigning the
+    /// same collectionBehavior after `orderOut` has no effect — AppKit treats it
+    /// as a no-op. Toggling through an empty set forces the window server to
+    /// re-attach the window to the current Space.
     private func rebindPanelToActiveSpace(_ panel: NSPanel) {
         panel.collectionBehavior = []
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
@@ -265,11 +285,11 @@ final class NotchPanelController: NSObject {
         interactionState.contentVisibility = 0.0
         panel.alphaValue = 1
 
-        // Позиционируем панель на нужном экране ДО orderFrontRegardless.
-        // macOS привязывает окно к пространству в момент orderFront исходя из
-        // текущего фрейма. Если setFrame вызвать после, окно окажется на том
-        // пространстве, где панель была в прошлый раз — особенно заметно
-        // после долгого простоя или выхода из сна.
+        // Position the panel on the target screen BEFORE orderFrontRegardless.
+        // macOS binds the window to a Space at the moment of orderFront based on
+        // the current frame. Calling setFrame afterwards places it on whichever
+        // Space the panel was on last time — especially noticeable after long
+        // idle periods or wake-from-sleep.
         if metrics.hasNotch {
             panel.setFrame(frameForWidth(collapsedWidth, on: screen, height: trayPanelHeight), display: false)
         } else {
@@ -277,10 +297,10 @@ final class NotchPanelController: NSObject {
             panel.setFrame(frameNoNotchHiddenAbove(width: w, on: screen, height: trayPanelHeight), display: false)
         }
 
-        // Форсируем пересчёт Space-binding через тумблер пустого набора.
-        // Убран .stationary: этот флаг предназначен для обоев / иконок рабочего
-        // стола и в сочетании с .canJoinAllSpaces даёт «залипание» панели на
-        // одном пространстве после длительной работы и выхода из сна.
+        // Force Space-binding recalculation via the empty-set toggle.
+        // .stationary was removed: it is intended for desktop wallpapers/icons and
+        // combined with .canJoinAllSpaces causes the panel to stick to a single
+        // Space after extended use or wake-from-sleep.
         rebindPanelToActiveSpace(panel)
         panel.orderFrontRegardless()
 
@@ -351,28 +371,28 @@ final class NotchPanelController: NSObject {
         }
     }
 
-    // Закрытие из состояния Tray: обратная последовательность открытия.
-    // Фаза 1 — контент скрывается мгновенно.
-    // Фаза 2 — форма морфирует обратно в Main (Y-ось).
-    // Фаза 3 — обычная анимация закрытия Main (X-ось).
+    // Closing from Tray state: reverse of the open sequence.
+    // Phase 1 — content hides instantly.
+    // Phase 2 — shape morphs back to Main (Y axis).
+    // Phase 3 — standard Main close animation (X axis).
     private func hideTrayThenMain(panel: NSPanel, screen: NSScreen, completion: (() -> Void)?) {
-        // Мгновенно прячем и tray-контент, и main-контент (иначе он проявится в фазе 2)
+        // Instantly hide both tray and main content (otherwise main bleeds through in phase 2).
         rootState.trayContentVisible = 0.0
         interactionState.contentVisibility = 0.0
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) { [weak self, weak panel] in
+        DispatchQueue.main.asyncAfter(deadline: .now() + PanelTiming.oneFrameSettle) { [weak self, weak panel] in
             guard let self, let panel else { return }
 
-            // Фаза 2: морф формы tray → main (без смены ширины — только Y через progress)
+            // Phase 2: morph shape tray → main (Y axis via progress, width unchanged).
             self.route = .main
-            withAnimation(.easeIn(duration: 0.18)) {
+            withAnimation(.easeIn(duration: PanelTiming.hideAnimation)) {
                 self.rootState.progress = 0.0
             }
 
-            // Фаза 3: запускаем стандартное закрытие main-панели
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) { [weak self, weak panel] in
+            // Phase 3: kick off the standard main-panel close.
+            DispatchQueue.main.asyncAfter(deadline: .now() + PanelTiming.hideAnimation) { [weak self, weak panel] in
                 guard let self, let panel else { return }
-                self.rootState.trayContentVisible = 1.0  // сброс для следующего открытия
+                self.rootState.trayContentVisible = 1.0  // reset for next open
                 self.hideMainPanel(panel: panel, screen: screen, completion: completion)
             }
         }
@@ -384,7 +404,7 @@ final class NotchPanelController: NSObject {
             let target = frameForWidth(collapsedWidth, on: screen, height: trayPanelHeight)
 
             NSAnimationContext.runAnimationGroup { ctx in
-                ctx.duration = 0.18
+                ctx.duration = PanelTiming.hideAnimation
                 ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
 
                 withAnimation(.easeIn(duration: ctx.duration)) {
@@ -409,7 +429,7 @@ final class NotchPanelController: NSObject {
             let hidden = frameNoNotchHiddenAbove(width: w, on: screen, height: h)
 
             NSAnimationContext.runAnimationGroup { ctx in
-                ctx.duration = 0.18
+                ctx.duration = PanelTiming.hideAnimation
                 ctx.timingFunction = CAMediaTimingFunction(name: .easeIn)
 
                 withAnimation(.easeIn(duration: ctx.duration)) {
@@ -472,7 +492,7 @@ final class NotchPanelController: NSObject {
             }
 
             guard type == .keyDown else { return Unmanaged.passUnretained(event) }
-            guard event.getIntegerValueField(.keyboardEventKeycode) == 53 else {
+            guard event.getIntegerValueField(.keyboardEventKeycode) == Int64(KeyCode.escape) else {
                 return Unmanaged.passUnretained(event)
             }
 
@@ -559,16 +579,16 @@ final class NotchPanelController: NSObject {
         interactionState.isEnabled = false
 
         if targetRoute == .main {
-            // Шаг 1: скрываем контент в отдельном рендер-пассе (без withAnimation).
-            // Если вызвать сразу вместе с withAnimation { progress = 0 }, SwiftUI
-            // батчит оба objectWillChange и применяет easeIn-контекст к обоим —
-            // тогда opacity анимируется от 1→0 за 0.28s вместо мгновенного скачка.
+            // Step 1: hide content in a separate render pass (without withAnimation).
+            // Calling it together with withAnimation { progress = 0 } causes SwiftUI to
+            // batch both objectWillChange notifications and apply the easeIn context to
+            // both — opacity would then animate 1→0 over trayCloseMorph instead of
+            // snapping instantly.
             rootState.trayContentVisible = 0.0
 
-            // Шаг 2: даём SwiftUI один рендер-пасс обработать скрытие контента,
-            // только после этого запускаем морф формы.
-            let closeDuration: TimeInterval = 0.28
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) { [weak self, weak panel] in
+            // Step 2: give SwiftUI one render pass to process the hide before
+            // starting the shape morph.
+            DispatchQueue.main.asyncAfter(deadline: .now() + PanelTiming.oneFrameSettle) { [weak self, weak panel] in
                 guard let self, let panel else { return }
 
                 self.route = .main
@@ -577,31 +597,31 @@ final class NotchPanelController: NSObject {
                     on: screen, height: self.trayPanelHeight
                 )
 
-                // X: ширина панели — NSAnimationContext
+                // X axis: panel width — NSAnimationContext
                 NSAnimationContext.runAnimationGroup { ctx in
-                    ctx.duration = closeDuration
+                    ctx.duration = PanelTiming.trayCloseMorph
                     ctx.timingFunction = CAMediaTimingFunction(name: .easeIn)
                     panel.animator().setFrame(targetFrame, display: true)
                 } completionHandler: { [weak self] in
                     self?.trayTransitionInFlight = false
                     self?.interactionState.isEnabled = true
-                    self?.rootState.trayContentVisible = 1.0  // сброс для следующего открытия
+                    self?.rootState.trayContentVisible = 1.0  // reset for next open
                 }
 
-                // Y: морф формы — та же кривая, синхронно с X в том же runloop-цикле
-                withAnimation(.easeIn(duration: closeDuration)) {
+                // Y axis: shape morph — same curve, same runloop cycle as X
+                withAnimation(.easeIn(duration: PanelTiming.trayCloseMorph)) {
                     self.rootState.progress = 0.0
                 }
             }
         } else {
-            // Открытие: упругий spring как прежде
+            // Opening: spring easing
             route = .tray
             let targetFrame = frameForWidth(
                 clampedWidth(currentWidthForCurrentRoute, on: screen),
                 on: screen, height: trayPanelHeight
             )
             NSAnimationContext.runAnimationGroup { ctx in
-                ctx.duration = 0.28
+                ctx.duration = PanelTiming.trayCloseMorph
                 ctx.timingFunction = CAMediaTimingFunction(controlPoints: 0.25, 0.8, 0.25, 1.0)
                 panel.animator().setFrame(targetFrame, display: true)
             } completionHandler: { [weak self] in

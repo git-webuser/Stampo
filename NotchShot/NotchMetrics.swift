@@ -1,97 +1,98 @@
 import AppKit
+import OSLog
 
 // MARK: - NotchMetrics
 
-/// Геометрические метрики панели, вычисленные из конкретного NSScreen.
-/// Используются в NotchPanelController, NotchPanelView и NotchTrayView.
+/// Geometric metrics for the panel, computed from a specific NSScreen.
+/// Consumed by NotchPanelController, NotchPanelView, and NotchTrayView.
 struct NotchMetrics {
 
     // MARK: Screen
 
-    /// Масштаб экрана (backingScaleFactor).
+    /// Screen backing scale factor.
     let scale: CGFloat
 
     // MARK: Notch
 
-    /// Есть ли физическая вырезка (notch) на экране.
+    /// Whether the screen has a physical notch cutout.
     let hasNotch: Bool
 
-    /// Ширина области под нотч (notchGapWidth у экрана).
+    /// Width of the notch gap (notchGapWidth of the screen).
     let notchGap: CGFloat
 
     // MARK: Panel geometry
 
-    /// Высота панели.
+    /// Height of the panel.
     let panelHeight: CGFloat
 
-    /// Угловой радиус панели (только для no-notch).
+    /// Panel corner radius (no-notch devices only).
     let panelRadius: CGFloat
 
-    /// Отступ панели от внешнего края экрана (no-notch).
+    /// Inset from the outer edge of the screen to the panel (no-notch).
     let outerSideInset: CGFloat
 
     // MARK: Layout constants
 
-    /// Горизонтальный отступ по краям плеч.
+    /// Horizontal safe margin along the panel shoulders.
     let edgeSafe: CGFloat
 
-    /// Минимальный отступ от левого плеча до нотча.
+    /// Minimum gap from the left shoulder to the notch.
     let leftMinToNotch: CGFloat
 
-    /// Минимальный отступ от нотча до правого плеча.
+    /// Minimum gap from the notch to the right shoulder.
     let rightMinFromNotch: CGFloat
 
     // MARK: Cell sizes
 
-    /// Базовая ширина иконочной ячейки (xmark, photo.stack, ellipsis...).
+    /// Base width of an icon cell (xmark, photo.stack, ellipsis…).
     let cellWidth: CGFloat
 
-    /// Высота / ширина иконки внутри ячейки.
+    /// Height and width of the icon inside a cell.
     let iconSize: CGFloat
 
-    /// Межячеечный промежуток.
+    /// Inter-cell spacing.
     let gap: CGFloat
 
     // MARK: Timer cell
 
-    /// Промежуток между иконкой таймера и цифрами.
+    /// Gap between the timer icon and the digit label.
     let timerIconToValueGap: CGFloat
 
-    /// Ширина текста со значением таймера (2 символа).
+    /// Width of the two-character timer value text.
     let timerValueWidth: CGFloat
 
-    /// Leading-отступ ячейки таймера, когда цифры видны.
+    /// Leading inset of the timer cell when digits are visible.
     let timerLeadingInsetWithValue: CGFloat
 
-    /// Trailing-отступ ячейки таймера, когда цифры видны.
+    /// Trailing inset of the timer cell when digits are visible.
     let timerTrailingInsetWithValue: CGFloat
 
     // MARK: Capture button
 
-    /// Ширина кнопки «Capture».
+    /// Width of the Capture button.
     let captureButtonWidth: CGFloat
 
     // MARK: Button (tray)
 
-    /// Высота кнопок-свотчей в трее.
+    /// Height of tray swatch buttons.
     let buttonHeight: CGFloat
 
-    /// Угловой радиус кнопок в трее.
+    /// Corner radius of tray buttons.
     let buttonRadius: CGFloat
 
     // MARK: Pixel
 
-    /// Один физический пиксель в логических единицах.
+    /// One physical pixel expressed in logical units.
     var pixel: CGFloat { 1.0 / max(scale, 1) }
 
     // MARK: - Timer cell helpers
 
-    /// Максимальная ширина ячейки таймера (2-значный label, используется в notch expandedWidth).
+    /// Maximum timer cell width (two-digit label; used for notch expandedWidth).
     var timerMaxCellWidth: CGFloat {
         timerLeadingInsetWithValue + iconSize + timerIconToValueGap + timerValueWidth + timerTrailingInsetWithValue
     }
 
-    /// Ширина цифровой части таймера для заданного shortLabel.
+    /// Width of the digit portion of the timer for a given shortLabel.
     func timerDigitsWidth(for shortLabel: String?) -> CGFloat {
         switch shortLabel?.count ?? 0 {
         case 0: return 0
@@ -100,7 +101,7 @@ struct NotchMetrics {
         }
     }
 
-    /// Итоговая ширина ячейки таймера.
+    /// Total timer cell width for a given shortLabel.
     func timerCellWidth(for shortLabel: String?) -> CGFloat {
         guard shortLabel != nil else { return cellWidth }
         return timerLeadingInsetWithValue + iconSize + timerIconToValueGap + timerDigitsWidth(for: shortLabel) + timerTrailingInsetWithValue
@@ -140,9 +141,9 @@ struct NotchMetrics {
         if let screen = NSScreen.main ?? NSScreen.screens.first {
             return from(screen: screen)
         }
-        // Экраны недоступны (sleep, logout, headless-тест).
-        // Возвращаем безопасные константы для MacBook Pro с нотчем.
-        print("[NotchMetrics] fallback: no screens available, using hardcoded defaults")
+        // No screens available (sleep, logout, or headless test).
+        // Return safe hardcoded constants for a notched MacBook Pro.
+        Log.metrics.warning("No screens available — using hardcoded fallback defaults.")
         return NotchMetrics(
             scale: 2.0,
             hasNotch: true,
@@ -170,8 +171,8 @@ struct NotchMetrics {
 // MARK: - NSScreen + notchGapWidth
 
 extension NSScreen {
-    /// Ширина области под нотч в логических пикселях.
-    /// Возвращает 0, если нотча нет.
+    /// Width of the notch gap in logical pixels.
+    /// Returns 0 if there is no notch.
     var notchGapWidth: CGFloat {
         guard #available(macOS 12.0, *) else { return 0 }
         let safeInsets = safeAreaInsets

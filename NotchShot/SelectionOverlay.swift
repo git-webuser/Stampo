@@ -133,7 +133,7 @@ private final class SelectionView: NSView {
     }
 
     override func keyDown(with event: NSEvent) {
-        if event.keyCode == 53 { onCancelled?() } else { super.keyDown(with: event) }
+        if event.keyCode == KeyCode.escape { onCancelled?() } else { super.keyDown(with: event) }
     }
 
     private func makeRect(from a: NSPoint, to b: NSPoint) -> NSRect {

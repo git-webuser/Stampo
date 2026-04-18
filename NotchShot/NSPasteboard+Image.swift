@@ -3,8 +3,8 @@ import ImageIO
 
 extension NSPasteboard {
 
-    /// Копирует изображение по URL в буфер обмена.
-    /// Если CGImage не удаётся декодировать — копирует только URL.
+    /// Copies the image at `url` to the pasteboard.
+    /// Falls back to writing only the URL if the CGImage cannot be decoded.
     func writeImage(at url: URL) {
         Task.detached(priority: .userInitiated) {
             let image: NSImage? = autoreleasepool {

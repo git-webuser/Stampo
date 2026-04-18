@@ -39,7 +39,7 @@ extension NotchPanelController {
         return left + right
     }
 
-    // Панель всегда имеет высоту Tray — анимация через SwiftUI progress, не через setFrame
+    // Panel height is always the Tray height — animation is driven by SwiftUI progress, not setFrame.
     var trayScrollRowHeight: CGFloat { 55 }
     var trayPanelHeight: CGFloat { metrics.panelHeight + trayScrollRowHeight }
 
@@ -52,8 +52,8 @@ extension NotchPanelController {
     }
 
     var trayWidth: CGFloat {
-        // На устройствах с нотчем Tray использует ту же ширину что и Main —
-        // контент скроллируется внутри, ширина панели не меняется.
+        // On notched devices the Tray uses the same width as Main —
+        // content scrolls inside the panel, the panel width does not change.
         if metrics.hasNotch {
             return expandedWidth
         }
@@ -96,7 +96,7 @@ extension NotchPanelController {
 
         let y: CGFloat
         if metrics.hasNotch {
-            // Панель прижата к верхнему краю экрана; при расширении растёт вниз
+            // Panel is anchored to the top edge of the screen; it grows downward when expanded.
             y = snapToPixel(sf.maxY - h, scale: metrics.scale)
         } else {
             y = snapToPixel(screen.visibleFrame.maxY - h - topInsetNoNotch, scale: metrics.scale)

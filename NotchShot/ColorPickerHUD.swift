@@ -62,9 +62,9 @@ enum HUDColorFormat: CaseIterable, Equatable {
 
 // MARK: - MagnifierGrid
 
-/// Данные лупы: 9×9 ячеек цветов + координата центрального пикселя.
+/// Pixel data for the magnifier: a gridSize×gridSize colour grid.
 struct MagnifierData: Equatable {
-    /// Цвета в порядке row-major, (0,0) = верхний левый.
+    /// Colours in row-major order; (0,0) is the top-left cell.
     let pixels: [[NSColor]]
     let gridSize: Int
 
@@ -178,7 +178,7 @@ struct ColorPickerHUDView: View, Equatable {
         .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.white.opacity(0.22), lineWidth: 1))
     }
 
-    /// Цвет рамки центральной ячейки — контрастный относительно центрального пикселя.
+    /// Border colour for the centre cell — contrasts against the sampled pixel.
     private var centerBorderColor: Color {
         guard magnifier.pixels.count > gridSize / 2,
               magnifier.pixels[gridSize / 2].count > gridSize / 2 else { return .white }
@@ -273,8 +273,8 @@ final class ColorPickerHUD {
     private var currentPhase: ColorPickerHUDPhase = .hidden
     private var currentMagnifier: MagnifierData = .empty
 
-    // Фиксированный размер — не меняется со сменой формата/хинта
-    // Лупа 9×9 × 10pt = 90, padding 10×2 = 20, итого высота ~110
+    // Fixed size — does not change with format or hint switches.
+    // Magnifier 3×3 × 14 pt = 42, padding 8×2 = 16, text area ~182, total width ~240.
 
     private let offsetX: CGFloat =  18
     private let offsetY: CGFloat = -30

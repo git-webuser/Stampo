@@ -209,7 +209,7 @@ final class ThumbnailHostingView: NSHostingView<ScreenshotThumbnailView> {
         let dist    = hypot(dx, dy)
         let elapsed = Date().timeIntervalSince(mouseDownTime)
 
-        // После удержания ≥ 200 мс пользователь может тащить файл.
+        // After holding ≥ 200 ms the user may drag the file.
         if let url = fileURL,
            elapsed >= 0.20,
            dist >= 8,
