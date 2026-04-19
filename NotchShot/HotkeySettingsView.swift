@@ -43,7 +43,7 @@ private struct HotkeyInfoRow: View {
     let combos: [String]
 
     var body: some View {
-        LabeledContent(action) {
+        LabeledContent(LocalizedStringKey(action)) {
             HStack(spacing: 6) {
                 ForEach(combos, id: \.self) { combo in
                     Text(combo)
@@ -73,7 +73,7 @@ private struct HotkeyRow: View {
     @Binding var isEnabled: Bool
 
     var body: some View {
-        LabeledContent(action) {
+        LabeledContent(LocalizedStringKey(action)) {
             HStack(spacing: 12) {
                 Text(combo)
                     .font(.system(.body, design: .monospaced))

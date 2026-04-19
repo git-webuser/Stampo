@@ -9,9 +9,9 @@ import SwiftUI
 /// `locale` property. Inject it at every NSHostingView / NSHostingController root
 /// via `.managedLocale()` so language changes take effect instantly — no restart.
 ///
-/// AppKit strings (`String(localized:)` in NSAlert etc.) still use the process
-/// locale set by AppDelegate.applicationWillFinishLaunching, which requires a
-/// restart to change. Only the SwiftUI view hierarchy is updated in real time here.
+/// AppKit strings created via `LocaleManager.string(_:)` or `LocaleManager.string(_:locale:)`
+/// also reflect the selected language instantly — they load directly from the `.lproj`
+/// sub-bundle, bypassing the process-level locale cache.
 @Observable final class LocaleManager {
     static let shared = LocaleManager()
 
@@ -41,6 +41,35 @@ import SwiftUI
         if resolved.identifier != locale.identifier {
             locale = resolved
         }
+    }
+}
+
+// MARK: - lproj bundle helper
+
+extension LocaleManager {
+    /// Returns the `.lproj` sub-bundle whose language matches `locale`.
+    /// For the "system" case (autoupdatingCurrent) returns `Bundle.main`,
+    /// which already uses the process-level preferred language.
+    static func bundle(for locale: Locale) -> Bundle {
+        let id = locale.identifier
+        let langCode: String
+        if id.hasPrefix("ru")      { langCode = "ru" }
+        else if id.hasPrefix("en") { langCode = "en" }
+        else                       { return .main }   // system → let the process decide
+        return Bundle.main.url(forResource: langCode, withExtension: "lproj")
+            .flatMap(Bundle.init(url:)) ?? .main
+    }
+
+    /// Looks up `key` from the lproj bundle matching `locale`.
+    /// Bypasses the process-level locale cache so language changes
+    /// take effect without restarting the app.
+    static func string(_ key: String, locale: Locale) -> String {
+        bundle(for: locale).localizedString(forKey: key, value: key, table: nil)
+    }
+
+    /// Convenience: looks up using the shared manager's current locale.
+    func string(_ key: String) -> String {
+        Self.string(key, locale: locale)
     }
 }
 

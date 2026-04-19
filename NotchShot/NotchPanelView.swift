@@ -9,13 +9,14 @@ enum CaptureMode: CaseIterable, Equatable {
     case window
     case screen
 
-    var title: String {
+    func localizedTitle(_ locale: Locale = LocaleManager.shared.locale) -> String {
         switch self {
-        case .selection: return "Selection"
-        case .window:    return "Window"
-        case .screen:    return "Entire Screen"
+        case .selection: return LocaleManager.string("Selection",     locale: locale)
+        case .window:    return LocaleManager.string("Window",        locale: locale)
+        case .screen:    return LocaleManager.string("Entire Screen", locale: locale)
         }
     }
+    var title: String { localizedTitle() }
 
     var icon: String {
         switch self {
@@ -48,14 +49,15 @@ enum CaptureDelay: CaseIterable, Equatable {
         }
     }
 
-    var title: String {
+    func localizedTitle(_ locale: Locale = LocaleManager.shared.locale) -> String {
         switch self {
-        case .off:  return "No Delay"
-        case .s3:   return "3 Seconds"
-        case .s5:   return "5 Seconds"
-        case .s10:  return "10 Seconds"
+        case .off:  return LocaleManager.string("No Delay",   locale: locale)
+        case .s3:   return LocaleManager.string("3 Seconds",  locale: locale)
+        case .s5:   return LocaleManager.string("5 Seconds",  locale: locale)
+        case .s10:  return LocaleManager.string("10 Seconds", locale: locale)
         }
     }
+    var title: String { localizedTitle() }
 
     var shortLabel: String? {
         switch self {
@@ -249,6 +251,7 @@ private struct PopUpModeButtonWrapper: NSViewRepresentable {
     var onPickColor: () -> Void
     var onOpen:  () -> Void
     var onClose: () -> Void
+    @Environment(\.locale) private var locale
 
     func makeNSView(context: Context) -> NSPopUpButton {
         let button = NSPopUpButton()
@@ -257,14 +260,14 @@ private struct PopUpModeButtonWrapper: NSViewRepresentable {
         button.pullsDown         = false
         button.autoresizingMask  = []
         (button.cell as? NSPopUpButtonCell)?.arrowPosition = .noArrow
-        button.setAccessibilityLabel("Capture mode")
+        button.setAccessibilityLabel(LocaleManager.string("Capture mode", locale: locale))
 
         for mode in CaptureMode.allCases {
-            button.addItem(withTitle: mode.title)
+            button.addItem(withTitle: mode.localizedTitle(locale))
         }
         button.menu?.addItem(.separator())
         let pickItem = NSMenuItem(
-            title: "Pick Color",
+            title: LocaleManager.string("Pick Color", locale: locale),
             action: #selector(Coordinator.pickColorTapped),
             keyEquivalent: ""
         )
@@ -291,6 +294,14 @@ private struct PopUpModeButtonWrapper: NSViewRepresentable {
     }
 
     func updateNSView(_ button: NSPopUpButton, context: Context) {
+        // Refresh titles when locale changes.
+        for (idx, mode) in CaptureMode.allCases.enumerated() {
+            button.item(at: idx)?.title = mode.localizedTitle(locale)
+        }
+        // Separator is at allCases.count, Pick Color is at allCases.count + 1.
+        button.item(at: CaptureMode.allCases.count + 1)?.title =
+            LocaleManager.string("Pick Color", locale: locale)
+
         let idx = CaptureMode.allCases.firstIndex(of: selection) ?? 0
         NSAnimationContext.runAnimationGroup { ctx in
             ctx.duration = 0
@@ -335,6 +346,7 @@ private struct PopUpButtonWrapper: NSViewRepresentable {
     @Binding var selection: CaptureDelay
     var onOpen:  () -> Void
     var onClose: () -> Void
+    @Environment(\.locale) private var locale
 
     func makeNSView(context: Context) -> NSPopUpButton {
         let button = NSPopUpButton()
@@ -343,10 +355,10 @@ private struct PopUpButtonWrapper: NSViewRepresentable {
         button.pullsDown         = false
         button.autoresizingMask  = []
         (button.cell as? NSPopUpButtonCell)?.arrowPosition = .noArrow
-        button.setAccessibilityLabel("Capture delay")
+        button.setAccessibilityLabel(LocaleManager.string("Capture delay", locale: locale))
 
         for delay in CaptureDelay.allCases {
-            button.addItem(withTitle: delay.title)
+            button.addItem(withTitle: delay.localizedTitle(locale))
         }
 
         button.target = context.coordinator
@@ -369,6 +381,10 @@ private struct PopUpButtonWrapper: NSViewRepresentable {
     }
 
     func updateNSView(_ button: NSPopUpButton, context: Context) {
+        // Refresh titles when locale changes.
+        for (idx, delay) in CaptureDelay.allCases.enumerated() {
+            button.item(at: idx)?.title = delay.localizedTitle(locale)
+        }
         let idx = CaptureDelay.allCases.firstIndex(of: selection) ?? 0
         NSAnimationContext.runAnimationGroup { ctx in
             ctx.duration = 0

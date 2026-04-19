@@ -64,6 +64,7 @@ struct PanelIconButton: View {
 struct PopUpMoreButtonWrapper: NSViewRepresentable {
     var onOpen:  () -> Void
     var onClose: () -> Void
+    @Environment(\.locale) private var locale
 
     func makeNSView(context: Context) -> NSPopUpButton {
         let button = NSPopUpButton()
@@ -74,14 +75,14 @@ struct PopUpMoreButtonWrapper: NSViewRepresentable {
         (button.cell as? NSPopUpButtonCell)?.arrowPosition = .noArrow
 
         let settingsItem = NSMenuItem(
-            title: "Settings",
+            title: LocaleManager.string("Settings", locale: locale),
             action: #selector(Coordinator.settingsTapped),
             keyEquivalent: ""
         )
         button.menu?.addItem(settingsItem)
         button.menu?.addItem(.separator())
         let quitItem = NSMenuItem(
-            title: "Quit NotchShot",
+            title: LocaleManager.string("Quit NotchShot", locale: locale),
             action: #selector(Coordinator.quitTapped),
             keyEquivalent: ""
         )
@@ -112,6 +113,9 @@ struct PopUpMoreButtonWrapper: NSViewRepresentable {
     }
 
     func updateNSView(_ button: NSPopUpButton, context: Context) {
+        // item(at:) order: 0 = Settings, 1 = separator, 2 = Quit NotchShot.
+        button.item(at: 0)?.title = LocaleManager.string("Settings",      locale: locale)
+        button.item(at: 2)?.title = LocaleManager.string("Quit NotchShot", locale: locale)
         button.selectItem(at: -1)
         context.coordinator.parent = self
     }

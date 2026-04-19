@@ -13,10 +13,11 @@ extension Notification.Name {
 /// regardless of the selected tab's view controller title.
 private final class FixedTitleTabViewController: NSTabViewController {
     /// NSWindow observes contentViewController.title via KVO and mirrors it
-    /// to window.title on every tab switch. Locking the getter to "Settings"
-    /// keeps the window title stable regardless of which tab is active.
+    /// to window.title on every tab switch. Locking the getter to the
+    /// localized "Settings" string keeps the window title stable regardless
+    /// of which tab is active.
     override var title: String? {
-        get { "Settings" }
+        get { LocaleManager.shared.string("Settings") }
         set { /* intentionally ignored */ }
     }
 }
@@ -39,7 +40,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         let tabController = makeTabViewController()
 
         let win = NSWindow(contentViewController: tabController)
-        win.title       = "Settings"
+        win.title       = LocaleManager.shared.string("Settings")
         win.level       = .floating
         win.styleMask   = [.titled, .closable, .miniaturizable]
         win.setFrameAutosaveName("NotchShotSettingsWindow")
@@ -67,12 +68,13 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         let tabs = FixedTitleTabViewController()
         tabs.tabStyle = .toolbar
 
+        let lm = LocaleManager.shared
         let items: [(label: String, image: String, view: AnyView)] = [
-            ("General", "gearshape",  AnyView(GeneralSettingsView())),
-            ("Capture", "camera",     AnyView(CaptureSettingsView())),
-            ("Tray",    "tray",       AnyView(TraySettingsView())),
-            ("Hotkeys", "keyboard",   AnyView(HotkeySettingsView())),
-            ("About",   "info.circle",AnyView(AboutSettingsView()))
+            (lm.string("General"), "gearshape",  AnyView(GeneralSettingsView())),
+            (lm.string("Capture"), "camera",     AnyView(CaptureSettingsView())),
+            (lm.string("Tray"),    "tray",       AnyView(TraySettingsView())),
+            (lm.string("Hotkeys"), "keyboard",   AnyView(HotkeySettingsView())),
+            (lm.string("About"),   "info.circle",AnyView(AboutSettingsView()))
         ]
 
         for item in items {
