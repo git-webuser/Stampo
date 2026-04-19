@@ -725,8 +725,8 @@ final class TrayDragShimView: NSView, NSDraggingSource {
         }
         if let start {
             let current = convert(event.locationInWindow, from: nil)
-            // AppKit does not expose the system drag threshold publicly;
-            // 4 pt matches the value used internally by NSWindow drag detection.
+            // NSEvent.startDragDistance is not exposed to Swift; 4 pt matches
+            // the AppKit internal threshold used by NSWindow drag detection.
             if hypot(current.x - start.x, current.y - start.y) < 4 { onTap() }
         }
     }
