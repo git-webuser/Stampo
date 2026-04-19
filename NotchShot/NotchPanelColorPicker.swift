@@ -1,72 +1,77 @@
 import AppKit
-import SwiftUI
 
-// MARK: - Color picker orchestration
+// MARK: - ColorPickingCoordinator
 
-extension NotchPanelController {
+/// Owns the ColorSampler + ColorPickerHUD lifecycle.
+/// NotchPanelController holds one instance and wires callbacks in init().
+final class ColorPickingCoordinator {
+    private(set) var isInFlight: Bool = false
+    private var activeSampler: ColorSampler?
+    private let hud = ColorPickerHUD()
 
-    /// Launch the color-picker sampler.
-    /// Hides the panel first if it is open, then starts `ColorSampler` and
-    /// wires up the `ColorPickerHUD` for live feedback. On confirmation the
-    /// color is copied to the clipboard and added to the tray.
+    // Callbacks wired by the owner
+    var hidePanel: (@escaping () -> Void) -> Void = { $0() }
+    var addColor: (NSColor) -> Void = { _ in }
+    var resetRoute: () -> Void = {}
+    var hideCursorBeforeHide: () -> Void = {}
+
     @MainActor
-    func pickColor() {
-        guard !colorSamplerInFlight else { return }
-        colorSamplerInFlight = true
+    func start(panelIsVisible: Bool, preferredScreen: NSScreen?) {
+        guard !isInFlight else { return }
+        isInFlight = true
 
-        let screen = currentScreen ?? NSScreen.main
-
-        let launch = { [weak self] in
+        let launch: () -> Void = { [weak self] in
             guard let self else { return }
-
             let sampler = ColorSampler()
             self.activeSampler = sampler
-            self.colorPickerHUD.beginSession(format: sampler.format)
+            self.hud.beginSession(format: sampler.format)
 
             sampler.onColorChanged = { [weak self] color, position, magnifier in
                 guard let self else { return }
-                self.colorPickerHUD.setFormat(sampler.format)
-                self.colorPickerHUD.update(color: color, cursorPosition: position, magnifier: magnifier)
+                self.hud.setFormat(sampler.format)
+                self.hud.update(color: color, cursorPosition: position, magnifier: magnifier)
             }
 
             sampler.onConfirmed = { [weak self] color in
                 guard let self else { return }
-                self.colorSamplerInFlight = false
+                self.isInFlight = false
                 self.activeSampler = nil
-
                 let sRGB = color.usingColorSpace(.sRGB) ?? color
-                self.colorPickerHUD.showSuccess(color: sRGB, on: screen, autoHideAfter: 0.35)
-
-                let formatted = self.colorPickerHUD.currentFormat.format(sRGB)
+                self.hud.showSuccess(color: sRGB, on: preferredScreen, autoHideAfter: 0.35)
+                let formatted = self.hud.currentFormat.format(sRGB)
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(formatted, forType: .string)
-
-                self.trayModel.add(color: sRGB)
-                // Reset route without re-showing the panel.
-                self.route = .main
-                self.rootState.progress = 0.0
+                self.addColor(sRGB)
+                self.resetRoute()
             }
 
             sampler.onCancelled = { [weak self] in
                 guard let self else { return }
-                self.colorSamplerInFlight = false
+                self.isInFlight = false
                 self.activeSampler = nil
-                self.colorPickerHUD.hide()
-                // Reset route without re-showing the panel.
-                self.route = .main
-                self.rootState.progress = 0.0
+                self.hud.hide()
+                self.resetRoute()
             }
 
             sampler.start()
         }
 
-        if isVisible {
-            // Panel is open — hide it first, then launch the sampler.
-            CursorOverlay.hideCursorAfterMenuCloses()
-            hideAnimated { launch() }
+        if panelIsVisible {
+            hideCursorBeforeHide()
+            hidePanel { launch() }
         } else {
-            // Panel already hidden — launch the sampler directly.
             launch()
         }
+    }
+}
+
+// MARK: - Color picker orchestration
+
+extension NotchPanelController {
+
+    @MainActor
+    func pickColor() {
+        let screen = currentScreen ?? NSScreen.main
+        colorPicker.start(panelIsVisible: isVisible, preferredScreen: screen)
     }
 }

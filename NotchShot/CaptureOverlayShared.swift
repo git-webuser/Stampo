@@ -31,6 +31,45 @@ func installEscMonitors(into monitors: inout [Any], action: @escaping () -> Void
     }) { monitors.append(m) }
 }
 
+// MARK: - Screen coordinate conversion
+
+/// Height of the primary display (origin == .zero) — Y-flip anchor for AppKit↔CG conversions.
+func cgPrimaryDisplayHeight(fallback screen: NSScreen) -> CGFloat {
+    NSScreen.screens.first(where: { $0.frame.origin == .zero })?.frame.height
+        ?? screen.frame.height
+}
+
+/// View/overlay rect (AppKit, y=0 at screen bottom) → global CG rect (y=0 at top of primary display).
+func viewRectToCGRect(_ rect: CGRect, screen: NSScreen) -> CGRect {
+    let h = cgPrimaryDisplayHeight(fallback: screen)
+    return CGRect(
+        x: rect.minX + screen.frame.minX,
+        y: h - (rect.maxY + screen.frame.minY),
+        width: rect.width,
+        height: rect.height
+    )
+}
+
+/// View-local point → global CG point.
+func viewPointToCGPoint(_ pt: CGPoint, screen: NSScreen) -> CGPoint {
+    let h = cgPrimaryDisplayHeight(fallback: screen)
+    return CGPoint(
+        x: pt.x + screen.frame.minX,
+        y: h - (pt.y + screen.frame.minY)
+    )
+}
+
+/// Global CG rect → view-local rect.
+func cgRectToViewRect(_ rect: CGRect, screen: NSScreen) -> CGRect {
+    let h = cgPrimaryDisplayHeight(fallback: screen)
+    return CGRect(
+        x: rect.minX - screen.frame.minX,
+        y: h - rect.maxY - screen.frame.minY,
+        width: rect.width,
+        height: rect.height
+    )
+}
+
 // MARK: - Shared overlay panel factory
 
 /// Creates a borderless, full-screen NSPanel suitable for both capture overlays.

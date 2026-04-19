@@ -143,9 +143,7 @@ final class NotchPanelController: NSObject {
     let model = NotchPanelModel()
     let trayModel = NotchTrayModel()
     let screenshot = ScreenshotService()
-    let colorPickerHUD = ColorPickerHUD()
-    var activeSampler: ColorSampler?
-    var colorSamplerInFlight: Bool = false
+    let colorPicker = ColorPickingCoordinator()
 
     enum CaptureTarget {
         case screen
@@ -174,6 +172,13 @@ final class NotchPanelController: NSObject {
 
     override init() {
         super.init()
+        colorPicker.hidePanel = { [weak self] completion in self?.hideAnimated(completion: completion) }
+        colorPicker.addColor  = { [weak self] color in self?.trayModel.add(color: color) }
+        colorPicker.resetRoute = { [weak self] in
+            self?.route = .main
+            self?.rootState.progress = 0.0
+        }
+        colorPicker.hideCursorBeforeHide = { CursorOverlay.hideCursorAfterMenuCloses() }
         screenshot.onCaptured = { [weak self] url in
             self?.trayModel.add(screenshotURL: url)
         }
@@ -249,7 +254,7 @@ final class NotchPanelController: NSObject {
     // MARK: - Public API
 
     var suppressesGlobalAutoHide: Bool {
-        isMenuTracking || trayTransitionInFlight || colorSamplerInFlight
+        isMenuTracking || trayTransitionInFlight || colorPicker.isInFlight
             || route == .cdwn || preSelectionInFlight
     }
 

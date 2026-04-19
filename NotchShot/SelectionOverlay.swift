@@ -21,7 +21,7 @@ final class SelectionOverlay {
         let view = SelectionView(frame: NSRect(origin: .zero, size: frame.size))
         view.onCompleted = { [weak self] nsRect in
             guard let self else { return }
-            let cgRect = self.nsRectToCGRect(nsRect, on: screen)
+            let cgRect = viewRectToCGRect(nsRect, screen: screen)
             self.dismiss()
             self.onSelected?(cgRect)
         }
@@ -55,18 +55,6 @@ final class SelectionOverlay {
         panel = nil
     }
 
-    /// NSRect in view coordinates (AppKit, y=0 bottom-left of screen)
-    /// → CGRect in global CG screen coordinates (y=0 top-left of primary display).
-    private func nsRectToCGRect(_ rect: NSRect, on screen: NSScreen) -> CGRect {
-        let primaryH = NSScreen.screens.first(where: { $0.frame.origin == .zero })?.frame.height
-            ?? screen.frame.height
-        return CGRect(
-            x: rect.minX + screen.frame.minX,
-            y: primaryH - (rect.maxY + screen.frame.minY),
-            width: rect.width,
-            height: rect.height
-        )
-    }
 }
 
 // MARK: - SelectionView

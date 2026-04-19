@@ -22,7 +22,7 @@ struct GeneralSettingsView: View {
                 LabeledContent("Settings window theme") {
                     Picker("", selection: $settingsAppearance) {
                         ForEach(SettingsAppearance.allCases, id: \.self) { mode in
-                            Text(LocalizedStringKey(mode.title)).tag(mode)
+                            Text(mode.title).tag(mode)
                         }
                     }
                     .pickerStyle(.menu)

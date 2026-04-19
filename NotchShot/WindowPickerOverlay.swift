@@ -238,14 +238,7 @@ private final class WindowPickerView: NSView {
     }
 
     private func windowAtViewPoint(_ viewPt: NSPoint, screen: NSScreen) -> (CGWindowID, CGRect)? {
-        let primaryH = NSScreen.screens.first(where: { $0.frame.origin == .zero })?.frame.height
-            ?? screen.frame.height
-
-        // View → global AppKit → global CG coordinates
-        let cgPt = CGPoint(
-            x: viewPt.x + screen.frame.minX,
-            y: primaryH - (viewPt.y + screen.frame.minY)
-        )
+        let cgPt = viewPointToCGPoint(viewPt, screen: screen)
 
         let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
         guard let list = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]]
@@ -266,10 +259,7 @@ private final class WindowPickerView: NSView {
             let cgRect = CGRect(x: wx, y: wy, width: ww, height: wh)
             guard cgRect.contains(cgPt) else { continue }
 
-            // CG rect → view coordinates
-            let vx = cgRect.minX - screen.frame.minX
-            let vy = primaryH - cgRect.maxY - screen.frame.minY
-            return (CGWindowID(num), CGRect(x: vx, y: vy, width: ww, height: wh))
+            return (CGWindowID(num), cgRectToViewRect(cgRect, screen: screen))
         }
         return nil
     }
