@@ -140,6 +140,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         else { return }
         window.title = LocaleManager.shared.string("Settings")
         tabVC.refreshTabGroupLabels(keys: Self.tabLabelKeys)
+        window.titlebarSeparatorStyle = .line
     }
 
     func open() {
@@ -155,6 +156,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         win.title       = LocaleManager.shared.string("Settings")
         win.level       = .floating
         win.styleMask   = [.titled, .closable, .miniaturizable]
+        win.titlebarSeparatorStyle = .line
         win.setFrameAutosaveName("NotchShotSettingsWindow")
         win.appearance  = AppSettings.settingsAppearance.nsAppearance
         win.center()
