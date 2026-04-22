@@ -268,7 +268,21 @@ final class NotchPanelController: NSObject {
     func captureDirectly(mode: CaptureMode, on screen: NSScreen) {
         currentScreen = screen
         updateScreenMetrics(for: screen)
-        screenshot.capture(mode: mode, delaySeconds: 0, preferredScreen: screen)
+        if mode == .selection {
+            guard !preSelectionInFlight else { return }
+            preSelectionInFlight = true
+            selectionOverlay.onSelected = { [weak self] rect in
+                guard let self else { return }
+                self.preSelectionInFlight = false
+                self.screenshot.captureRect(rect, preferredScreen: screen)
+            }
+            selectionOverlay.onCancelled = { [weak self] in
+                self?.preSelectionInFlight = false
+            }
+            selectionOverlay.start(on: screen)
+        } else {
+            screenshot.capture(mode: mode, delaySeconds: 0, preferredScreen: screen)
+        }
     }
 
     /// Trigger pick color directly (e.g. from a hotkey).
@@ -551,8 +565,25 @@ final class NotchPanelController: NSObject {
                 guard let self else { return }
                 if delay == .off {
                     let screen = self.currentScreen ?? NSScreen.main
-                    self.hideAnimated {
-                        self.screenshot.capture(mode: mode, delaySeconds: 0, preferredScreen: screen)
+                    if mode == .selection {
+                        guard !self.preSelectionInFlight else { return }
+                        self.preSelectionInFlight = true
+                        self.hideAnimated { [weak self] in
+                            guard let self else { return }
+                            self.selectionOverlay.onSelected = { [weak self] rect in
+                                guard let self else { return }
+                                self.preSelectionInFlight = false
+                                self.screenshot.captureRect(rect, preferredScreen: screen)
+                            }
+                            self.selectionOverlay.onCancelled = { [weak self] in
+                                self?.preSelectionInFlight = false
+                            }
+                            self.selectionOverlay.start(on: screen ?? NSScreen.main ?? NSScreen.screens[0])
+                        }
+                    } else {
+                        self.hideAnimated {
+                            self.screenshot.capture(mode: mode, delaySeconds: 0, preferredScreen: screen)
+                        }
                     }
                 } else if mode == .screen {
                     self.startScreenCountdown(seconds: delay.seconds)
