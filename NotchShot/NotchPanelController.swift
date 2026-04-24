@@ -47,6 +47,7 @@ enum NotchPanelRoute {
     var countdownVisible: CGFloat = 0.0
     var countdownSeconds: Int = 0
     var countdownTotal: Int = 0
+    var isTrayPinned: Bool = false
 }
 
 private struct NotchPanelRootView: View {
@@ -61,6 +62,7 @@ private struct NotchPanelRootView: View {
     let onPickColor: () -> Void
     let onModeDelayChanged: () -> Void
     let onBack: () -> Void
+    let onTogglePin: () -> Void
     let onStopCountdown: () -> Void
     let onCaptureNow: () -> Void
 
@@ -113,7 +115,9 @@ private struct NotchPanelRootView: View {
             NotchTrayView(
                 metrics: m,
                 trayModel: trayModel,
-                onBack: onBack
+                isPinned: rootState.isTrayPinned,
+                onBack: onBack,
+                onTogglePin: onTogglePin
             )
             .opacity(rootState.trayContentVisible)
             .opacity(p)
@@ -256,7 +260,7 @@ final class NotchPanelController: NSObject {
 
     var suppressesGlobalAutoHide: Bool {
         isMenuTracking || trayTransitionInFlight || colorPicker.isInFlight
-            || route == .cdwn || preSelectionInFlight
+            || route == .cdwn || preSelectionInFlight || rootState.isTrayPinned
     }
 
     var isVisible: Bool { panel?.isVisible == true }
@@ -368,6 +372,7 @@ final class NotchPanelController: NSObject {
             completion?()
             return
         }
+        rootState.isTrayPinned = false
 
         // Cancel any active countdown before hiding
         if route == .cdwn {
@@ -594,6 +599,7 @@ final class NotchPanelController: NSObject {
             onPickColor: { [weak self] in self?.pickColor() },
             onModeDelayChanged: { [weak self] in self?.updateWidthForNoNotchIfNeeded() },
             onBack: { [weak self] in self?.switchToMain() },
+            onTogglePin: { [weak self] in self?.rootState.isTrayPinned.toggle() },
             onStopCountdown: { [weak self] in self?.stopCountdown() },
             onCaptureNow: { [weak self] in self?.captureNowFromCountdown() }
         )
@@ -607,6 +613,7 @@ final class NotchPanelController: NSObject {
 
     func switchToMain() {
         guard route != .main else { return }
+        rootState.isTrayPinned = false
         transitionBetweenStates(.main)
     }
 

@@ -8,6 +8,7 @@ struct PanelIconButton: View {
     let size: CGFloat
     let weight: Font.Weight
     let isActive: Bool
+    let imageOffset: CGFloat
     let action: () -> Void
 
     @State private var isHovered = false
@@ -18,12 +19,14 @@ struct PanelIconButton: View {
         size: CGFloat = 14,
         weight: Font.Weight = .semibold,
         isActive: Bool = false,
+        imageOffset: CGFloat = 0,
         action: @escaping () -> Void
     ) {
         self.systemName = systemName
         self.size = size
         self.weight = weight
         self.isActive = isActive
+        self.imageOffset = imageOffset
         self.action = action
     }
 
@@ -32,6 +35,7 @@ struct PanelIconButton: View {
             Image(systemName: systemName)
                 .font(.system(size: size, weight: weight))
                 .foregroundStyle(foregroundColor)
+                .offset(y: imageOffset)
                 .frame(width: 24, height: 24)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(

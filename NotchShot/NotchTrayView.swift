@@ -7,7 +7,9 @@ import AppKit
 struct NotchTrayView: View {
     let metrics: NotchMetrics
     var trayModel: NotchTrayModel
+    let isPinned: Bool
     let onBack: () -> Void
+    let onTogglePin: () -> Void
 
     @AppStorage(AppSettings.Keys.defaultColorFormat) private var scheme: ColorSchemeType = .hex
 
@@ -56,7 +58,7 @@ struct NotchTrayView: View {
                         Color.clear.frame(width: metrics.notchGap)
 
                         HStack(spacing: metrics.gap) {
-                            trayIconButton
+                            pinButton
                             moreButton
                         }
                         .padding(.trailing, metrics.edgeSafe)
@@ -84,7 +86,7 @@ struct NotchTrayView: View {
                     backButton
                     schemeMenu
                     Spacer()
-                    trayIconButton
+                    pinButton
                     moreButton
                 }
                 .padding(.horizontal, scrollPadH)
@@ -176,15 +178,18 @@ struct NotchTrayView: View {
             .accessibilityLabel("Back to panel")
     }
 
-    private var trayIconButton: some View {
+    private var pinButton: some View {
         PanelIconButton(
-            systemName: "photo.on.rectangle.angled",
-            isActive: true,
-            action: handleBack
+            systemName: isPinned ? "pin.fill" : "pin",
+            size: 14,
+            weight: .semibold,
+            isActive: isPinned,
+            imageOffset: 1,
+            action: onTogglePin
         )
         .frame(width: metrics.cellWidth, height: metrics.iconSize)
-        .help("Back to panel")
-        .accessibilityLabel("Back to panel")
+        .help(isPinned ? "Unpin panel" : "Pin panel")
+        .accessibilityLabel(isPinned ? "Unpin panel" : "Pin panel")
     }
 
     private var moreButton: some View {
