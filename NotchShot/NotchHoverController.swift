@@ -337,10 +337,11 @@ final class NotchHoverController: NSObject {
         let trigger = triggerRect(on: screen)
         guard !trigger.isNull else { return }
 
-        if panel.isVisible {
-            if panel.suppressesGlobalAutoHide {
-                return
-            }
+        // После sleep/wake/Space-switch AppKit может считать панель isVisible==true,
+        // хотя на текущем рабочем столе пользователь её не видит. Проверяем флаг
+        // needsSpaceRebind, чтобы не уйти в ветку «закрыть невидимую панель».
+        if panel.isVisible && !panel.needsSpaceRebind {
+            if panel.suppressesGlobalAutoHide { return }
             if trigger.contains(mouse) {
                 panel.hideAnimated()
                 return
@@ -352,7 +353,7 @@ final class NotchHoverController: NSObject {
         }
 
         if trigger.contains(mouse) {
-            panel.showAnimated(on: screen)
+            panel.showAnimated(on: screen, forceRebind: panel.needsSpaceRebind)
         }
     }
 

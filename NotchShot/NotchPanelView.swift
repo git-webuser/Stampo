@@ -125,7 +125,10 @@ struct NotchPanelView: View {
                     .padding(.trailing, metrics.leftMinToNotch)
                     .frame(width: shoulders, alignment: .leading)
 
-                    Color.clear.frame(width: metrics.notchGap)
+                    Color.clear
+                        .frame(width: metrics.notchGap)
+                        .contentShape(Rectangle())
+                        .onTapGesture { onClose() }
 
                     HStack(spacing: metrics.gap) {
                         trayButtonCell

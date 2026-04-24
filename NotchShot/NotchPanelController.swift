@@ -122,6 +122,16 @@ private struct NotchPanelRootView: View {
             .opacity(rootState.trayContentVisible)
             .opacity(p)
             .allowsHitTesting(p >= 0.5)
+
+            // Notch close zone — always topmost, width = notchGap, height = panelHeight.
+            // Lets the user close the panel by tapping the notch pill even when the tray
+            // is open and NotchPanelView hit-testing is disabled.
+            if m.hasNotch {
+                Color.clear
+                    .frame(width: m.notchGap, height: m.panelHeight)
+                    .contentShape(Rectangle())
+                    .onTapGesture { onClose() }
+            }
         }
         .frame(height: trayH)
         .allowsHitTesting(interaction.isEnabled)
@@ -140,6 +150,11 @@ final class NotchPanelController: NSObject {
     private var escEventTap: CFMachPort?
     private var escEventTapSource: CFRunLoopSource?
     private var notificationObservers: [NSObjectProtocol] = []
+
+    /// True после sleep/wake/display-change/Space-switch, пока панель не была
+    /// показана заново с принудительной перепривязкой к активному Space.
+    /// Читается из NotchHoverController чтобы не уходить в «закрыть невидимую панель».
+    private(set) var needsSpaceRebind = false
 
     // MARK: Internal (accessible from extension files)
     var currentScreen: NSScreen?
@@ -216,18 +231,43 @@ final class NotchPanelController: NSObject {
         ) { [weak self] _ in
             self?.isMenuTracking = false
         }
-        // Space switched — keep the panel on top when it is already visible.
-        // canJoinAllSpaces keeps it present on all spaces; orderFrontRegardless
-        // ensures it stays above the new space's windows without rebinding.
+        // Space switched: если панель видима — держим её поверх окон нового Space;
+        // если скрыта — помечаем привязку устаревшей, чтобы следующий show не
+        // попал на старый Desktop.
         let t3 = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.activeSpaceDidChangeNotification,
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            guard let self, let panel = self.panel, panel.isVisible else { return }
-            panel.orderFrontRegardless()
+            guard let self else { return }
+            if let panel = self.panel, panel.isVisible {
+                panel.orderFrontRegardless()
+            } else {
+                self.needsSpaceRebind = true
+            }
         }
-        notificationObservers = [t1, t2, t3]
+
+        // После сна, пробуждения или перестройки дисплеев WindowServer может
+        // сохранить у старого NSPanel устаревшую Space-привязку, которую AppKit
+        // не исправляет самостоятельно. Самый надёжный способ — пересоздать
+        // панель при следующем показе вместо того, чтобы «лечить» старую.
+        let onEnvChange: (Notification) -> Void = { [weak self] _ in
+            self?.invalidatePanelAfterEnvironmentChange()
+        }
+        let t4 = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.screensDidSleepNotification,
+            object: nil, queue: .main, using: onEnvChange)
+        let t5 = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.screensDidWakeNotification,
+            object: nil, queue: .main, using: onEnvChange)
+        let t6 = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification,
+            object: nil, queue: .main, using: onEnvChange)
+        let t7 = NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification,
+            object: nil, queue: .main, using: onEnvChange)
+
+        notificationObservers = [t1, t2, t3, t4, t5, t6, t7]
     }
 
     deinit {
@@ -244,16 +284,53 @@ final class NotchPanelController: NSObject {
         countdownTimer = nil
     }
 
-    /// Shows the panel on the current active Space, then extends it to all spaces.
-    /// Order matters: macOS binds the window to a Space at the moment of orderFront.
-    /// Calling orderFrontRegardless while collectionBehavior is empty forces a
-    /// clean bind to the current active Space. canJoinAllSpaces and stationary are
-    /// added afterwards so the panel appears on all desktops without animating
-    /// during space-switch swipes.
+    /// Выводит панель на текущий активный Space.
+    ///
+    /// Порядок шагов важен:
+    /// 1. `.moveToActiveSpace` — AppKit перетягивает окно в активный Space при orderFront.
+    /// 2. `orderFrontRegardless()` — фактическая привязка к Space происходит здесь.
+    /// 3. `.canJoinAllSpaces` — после привязки к текущему Space расширяем присутствие
+    ///    на все рабочие столы. `.stationary` убран: он предназначен для обоев/иконок
+    ///    рабочего стола и после долгой работы вызывает залипание на одном Space.
     private func orderFrontOnActiveSpace(_ panel: NSPanel) {
-        panel.collectionBehavior = []
+        panel.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
         panel.orderFrontRegardless()
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+    }
+
+    /// Помечает Space-привязку панели устаревшей и аккуратно прячет её.
+    /// Используется при переключении Space пока панель скрыта.
+    private func markPanelSpaceBindingStale() {
+        needsSpaceRebind = true
+        panel?.orderOut(nil)
+        // Сброс состояния, чтобы следующий show начался из чистого Main.
+        interactionState.isEnabled = true
+        isExpanded = false
+        route = .main
+        rootState.progress = 0.0
+        rootState.countdownVisible = 0.0
+    }
+
+    /// Полностью уничтожает NSPanel после sleep/wake/display-change.
+    /// Пересоздание при следующем show — единственный способ гарантированно
+    /// избавиться от устаревшей WindowServer / Spaces привязки.
+    private func invalidatePanelAfterEnvironmentChange() {
+        needsSpaceRebind = true
+        countdownTimer?.invalidate()
+        countdownTimer = nil
+        panel?.orderOut(nil)
+        panel?.close()
+        panel = nil
+        removeEscMonitor()
+        interactionState.isEnabled = true
+        isExpanded = false
+        route = .main
+        rootState.progress = 0.0
+        rootState.countdownVisible = 0.0
+        rootState.countdownSeconds = 0
+        rootState.countdownTotal = 0
+        rootState.trayContentVisible = 1.0
+        rootState.isTrayPinned = false
     }
 
     // MARK: - Public API
@@ -266,7 +343,14 @@ final class NotchPanelController: NSObject {
     var isVisible: Bool { panel?.isVisible == true }
 
     func toggleAnimated(on screen: NSScreen) {
-        isVisible ? hideAnimated() : showAnimated(on: screen)
+        // После sleep/wake/Space-switch AppKit может считать панель isVisible==true,
+        // хотя пользователь её не видит на текущем рабочем столе. В таком случае
+        // не уходим в hideAnimated — принудительно показываем заново на активном Space.
+        if isVisible && !needsSpaceRebind {
+            hideAnimated()
+        } else {
+            showAnimated(on: screen, forceRebind: needsSpaceRebind)
+        }
     }
 
     /// Trigger a capture directly (e.g. from a hotkey) without going through the panel UI.
@@ -299,7 +383,7 @@ final class NotchPanelController: NSObject {
         pickColor()
     }
 
-    func showAnimated(on screen: NSScreen) {
+    func showAnimated(on screen: NSScreen, forceRebind: Bool = false) {
         currentScreen = screen
         updateScreenMetrics(for: screen)
 
@@ -309,15 +393,21 @@ final class NotchPanelController: NSObject {
         if panel == nil { create() }
         guard let panel else { return }
 
+        // При stale-привязке (после sleep/wake/Space-switch) выводим панель из
+        // WindowServer до orderFront, чтобы macOS дала ей чистую новую привязку
+        // к активному Space. Если panel==nil — create() уже сделал свежий объект.
+        if forceRebind {
+            panel.orderOut(nil)
+            needsSpaceRebind = false
+        }
+
         interactionState.isEnabled = false
         interactionState.contentVisibility = 0.0
         panel.alphaValue = 1
 
-        // Position the panel on the target screen BEFORE ordering front.
-        // macOS binds the window to a Space at the moment of orderFront based on
-        // the current frame. Calling setFrame afterwards places it on whichever
-        // Space the panel was on last time — especially noticeable after long
-        // idle periods or wake-from-sleep.
+        // Позиционируем ДО orderFront: macOS привязывает окно к Space в момент
+        // orderFront, исходя из текущего фрейма. setFrame после — окно окажется
+        // на прошлом Space (особенно после долгого idle и выхода из сна).
         if metrics.hasNotch {
             panel.setFrame(frameForWidth(collapsedWidth, on: screen, height: trayPanelHeight), display: false)
         } else {
@@ -325,9 +415,9 @@ final class NotchPanelController: NSObject {
             panel.setFrame(frameNoNotchHiddenAbove(width: w, on: screen, height: trayPanelHeight), display: false)
         }
 
-        // Order front while collectionBehavior is empty so macOS binds the panel
-        // to the current active Space, then add canJoinAllSpaces + stationary.
-        // See orderFrontOnActiveSpace for the rationale.
+        // .moveToActiveSpace перед orderFront гарантирует привязку к текущему
+        // Space; .canJoinAllSpaces после — расширяет присутствие на все Desktop.
+        // Подробнее — в orderFrontOnActiveSpace.
         orderFrontOnActiveSpace(panel)
 
         if metrics.hasNotch {
@@ -444,6 +534,7 @@ final class NotchPanelController: NSObject {
                 self?.isExpanded = false
                 self?.route = .main
                 self?.rootState.progress = 0.0
+                self?.rootState.isTrayPinned = false
                 self?.rootState.countdownVisible = 0.0
                 self?.rootState.countdownSeconds = 0
                 self?.rootState.countdownTotal = 0
@@ -469,6 +560,7 @@ final class NotchPanelController: NSObject {
                 self?.isExpanded = false
                 self?.route = .main
                 self?.rootState.progress = 0.0
+                self?.rootState.isTrayPinned = false
                 self?.rootState.countdownVisible = 0.0
                 self?.rootState.countdownSeconds = 0
                 self?.rootState.countdownTotal = 0
@@ -494,7 +586,7 @@ final class NotchPanelController: NSObject {
 
         panel.isFloatingPanel = true
         panel.level = .statusBar
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = false
