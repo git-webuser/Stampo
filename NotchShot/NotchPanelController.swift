@@ -310,7 +310,7 @@ final class NotchPanelController: NSObject {
     private func orderFrontOnActiveSpace(_ panel: NSPanel) {
         panel.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
         panel.orderFrontRegardless()
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
     }
 
     /// Помечает Space-привязку панели устаревшей и аккуратно прячет её.
