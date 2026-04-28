@@ -64,13 +64,13 @@ enum UserFacingError {
                 }
                 return base
             case .colorPickerUnavailable(let reason):
-                let base = String(localized: "The color picker can't read pixel data. Grant Screen Recording permission to NotchShot so it can sample colors from the screen.")
+                let base = String(localized: "The color picker can't read pixel data. Grant Screen Recording permission to Stampo so it can sample colors from the screen.")
                 if let r = reason {
                     return base + "\n\n" + String(format: String(localized: "Details: %@"), r)
                 }
                 return base
             case .saveDirectoryInaccessible(let url):
-                return String(format: String(localized: "NotchShot can't write screenshots to \"%@\". The folder may have been moved, renamed, or access was revoked. Choose a new save folder in Settings \u{2192} Capture."), url.lastPathComponent)
+                return String(format: String(localized: "Stampo can't write screenshots to \"%@\". The folder may have been moved, renamed, or access was revoked. Choose a new save folder in Settings \u{2192} Capture."), url.lastPathComponent)
             case .notchClickUnavailable:
                 return String(localized: "Clicking the notch area to open the panel requires Input Monitoring permission. Grant it in System Settings \u{2192} Privacy & Security \u{2192} Input Monitoring.")
             }
@@ -99,7 +99,7 @@ enum UserFacingError {
             switch self {
             case .openScreenRecordingSettings: return String(localized: "Open Privacy Settings")
             case .openInputMonitoringSettings: return String(localized: "Open Privacy Settings")
-            case .openAppSettings:             return String(localized: "Open NotchShot Settings")
+            case .openAppSettings:             return String(localized: "Open Stampo Settings")
             }
         }
 
@@ -172,5 +172,5 @@ enum UserFacingError {
 extension Notification.Name {
     /// Posted when a remediation action needs the app's Settings window opened.
     /// `AppDelegate` should observe this and forward to `SettingsWindowController`.
-    static let requestOpenSettings = Notification.Name("NotchShot.requestOpenSettings")
+    static let requestOpenSettings = Notification.Name("Stampo.requestOpenSettings")
 }

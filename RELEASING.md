@@ -15,7 +15,7 @@
 
 ## 1. Update version
 
-In `NotchShot.xcodeproj`:
+In `Stampo.xcodeproj`:
 - `MARKETING_VERSION` — e.g. `0.2.0`
 - `CURRENT_PROJECT_VERSION` — increment by 1
 
@@ -26,12 +26,12 @@ Commit: `git commit -m "Bump version to 0.2.0"`
 ## 2. Archive
 
 ```bash
-cd /Users/air/Documents/xcode/NotchShot
+cd /Users/air/Documents/xcode/Stampo
 
 xcodebuild archive \
-  -scheme NotchShot \
+  -scheme Stampo \
   -configuration Release \
-  -archivePath build/NotchShot.xcarchive \
+  -archivePath build/Stampo.xcarchive \
   -destination "generic/platform=macOS"
 ```
 
@@ -41,14 +41,14 @@ xcodebuild archive \
 
 ```bash
 xcodebuild -exportArchive \
-  -archivePath build/NotchShot.xcarchive \
+  -archivePath build/Stampo.xcarchive \
   -exportPath build/export \
   -exportOptionsPlist ExportOptions.plist
 ```
 
 Проверить подпись:
 ```bash
-codesign --verify --deep --strict --verbose=2 build/export/NotchShot.app
+codesign --verify --deep --strict --verbose=2 build/export/Stampo.app
 ```
 
 ---
@@ -59,14 +59,14 @@ codesign --verify --deep --strict --verbose=2 build/export/NotchShot.app
 VERSION="0.1.0-beta.1"
 
 create-dmg \
-  --volname "NotchShot" \
+  --volname "Stampo" \
   --window-pos 200 120 \
   --window-size 660 400 \
   --icon-size 100 \
-  --icon "NotchShot.app" 200 190 \
-  --hide-extension "NotchShot.app" \
+  --icon "Stampo.app" 200 190 \
+  --hide-extension "Stampo.app" \
   --app-drop-link 460 190 \
-  "build/NotchShot-${VERSION}.dmg" \
+  "build/Stampo-${VERSION}.dmg" \
   "build/export/"
 ```
 
@@ -76,7 +76,7 @@ create-dmg \
 
 ```bash
 VERSION="0.1.0-beta.1"
-shasum -a 256 "build/NotchShot-${VERSION}.dmg"
+shasum -a 256 "build/Stampo-${VERSION}.dmg"
 ```
 
 ---
@@ -84,12 +84,12 @@ shasum -a 256 "build/NotchShot-${VERSION}.dmg"
 ## 6. GitHub Release
 
 1. Push tag: `git tag 0.1.0-beta.1 && git push origin 0.1.0-beta.1`
-2. Create release at [github.com/hex000/NotchShot/releases/new](https://github.com/hex000/NotchShot/releases/new)
-3. Attach `NotchShot-0.1.0-beta.1.dmg`
+2. Create release at [github.com/hex000/Stampo/releases/new](https://github.com/hex000/Stampo/releases/new)
+3. Attach `Stampo-0.1.0-beta.1.dmg`
 4. Release notes template:
 
 ```markdown
-## NotchShot 0.1.0-beta.1
+## Stampo 0.1.0-beta.1
 
 Public beta for macOS 15+.
 
@@ -117,16 +117,16 @@ SHA256: <paste here>
 
 ## Gatekeeper bypass
 
-Пользователи увидят: *"NotchShot can't be opened because Apple cannot check it for malicious software."*
+Пользователи увидят: *"Stampo can't be opened because Apple cannot check it for malicious software."*
 
 Два способа:
 
 **Способ 1 — right-click → Open** (рекомендуется для пользователей)
-- Правый клик по `NotchShot.app` в Finder → Open → Open
+- Правый клик по `Stampo.app` в Finder → Open → Open
 
 **Способ 2 — снять карантин в терминале**
 ```bash
-xattr -cr /Applications/NotchShot.app
+xattr -cr /Applications/Stampo.app
 ```
 
 Написать в README чётко что одно из этих действий нужно при первом запуске.
@@ -144,11 +144,11 @@ VERSION="0.1.0-beta.1"
 #   --team-id C4KBH3KJS5 \
 #   --password "app-specific-password"
 
-xcrun notarytool submit "build/NotchShot-${VERSION}.dmg" \
+xcrun notarytool submit "build/Stampo-${VERSION}.dmg" \
   --keychain-profile "notary-profile" \
   --wait
 
-xcrun stapler staple "build/NotchShot-${VERSION}.dmg"
+xcrun stapler staple "build/Stampo-${VERSION}.dmg"
 
-spctl --assess --type open --context context:primary-signature -v "build/NotchShot-${VERSION}.dmg"
+spctl --assess --type open --context context:primary-signature -v "build/Stampo-${VERSION}.dmg"
 ```

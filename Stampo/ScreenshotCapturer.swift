@@ -91,7 +91,7 @@ final class ScreenshotCapturer {
     // MARK: - Private
 
     private func makeTempURL() -> URL {
-        fm.temporaryDirectory.appendingPathComponent("notchshot-\(UUID().uuidString).\(fileExtension())")
+        fm.temporaryDirectory.appendingPathComponent("stampo-\(UUID().uuidString).\(fileExtension())")
     }
 
     @discardableResult

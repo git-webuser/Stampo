@@ -108,7 +108,7 @@ final class NotchHoverController: NSObject {
         statusItem = item
 
         guard let button = item.button else { return }
-        button.image = NSImage(systemSymbolName: "camera", accessibilityDescription: "NotchShot")
+        button.image = NSImage(systemSymbolName: "camera", accessibilityDescription: "Stampo")
         button.imagePosition = .imageOnly
 
         let menu = NSMenu()
@@ -125,7 +125,7 @@ final class NotchHoverController: NSObject {
         menu.addItem(.separator())
 
         let quitItem = NSMenuItem(
-            title: LocaleManager.shared.string("Quit NotchShot"),
+            title: LocaleManager.shared.string("Quit Stampo"),
             action: #selector(statusMenuQuitTapped),
             keyEquivalent: ""
         )
@@ -147,7 +147,7 @@ final class NotchHoverController: NSObject {
 
     private func updateStatusItemMenuTitles() {
         statusItemSettingsItem?.title = LocaleManager.shared.string("Settings")
-        statusItemQuitItem?.title     = LocaleManager.shared.string("Quit NotchShot")
+        statusItemQuitItem?.title     = LocaleManager.shared.string("Quit Stampo")
     }
 
     @objc private func statusMenuSettingsTapped() {
@@ -435,11 +435,11 @@ final class NotchHoverController: NSObject {
 extension Notification.Name {
     /// Постится при изменении статуса CGEvent tap (установлен / не установлен).
     /// GeneralSettingsView подписывается через `.onReceive` для обновления индикатора.
-    static let notchClickStatusChanged = Notification.Name("NotchShot.notchClickStatusChanged")
+    static let notchClickStatusChanged = Notification.Name("Stampo.notchClickStatusChanged")
 
     /// Постится из GeneralSettingsView при нажатии кнопки Retry.
     /// NotchHoverController реагирует переустановкой event tap.
-    static let retryEventTapInstall    = Notification.Name("NotchShot.retryEventTapInstall")
+    static let retryEventTapInstall    = Notification.Name("Stampo.retryEventTapInstall")
 }
 
 private func fourCharCode(_ string: String) -> OSType {

@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct NotchShotApp: App {
+struct StampoApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 
     var body: some Scene {

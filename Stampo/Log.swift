@@ -7,7 +7,7 @@ import OSLog
 ///   Log.capture.error("screencapture exited with status \(status)")
 ///   Log.color.debug("SCShareableContent refreshed")
 enum Log {
-    private static let subsystem = Bundle.main.bundleIdentifier ?? "com.hex000.NotchShot"
+    private static let subsystem = Bundle.main.bundleIdentifier ?? "com.hex000.Stampo"
 
     static let settings = Logger(subsystem: subsystem, category: "settings")
     static let capture  = Logger(subsystem: subsystem, category: "capture")

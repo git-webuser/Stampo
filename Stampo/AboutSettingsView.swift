@@ -21,7 +21,7 @@ struct AboutSettingsView: View {
                             .frame(width: 64, height: 64)
                     }
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("NotchShot")
+                        Text("Stampo")
                             .font(.title2.bold())
                         Text("Version \(appVersion)")
                             .foregroundStyle(.secondary)
@@ -35,9 +35,9 @@ struct AboutSettingsView: View {
 
             Section("Links") {
                 Link("View on GitHub",
-                     destination: URL(string: "https://github.com/git-webuser/NotchShot")!)
+                     destination: URL(string: "https://github.com/git-webuser/Stampo")!)
                 Link("Report an Issue",
-                     destination: URL(string: "https://github.com/git-webuser/NotchShot/issues")!)
+                     destination: URL(string: "https://github.com/git-webuser/Stampo/issues")!)
             }
 
             Section {
@@ -91,7 +91,7 @@ struct AboutSettingsView: View {
         let trayPersist = UserDefaults.standard.object(forKey: AppSettings.Keys.persistTray) as? Bool ?? true
 
         return """
-        NotchShot \(version)
+        Stampo \(version)
         macOS \(macOS)
         App Sandbox: \(sandboxed ? "on" : "off")
         Hardened Runtime: on

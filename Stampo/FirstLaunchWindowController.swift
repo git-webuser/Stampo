@@ -20,7 +20,7 @@ final class FirstLaunchWindowController: NSObject {
             backing: .buffered,
             defer: false
         )
-        win.title = "Welcome to NotchShot"
+        win.title = "Welcome to Stampo"
         win.isReleasedWhenClosed = false
         win.contentView = hosting
         win.setContentSize(hosting.intrinsicContentSize)
@@ -113,7 +113,7 @@ struct FirstLaunchView: View {
                     .frame(width: 64, height: 64)
             }
             VStack(alignment: .leading, spacing: 4) {
-                Text("Welcome to NotchShot")
+                Text("Welcome to Stampo")
                     .font(.title2.bold())
                 Text("Screenshot and color picker\nfor your MacBook's notch.")
                     .foregroundStyle(.secondary)

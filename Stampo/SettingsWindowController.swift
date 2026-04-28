@@ -4,7 +4,7 @@ import SwiftUI
 // MARK: - Notification
 
 extension Notification.Name {
-    static let settingsWindowDidClose = Notification.Name("NotchShotSettingsWindowDidClose")
+    static let settingsWindowDidClose = Notification.Name("StampoSettingsWindowDidClose")
 }
 
 // MARK: - FixedTitleTabViewController
@@ -157,7 +157,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         win.level       = .floating
         win.styleMask   = [.titled, .closable, .miniaturizable]
         win.titlebarSeparatorStyle = .line
-        win.setFrameAutosaveName("NotchShotSettingsWindow")
+        win.setFrameAutosaveName("StampoSettingsWindow")
         win.appearance  = AppSettings.settingsAppearance.nsAppearance
         win.center()
         win.delegate    = self

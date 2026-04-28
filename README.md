@@ -1,42 +1,42 @@
-# NotchShot
+# Stampo
 
 Screenshot and color picker for MacBooks with a notch. The panel lives at the notch — no menu bar icon, no Dock icon.
 
-![NotchShot panel](Docs/preview.png)
+![Stampo panel](Docs/preview.png)
 
 ---
 
-## What is NotchShot
+## What is Stampo
 
-NotchShot replaces the usual screenshot workflow with a panel that appears when you hover near the top of your screen. From the panel you can take area, window, or fullscreen screenshots, pick colors from the screen, and browse your recent captures in the tray.
+Stampo replaces the usual screenshot workflow with a panel that appears when you hover near the top of your screen. From the panel you can take area, window, or fullscreen screenshots, pick colors from the screen, and browse your recent captures in the tray.
 
 ## Requirements
 
 - macOS 15 or later
 - MacBook with a built-in notch display (MacBook Pro 14" or 16", MacBook Air M2 or later)
 
-> **Note:** NotchShot is designed for notch displays. It will launch on non-notch Macs but the panel positioning may not be ideal.
+> **Note:** Stampo is designed for notch displays. It will launch on non-notch Macs but the panel positioning may not be ideal.
 
 ## Installation
 
-1. Download `NotchShot-0.1.0-beta.1.dmg` from the [Releases](https://github.com/hex000/NotchShot/releases) page.
-2. Open the DMG and drag **NotchShot.app** to your **Applications** folder.
-3. Open NotchShot from Applications.
+1. Download `Stampo-0.1.0-beta.1.dmg` from the [Releases](https://github.com/hex000/Stampo/releases) page.
+2. Open the DMG and drag **Stampo.app** to your **Applications** folder.
+3. Open Stampo from Applications.
 
-**First launch:** macOS will show *"NotchShot can't be opened because Apple cannot check it for malicious software."* This is expected — the app is not yet notarized.
+**First launch:** macOS will show *"Stampo can't be opened because Apple cannot check it for malicious software."* This is expected — the app is not yet notarized.
 
-To open it: right-click **NotchShot.app** in Finder → **Open** → **Open**. You only need to do this once.
+To open it: right-click **Stampo.app** in Finder → **Open** → **Open**. You only need to do this once.
 
 ## Permissions
 
-NotchShot requires two permissions to work correctly. You will be prompted to grant them on first use, or you can open System Settings manually.
+Stampo requires two permissions to work correctly. You will be prompted to grant them on first use, or you can open System Settings manually.
 
 | Permission | Why it's needed |
 |---|---|
 | **Screen Recording** | Required to take screenshots and sample colors from the screen. |
 | **Input Monitoring** | Required to detect clicks in the notch area and respond to global hotkeys. |
 
-To grant permissions: **System Settings → Privacy & Security → Screen Recording / Input Monitoring** → enable NotchShot.
+To grant permissions: **System Settings → Privacy & Security → Screen Recording / Input Monitoring** → enable Stampo.
 
 ## How to use
 
@@ -61,7 +61,7 @@ Hotkeys can be enabled or disabled individually in **Settings → Hotkeys**.
 
 By default, screenshots are saved to **~/Pictures**. You can change the save folder in **Settings → Capture → Save Location**.
 
-File names follow the format: `NotchShot YYYY-MM-DD at HH.MM.SS.png` (configurable in Settings).
+File names follow the format: `Stampo YYYY-MM-DD at HH.MM.SS.png` (configurable in Settings).
 
 ## Tray
 
@@ -81,7 +81,7 @@ The tray shows recent screenshots and color swatches.
 
 ## Privacy
 
-NotchShot does not upload screenshots, sampled colors, or any other data.
+Stampo does not upload screenshots, sampled colors, or any other data.
 
 - No network requests.
 - No analytics or telemetry.
@@ -90,13 +90,13 @@ NotchShot does not upload screenshots, sampled colors, or any other data.
 
 ## Uninstall
 
-1. Quit NotchShot.
-2. Move **NotchShot.app** from Applications to Trash.
+1. Quit Stampo.
+2. Move **Stampo.app** from Applications to Trash.
 3. To remove all settings and saved data:
 
 ```
-~/Library/Preferences/com.hex000.NotchShot.plist
-~/Library/Application Support/NotchShot
+~/Library/Preferences/com.hex000.Stampo.plist
+~/Library/Application Support/Stampo
 ```
 
 ## License
@@ -105,4 +105,4 @@ MIT License. See [LICENSE](LICENSE).
 
 ---
 
-*NotchShot 0.1.0-beta.1 — Public beta for macOS 15+*
+*Stampo 0.1.0-beta.1 — Public beta for macOS 15+*

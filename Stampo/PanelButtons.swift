@@ -86,7 +86,7 @@ struct PopUpMoreButtonWrapper: NSViewRepresentable {
         button.menu?.addItem(settingsItem)
         button.menu?.addItem(.separator())
         let quitItem = NSMenuItem(
-            title: LocaleManager.string("Quit NotchShot", locale: locale),
+            title: LocaleManager.string("Quit Stampo", locale: locale),
             action: #selector(Coordinator.quitTapped),
             keyEquivalent: ""
         )
@@ -117,9 +117,9 @@ struct PopUpMoreButtonWrapper: NSViewRepresentable {
     }
 
     func updateNSView(_ button: NSPopUpButton, context: Context) {
-        // item(at:) order: 0 = Settings, 1 = separator, 2 = Quit NotchShot.
+        // item(at:) order: 0 = Settings, 1 = separator, 2 = Quit Stampo.
         button.item(at: 0)?.title = LocaleManager.string("Settings",      locale: locale)
-        button.item(at: 2)?.title = LocaleManager.string("Quit NotchShot", locale: locale)
+        button.item(at: 2)?.title = LocaleManager.string("Quit Stampo", locale: locale)
         button.selectItem(at: -1)
         context.coordinator.parent = self
     }
