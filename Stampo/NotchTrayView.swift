@@ -128,40 +128,59 @@ struct NotchTrayView: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(alignment: .top, spacing: cellSpacing) {
                 ForEach(trayModel.items) { item in
-                    switch item {
-                    case .screenshot(let shot):
-                        TrayScreenshotCell(
-                            shot: shot,
-                            height: cellH,
-                            badgeBleed: badgeBleed,
-                            labelOffset: labelOffset,
-                            cornerRadius: metrics.buttonRadius,
-                            isHovered: hoveredScreenshotID == shot.id,
-                            setHovered: { hovering in
-                                if hovering {
-                                    hoveredScreenshotID = shot.id
-                                } else if hoveredScreenshotID == shot.id {
-                                    hoveredScreenshotID = nil
+                    Group {
+                        switch item {
+                        case .screenshot(let shot):
+                            TrayScreenshotCell(
+                                shot: shot,
+                                height: cellH,
+                                badgeBleed: badgeBleed,
+                                labelOffset: labelOffset,
+                                cornerRadius: metrics.buttonRadius,
+                                isHovered: hoveredScreenshotID == shot.id,
+                                setHovered: { hovering in
+                                    if hovering {
+                                        hoveredScreenshotID = shot.id
+                                    } else if hoveredScreenshotID == shot.id {
+                                        hoveredScreenshotID = nil
+                                    }
+                                },
+                                onOpen: { onHidePanel() },
+                                onRemove: {
+                                    withAnimation(.easeInOut(duration: 0.18)) {
+                                        trayModel.remove(id: shot.id)
+                                    }
+                                },
+                                onMoveToTrash: {
+                                    withAnimation(.easeInOut(duration: 0.18)) {
+                                        trayModel.remove(id: shot.id)
+                                    }
+                                    NSWorkspace.shared.recycle([shot.url])
                                 }
-                            },
-                            onOpen: { onHidePanel() },
-                            onRemove: { trayModel.remove(id: shot.id) },
-                            onMoveToTrash: {
-                                trayModel.remove(id: shot.id)
-                                NSWorkspace.shared.recycle([shot.url])
-                            }
-                        )
-                    case .color(let c):
-                        TrayColorCell(
-                            item: c,
-                            scheme: scheme,
-                            height: cellH,
-                            badgeBleed: badgeBleed,
-                            labelOffset: labelOffset,
-                            cornerRadius: metrics.buttonRadius,
-                            onRemove: { trayModel.remove(id: c.id) }
-                        )
+                            )
+                        case .color(let c):
+                            TrayColorCell(
+                                item: c,
+                                scheme: scheme,
+                                height: cellH,
+                                badgeBleed: badgeBleed,
+                                labelOffset: labelOffset,
+                                cornerRadius: metrics.buttonRadius,
+                                onRemove: {
+                                    withAnimation(.easeInOut(duration: 0.18)) {
+                                        trayModel.remove(id: c.id)
+                                    }
+                                }
+                            )
+                        }
                     }
+                    // Cell exit: shrink + fade out together; neighbours
+                    // slide into the gap because the surrounding HStack
+                    // re-layouts inside the same withAnimation block.
+                    .transition(
+                        .scale(scale: 0.6, anchor: .center)
+                        .combined(with: .opacity)
+                    )
                 }
             }
             .padding(.horizontal, contentInset)
@@ -260,7 +279,6 @@ private struct TrayColorCell: View {
 
     @State private var isHovered    = false
     @State private var isPressed    = false
-    @State private var isRemoving   = false
     @State private var isCopied     = false
     @State private var isBadgeActive = false
 
@@ -273,10 +291,8 @@ private struct TrayColorCell: View {
                     .stroke(Color.white.opacity(isHovered ? 0.35 : 0.12), lineWidth: 1)
             )
             .overlay(alignment: .topTrailing) {
-                TrayDeleteBadge(action: {
-                    withAnimation(.easeIn(duration: 0.16)) { isRemoving = true }
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) { onRemove() }
-                }, isPressed: $isBadgeActive)
+                TrayDeleteBadge(action: { onRemove() },
+                                isPressed: $isBadgeActive)
                 .opacity(isHovered ? 1 : 0)
                 .allowsHitTesting(isHovered)
                 .offset(x: badgeBleed, y: -badgeBleed)
@@ -302,10 +318,8 @@ private struct TrayColorCell: View {
                 .animation(.easeInOut(duration: 0.14), value: isCopied)
             }
             .scaleEffect(isPressed ? 0.88 : 1.0)
-            .opacity(isRemoving ? 0 : 1)
             .animation(.spring(response: 0.2, dampingFraction: 0.8), value: isHovered)
             .animation(.spring(response: 0.15, dampingFraction: 0.7), value: isPressed)
-            .animation(.easeIn(duration: 0.16), value: isRemoving)
             .accessibilityLabel("Color \(scheme.convert(item.color))")
             .accessibilityHint("Tap to copy, hold to delete")
             .accessibilityAddTraits(.isButton)
@@ -345,7 +359,6 @@ private struct TrayScreenshotCell: View {
 
     @State private var loader = ThumbnailLoader()
     @State private var isPressed    = false
-    @State private var isRemoving   = false
     @State private var isBadgeActive = false
     @State private var isDragging   = false
     @State private var isCopied     = false
@@ -408,10 +421,9 @@ private struct TrayScreenshotCell: View {
             }
         }
         .scaleEffect(isPressed ? 0.88 : (isDragging ? 0.92 : 1.0))
-        .opacity(isRemoving ? 0 : (isDragging ? 0.45 : 1))
+        .opacity(isDragging ? 0.45 : 1)
         .animation(.spring(response: 0.2, dampingFraction: 0.8), value: isHovered)
         .animation(.spring(response: 0.15, dampingFraction: 0.7), value: isPressed)
-        .animation(.easeIn(duration: 0.16), value: isRemoving)
         .overlay {
             TrayDragShim(
                 url: shot.url,
@@ -431,10 +443,8 @@ private struct TrayScreenshotCell: View {
         // Badge is placed AFTER TrayDragShim so it sits above the NSView in z-order
         // and receives SwiftUI hit-testing before the NSView can intercept.
         .overlay(alignment: .topTrailing) {
-            TrayDeleteBadge(action: {
-                withAnimation(.easeIn(duration: 0.16)) { isRemoving = true }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) { onRemove() }
-            }, isPressed: $isBadgeActive)
+            TrayDeleteBadge(action: { onRemove() },
+                            isPressed: $isBadgeActive)
             .opacity(isHovered ? 1 : 0)
             .allowsHitTesting(isHovered)
             .offset(x: badgeBleed, y: -badgeBleed)
@@ -456,8 +466,7 @@ private struct TrayScreenshotCell: View {
             }
             Divider()
             Button("Move to Trash", role: .destructive) {
-                withAnimation(.easeIn(duration: 0.16)) { isRemoving = true }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) { onMoveToTrash() }
+                onMoveToTrash()
             }
         }
         .task(id: shot.url) { loader.load(imageURL: shot.url) }
