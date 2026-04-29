@@ -699,9 +699,15 @@ final class TrayDragShimView: NSView, NSDraggingSource {
     private func updateHoverState() {
         guard let window else { return }
         let pt = convert(window.mouseLocationOutsideOfEventStream, from: nil)
-        // Include badge bleed zone: badge is offset +bleed right, -bleed up.
-        // In flipped coords (y=0 at top, increases down) "up" = negative y.
-        let bleed = CGFloat(badgeExcludeSize) // reuse existing constant (16)
+        // Hover bleed must cover the delete badge that protrudes past the
+        // cell, but no further — otherwise the bleed zone of one cell
+        // reaches into a neighbour's core area (cellSpacing is 8 pt) and
+        // mouse moves in the gap toggle hovered state between cells.
+        // The badge view sits at offset (badgeBleed, -badgeBleed) past the
+        // cell, so 3 pt of bleed is enough on the badge sides.
+        // (Note: `badgeExcludeSize` (16) is the size of the badge corner
+        // that's reserved for the badge itself in hitTest — separate concern.)
+        let bleed: CGFloat = 3
         let hoverRect = NSRect(
             x: bounds.minX,
             y: -bleed,                        // extend upward past top edge
