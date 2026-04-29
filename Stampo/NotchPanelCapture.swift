@@ -1,18 +1,43 @@
 import AppKit
 import SwiftUI
 
+// MARK: - Countdown session
+
+/// Bundles every piece of countdown state into a single value so the
+/// controller no longer has to juggle parallel fields (`countdownTimer`,
+/// `countdownCaptureTarget`, `countdownScreen`).
+struct CountdownSession {
+    let target: NotchPanelController.CaptureTarget
+    let screen: NSScreen?
+    var secondsRemaining: Int
+    let totalSeconds: Int
+    var timer: Timer?
+}
+
 // MARK: - Capture orchestration
 
 extension NotchPanelController {
 
     // MARK: Countdown
 
+    /// Mirrors the authoritative `activeCountdown` into the view-facing
+    /// `rootState` fields so the SwiftUI countdown arc updates without
+    /// reading the session struct directly.
+    private func syncCountdownToRootState() {
+        rootState.countdownSeconds = activeCountdown?.secondsRemaining ?? 0
+        rootState.countdownTotal   = activeCountdown?.totalSeconds   ?? 0
+    }
+
     /// Screen mode: panel stays open, crossfade to countdown.
     func startScreenCountdown(seconds: Int) {
-        countdownCaptureTarget = .screen
-        countdownScreen = currentScreen
-        rootState.countdownSeconds = seconds
-        rootState.countdownTotal = seconds
+        activeCountdown = CountdownSession(
+            target: .screen,
+            screen: currentScreen,
+            secondsRemaining: seconds,
+            totalSeconds: seconds,
+            timer: nil
+        )
+        syncCountdownToRootState()
         route = .cdwn
         withAnimation(.easeOut(duration: 0.16)) {
             rootState.countdownVisible = 1.0
@@ -60,10 +85,14 @@ extension NotchPanelController {
 
     /// Called after pre-selection overlay completes: show panel in countdown state directly.
     func beginCountdownAfterPreSelection(target: CaptureTarget, seconds: Int, screen: NSScreen) {
-        countdownCaptureTarget = target
-        countdownScreen = screen
-        rootState.countdownSeconds = seconds
-        rootState.countdownTotal = seconds
+        activeCountdown = CountdownSession(
+            target: target,
+            screen: screen,
+            secondsRemaining: seconds,
+            totalSeconds: seconds,
+            timer: nil
+        )
+        syncCountdownToRootState()
         // Set countdown visible instantly before panel appears (no crossfade needed)
         rootState.countdownVisible = 1.0
         route = .cdwn
@@ -73,26 +102,31 @@ extension NotchPanelController {
 
     func startCountdownTimer() {
         cancelCountdownTimer()
-        countdownTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+        let timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
             guard let self else { return }
-            if self.rootState.countdownSeconds > 1 {
-                self.rootState.countdownSeconds -= 1
+            guard var session = self.activeCountdown else { return }
+            if session.secondsRemaining > 1 {
+                session.secondsRemaining -= 1
+                self.activeCountdown = session
+                self.syncCountdownToRootState()
             } else {
                 self.finishCountdown()
             }
         }
+        activeCountdown?.timer = timer
     }
 
     /// Single authoritative place to kill the countdown Timer.
     /// Called from every exit path (stop / capture-now / finish / hideAnimated /
     /// deinit) so the tick closure can never fire into a freed controller.
     func cancelCountdownTimer() {
-        countdownTimer?.invalidate()
-        countdownTimer = nil
+        activeCountdown?.timer?.invalidate()
+        activeCountdown?.timer = nil
     }
 
     func stopCountdown() {
         cancelCountdownTimer()
+        activeCountdown = nil
         route = .main
         withAnimation(.easeOut(duration: 0.16)) {
             rootState.countdownVisible = 0.0
@@ -107,8 +141,9 @@ extension NotchPanelController {
 
     func captureNowFromCountdown() {
         cancelCountdownTimer()
-        let target = countdownCaptureTarget
-        let screen = countdownScreen
+        let target = activeCountdown?.target ?? .screen
+        let screen = activeCountdown?.screen
+        activeCountdown = nil
         hideAnimated { [weak self] in
             guard let self else { return }
             // Safety net: if the window-picker dismissed normally, isCursorHidden
@@ -121,8 +156,9 @@ extension NotchPanelController {
 
     func finishCountdown() {
         cancelCountdownTimer()
-        let target = countdownCaptureTarget
-        let screen = countdownScreen
+        let target = activeCountdown?.target ?? .screen
+        let screen = activeCountdown?.screen
+        activeCountdown = nil
         hideAnimated { [weak self] in
             guard let self else { return }
             // Same safety net as captureNowFromCountdown — see comment there.

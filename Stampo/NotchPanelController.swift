@@ -184,9 +184,10 @@ final class NotchPanelController: NSObject {
         case windowID(CGWindowID)
     }
 
-    var countdownTimer: Timer?
-    var countdownCaptureTarget: CaptureTarget = .screen
-    var countdownScreen: NSScreen?
+    /// Active countdown session, if any. Replaces the three legacy fields
+    /// (timer / target / screen) that used to live separately on the
+    /// controller. `nil` ⇔ no countdown in progress.
+    var activeCountdown: CountdownSession?
 
     let selectionOverlay = SelectionOverlay()
     let windowPickerOverlay = WindowPickerOverlay()
@@ -295,8 +296,8 @@ final class NotchPanelController: NSObject {
         notificationObservers.removeAll()
         removeEscMonitor()
         // Ensure the scheduled Timer can't fire into a deallocated controller.
-        countdownTimer?.invalidate()
-        countdownTimer = nil
+        activeCountdown?.timer?.invalidate()
+        activeCountdown = nil
     }
 
     /// Выводит панель на текущий активный Space.
@@ -342,8 +343,8 @@ final class NotchPanelController: NSObject {
         screenshot.cancelCurrentCapture()
         preSelectionInFlight = false
 
-        countdownTimer?.invalidate()
-        countdownTimer = nil
+        activeCountdown?.timer?.invalidate()
+        activeCountdown = nil
         panel?.orderOut(nil)
         panel?.close()
         panel = nil
@@ -497,6 +498,7 @@ final class NotchPanelController: NSObject {
         // Cancel any active countdown before hiding
         if route == .cdwn {
             cancelCountdownTimer()
+            activeCountdown = nil
             rootState.countdownVisible = 0.0
             rootState.countdownSeconds = 0
             rootState.countdownTotal = 0
