@@ -89,7 +89,7 @@ struct FirstLaunchView: View {
                 .padding(.bottom, 24)
 
             if !screenRecordingGranted || !inputMonitoringGranted {
-                Text("Without these permissions, screenshots and hotkeys may not work.")
+                Text("Without these permissions, capture, color picking, notch click, and hotkeys may not work.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)

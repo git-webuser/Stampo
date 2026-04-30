@@ -4,7 +4,8 @@
 > App is signed with Apple Development cert (ad-hoc for local use).
 > Users will see a Gatekeeper warning on first launch — see [Gatekeeper bypass](#gatekeeper-bypass) below.
 >
-> When Developer ID is available: add notarize + staple steps between steps 4 and 5.
+> ⚠️ **This is a temporary beta workflow — do not use it for a normal public release.**
+> Switch to `ExportOptions.DeveloperID.plist` and add notarize + staple steps (see bottom of file) once Developer ID is available.
 
 ## Prerequisites
 
@@ -94,7 +95,7 @@ shasum -a 256 "build/Stampo-${VERSION}.dmg"
 ```markdown
 ## Stampo 0.1.0-beta.1
 
-Public beta for macOS 15+.
+Public beta for macOS 15.7+.
 
 > ⚠️ This build is not notarized. On first launch macOS will show a warning.
 > Right-click → Open to bypass it.
