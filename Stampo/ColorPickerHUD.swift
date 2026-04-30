@@ -271,6 +271,14 @@ final class ColorPickerHUD {
 
     private var panel: NSPanel?
     private var hideWorkItem: DispatchWorkItem?
+    /// Custom mask on the blur view's layer. We use CAShapeLayer instead
+    /// of cornerRadius + masksToBounds because NSVisualEffectView's
+    /// corner mask does not interpolate its path during a CABasicAnimation
+    /// on bounds — the freshly-uncovered region renders with sharp
+    /// corners until the animation completes. Owning the mask layer lets
+    /// us animate its `path` in lockstep with the panel resize.
+    private weak var blurMask: CAShapeLayer?
+    private let cornerRadius: CGFloat = 12
 
     deinit {
         // Cancel any pending auto-hide so it can't fire into a dangling instance,
@@ -522,14 +530,42 @@ final class ColorPickerHUD {
                 : oldFrame.minY
             let target = NSRect(x: newX, y: newY,
                                 width: newSize.width, height: newSize.height)
+            let duration: CFTimeInterval = 0.30
+            let timing = CAMediaTimingFunction(name: .easeInEaseOut)
+
+            // The blur layer's bounds animation is driven by AppKit when the
+            // panel resizes via animator(). The mask path must follow in the
+            // same transaction so the corners stay rounded throughout.
+            if let mask = blurMask {
+                let oldPath = mask.path
+                let newPath = CGPath(
+                    roundedRect: NSRect(origin: .zero, size: newSize),
+                    cornerWidth: cornerRadius, cornerHeight: cornerRadius,
+                    transform: nil
+                )
+                let pathAnim = CABasicAnimation(keyPath: "path")
+                pathAnim.fromValue = oldPath
+                pathAnim.toValue = newPath
+                pathAnim.duration = duration
+                pathAnim.timingFunction = timing
+                pathAnim.fillMode = .both
+                mask.path = newPath
+                mask.add(pathAnim, forKey: "path")
+            }
+
             NSAnimationContext.runAnimationGroup { ctx in
                 // Match the SwiftUI body's .spring(response: 0.3, ...) timing.
-                ctx.duration = 0.30
-                ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                ctx.duration = duration
+                ctx.timingFunction = timing
                 panel.animator().setFrame(target, display: true)
             }
         } else {
             panel.setContentSize(newSize)
+            blurMask?.path = CGPath(
+                roundedRect: NSRect(origin: .zero, size: newSize),
+                cornerWidth: cornerRadius, cornerHeight: cornerRadius,
+                transform: nil
+            )
         }
     }
 
@@ -561,9 +597,17 @@ final class ColorPickerHUD {
         blur.blendingMode = .behindWindow
         blur.state        = .active
         blur.wantsLayer   = true
-        blur.layer?.cornerRadius  = 12
-        blur.layer?.cornerCurve   = .continuous
-        blur.layer?.masksToBounds = true
+        // Round the blur via an explicit CAShapeLayer mask whose path we
+        // can animate; cornerRadius + masksToBounds does not animate its
+        // shape during NSAnimationContext-driven bounds animations.
+        let mask = CAShapeLayer()
+        mask.path = CGPath(
+            roundedRect: blur.bounds,
+            cornerWidth: cornerRadius, cornerHeight: cornerRadius,
+            transform: nil
+        )
+        blur.layer?.mask = mask
+        blurMask = mask
         rootView.addSubview(blur)
 
         // Dark card sits BETWEEN the blur and the SwiftUI hosting view as
