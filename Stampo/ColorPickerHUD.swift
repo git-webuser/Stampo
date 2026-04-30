@@ -567,21 +567,15 @@ final class ColorPickerHUD {
         rootView.addSubview(blur)
 
         // Dark card sits BETWEEN the blur and the SwiftUI hosting view as
-        // a CALayer. Layer-level autoresizing keeps it perfectly tied to
-        // blur's bounds during NSAnimationContext-driven resizes, so the
-        // dark fill animates in lockstep with the outer rounded outline
-        // instead of lagging behind SwiftUI's separate spring.
-        if let blurLayer = blur.layer {
-            let card = CALayer()
-            card.frame = blurLayer.bounds
-            card.autoresizingMask = [.layerWidthSizable, .layerHeightSizable]
-            card.backgroundColor = NSColor.black.withAlphaComponent(0.82).cgColor
-            card.borderColor = NSColor.white.withAlphaComponent(0.10).cgColor
-            card.borderWidth = 1
-            card.cornerRadius = 12
-            card.cornerCurve = .continuous
-            blurLayer.addSublayer(card)
-        }
+        // an NSView. NSView's autoresizingMask interpolates correctly
+        // through NSAnimationContext animations driven by panel.animator(),
+        // unlike a CALayer with .layerWidthSizable which can render its
+        // corner radius using stale bounds during the animation (visible as
+        // sharp top/bottom-right corners while the panel grows rightward).
+        let card = HUDBackgroundView(frame: blur.bounds)
+        card.wantsLayer = true
+        card.autoresizingMask = [.width, .height]
+        blur.addSubview(card)
         return p
     }
 
