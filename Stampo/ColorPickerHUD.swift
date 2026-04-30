@@ -278,7 +278,18 @@ final class ColorPickerHUD {
     /// corners until the animation completes. Owning the mask layer lets
     /// us animate its `path` in lockstep with the panel resize.
     private weak var blurMask: CAShapeLayer?
+    /// Dark fill + 1pt white border, drawn from the same path as the
+    /// mask so both edges stay aligned through the resize animation.
+    private weak var cardShape: CAShapeLayer?
     private let cornerRadius: CGFloat = 12
+
+    private func roundedRectPath(size: CGSize) -> CGPath {
+        CGPath(
+            roundedRect: NSRect(origin: .zero, size: size),
+            cornerWidth: cornerRadius, cornerHeight: cornerRadius,
+            transform: nil
+        )
+    }
 
     deinit {
         // Cancel any pending auto-hide so it can't fire into a dangling instance,
@@ -532,25 +543,21 @@ final class ColorPickerHUD {
                                 width: newSize.width, height: newSize.height)
             let duration: CFTimeInterval = 0.30
             let timing = CAMediaTimingFunction(name: .easeInEaseOut)
+            let newPath = roundedRectPath(size: newSize)
 
             // The blur layer's bounds animation is driven by AppKit when the
-            // panel resizes via animator(). The mask path must follow in the
-            // same transaction so the corners stay rounded throughout.
-            if let mask = blurMask {
-                let oldPath = mask.path
-                let newPath = CGPath(
-                    roundedRect: NSRect(origin: .zero, size: newSize),
-                    cornerWidth: cornerRadius, cornerHeight: cornerRadius,
-                    transform: nil
-                )
+            // panel resizes via animator(). The mask path and the card's
+            // fill/stroke path must follow in the same transaction so the
+            // outer rounded edges stay aligned and rounded throughout.
+            for layer in [blurMask, cardShape].compactMap({ $0 }) {
                 let pathAnim = CABasicAnimation(keyPath: "path")
-                pathAnim.fromValue = oldPath
+                pathAnim.fromValue = layer.path
                 pathAnim.toValue = newPath
                 pathAnim.duration = duration
                 pathAnim.timingFunction = timing
                 pathAnim.fillMode = .both
-                mask.path = newPath
-                mask.add(pathAnim, forKey: "path")
+                layer.path = newPath
+                layer.add(pathAnim, forKey: "path")
             }
 
             NSAnimationContext.runAnimationGroup { ctx in
@@ -561,11 +568,9 @@ final class ColorPickerHUD {
             }
         } else {
             panel.setContentSize(newSize)
-            blurMask?.path = CGPath(
-                roundedRect: NSRect(origin: .zero, size: newSize),
-                cornerWidth: cornerRadius, cornerHeight: cornerRadius,
-                transform: nil
-            )
+            let path = roundedRectPath(size: newSize)
+            blurMask?.path = path
+            cardShape?.path = path
         }
     }
 
@@ -601,25 +606,25 @@ final class ColorPickerHUD {
         // can animate; cornerRadius + masksToBounds does not animate its
         // shape during NSAnimationContext-driven bounds animations.
         let mask = CAShapeLayer()
-        mask.path = CGPath(
-            roundedRect: blur.bounds,
-            cornerWidth: cornerRadius, cornerHeight: cornerRadius,
-            transform: nil
-        )
+        let initialPath = roundedRectPath(size: blur.bounds.size)
+        mask.path = initialPath
         blur.layer?.mask = mask
         blurMask = mask
         rootView.addSubview(blur)
 
-        // Dark card sits BETWEEN the blur and the SwiftUI hosting view as
-        // an NSView. NSView's autoresizingMask interpolates correctly
-        // through NSAnimationContext animations driven by panel.animator(),
-        // unlike a CALayer with .layerWidthSizable which can render its
-        // corner radius using stale bounds during the animation (visible as
-        // sharp top/bottom-right corners while the panel grows rightward).
-        let card = HUDBackgroundView(frame: blur.bounds)
-        card.wantsLayer = true
-        card.autoresizingMask = [.width, .height]
-        blur.addSubview(card)
+        // Dark fill + 1pt border are drawn by a CAShapeLayer that shares
+        // its path with the blur mask. Using a shape layer (rather than an
+        // NSView with its own cornerRadius/border/shadow) avoids two
+        // separate rounded shapes drifting against each other during the
+        // resize animation, which manifested as edge artifacts on the
+        // freshly-uncovered side.
+        let card = CAShapeLayer()
+        card.path = initialPath
+        card.fillColor = NSColor.black.withAlphaComponent(0.82).cgColor
+        card.strokeColor = NSColor.white.withAlphaComponent(0.10).cgColor
+        card.lineWidth = 1
+        blur.layer?.addSublayer(card)
+        cardShape = card
         return p
     }
 
