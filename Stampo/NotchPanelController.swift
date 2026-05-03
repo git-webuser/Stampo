@@ -200,7 +200,9 @@ final class NotchPanelController: NSObject {
     /// Note: setter is not `private(set)` because the countdown extension
     /// in NotchPanelCapture.swift needs to write to it. Only this file
     /// and its extensions should mutate `state`.
-    var state: PanelState = .hidden
+    var state: PanelState = .hidden {
+        didSet { postMascotNotification() }
+    }
     private var escEventTap: CFMachPort?
     private var escEventTapSource: CFRunLoopSource?
     private var notificationObservers: [NSObjectProtocol] = []
@@ -224,6 +226,39 @@ final class NotchPanelController: NSObject {
     private func bumpGeneration() -> Int {
         animationGeneration &+= 1
         return animationGeneration
+    }
+
+    // MARK: - Mascot notifications
+
+    /// Pending work item that posts .sleeping after a short debounce delay.
+    /// Cancelled whenever a non-sleep state arrives, so transient .hidden states
+    /// (e.g. panel hiding before a capture overlay starts) never reach the mascot.
+    private var pendingSleepWorkItem: DispatchWorkItem?
+
+    /// Single funnel for all mascot state posts.
+    /// .sleeping is debounced by 150 ms so a rapid .hidden → .preSelection
+    /// transition doesn't flash the mascot to sleep and back.
+    func postMascotState(_ mascot: MascotState) {
+        pendingSleepWorkItem?.cancel()
+        pendingSleepWorkItem = nil
+        if case .sleeping = mascot {
+            let item = DispatchWorkItem {
+                NotificationCenter.default.post(name: .mascotStateChanged, object: MascotState.sleeping)
+            }
+            pendingSleepWorkItem = item
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: item)
+        } else {
+            NotificationCenter.default.post(name: .mascotStateChanged, object: mascot)
+        }
+    }
+
+    private func postMascotNotification() {
+        switch state {
+        case .countdown:                             postMascotState(.countdown)
+        case .main, .tray, .showing, .preSelection: postMascotState(.awake)
+        case .hidden:                               postMascotState(.sleeping)
+        default:                                    break
+        }
     }
 
     // MARK: Internal (accessible from extension files)
@@ -276,8 +311,26 @@ final class NotchPanelController: NSObject {
             self?.rootState.progress = 0.0
         }
         colorPicker.hideCursorBeforeHide = { CursorOverlay.hideCursorAfterMenuCloses() }
+        colorPicker.onFlightChanged = { [weak self] inFlight in
+            // Only post .sleeping when flight ends via cancellation.
+            // The confirmed path posts .celebrating via onPickConfirmed instead.
+            self?.postMascotState(inFlight ? .colorPicking(.leftCenter) : .sleeping)
+        }
+        colorPicker.onPickConfirmed = { [weak self] in
+            self?.postMascotState(.celebrating)
+        }
+        colorPicker.onCursorMoved = { point in
+            NotificationCenter.default.post(name: .mascotCursorMoved, object: NSValue(point: point))
+        }
         screenshot.onCaptured = { [weak self] url in
             self?.trayModel.add(screenshotURL: url)
+            // Clear preSelection so the next capture attempt isn't blocked.
+            if case .preSelection = self?.state { self?.state = .hidden }
+            self?.postMascotState(.celebrating)
+        }
+        screenshot.onCancelled = { [weak self] in
+            if case .preSelection = self?.state { self?.state = .hidden }
+            self?.postMascotState(.sleeping)
         }
         screenshot.onThumbnailTapped = { [weak self] in
             guard let self else { return }
@@ -470,6 +523,10 @@ final class NotchPanelController: NSObject {
                 self?.state = .hidden
             }
             selectionOverlay.start(on: screen)
+        } else if mode == .window {
+            guard !isInPreSelection else { return }
+            state = .preSelection(.window)
+            screenshot.capture(mode: mode, delaySeconds: 0, preferredScreen: screen)
         } else {
             screenshot.capture(mode: mode, delaySeconds: 0, preferredScreen: screen)
         }
@@ -792,7 +849,13 @@ final class NotchPanelController: NSObject {
                             self.selectionOverlay.start(on: screen ?? NSScreen.main ?? NSScreen.screens[0])
                         }
                     } else {
-                        self.hideAnimated {
+                        self.hideAnimated { [weak self] in
+                            guard let self else { return }
+                            // For window mode the user still has to pick a window,
+                            // so promote to .preSelection to keep the mascot awake.
+                            if mode == .window {
+                                self.state = .preSelection(.window)
+                            }
                             self.screenshot.capture(mode: mode, delaySeconds: 0, preferredScreen: screen)
                         }
                     }

@@ -14,6 +14,11 @@ final class ColorPickingCoordinator {
     var addColor: (NSColor) -> Void = { _ in }
     var resetRoute: () -> Void = {}
     var hideCursorBeforeHide: () -> Void = {}
+    var onFlightChanged: ((Bool) -> Void)?
+    var onCursorMoved:  ((NSPoint) -> Void)?
+    /// Called when the user successfully picks a color (confirmed, not cancelled).
+    /// Use this to trigger a celebration state instead of going straight to sleeping.
+    var onPickConfirmed: (() -> Void)?
 
     /// Прерывает активную сессию выбора цвета без уведомления через колбэки.
     /// Вызывается из invalidatePanelAfterEnvironmentChange, когда среда меняется
@@ -25,6 +30,7 @@ final class ColorPickingCoordinator {
         activeSampler = nil
         hud.hide(animated: false)
         isInFlight = false
+        onFlightChanged?(false)
         // resetRoute не вызываем — панель уже сносится вызывающей стороной.
     }
 
@@ -32,6 +38,7 @@ final class ColorPickingCoordinator {
     func start(panelIsVisible: Bool, preferredScreen: NSScreen?) {
         guard !isInFlight else { return }
         isInFlight = true
+        onFlightChanged?(true)
 
         let launch: () -> Void = { [weak self] in
             guard let self else { return }
@@ -43,11 +50,16 @@ final class ColorPickingCoordinator {
                 guard let self else { return }
                 self.hud.setFormat(sampler.format)
                 self.hud.update(color: color, cursorPosition: position, magnifier: magnifier)
+                self.onCursorMoved?(position)
             }
 
             sampler.onConfirmed = { [weak self] color in
                 guard let self else { return }
                 self.isInFlight = false
+                // Do NOT call onFlightChanged(false) here — that would post .sleeping
+                // and cancel the celebration sequence before the wink plays.
+                // onPickConfirmed triggers .celebrating; the sequence itself ends with .sleeping.
+                self.onPickConfirmed?()
                 self.activeSampler = nil
                 let sRGB = color.usingColorSpace(.sRGB) ?? color
                 self.hud.showSuccess(color: sRGB, on: preferredScreen, autoHideAfter: 0.35)
@@ -61,6 +73,7 @@ final class ColorPickingCoordinator {
             sampler.onCancelled = { [weak self] in
                 guard let self else { return }
                 self.isInFlight = false
+                self.onFlightChanged?(false)
                 self.activeSampler = nil
                 self.hud.hide()
                 self.resetRoute()

@@ -58,12 +58,26 @@ final class NotchHoverController: NSObject {
             name: .retryEventTapInstall,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(onMascotStateChanged(_:)),
+            name: .mascotStateChanged,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(onMascotCursorMoved(_:)),
+            name: .mascotCursorMoved,
+            object: nil
+        )
     }
 
     func stop() {
         NotificationCenter.default.removeObserver(self, name: .settingsWindowDidClose, object: nil)
         NotificationCenter.default.removeObserver(self, name: UserDefaults.didChangeNotification, object: nil)
         NotificationCenter.default.removeObserver(self, name: .retryEventTapInstall, object: nil)
+        NotificationCenter.default.removeObserver(self, name: .mascotStateChanged, object: nil)
+        NotificationCenter.default.removeObserver(self, name: .mascotCursorMoved, object: nil)
         uninstallEventTap()
         uninstallHotKey()
         uninstallStatusItem()
@@ -81,6 +95,38 @@ final class NotchHoverController: NSObject {
     @objc private func onUserDefaultsChanged() {
         reinstallHotKeysIfNeeded()
         updateStatusItemMenuTitles()
+    }
+
+    @objc private func onMascotStateChanged(_ note: Notification) {
+        guard let state = note.object as? MascotState else { return }
+        mascotView?.setState(state)
+    }
+
+    @objc private func onMascotCursorMoved(_ note: Notification) {
+        guard let val = note.object as? NSValue else { return }
+        let point = val.pointValue
+        let dir = eyeDirection(for: point)
+        mascotView?.setState(.colorPicking(dir))
+    }
+
+    private func eyeDirection(for point: NSPoint) -> EyeDirection {
+        let screen = NSScreen.screens.first(where: { $0.frame.contains(point) }) ?? NSScreen.main
+        let frame  = screen?.frame ?? NSScreen.main?.frame ?? CGRect(x: 0, y: 0, width: 1440, height: 900)
+        let relX = (point.x - frame.minX) / frame.width
+        // ColorSampler returns CG coordinates (y=0 at TOP, increases downward).
+        // NSScreen.frame is AppKit (y=0 at bottom). Convert CG→AppKit before
+        // computing the relative position so the mascot looks in the right direction.
+        let cgScreenOriginY = frame.maxY  // AppKit top edge = CG y=0 for this screen
+        let appKitY         = cgScreenOriginY - point.y
+        let relY            = (appKitY - frame.minY) / frame.height  // 0 = bottom, 1 = top
+        let isLeft = relX < 0.5
+        if relY > 0.66 {
+            return isLeft ? .leftUp    : .rightUp
+        } else if relY < 0.33 {
+            return isLeft ? .leftDown  : .rightDown
+        } else {
+            return isLeft ? .leftCenter : .rightCenter
+        }
     }
 
     private var lastHotkeyEnabledState: [UInt32: Bool] = [
@@ -102,14 +148,19 @@ final class NotchHoverController: NSObject {
 
     private var statusItemSettingsItem: NSMenuItem?
     private var statusItemQuitItem: NSMenuItem?
+    private var mascotView: MascotStatusView?
 
     private func installStatusItem() {
-        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        let item = NSStatusBar.system.statusItem(withLength: 30)
         statusItem = item
 
         guard let button = item.button else { return }
-        button.image = NSImage(systemSymbolName: "camera", accessibilityDescription: "Stampo")
-        button.imagePosition = .imageOnly
+        button.image = nil
+        button.imagePosition = .noImage
+
+        let mascot = MascotStatusView(frame: NSRect(x: 5, y: 3, width: 20, height: 16))
+        button.addSubview(mascot)
+        mascotView = mascot
 
         let menu = NSMenu()
 
@@ -143,6 +194,7 @@ final class NotchHoverController: NSObject {
         }
         statusItemSettingsItem = nil
         statusItemQuitItem = nil
+        mascotView = nil
     }
 
     private func updateStatusItemMenuTitles() {
@@ -440,6 +492,24 @@ extension Notification.Name {
     /// Постится из GeneralSettingsView при нажатии кнопки Retry.
     /// NotchHoverController реагирует переустановкой event tap.
     static let retryEventTapInstall    = Notification.Name("Stampo.retryEventTapInstall")
+
+    /// Постится из NotchPanelController и ColorPickingCoordinator при смене
+    /// состояния приложения. NotchHoverController передаёт это MascotStatusView.
+    static let mascotStateChanged  = Notification.Name("Stampo.mascotStateChanged")
+
+    /// Постится из ColorPickingCoordinator при каждом движении курсора.
+    /// object = NSValue(point:) в экранных координатах.
+    static let mascotCursorMoved   = Notification.Name("Stampo.mascotCursorMoved")
+}
+
+extension EyeDirection {
+    /// True when the gaze series is the left-side series (cursor on the left half of screen).
+    var isLeft: Bool {
+        switch self {
+        case .leftCenter, .leftUp, .leftDown:   return true
+        case .rightCenter, .rightUp, .rightDown: return false
+        }
+    }
 }
 
 private func fourCharCode(_ string: String) -> OSType {

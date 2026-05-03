@@ -19,6 +19,9 @@ final class ScreenshotService {
     /// Called when user deletes a screenshot from the thumbnail HUD.
     var onDelete: ((URL) -> Void)?
 
+    /// Called when a capture is cancelled by the user (e.g. Esc during window picker).
+    var onCancelled: (() -> Void)?
+
     init() {
         thumbnailHUD.onTapped = { [weak self] in
             self?.onThumbnailTapped?()
@@ -74,8 +77,10 @@ final class ScreenshotService {
     private func runCapture(mode: CaptureMode, preferredScreen: NSScreen?) {
         if let tmpURL = capturer.captureToTemp(mode: mode, preferredScreen: preferredScreen) {
             handleCapturedFile(at: tmpURL, preferredScreen: preferredScreen)
-        } else if !capturer.lastCaptureWasCancelled && !capturer.lastCaptureWasBusy {
-            // Не показываем ошибку если capture был отменён или отклонён как дублирующий.
+        } else if capturer.lastCaptureWasCancelled {
+            DispatchQueue.main.async { [weak self] in self?.onCancelled?() }
+        } else if !capturer.lastCaptureWasBusy {
+            // Не показываем ошибку если capture был отклонён как дублирующий.
             Log.capture.error("capture failed for mode: \(String(describing: mode))")
             UserFacingError.present(.screenCaptureFailed(reason: nil))
         }
