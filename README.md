@@ -2,8 +2,6 @@
 
 Screenshot and color picker for MacBooks with a notch. The panel lives at the notch — no Dock icon, minimal menu bar presence.
 
-![Stampo panel](Docs/preview.png)
-
 ---
 
 ## What is Stampo
@@ -105,4 +103,4 @@ MIT License. See [LICENSE](LICENSE).
 
 ---
 
-*Stampo 0.1.0-beta.1 — Public beta for macOS 15.7+*
+*Stampo 0.2.0-beta.1 — Public beta for macOS 15.7+*
