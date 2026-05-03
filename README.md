@@ -17,7 +17,7 @@ Stampo replaces the usual screenshot workflow with a panel that appears when you
 
 ## Installation
 
-1. Download `Stampo-0.1.0-beta.1.dmg` from the [Releases](https://github.com/git-webuser/Stampo/releases) page.
+1. Download `Stampo-0.2.0-beta.1.dmg` from the [Releases](https://github.com/git-webuser/Stampo/releases) page.
 2. Open the DMG and drag **Stampo.app** to your **Applications** folder.
 3. Open Stampo from Applications.
 
