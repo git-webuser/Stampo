@@ -326,7 +326,7 @@ final class NotchHoverController: NSObject {
         // просто идём сразу в capture. Технически capture не сломается и без этой
         // проверки, но единообразие с остальными open/hide-путями важнее.
         if panel.isVisible && !panel.needsSpaceRebind {
-            panel.hideAnimated { [weak self] in
+            panel.hideAnimated(reason: .captureStart) { [weak self] in
                 self?.panel.captureDirectly(mode: mode, on: screen)
             }
         } else {
@@ -435,22 +435,32 @@ final class NotchHoverController: NSObject {
         let trigger = triggerRect(on: screen)
         guard !trigger.isNull else { return }
 
+        let inTrigger = trigger.contains(mouse)
+        let insidePanel = panel.isPointInsidePanel(mouse)
+        DebugTrace.add(
+            "globalMouseDown " +
+            "inTrigger=\(inTrigger) insidePanel=\(insidePanel) " +
+            "panelVisible=\(panel.isVisible) needsRebind=\(panel.needsSpaceRebind) " +
+            "suppress=\(panel.suppressesGlobalAutoHide) " +
+            "\(PanelTrace.mouseSummary(mouse))"
+        )
+
         // После sleep/wake/Space-switch AppKit может считать панель isVisible==true,
         // хотя на текущем рабочем столе пользователь её не видит. Проверяем флаг
         // needsSpaceRebind, чтобы не уйти в ветку «закрыть невидимую панель».
         if panel.isVisible && !panel.needsSpaceRebind {
             if panel.suppressesGlobalAutoHide { return }
-            if trigger.contains(mouse) {
-                panel.hideAnimated()
+            if inTrigger {
+                panel.hideAnimated(reason: .notchClick)
                 return
             }
-            if !panel.isPointInsidePanel(mouse) {
-                panel.hideAnimated()
+            if !insidePanel {
+                panel.hideAnimated(reason: .outsideClick)
             }
             return
         }
 
-        if trigger.contains(mouse) {
+        if inTrigger {
             panel.showAnimated(on: screen, forceRebind: panel.needsSpaceRebind)
         }
     }

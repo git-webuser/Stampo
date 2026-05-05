@@ -96,6 +96,8 @@ struct AboutSettingsView: View {
         let trayMax = UserDefaults.standard.object(forKey: AppSettings.Keys.trayMaxItems) as? Int ?? 20
         let trayPersist = UserDefaults.standard.object(forKey: AppSettings.Keys.persistTray) as? Bool ?? true
 
+        let trace = DebugTrace.dump()
+
         return """
         Stampo \(version)
         macOS \(macOS)
@@ -107,6 +109,9 @@ struct AboutSettingsView: View {
         Input Monitoring: \(inputMonitoring)
         Save directory: \(saveDir)
         Tray persist: \(trayPersist ? "on" : "off"), max \(trayMax) items
+
+        --- Panel Trace ---
+        \(trace)
         """
     }
 }

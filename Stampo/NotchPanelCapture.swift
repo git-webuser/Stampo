@@ -56,7 +56,7 @@ extension NotchPanelController {
             return
         }
 
-        hideAnimated { [weak self] in
+        hideAnimated(reason: .captureStart) { [weak self] in
             guard let self else { return }
             // hideAnimated set state to .hidden; promote to .preSelection now
             // that the overlay is taking over the visible UI.
@@ -151,7 +151,7 @@ extension NotchPanelController {
         let target = activeCountdown?.target ?? .screen
         let screen = activeCountdown?.screen
         activeCountdown = nil
-        hideAnimated { [weak self] in
+        hideAnimated(reason: .captureStart) { [weak self] in
             guard let self else { return }
             // Safety net: if the window-picker dismissed normally, isCursorHidden
             // is already false and this is a no-op. Guards against any edge case
@@ -166,7 +166,7 @@ extension NotchPanelController {
         let target = activeCountdown?.target ?? .screen
         let screen = activeCountdown?.screen
         activeCountdown = nil
-        hideAnimated { [weak self] in
+        hideAnimated(reason: .captureStart) { [weak self] in
             guard let self else { return }
             // Same safety net as captureNowFromCountdown — see comment there.
             self.windowPickerOverlay.resetCursorState()
