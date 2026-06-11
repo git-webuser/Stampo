@@ -113,12 +113,10 @@ final class NotchHoverController: NSObject {
         let screen = NSScreen.screens.first(where: { $0.frame.contains(point) }) ?? NSScreen.main
         let frame  = screen?.frame ?? NSScreen.main?.frame ?? CGRect(x: 0, y: 0, width: 1440, height: 900)
         let relX = (point.x - frame.minX) / frame.width
-        // ColorSampler returns CG coordinates (y=0 at TOP, increases downward).
-        // NSScreen.frame is AppKit (y=0 at bottom). Convert CG→AppKit before
-        // computing the relative position so the mascot looks in the right direction.
-        let cgScreenOriginY = frame.maxY  // AppKit top edge = CG y=0 for this screen
-        let appKitY         = cgScreenOriginY - point.y
-        let relY            = (appKitY - frame.minY) / frame.height  // 0 = bottom, 1 = top
+        // The point arrives from ColorSampler as NSEvent.mouseLocation — already
+        // AppKit coordinates (y=0 at bottom), same space as NSScreen.frame.
+        // No CG→AppKit flip needed: cursor at the top → mascot looks up.
+        let relY = (point.y - frame.minY) / frame.height  // 0 = bottom, 1 = top
         let isLeft = relX < 0.5
         if relY > 0.66 {
             return isLeft ? .leftUp    : .rightUp
@@ -512,15 +510,6 @@ extension Notification.Name {
     static let mascotCursorMoved   = Notification.Name("Stampo.mascotCursorMoved")
 }
 
-extension EyeDirection {
-    /// True when the gaze series is the left-side series (cursor on the left half of screen).
-    var isLeft: Bool {
-        switch self {
-        case .leftCenter, .leftUp, .leftDown:   return true
-        case .rightCenter, .rightUp, .rightDown: return false
-        }
-    }
-}
 
 private func fourCharCode(_ string: String) -> OSType {
     assert(string.utf16.count == 4, "Hotkey signature must be 4 characters")
