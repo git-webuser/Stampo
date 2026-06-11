@@ -33,8 +33,9 @@ struct CaptureSettingsView: View {
 
     var body: some View {
         Form {
+            // MARK: File
             Section("File") {
-                LabeledContent("Save to") {
+                SettingRow(icon: "folder.fill", title: "Save to") {
                     HStack(spacing: 6) {
                         Text(saveFolderDisplay)
                             .foregroundStyle(.secondary)
@@ -44,7 +45,7 @@ struct CaptureSettingsView: View {
                     }
                 }
 
-                LabeledContent("Format") {
+                SettingRow(icon: "photo", title: "Format") {
                     Picker("", selection: $fileFormat) {
                         Text("PNG").tag("png")
                         Text("JPEG").tag("jpg")
@@ -55,6 +56,8 @@ struct CaptureSettingsView: View {
                 }
             }
 
+            // MARK: Filename
+            // Radio group spans the full row width — kept as-is, no SettingRow wrapper.
             Section("Filename") {
                 Picker("Style", selection: $filenamePreset) {
                     ForEach(FilenamePreset.allCases, id: \.rawValue) { preset in
@@ -73,25 +76,29 @@ struct CaptureSettingsView: View {
                 }
             }
 
+            // MARK: Behavior
             Section("Behavior") {
-                Toggle("Play sound",           isOn: $playSound)
-                Toggle("Copy to clipboard",    isOn: $copyToClipboard)
-                Toggle("Include cursor",       isOn: $includeCursor)
-                Toggle("Include window shadow", isOn: $includeWindowShadow)
+                SettingRow(icon: "speaker.wave.2", title: "Play sound") {
+                    Toggle("", isOn: $playSound).labelsHidden()
+                }
+                SettingRow(icon: "doc.on.clipboard", title: "Copy to clipboard") {
+                    Toggle("", isOn: $copyToClipboard).labelsHidden()
+                }
+                SettingRow(icon: "cursorarrow", title: "Include cursor") {
+                    Toggle("", isOn: $includeCursor).labelsHidden()
+                }
+                SettingRow(icon: "shadow", title: "Include window shadow") {
+                    Toggle("", isOn: $includeWindowShadow).labelsHidden()
+                }
             }
 
+            // MARK: Defaults
             Section("Defaults") {
-                LabeledContent("Capture mode") {
-                    Picker("", selection: $defaultCaptureMode) {
-                        ForEach(CaptureMode.allCases, id: \.self) { mode in
-                            Text(mode.title).tag(mode)
-                        }
-                    }
-                    .pickerStyle(.menu)
-                    .labelsHidden()
+                SettingRow(icon: "camera.viewfinder", title: "Capture mode") {
+                    CaptureModePicker(selection: $defaultCaptureMode)
                 }
 
-                LabeledContent("Timer delay") {
+                SettingRow(icon: "timer", title: "Timer delay") {
                     Picker("", selection: $defaultTimerDelay) {
                         ForEach(CaptureDelay.allCases, id: \.self) { d in
                             Text(d.title).tag(d)

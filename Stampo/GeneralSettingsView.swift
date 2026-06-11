@@ -12,17 +12,26 @@ struct GeneralSettingsView: View {
 
     var body: some View {
         Form {
-            Section {
-                Toggle("Launch at Login", isOn: $launchAtLogin)
-                    .onChange(of: launchAtLogin) { _, v in
-                        AppSettings.setLaunchAtLogin(v)
-                        launchAtLogin = AppSettings.launchAtLoginEnabled
-                    }
+            // MARK: Startup
+            Section("Startup") {
+                SettingRow(icon: "power.circle", title: "Launch at Login") {
+                    Toggle("", isOn: $launchAtLogin)
+                        .labelsHidden()
+                        .onChange(of: launchAtLogin) { _, v in
+                            AppSettings.setLaunchAtLogin(v)
+                            launchAtLogin = AppSettings.launchAtLoginEnabled
+                        }
+                }
 
-                LabeledContent("Notch click") {
+                SettingRow(
+                    icon: "rectangle.topthird.inset.filled",
+                    title: "Notch click",
+                    description: "Click the notch area to open the panel"
+                ) {
                     if notchClickAvailable {
                         Label("Enabled", systemImage: "checkmark.circle.fill")
                             .foregroundStyle(.green)
+                            .font(.callout)
                     } else {
                         HStack(spacing: 8) {
                             Button {
@@ -42,43 +51,40 @@ struct GeneralSettingsView: View {
                     }
                 }
 
-                Button("Permissions Setup…") {
-                    FirstLaunchWindowController.shared.show()
+                SettingRow(
+                    icon: "lock.shield.fill",
+                    title: "Permissions",
+                    description: "Screen recording & accessibility"
+                ) {
+                    Button("Set up…") {
+                        FirstLaunchWindowController.shared.show()
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: .notchClickStatusChanged)) { _ in
                 notchClickAvailable = NotchHoverController.isEventTapInstalled
             }
 
+            // MARK: Appearance
             Section("Appearance") {
-                LabeledContent("Settings layout") {
-                    Picker("", selection: $settingsStyle) {
-                        ForEach(SettingsStyle.allCases, id: \.self) { style in
-                            Text(style.title).tag(style)
-                        }
-                    }
-                    .pickerStyle(.menu)
-                    .labelsHidden()
-                    .onChange(of: settingsStyle) { _, _ in
-                        SettingsWindowController.shared.reopenWithNewStyle()
-                    }
+                SettingRow(icon: "sidebar.left", title: "Settings layout") {
+                    SettingsStylePicker(selection: $settingsStyle)
+                }
+                .onChange(of: settingsStyle) { _, _ in
+                    SettingsWindowController.shared.reopenWithNewStyle()
                 }
 
-                LabeledContent("Settings window theme") {
-                    Picker("", selection: $settingsAppearance) {
-                        ForEach(SettingsAppearance.allCases, id: \.self) { mode in
-                            Text(mode.title).tag(mode)
-                        }
-                    }
-                    .pickerStyle(.menu)
-                    .labelsHidden()
-                    .onChange(of: settingsAppearance) { _, newValue in
-                        SettingsWindowController.shared.applyAppearance(newValue)
-                    }
+                SettingRow(icon: "circle.lefthalf.filled", title: "Theme") {
+                    AppearanceModePicker(selection: $settingsAppearance)
+                }
+                .onChange(of: settingsAppearance) { _, newValue in
+                    SettingsWindowController.shared.applyAppearance(newValue)
                 }
 
                 // Language change takes effect immediately via LocaleManager — no restart needed.
-                LabeledContent("App language") {
+                SettingRow(icon: "globe", title: "App language") {
                     Picker("", selection: $preferredLanguage) {
                         Text("System").tag("system")
                         Text("English").tag("en")
@@ -89,10 +95,13 @@ struct GeneralSettingsView: View {
                 }
             }
 
+            // MARK: Thumbnail Preview
             Section {
-                Toggle("Show after capture", isOn: $showThumbnailHUD)
+                SettingRow(icon: "photo.stack", title: "Show after capture") {
+                    Toggle("", isOn: $showThumbnailHUD).labelsHidden()
+                }
 
-                LabeledContent("Auto-dismiss after") {
+                SettingRow(icon: "timer", title: "Auto-dismiss after") {
                     Picker("", selection: $thumbnailDismissDelay) {
                         Text("1 second").tag(1.0)
                         Text("2 seconds").tag(2.0)
