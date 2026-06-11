@@ -3,6 +3,19 @@ import AppKit
 import CoreGraphics
 import Combine
 
+// MARK: - App icon helper
+
+extension NSImage {
+    /// NSApp.applicationIconImage can return a generic placeholder in debug /
+    /// non-sandboxed builds. Loading the .icns directly from the bundle is
+    /// always reliable.
+    static var stampoAppIcon: NSImage {
+        if let url = Bundle.main.url(forResource: "AppIcon", withExtension: "icns"),
+           let img = NSImage(contentsOf: url) { return img }
+        return NSApp.applicationIconImage ?? NSImage()
+    }
+}
+
 // MARK: - Window Controller
 
 final class FirstLaunchWindowController: NSObject {
@@ -10,8 +23,7 @@ final class FirstLaunchWindowController: NSObject {
     private var window: NSWindow?
 
     func show() {
-        let view = FirstLaunchView()
-        let hosting = NSHostingView(rootView: view)
+        let hosting = NSHostingView(rootView: FirstLaunchView().managedLocale())
         hosting.sizingOptions = .intrinsicContentSize
 
         let win = NSWindow(
@@ -20,7 +32,7 @@ final class FirstLaunchWindowController: NSObject {
             backing: .buffered,
             defer: false
         )
-        win.title = "Welcome to Stampo"
+        win.title = LocaleManager.shared.string("Welcome to Stampo")
         win.isReleasedWhenClosed = false
         win.contentView = hosting
         win.setContentSize(hosting.intrinsicContentSize)
@@ -108,8 +120,8 @@ struct FirstLaunchView: View {
                 .keyboardShortcut(.defaultAction)
             }
         }
-        .padding(24)
-        .frame(width: 420)
+        .padding(28)
+        .frame(width: 540)
         .onAppear {
             // Force TCC to register Stampo in the Screen Recording list,
             // so the user can find and toggle it in System Settings.
@@ -128,11 +140,9 @@ struct FirstLaunchView: View {
 
     private var headerSection: some View {
         HStack(spacing: 14) {
-            if let icon = NSApp.applicationIconImage {
-                Image(nsImage: icon)
-                    .resizable()
-                    .frame(width: 64, height: 64)
-            }
+            Image(nsImage: .stampoAppIcon)
+                .resizable()
+                .frame(width: 64, height: 64)
             VStack(alignment: .leading, spacing: 4) {
                 Text("Welcome to Stampo")
                     .font(.title2.bold())

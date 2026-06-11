@@ -17,15 +17,7 @@ struct AboutSettingsView: View {
         Form {
             Section {
                 HStack(spacing: 14) {
-                    let icon: NSImage = {
-                        // NSApp.applicationIconImage can return a generic placeholder
-                        // in debug / non-sandboxed builds. Loading the .icns directly
-                        // from the bundle is always reliable.
-                        if let url = Bundle.main.url(forResource: "AppIcon", withExtension: "icns"),
-                           let img = NSImage(contentsOf: url) { return img }
-                        return NSApp.applicationIconImage ?? NSImage()
-                    }()
-                    Image(nsImage: icon)
+                    Image(nsImage: .stampoAppIcon)
                         .resizable()
                         .frame(width: 64, height: 64)
                     VStack(alignment: .leading, spacing: 4) {
