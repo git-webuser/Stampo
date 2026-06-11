@@ -17,13 +17,25 @@ Stampo replaces the usual screenshot workflow with a panel that appears when you
 
 ## Installation
 
-1. Download `Stampo-0.2.0-beta.1.dmg` from the [Releases](https://github.com/git-webuser/Stampo/releases) page.
+### Homebrew (recommended)
+
+```bash
+brew tap git-webuser/stampo https://github.com/git-webuser/Stampo
+brew install --cask --no-quarantine stampo
+```
+
+The `--no-quarantine` flag skips the Gatekeeper warning for this
+not-yet-notarized build. Update later with `brew upgrade --cask stampo`.
+
+### Manual
+
+1. Download the latest `Stampo-<version>.dmg` from the [Releases](https://github.com/git-webuser/Stampo/releases) page.
 2. Open the DMG and drag **Stampo.app** to your **Applications** folder.
 3. Open Stampo from Applications.
 
 **First launch:** macOS will show *"Stampo can't be opened because Apple cannot check it for malicious software."* This is expected — the app is not yet notarized.
 
-To open it: right-click **Stampo.app** in Finder → **Open** → **Open**. You only need to do this once.
+To open it: right-click **Stampo.app** in Finder → **Open** → **Open**. You only need to do this once. On macOS 15 you may instead need to allow it via **System Settings → Privacy & Security → Open Anyway** after the first blocked launch.
 
 ## Permissions
 
@@ -81,7 +93,10 @@ The tray shows recent screenshots and color swatches.
 
 Stampo does not upload screenshots, sampled colors, or any other data.
 
-- No network requests.
+- **One optional network request**: once a day Stampo asks the GitHub API
+  for the latest release version to offer an update notification. It sends
+  nothing beyond a standard HTTPS request and can be turned off in
+  **Settings → General → Updates**. There are no other network requests.
 - No analytics or telemetry.
 - No crash reporting.
 - All captures stay on your Mac.

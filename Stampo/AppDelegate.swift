@@ -21,6 +21,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         AppSettings.migrateLegacySaveDirectoryIfNeeded()
         hover.start()
         interceptSettingsMenuItem()
+        UpdateChecker.shared.startAutomaticChecks()
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(openSettingsFromNotification(_:)),

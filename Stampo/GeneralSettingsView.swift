@@ -7,8 +7,11 @@ struct GeneralSettingsView: View {
     @AppStorage(AppSettings.Keys.settingsStyle)         private var settingsStyle          = SettingsStyle.toolbar
     @AppStorage(AppSettings.Keys.preferredLanguage)     private var preferredLanguage      = "system"
 
+    @AppStorage(AppSettings.Keys.checkForUpdates)       private var checkForUpdates       = true
+
     @State private var launchAtLogin = AppSettings.launchAtLoginEnabled
     @State private var notchClickAvailable = NotchHoverController.isEventTapInstalled
+    @State private var updater = UpdateChecker.shared
 
     var body: some View {
         Form {
@@ -93,6 +96,45 @@ struct GeneralSettingsView: View {
                     .pickerStyle(.menu)
                     .labelsHidden()
                 }
+            }
+
+            // MARK: Updates
+            Section {
+                SettingRow(
+                    icon: "arrow.triangle.2.circlepath",
+                    title: "Check for updates automatically",
+                    description: "Asks GitHub once a day. No other data is sent."
+                ) {
+                    Toggle("", isOn: $checkForUpdates).labelsHidden()
+                }
+
+                SettingRow(icon: "clock", title: "Last checked") {
+                    HStack(spacing: 8) {
+                        if let version = updater.availableVersion {
+                            Link(destination: UpdateChecker.releasesPageURL) {
+                                Text("Version \(version) available")
+                                    .font(.callout)
+                            }
+                        } else if let date = updater.lastCheckDate {
+                            Text(date, style: .relative)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        } else {
+                            Text("Never")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+
+                        Button("Check Now") {
+                            Task { await updater.check(userInitiated: true) }
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .disabled(updater.isChecking)
+                    }
+                }
+            } header: {
+                Text("Updates")
             }
 
             // MARK: Thumbnail Preview

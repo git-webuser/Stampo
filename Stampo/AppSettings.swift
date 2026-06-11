@@ -38,6 +38,10 @@ enum AppSettings {
         static let persistTray           = "persistTray"
         static let trayPersistedData     = "trayPersistedData"
         static let defaultColorFormat    = "defaultColorFormat"
+        // Updates
+        static let checkForUpdates        = "checkForUpdates"
+        static let lastUpdateCheck        = "lastUpdateCheck"
+        static let skippedUpdateVersion   = "skippedUpdateVersion"
         // Appearance / Language
         static let settingsAppearance      = "settingsAppearance"
         static let settingsStyle           = "settingsStyle"
