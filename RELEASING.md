@@ -119,6 +119,21 @@ SHA256: <paste here>
 
 ---
 
+## 7. Homebrew cask
+
+`release.sh` updates `Casks/stampo.rb` (version + sha256) and pushes it
+automatically after creating the GitHub release. If releasing manually,
+update those two fields yourself and commit.
+
+Users install with:
+
+```bash
+brew tap git-webuser/stampo https://github.com/git-webuser/Stampo
+brew install --cask --no-quarantine stampo
+```
+
+---
+
 ## Gatekeeper bypass
 
 Пользователи увидят: *"Stampo can't be opened because Apple cannot check it for malicious software."*

@@ -112,6 +112,18 @@ gh release create "$VERSION" \
   --prerelease \
   "$DMG_PATH"
 
+# ---------- Homebrew cask ----------
+
+CASK="$SCRIPT_DIR/Casks/stampo.rb"
+if [[ -f "$CASK" ]]; then
+  echo "▸ Updating Homebrew cask..."
+  sed -i '' "s/^  version \".*\"/  version \"$VERSION\"/" "$CASK"
+  sed -i '' "s/^  sha256 \".*\"/  sha256 \"$CHECKSUM\"/" "$CASK"
+  git -C "$SCRIPT_DIR" add "$CASK"
+  git -C "$SCRIPT_DIR" commit -m "Update Homebrew cask to $VERSION"
+  git -C "$SCRIPT_DIR" push origin HEAD
+fi
+
 # ---------- done ----------
 
 echo ""
