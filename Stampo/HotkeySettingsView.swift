@@ -33,7 +33,6 @@ struct HotkeySettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .padding(.vertical, 8)
     }
 }
 

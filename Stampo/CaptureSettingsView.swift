@@ -110,7 +110,6 @@ struct CaptureSettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .padding(.vertical, 8)
     }
 
     private func chooseSaveFolder() {

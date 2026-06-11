@@ -110,7 +110,6 @@ struct AboutSettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .padding(.vertical, 8)
     }
 
     private func diagnosticsString() -> String {

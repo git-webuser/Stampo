@@ -42,6 +42,5 @@ struct TraySettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .padding(.vertical, 8)
     }
 }
