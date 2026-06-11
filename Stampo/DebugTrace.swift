@@ -61,8 +61,20 @@ enum PanelTrace {
                "notch=\(screen.notchGapWidth)"
     }
 
+    /// Coarse region label instead of raw coordinates — precise mouse positions
+    /// never end up in logs or user-exported diagnostics.
     static func mouseSummary(_ point: NSPoint = NSEvent.mouseLocation) -> String {
-        "mouse=(\(Int(point.x)),\(Int(point.y)))"
+        "mouse=\(regionLabel(for: point))"
+    }
+
+    private static func regionLabel(for point: NSPoint) -> String {
+        guard let screen = NSScreen.screens.first(where: { $0.frame.contains(point) })
+                ?? NSScreen.main else { return "off-screen" }
+        let frame = screen.frame
+        let nearTop = point.y > frame.maxY - 44
+        guard nearTop else { return "elsewhere" }
+        let centerBand = abs(point.x - frame.midX) < frame.width * 0.15
+        return centerBand ? "near-notch" : "top-edge"
     }
 
     private static func rectStr(_ r: NSRect) -> String {

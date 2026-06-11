@@ -97,7 +97,9 @@ final class ColorSampler {
 
         // CGEventTap for Esc — fires even when another app has focus (e.g. a
         // text field on a different Space) where a global NSEvent monitor would
-        // never receive keyDown.
+        // never receive keyDown. Installed per-session only (removed in
+        // removeMonitors). .listenOnly: the tap observes Esc to cancel the
+        // session and can never consume or modify any keyboard event.
         let escTapCallback: CGEventTapCallBack = { _, type, event, userInfo in
             guard let userInfo else { return Unmanaged.passUnretained(event) }
             let sampler = Unmanaged<ColorSampler>.fromOpaque(userInfo).takeUnretainedValue()
@@ -116,15 +118,14 @@ final class ColorSampler {
                 guard !sampler.isStopped else { return }
                 sampler.cancel()
             }
-            // Consume the event so Esc does not reach any active text field.
-            return nil
+            return Unmanaged.passUnretained(event)
         }
 
         let selfPtr = Unmanaged.passUnretained(self).toOpaque()
         if let tap = CGEvent.tapCreate(
             tap: .cgSessionEventTap,
             place: .headInsertEventTap,
-            options: .defaultTap,
+            options: .listenOnly,
             eventsOfInterest: CGEventMask(1 << CGEventType.keyDown.rawValue),
             callback: escTapCallback,
             userInfo: selfPtr

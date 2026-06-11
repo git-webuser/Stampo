@@ -77,7 +77,7 @@ The tray shows recent screenshots and color swatches.
 - **Window screenshot** without a timer uses the frontmost window at the moment of capture. If another window becomes active during the hotkey press, it may be captured instead.
 - **Cursor behavior** in the window picker overlay relies on a private macOS API (`CGSSetConnectionProperty`). This works on macOS 14–15 but may change in a future release.
 
-## Privacy
+## Privacy & Security
 
 Stampo does not upload screenshots, sampled colors, or any other data.
 
@@ -85,6 +85,17 @@ Stampo does not upload screenshots, sampled colors, or any other data.
 - No analytics or telemetry.
 - No crash reporting.
 - All captures stay on your Mac.
+
+### Why Stampo is not sandboxed
+
+Stampo runs with the **App Sandbox disabled** (Hardened Runtime is enabled). This is an architectural requirement, not an oversight: detecting clicks on the notch area and responding to global hotkeys rely on a `CGEventTap`, which is incompatible with the sandbox.
+
+What the event taps actually do:
+
+- **Notch click** — a *listen-only* tap that observes left mouse clicks. It cannot modify, block, or record anything beyond "was the notch area clicked".
+- **Esc during color picking** — a *listen-only* tap active **only while the color picker is running**, observing a single key (Esc) to cancel the session. It is removed the moment picking ends. No other keystrokes are observed at any time.
+
+Stampo never reads keyboard input outside of these scoped, user-initiated interactions. Screenshots are taken with Apple's official APIs (ScreenCaptureKit and the system `screencapture` tool), saved files are accessed through security-scoped bookmarks, and diagnostic logs contain no captured content, file paths, or precise cursor positions.
 
 ## Uninstall
 
