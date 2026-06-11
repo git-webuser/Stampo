@@ -21,6 +21,20 @@ final class UpdateChecker {
         UserDefaults.standard.object(forKey: AppSettings.Keys.lastUpdateCheck) as? Date
     }
 
+    /// Coarse, localized "how long ago" string — no per-second ticking.
+    /// "менее минуты назад" / "2 часа назад" / "вчера" / "неделю назад"...
+    var lastCheckDescription: String? {
+        guard let date = lastCheckDate else { return nil }
+        let elapsed = Date().timeIntervalSince(date)
+        if elapsed < 60 {
+            return LocaleManager.shared.string("Less than a minute ago")
+        }
+        let formatter = RelativeDateTimeFormatter()
+        formatter.locale = LocaleManager.shared.locale
+        formatter.dateTimeStyle = .named   // "yesterday" instead of "1 day ago"
+        return formatter.localizedString(for: date, relativeTo: Date())
+    }
+
     static var isEnabled: Bool {
         UserDefaults.standard.object(forKey: AppSettings.Keys.checkForUpdates) as? Bool ?? true
     }

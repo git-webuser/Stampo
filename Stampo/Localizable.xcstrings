@@ -1097,6 +1097,7 @@
     },
     "Later" : {
       "comment" : "Update alert dismiss button",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -1124,6 +1125,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Запуск при входе"
+          }
+        }
+      }
+    },
+    "Less than a minute ago" : {
+      "comment" : "Coarse relative time for the last update check",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Less than a minute ago"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Менее минуты назад"
           }
         }
       }
@@ -1411,6 +1429,7 @@
     },
     "Open Download Page" : {
       "comment" : "Update alert primary button",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -2117,6 +2136,7 @@
     },
     "Skip This Version" : {
       "comment" : "Update alert skip button",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -2138,6 +2158,7 @@
     },
     "Stampo %@ is available" : {
       "comment" : "Update alert title",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -2530,6 +2551,7 @@
     },
     "You have %@. Download the new version from the GitHub releases page." : {
       "comment" : "Update alert message",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {

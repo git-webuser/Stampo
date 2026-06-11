@@ -3,7 +3,9 @@ import AppKit
 import CoreGraphics
 
 struct AboutSettingsView: View {
+    @AppStorage(AppSettings.Keys.checkForUpdates) private var checkForUpdates = true
     @State private var didCopyDiagnostics = false
+    @State private var updater = UpdateChecker.shared
 
     private var appVersion: String {
         let v = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—"
@@ -37,6 +39,43 @@ struct AboutSettingsView: View {
                     }
                 }
                 .padding(.vertical, 4)
+            }
+
+            // MARK: Updates
+            Section("Updates") {
+                SettingRow(
+                    icon: "arrow.triangle.2.circlepath",
+                    title: "Check for updates automatically",
+                    description: "Asks GitHub once a day. No other data is sent."
+                ) {
+                    Toggle("", isOn: $checkForUpdates).labelsHidden()
+                }
+
+                SettingRow(icon: "clock", title: "Last checked") {
+                    HStack(spacing: 8) {
+                        if let version = updater.availableVersion {
+                            Link(destination: UpdateChecker.releasesPageURL) {
+                                Text("Version \(version) available")
+                                    .font(.callout)
+                            }
+                        } else if let lastCheck = updater.lastCheckDescription {
+                            Text(lastCheck)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        } else {
+                            Text("Never")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+
+                        Button("Check Now") {
+                            Task { await updater.check(userInitiated: true) }
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .disabled(updater.isChecking)
+                    }
+                }
             }
 
             Section("Links") {
