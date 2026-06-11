@@ -8,8 +8,9 @@ import AppKit
 /// still avoiding alert storms when a failure repeats on every mouse move or
 /// every rapid capture.
 ///
-/// All strings are in English as the primary language per the iteration-5
-/// localization direction; they will be moved to a String Catalog later.
+/// Strings are looked up through LocaleManager so alerts follow the in-app
+/// language selection instantly (String(localized:) would use the process
+/// locale and ignore the App language setting).
 ///
 /// `present(_:)` is nonisolated: call sites can be on any queue. The presenter
 /// hops to the main thread internally before touching NSAlert / shared state.
@@ -43,36 +44,38 @@ enum UserFacingError {
         }
 
         var title: String {
+            let lm = LocaleManager.shared
             switch self {
             case .screenCaptureFailed:
-                return String(localized: "Screenshot failed")
+                return lm.string("Screenshot failed")
             case .colorPickerUnavailable:
-                return String(localized: "Color picker unavailable")
+                return lm.string("Color picker unavailable")
             case .saveDirectoryInaccessible:
-                return String(localized: "Save folder is not accessible")
+                return lm.string("Save folder is not accessible")
             case .notchClickUnavailable:
-                return String(localized: "Notch click unavailable")
+                return lm.string("Notch click unavailable")
             }
         }
 
         var message: String {
+            let lm = LocaleManager.shared
             switch self {
             case .screenCaptureFailed(let reason):
-                let base = String(localized: "macOS couldn't capture the screen. This usually means Screen Recording permission is missing or was revoked.")
+                let base = lm.string("macOS couldn't capture the screen. This usually means Screen Recording permission is missing or was revoked.")
                 if let r = reason {
-                    return base + "\n\n" + String(format: String(localized: "Details: %@"), r)
+                    return base + "\n\n" + String(format: lm.string("Details: %@"), r)
                 }
                 return base
             case .colorPickerUnavailable(let reason):
-                let base = String(localized: "The color picker can't read pixel data. Grant Screen Recording permission to Stampo so it can sample colors from the screen.")
+                let base = lm.string("The color picker can't read pixel data. Grant Screen Recording permission to Stampo so it can sample colors from the screen.")
                 if let r = reason {
-                    return base + "\n\n" + String(format: String(localized: "Details: %@"), r)
+                    return base + "\n\n" + String(format: lm.string("Details: %@"), r)
                 }
                 return base
             case .saveDirectoryInaccessible(let url):
-                return String(format: String(localized: "Stampo can't write screenshots to \"%@\". The folder may have been moved, renamed, or access was revoked. Choose a new save folder in Settings \u{2192} Capture."), url.lastPathComponent)
+                return String(format: lm.string("Stampo can't write screenshots to \"%@\". The folder may have been moved, renamed, or access was revoked. Choose a new save folder in Settings \u{2192} Capture."), url.lastPathComponent)
             case .notchClickUnavailable:
-                return String(localized: "Clicking the notch area to open the panel requires Input Monitoring permission. Grant it in System Settings \u{2192} Privacy & Security \u{2192} Input Monitoring.")
+                return lm.string("Clicking the notch area to open the panel requires Input Monitoring permission. Grant it in System Settings \u{2192} Privacy & Security \u{2192} Input Monitoring.")
             }
         }
 
@@ -97,9 +100,9 @@ enum UserFacingError {
 
         var buttonTitle: String {
             switch self {
-            case .openScreenRecordingSettings: return String(localized: "Open Privacy Settings")
-            case .openInputMonitoringSettings: return String(localized: "Open Privacy Settings")
-            case .openAppSettings:             return String(localized: "Open Stampo Settings")
+            case .openScreenRecordingSettings: return LocaleManager.shared.string("Open Privacy Settings")
+            case .openInputMonitoringSettings: return LocaleManager.shared.string("Open Privacy Settings")
+            case .openAppSettings:             return LocaleManager.shared.string("Open Stampo Settings")
             }
         }
 
@@ -118,7 +121,12 @@ enum UserFacingError {
                     NSWorkspace.shared.open(url)
                 }
             case .openAppSettings:
-                NotificationCenter.default.post(name: .requestOpenSettings, object: nil)
+                // Save-folder problems are fixed in Settings → Capture; deep-link there.
+                NotificationCenter.default.post(
+                    name: .requestOpenSettings,
+                    object: nil,
+                    userInfo: [SettingsWindowController.tabUserInfoKey: SettingsTab.capture.rawValue]
+                )
             }
         }
     }
@@ -155,13 +163,13 @@ enum UserFacingError {
 
         if let remediation = kind.remediation {
             alert.addButton(withTitle: remediation.buttonTitle)
-            alert.addButton(withTitle: String(localized: "Dismiss"))
+            alert.addButton(withTitle: LocaleManager.shared.string("Dismiss"))
             let response = alert.runModal()
             if response == .alertFirstButtonReturn {
                 remediation.perform()
             }
         } else {
-            alert.addButton(withTitle: String(localized: "OK"))
+            alert.addButton(withTitle: LocaleManager.shared.string("OK"))
             alert.runModal()
         }
     }

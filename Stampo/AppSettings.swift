@@ -19,7 +19,6 @@ enum AppSettings {
         static let saveDirectory         = "saveDirectory"
         static let saveDirectoryBookmark = "saveDirectoryBookmark"
         static let fileFormat            = "fileFormat"
-        static let filenameTemplate      = "filenameTemplate"  // legacy, unused
         static let filenamePreset        = "filenamePreset"
         static let captureCounter        = "captureCounter"
         static let playSound             = "playSound"
@@ -154,9 +153,6 @@ enum AppSettings {
 
     static var fileFormat: String {
         UserDefaults.standard.string(forKey: Keys.fileFormat) ?? "png"
-    }
-    static var filenameTemplate: String {
-        UserDefaults.standard.string(forKey: Keys.filenameTemplate) ?? "{MON}·{DD}-{HH}·{mm}·{ss}"
     }
     static var playSound: Bool {
         UserDefaults.standard.object(forKey: Keys.playSound) as? Bool ?? true

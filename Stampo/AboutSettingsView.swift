@@ -40,30 +40,42 @@ struct AboutSettingsView: View {
             }
 
             Section("Links") {
-                Link("View on GitHub",
-                     destination: URL(string: "https://github.com/git-webuser/Stampo")!)
-                Link("Report an Issue",
-                     destination: URL(string: "https://github.com/git-webuser/Stampo/issues")!)
+                SettingRow(icon: "chevron.left.forwardslash.chevron.right", title: "View on GitHub") {
+                    Link(destination: URL(string: "https://github.com/git-webuser/Stampo")!) {
+                        Image(systemName: "arrow.up.right.square")
+                    }
+                }
+                SettingRow(icon: "exclamationmark.bubble", title: "Report an Issue") {
+                    Link(destination: URL(string: "https://github.com/git-webuser/Stampo/issues")!) {
+                        Image(systemName: "arrow.up.right.square")
+                    }
+                }
             }
 
             Section {
-                Button {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(diagnosticsString(), forType: .string)
-                    withAnimation { didCopyDiagnostics = true }
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                        withAnimation { didCopyDiagnostics = false }
+                SettingRow(
+                    icon: "stethoscope",
+                    title: "Copy Diagnostics",
+                    description: "Paste in a bug report to help diagnose issues."
+                ) {
+                    Button {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(diagnosticsString(), forType: .string)
+                        withAnimation { didCopyDiagnostics = true }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                            withAnimation { didCopyDiagnostics = false }
+                        }
+                    } label: {
+                        Label(
+                            didCopyDiagnostics ? "Copied!" : "Copy",
+                            systemImage: didCopyDiagnostics ? "checkmark" : "doc.on.clipboard"
+                        )
                     }
-                } label: {
-                    Label(
-                        didCopyDiagnostics ? "Copied!" : "Copy Diagnostics",
-                        systemImage: didCopyDiagnostics ? "checkmark" : "doc.on.clipboard"
-                    )
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
                 }
             } header: {
                 Text("Diagnostics")
-            } footer: {
-                Text("Paste in a bug report to help diagnose issues.")
             }
         }
         .formStyle(.grouped)

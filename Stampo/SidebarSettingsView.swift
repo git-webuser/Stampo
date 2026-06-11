@@ -27,6 +27,17 @@ enum SettingsTab: Int, CaseIterable, Identifiable, Hashable {
         }
     }
 
+    /// Outline variant for the toolbar (.preference) style window.
+    var toolbarIcon: String {
+        switch self {
+        case .general:  return "gearshape"
+        case .capture:  return "camera"
+        case .tray:     return "tray"
+        case .hotkeys:  return "keyboard"
+        case .about:    return "info.circle"
+        }
+    }
+
     var color: Color {
         switch self {
         case .general:  return Color(nsColor: .systemGray)
@@ -48,11 +59,21 @@ enum SettingsTab: Int, CaseIterable, Identifiable, Hashable {
     }
 }
 
+// MARK: - SettingsNavigation
+
+/// Shared selection state so deep-links (errors, menu items) can route to a
+/// specific tab regardless of which settings layout style is active.
+@Observable final class SettingsNavigation {
+    static let shared = SettingsNavigation()
+    var selectedTab: SettingsTab? = .general
+    private init() {}
+}
+
 // MARK: - SidebarSettingsView
 
 struct SidebarSettingsView: View {
-    // Start with General selected; nil means no selection (shouldn't happen in practice).
-    @State private var selectedTab: SettingsTab? = .general
+    @Bindable private var navigation = SettingsNavigation.shared
+    private var selectedTab: SettingsTab? { navigation.selectedTab }
     // Keep sidebar always visible — this is a settings window, not a navigation stack.
     @State private var columnVisibility = NavigationSplitViewVisibility.all
 
@@ -60,7 +81,7 @@ struct SidebarSettingsView: View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             // Use id: \.self so the List matches selections by enum value directly.
             // Do NOT use .tag() here — that is for Picker, not List.
-            List(SettingsTab.allCases, id: \.self, selection: $selectedTab) { tab in
+            List(SettingsTab.allCases, id: \.self, selection: $navigation.selectedTab) { tab in
                 HStack(spacing: 12) {
                     Image(systemName: tab.icon)
                         .font(.system(size: 13, weight: .semibold))

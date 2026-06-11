@@ -101,6 +101,13 @@ private final class FixedTitleTabViewController: NSTabViewController {
         view.window?.toolbar?.selectedItemIdentifier = sender.itemIdentifier
     }
 
+    /// Programmatic tab selection (deep-linking).
+    func select(tabIndex: Int) {
+        guard tabIdentifiers.indices.contains(tabIndex) else { return }
+        selectedTabViewItemIndex = tabIndex
+        view.window?.toolbar?.selectedItemIdentifier = tabIdentifiers[tabIndex]
+    }
+
     // MARK: Locale refresh
 
     func refreshTabGroupLabels(keys: [String]) {
@@ -115,9 +122,11 @@ private final class FixedTitleTabViewController: NSTabViewController {
 
 final class SettingsWindowController: NSObject, NSWindowDelegate {
     static let shared = SettingsWindowController()
+    /// userInfo key for .requestOpenSettings carrying a SettingsTab rawValue.
+    static let tabUserInfoKey = "settingsTab"
     private var window: NSWindow?
 
-    private static let tabLabelKeys = ["General", "Capture", "Tray", "Hotkeys", "About"]
+    private static let tabLabelKeys = SettingsTab.allCases.map(\.labelKey)
 
     private override init() {
         super.init()
@@ -156,6 +165,16 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         }
     }
 
+    /// Open the settings window directly on a specific tab (deep-linking from
+    /// errors, menu items, etc.). Works with both layout styles.
+    func open(tab: SettingsTab) {
+        open()
+        SettingsNavigation.shared.selectedTab = tab
+        if let tabVC = window?.contentViewController as? FixedTitleTabViewController {
+            tabVC.select(tabIndex: tab.rawValue)
+        }
+    }
+
     func reopenWithNewStyle() {
         window?.close()
         // windowWillClose sets self.window = nil synchronously before close() returns
@@ -184,7 +203,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
 
     private func openSidebarStyle() {
         let hosting = NSHostingController(rootView: SidebarSettingsView().managedLocale())
-        hosting.view.widthAnchor.constraint(greaterThanOrEqualToConstant: 520).isActive = true
+        hosting.view.widthAnchor.constraint(greaterThanOrEqualToConstant: 620).isActive = true
         hosting.view.heightAnchor.constraint(greaterThanOrEqualToConstant: 420).isActive = true
 
         let win = NSWindow(contentViewController: hosting)
@@ -192,7 +211,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         win.level      = .floating
         win.styleMask  = [.titled, .closable, .miniaturizable, .resizable]
         win.titlebarSeparatorStyle = .line
-        win.setContentSize(NSSize(width: 700, height: 480))
+        win.setContentSize(NSSize(width: 800, height: 480))
         win.setFrameAutosaveName("StampoSidebarSettingsWindow")
         win.appearance = AppSettings.settingsAppearance.nsAppearance
         win.center()
@@ -218,21 +237,14 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         let tabs = FixedTitleTabViewController()
 
         let lm = LocaleManager.shared
-        let items: [(label: String, image: String, view: AnyView)] = [
-            (lm.string("General"), "gearshape",   AnyView(GeneralSettingsView())),
-            (lm.string("Capture"), "camera",      AnyView(CaptureSettingsView())),
-            (lm.string("Tray"),    "tray",        AnyView(TraySettingsView())),
-            (lm.string("Hotkeys"), "keyboard",    AnyView(HotkeySettingsView())),
-            (lm.string("About"),   "info.circle", AnyView(AboutSettingsView()))
-        ]
-
-        for item in items {
-            let hosting = NSHostingController(rootView: item.view.managedLocale())
-            hosting.view.widthAnchor.constraint(greaterThanOrEqualToConstant: 460).isActive = true
+        for tab in SettingsTab.allCases {
+            let label = lm.string(tab.labelKey)
+            let hosting = NSHostingController(rootView: AnyView(tab.contentView).managedLocale())
+            hosting.view.widthAnchor.constraint(greaterThanOrEqualToConstant: 560).isActive = true
 
             let tabItem = NSTabViewItem(viewController: hosting)
-            tabItem.label = item.label
-            tabItem.image = NSImage(systemSymbolName: item.image, accessibilityDescription: item.label)
+            tabItem.label = label
+            tabItem.image = NSImage(systemSymbolName: tab.toolbarIcon, accessibilityDescription: label)
             tabs.addTabViewItem(tabItem)
         }
 

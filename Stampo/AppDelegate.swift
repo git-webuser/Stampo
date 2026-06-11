@@ -23,7 +23,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         interceptSettingsMenuItem()
         NotificationCenter.default.addObserver(
             self,
-            selector: #selector(openSettings),
+            selector: #selector(openSettingsFromNotification(_:)),
             name: .requestOpenSettings,
             object: nil
         )
@@ -60,6 +60,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func openSettings() {
         SettingsWindowController.shared.open()
+    }
+
+    /// Observer for .requestOpenSettings — the notification may carry a target
+    /// tab index for deep-linking (e.g. "save folder inaccessible" → Capture).
+    @objc func openSettingsFromNotification(_ note: Notification) {
+        if let raw = note.userInfo?[SettingsWindowController.tabUserInfoKey] as? Int,
+           let tab = SettingsTab(rawValue: raw) {
+            SettingsWindowController.shared.open(tab: tab)
+        } else {
+            SettingsWindowController.shared.open()
+        }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
