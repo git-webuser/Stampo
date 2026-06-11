@@ -690,12 +690,19 @@ struct CountdownView: View {
             }
             .frame(width: 24, height: 24)
 
-            Text("\(secondsRemaining)")
-                .font(.system(size: 12, weight: .medium))
-                .monospacedDigit()
-                .foregroundStyle(.white.opacity(0.9))
-                .frame(width: metrics.timerValueWidth, alignment: .leading)
-                .animation(nil, value: secondsRemaining)
+            // Blur-crossfade: the previous digit dissolves into a blurred form
+            // while the new one sharpens out of it (.id forces a view swap so
+            // .blurReplace runs on every tick).
+            ZStack {
+                Text("\(secondsRemaining)")
+                    .font(.system(size: 12, weight: .medium))
+                    .monospacedDigit()
+                    .foregroundStyle(.white.opacity(0.9))
+                    .id(secondsRemaining)
+                    .transition(.blurReplace)
+            }
+            .animation(.easeOut(duration: 0.35), value: secondsRemaining)
+            .frame(width: metrics.timerValueWidth, alignment: .leading)
         }
     }
 
