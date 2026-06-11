@@ -45,8 +45,6 @@ struct GeneralSettingsView: View {
                             Button("Retry") {
                                 NotificationCenter.default.post(name: .retryEventTapInstall, object: nil)
                             }
-                            .buttonStyle(.bordered)
-                            .controlSize(.small)
                         }
                     }
                 }
@@ -59,8 +57,6 @@ struct GeneralSettingsView: View {
                     Button("Set up…") {
                         FirstLaunchWindowController.shared.show()
                     }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: .notchClickStatusChanged)) { _ in

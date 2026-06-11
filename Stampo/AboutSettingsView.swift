@@ -63,8 +63,6 @@ struct AboutSettingsView: View {
                         Button("Check Now") {
                             Task { await updater.check(userInitiated: true) }
                         }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
                         .disabled(updater.isChecking)
                     }
                 }
@@ -102,8 +100,6 @@ struct AboutSettingsView: View {
                             systemImage: didCopyDiagnostics ? "checkmark" : "doc.on.clipboard"
                         )
                     }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
                 }
             } header: {
                 Text("Diagnostics")
