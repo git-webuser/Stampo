@@ -13,23 +13,23 @@ struct HotkeySettingsView: View {
     var body: some View {
         Form {
             Section {
-                HotkeyRow(action: "Toggle Panel",          combo: "⌃⌥⌘N", isEnabled: $panelEnabled)
-                HotkeyRow(action: "Selection Screenshot",  combo: "⌃⌥⌘R", isEnabled: $selectionEnabled)
-                HotkeyRow(action: "Fullscreen Screenshot", combo: "⌃⌥⌘B", isEnabled: $fullscreenEnabled)
-                HotkeyRow(action: "Window Screenshot",     combo: "⌃⌥⌘G", isEnabled: $windowEnabled)
-                HotkeyRow(action: "Pick Color",            combo: "⌃⌥⌘C", isEnabled: $colorEnabled)
+                HotkeyRow(icon: "rectangle.topthird.inset", action: "Toggle Panel",          combo: "⌃⌥⌘N", isEnabled: $panelEnabled)
+                HotkeyRow(icon: "rectangle.dashed",         action: "Selection Screenshot",  combo: "⌃⌥⌘R", isEnabled: $selectionEnabled)
+                HotkeyRow(icon: "menubar.dock.rectangle",   action: "Fullscreen Screenshot", combo: "⌃⌥⌘B", isEnabled: $fullscreenEnabled)
+                HotkeyRow(icon: "macwindow",                action: "Window Screenshot",     combo: "⌃⌥⌘G", isEnabled: $windowEnabled)
+                HotkeyRow(icon: "eyedropper",               action: "Pick Color",            combo: "⌃⌥⌘C", isEnabled: $colorEnabled)
             }
             Section("Color HUD") {
-                HotkeyRow(action: "Cycle Color Format",    combo: "F",     isEnabled: $hudFormatEnabled)
+                HotkeyRow(icon: "arrow.2.squarepath",       action: "Cycle Color Format",    combo: "F",     isEnabled: $hudFormatEnabled)
             }
             Section {
-                HotkeyArrowRow(action: "Move 1 pt",  modifiers: [])
-                HotkeyArrowRow(action: "Move 10 pt", modifiers: ["⇧"])
-                HotkeyArrowRow(action: "Move 50 pt", modifiers: ["⇧", "⌥"])
+                HotkeyArrowRow(icon: "arrow.up.and.down.and.arrow.left.and.right", action: "Move 1 pt",  modifiers: [])
+                HotkeyArrowRow(icon: "arrow.up.and.down.and.arrow.left.and.right", action: "Move 10 pt", modifiers: ["⇧"])
+                HotkeyArrowRow(icon: "arrow.up.and.down.and.arrow.left.and.right", action: "Move 50 pt", modifiers: ["⇧", "⌥"])
             } header: {
                 Text("Color Picker Movement")
             } footer: {
-                Text("Arrow keys nudge the cursor while the color picker is active.")
+                Text("Arrow keys nudge the cursor while the color picker is active")
             }
         }
         .formStyle(.grouped)
@@ -166,11 +166,18 @@ private struct ArrowClusterView: View {
 /// Movement row: modifier key caps (shown once) + T-shaped arrow cluster.
 /// Spacer() prevents LabeledContent from stretching the HStack to fill available width.
 private struct HotkeyArrowRow: View {
+    let icon: String
     let action: String
     let modifiers: [String]
 
     var body: some View {
-        LabeledContent(LocalizedStringKey(action)) {
+        HStack(spacing: 12) {
+            Image(systemName: icon)
+                .font(.title2)
+                .foregroundStyle(.secondary)
+                .frame(width: 28)
+            Text(LocalizedStringKey(action))
+            Spacer()
             HStack(alignment: .center, spacing: 6) {
                 ForEach(modifiers, id: \.self) { mod in
                     KeyCapView(key: mod)
@@ -185,18 +192,23 @@ private struct HotkeyArrowRow: View {
 // MARK: - HotkeyRow
 
 private struct HotkeyRow: View {
+    let icon: String
     let action: String
     let combo: String
     @Binding var isEnabled: Bool
 
     var body: some View {
-        LabeledContent(LocalizedStringKey(action)) {
-            HStack(spacing: 12) {
-                KeyComboView(combo: combo, dimmed: !isEnabled)
-                Toggle("", isOn: $isEnabled)
-                    .labelsHidden()
-                    .toggleStyle(.switch)
-            }
+        HStack(spacing: 12) {
+            Image(systemName: icon)
+                .font(.title2)
+                .foregroundStyle(.secondary)
+                .frame(width: 28)
+            Text(LocalizedStringKey(action))
+            Spacer()
+            KeyComboView(combo: combo, dimmed: !isEnabled)
+            Toggle("", isOn: $isEnabled)
+                .labelsHidden()
+                .toggleStyle(.switch)
         }
     }
 }

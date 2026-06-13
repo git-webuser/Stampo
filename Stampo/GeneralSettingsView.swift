@@ -24,7 +24,7 @@ struct GeneralSettingsView: View {
                 }
 
                 SettingRow(
-                    icon: "rectangle.topthird.inset.filled",
+                    icon: "rectangle.topthird.inset",
                     title: "Notch click",
                     description: "Click the notch area to open the panel"
                 ) {
@@ -50,7 +50,7 @@ struct GeneralSettingsView: View {
                 }
 
                 SettingRow(
-                    icon: "lock.shield.fill",
+                    icon: "lock.shield",
                     title: "Permissions",
                     description: "Screen recording & accessibility"
                 ) {
@@ -111,7 +111,7 @@ struct GeneralSettingsView: View {
             } header: {
                 Text("Thumbnail Preview")
             } footer: {
-                Text("Click the preview thumbnail to open the tray.")
+                Text("Click the preview thumbnail to open the tray")
             }
         }
         .formStyle(.grouped)

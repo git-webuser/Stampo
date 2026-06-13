@@ -372,12 +372,23 @@ enum FilenamePreset: String, CaseIterable {
     case numbered = "numbered"  // 2024-04-12 #98
     case dense    = "dense"     // 20240412-143005
 
+    /// Example string shown in the helper caption.
     var title: String {
         switch self {
         case .compact:  return "Apr·12 — 14·30·05"
         case .iso:      return "2024-04-12 14-30-05"
         case .numbered: return "2024-04-12 #98"
         case .dense:    return "20240412-143005"
+        }
+    }
+
+    /// Short display name (localization key) for the dropdown menu.
+    var name: String {
+        switch self {
+        case .compact:  return "Compact"
+        case .iso:      return "ISO 8601"
+        case .numbered: return "Numbered"
+        case .dense:    return "Dense"
         }
     }
 }

@@ -35,7 +35,7 @@ struct CaptureSettingsView: View {
         Form {
             // MARK: File
             Section("File") {
-                SettingRow(icon: "folder.fill", title: "Save to") {
+                SettingRow(icon: "folder", title: "Save to") {
                     HStack(spacing: 6) {
                         Text(saveFolderDisplay)
                             .foregroundStyle(.secondary)
@@ -57,23 +57,21 @@ struct CaptureSettingsView: View {
             }
 
             // MARK: Filename
-            // Radio group spans the full row width — kept as-is, no SettingRow wrapper.
-            Section("Filename") {
-                Picker("Style", selection: $filenamePreset) {
-                    ForEach(FilenamePreset.allCases, id: \.rawValue) { preset in
-                        Text(preset.title)
-                            .font(.system(.body, design: .monospaced))
-                            .tag(preset.rawValue)
+            Section {
+                SettingRow(icon: "textformat", title: "Style") {
+                    Picker("", selection: $filenamePreset) {
+                        ForEach(FilenamePreset.allCases, id: \.rawValue) { preset in
+                            Text(LocalizedStringKey(preset.name)).tag(preset.rawValue)
+                        }
                     }
+                    .pickerStyle(.menu)
+                    .labelsHidden()
                 }
-                .pickerStyle(.radioGroup)
-
-                LabeledContent("Preview") {
-                    Text(filenamePreview)
-                        .font(.system(.caption, design: .monospaced))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
+            } header: {
+                Text("Filename")
+            } footer: {
+                // macOS-style helper caption showing the live result.
+                Text("Saved as \(filenamePreview)")
             }
 
             // MARK: Behavior

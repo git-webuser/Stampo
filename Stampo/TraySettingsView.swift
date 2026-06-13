@@ -25,7 +25,7 @@ struct TraySettingsView: View {
             } header: {
                 Text("History")
             } footer: {
-                Text("Older items are removed from the tray when the limit is reached. Files on disk are not affected.")
+                Text("Older items are removed when the limit is reached — files on disk are not affected")
             }
 
             // MARK: Color
