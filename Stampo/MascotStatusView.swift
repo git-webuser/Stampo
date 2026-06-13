@@ -25,7 +25,8 @@ enum MascotState: Equatable {
 
 // MARK: - MascotStatusView
 
-/// Menu-bar mascot. View size: 20 × 16 pt (y = 0 at bottom, CALayer convention).
+/// Menu-bar mascot. View size: 22 × 18 pt (y = 0 at bottom, CALayer convention).
+/// Body outlines come straight from the Figma 22.18×18 export.
 final class MascotStatusView: NSView {
 
     // MARK: Layers
@@ -34,28 +35,28 @@ final class MascotStatusView: NSView {
     private let leftEyeLayer     = CAShapeLayer()
     private let rightEyeLayer    = CAShapeLayer()
 
-    // MARK: Geometry (all in CALayer coords: y from bottom, view 20×16)
+    // MARK: Geometry (all in CALayer coords: y from bottom, view 22×18)
 
     private enum G {
         // Eye box: 3 × 4 pt (Figma component, exact glint-carved paths below)
         static let eyeW: CGFloat = 3
         static let eyeH: CGFloat = 4
 
-        // Eye X positions: left-series and right-series
-        static let lEyeX: (CGFloat, CGFloat) = (5, 12)   // left-eye, right-eye when gaze=left
-        static let rEyeX: (CGFloat, CGFloat) = (8, 15)   // gaze=right
+        // Eye X positions: left-series and right-series (gaze drives position),
+        // shifted +1 to recenter inside the larger 22×18 body. Gap kept at 7 pt;
+        // the wider Figma spacing read too far apart at menu-bar size.
+        static let lEyeX: (CGFloat, CGFloat) = (6, 13)   // left-eye, right-eye when gaze=left
+        static let rEyeX: (CGFloat, CGFloat) = (9, 16)   // gaze=right
 
-        // Eye Y centers (y from bottom). Figma: looking up raises the eyes
-        // (inset-top 3 → CALayer y 11), looking down lowers them (inset-top 5 → y 9).
-        static let eyeYup: CGFloat = 11
-        static let eyeYmd: CGFloat = 10
-        static let eyeYdn: CGFloat = 9
+        // Eye Y centers (y from bottom). Looking up raises the eyes,
+        // looking down lowers them.
+        static let eyeYup: CGFloat = 12
+        static let eyeYmd: CGFloat = 11
+        static let eyeYdn: CGFloat = 10
 
-        // Sleep arcs: quadratic bezier, same Y geometry as before, X positions
-        // updated per Figma (shifted ~0.25 pt inward on each side).
-        // arcY = base (endpoints), arcTop = control-point peak.
-        static let arcY:   CGFloat = 9.75
-        static let arcTop: CGFloat = 10.25
+        // Sleep arcs: quadratic bezier. Shifted +1/+1 with the eyes.
+        static let arcY:   CGFloat = 10.75
+        static let arcTop: CGFloat = 11.25
 
         struct Arc {
             let s, c, e: CGPoint
@@ -67,12 +68,12 @@ final class MascotStatusView: NSView {
             }
         }
 
-        // Left-series arcs (eyes at x = 5, 12)
-        static let lsL = Arc(s: .init(x: 3.75,  y: arcY), c: .init(x: 5.25,  y: arcTop), e: .init(x: 6.75,  y: arcY))
-        static let lsR = Arc(s: .init(x: 10.25, y: arcY), c: .init(x: 11.75, y: arcTop), e: .init(x: 13.25, y: arcY))
-        // Right-series arcs (eyes at x = 8, 15; x values shifted +3 from left-series)
-        static let rsL = Arc(s: .init(x: 6.75,  y: arcY), c: .init(x: 8.25,  y: arcTop), e: .init(x: 9.75,  y: arcY))
-        static let rsR = Arc(s: .init(x: 13.25, y: arcY), c: .init(x: 14.75, y: arcTop), e: .init(x: 16.25, y: arcY))
+        // Left-series arcs (eyes at x = 6, 13)
+        static let lsL = Arc(s: .init(x: 4.75,  y: arcY), c: .init(x: 6.25,  y: arcTop), e: .init(x: 7.75,  y: arcY))
+        static let lsR = Arc(s: .init(x: 11.25, y: arcY), c: .init(x: 12.75, y: arcTop), e: .init(x: 14.25, y: arcY))
+        // Right-series arcs (eyes at x = 9, 16; x values shifted +3 from left-series)
+        static let rsL = Arc(s: .init(x: 7.75,  y: arcY), c: .init(x: 9.25,  y: arcTop), e: .init(x: 10.75, y: arcY))
+        static let rsR = Arc(s: .init(x: 14.25, y: arcY), c: .init(x: 15.75, y: arcTop), e: .init(x: 17.25, y: arcY))
     }
 
     // MARK: State
@@ -107,7 +108,7 @@ final class MascotStatusView: NSView {
         // trapezoid variants when the mascot looks up/down (perspective metaphor).
         // All three paths share the same segment structure, so CoreAnimation
         // morphs between them cleanly.
-        bodyLayer.path      = MascotStatusView.bodyPathCenter
+        bodyLayer.path      = MascotStatusView.bodyCenter
         bodyLayer.fillColor = .clear
         bodyLayer.lineWidth = 2
         layer!.addSublayer(bodyLayer)
@@ -290,8 +291,7 @@ final class MascotStatusView: NSView {
                 self.leftEyeLayer.fillColor   = .clear
                 self.leftEyeLayer.strokeColor = self.ink
                 // Right stays open
-                let dir = EyeDirection.rightCenter
-                let rc = CGPoint(x: G.rEyeX.1, y: G.eyeYmd)
+                let rc = eyeConfig(.rightCenter).rEye
                 self.rightEyeLayer.path        = self.eyePath(center: rc)
                 self.rightEyeLayer.lineWidth   = 1.75
                 self.rightEyeLayer.fillColor   = self.ink
@@ -303,8 +303,7 @@ final class MascotStatusView: NSView {
                 self.rightEyeLayer.fillColor   = .clear
                 self.rightEyeLayer.strokeColor = self.ink
                 // Left stays open
-                let dir = EyeDirection.leftCenter
-                let lc = CGPoint(x: G.lEyeX.0, y: G.eyeYmd)
+                let lc = eyeConfig(.leftCenter).lEye
                 self.leftEyeLayer.path        = self.eyePath(center: lc)
                 self.leftEyeLayer.lineWidth   = 1.75
                 self.leftEyeLayer.fillColor   = self.ink
@@ -397,17 +396,6 @@ final class MascotStatusView: NSView {
 
     // MARK: - Eye paths (exact Figma geometry)
 
-    /// Vertical gaze component of a direction.
-    private enum VGaze { case up, center, down }
-
-    private func vGaze(_ dir: EyeDirection) -> VGaze {
-        switch dir {
-        case .leftUp,     .rightUp:     return .up
-        case .leftCenter, .rightCenter: return .center
-        case .leftDown,   .rightDown:   return .down
-        }
-    }
-
     /// Open-eye outline at an absolute center point.
     ///
     /// The eye is a single filled shape with the highlight *carved out* of the
@@ -458,6 +446,8 @@ final class MascotStatusView: NSView {
 
     // MARK: - Eye config
 
+    /// Eye-box centers per gaze. Glint shape is constant across states — only
+    /// the eye position tracks the gaze (left/right series + up/center/down).
     private func eyeConfig(_ dir: EyeDirection) -> (lEye: CGPoint, rEye: CGPoint) {
         let lx: CGFloat
         let rx: CGFloat
@@ -499,17 +489,20 @@ final class MascotStatusView: NSView {
         CATransaction.commit()
     }
 
-    // MARK: - Body paths (exact Figma geometry)
+    // MARK: - Body paths (exact Figma geometry, node 1087:* — 22.18×18 export)
 
-    /// Morph the body outline to match a gaze direction (nil = resting/sleep).
-    /// All three outlines share an identical segment structure
-    /// (move + line + 12 cubics + line), so CoreAnimation interpolates cleanly.
+    /// Morph the body outline to match a 2-axis gaze direction (nil = sleep).
+    /// The five outlines share an identical segment structure
+    /// (move + line + 6 cubics + line + 6 cubics), so CoreAnimation
+    /// interpolates between any pair cleanly.
     private func setBodyShape(for dir: EyeDirection?, duration: CFTimeInterval) {
         let target: CGPath
-        switch dir.map(vGaze) {
-        case .up:           target = Self.bodyPathUp
-        case .down:         target = Self.bodyPathDown
-        case .center, nil:  target = Self.bodyPathCenter
+        switch dir {
+        case .leftUp:                        target = Self.bodyUpLeft
+        case .rightUp:                       target = Self.bodyUpRight
+        case .leftDown:                      target = Self.bodyDownLeft
+        case .rightDown:                     target = Self.bodyDownRight
+        case .leftCenter, .rightCenter, nil: target = Self.bodyCenter
         }
         if duration <= 0 {
             noAnim { self.bodyLayer.path = target }
@@ -518,76 +511,112 @@ final class MascotStatusView: NSView {
         }
     }
 
-    /// Resting body — symmetric squircle (Figma node 965:230, viewBox 20×16,
-    /// y flipped to CALayer coords; path pre-inset 1 pt for the centred 2 pt
-    /// stroke). Unlike the older traced asset, there are no baked-in slants.
-    private static let bodyPathCenter: CGPath = {
-        let p = CGMutablePath()
-        p.move(to:    .init(x:  8.000, y: 15.000))
-        p.addLine(to: .init(x: 12.000, y: 15.000))
-        p.addCurve(to: .init(x: 15.294, y: 14.830), control1: .init(x: 13.924, y: 15.000), control2: .init(x: 14.690, y: 14.992))
-        p.addCurve(to: .init(x: 18.830, y: 11.294), control1: .init(x: 17.019, y: 14.368), control2: .init(x: 18.368, y: 13.019))
-        p.addCurve(to: .init(x: 19.000, y:  8.000), control1: .init(x: 18.992, y: 10.690), control2: .init(x: 19.000, y:  9.924))
-        p.addCurve(to: .init(x: 18.830, y:  4.706), control1: .init(x: 19.000, y:  6.076), control2: .init(x: 18.992, y:  5.310))
-        p.addCurve(to: .init(x: 15.294, y:  1.170), control1: .init(x: 18.368, y:  2.981), control2: .init(x: 17.019, y:  1.632))
-        p.addCurve(to: .init(x: 12.000, y:  1.000), control1: .init(x: 14.690, y:  1.008), control2: .init(x: 13.924, y:  1.000))
-        p.addLine(to: .init(x:  8.000, y:  1.000))
-        p.addCurve(to: .init(x:  4.706, y:  1.170), control1: .init(x:  6.076, y:  1.000), control2: .init(x:  5.310, y:  1.008))
-        p.addCurve(to: .init(x:  1.170, y:  4.706), control1: .init(x:  2.981, y:  1.632), control2: .init(x:  1.632, y:  2.981))
-        p.addCurve(to: .init(x:  1.000, y:  8.000), control1: .init(x:  1.008, y:  5.310), control2: .init(x:  1.000, y:  6.076))
-        p.addCurve(to: .init(x:  1.170, y: 11.294), control1: .init(x:  1.000, y:  9.924), control2: .init(x:  1.008, y: 10.690))
-        p.addCurve(to: .init(x:  4.706, y: 14.830), control1: .init(x:  1.632, y: 13.019), control2: .init(x:  2.981, y: 14.368))
-        p.addCurve(to: .init(x:  8.000, y: 15.000), control1: .init(x:  5.310, y: 14.992), control2: .init(x:  6.076, y: 15.000))
-        p.addLine(to: .init(x:  8.000, y: 15.000))
-        p.closeSubpath()
-        return p
-    }()
+    /// Figma exports body coords y-down in an 18-tall box; flip to CALayer y-up.
+    private static func flippedBody(_ build: (CGMutablePath) -> Void) -> CGPath {
+        let raw = CGMutablePath()
+        build(raw)
+        var flip = CGAffineTransform(a: 1, b: 0, c: 0, d: -1, tx: 0, ty: 18)
+        return raw.copy(using: &flip) ?? raw
+    }
 
-    /// Looking-up body — top edge recedes, organic perspective trapezoid
-    /// (Figma node 965:182, x offset +0.212, y flipped to CALayer coords).
-    private static let bodyPathUp: CGPath = {
-        let p = CGMutablePath()
-        p.move(to:    .init(x:  8.254, y: 15.000))
-        p.addLine(to: .init(x: 11.485, y: 15.000))
-        p.addCurve(to: .init(x: 14.607, y: 14.843), control1: .init(x: 13.303, y: 15.000), control2: .init(x: 14.026, y: 14.992))
-        p.addCurve(to: .init(x: 18.119, y: 11.543), control1: .init(x: 16.265, y: 14.417), control2: .init(x: 17.590, y: 13.171))
-        p.addCurve(to: .init(x: 18.470, y:  8.437), control1: .init(x: 18.304, y: 10.972), control2: .init(x: 18.357, y: 10.251))
-        p.addCurve(to: .init(x: 18.503, y:  4.959), control1: .init(x: 18.597, y:  6.405), control2: .init(x: 18.639, y:  5.595))
-        p.addCurve(to: .init(x: 14.957, y:  1.185), control1: .init(x: 18.116, y:  3.139), control2: .init(x: 16.750, y:  1.685))
-        p.addCurve(to: .init(x: 11.485, y:  1.000), control1: .init(x: 14.331, y:  1.010), control2: .init(x: 13.520, y:  1.000))
-        p.addLine(to: .init(x:  8.254, y:  1.000))
-        p.addCurve(to: .init(x:  4.871, y:  1.177), control1: .init(x:  6.274, y:  1.000), control2: .init(x:  5.486, y:  1.009))
-        p.addCurve(to: .init(x:  1.329, y:  4.832), control1: .init(x:  3.112, y:  1.658), control2: .init(x:  1.755, y:  3.059))
-        p.addCurve(to: .init(x:  1.257, y:  8.219), control1: .init(x:  1.180, y:  5.452), control2: .init(x:  1.195, y:  6.240))
-        p.addCurve(to: .init(x:  1.521, y: 11.419), control1: .init(x:  1.315, y: 10.088), control2: .init(x:  1.347, y: 10.832))
-        p.addCurve(to: .init(x:  5.047, y: 14.836), control1: .init(x:  2.018, y: 13.096), control2: .init(x:  3.355, y: 14.392))
-        p.addCurve(to: .init(x:  8.254, y: 15.000), control1: .init(x:  5.639, y: 14.991), control2: .init(x:  6.383, y: 15.000))
-        p.addLine(to: .init(x:  8.254, y: 15.000))
+    /// Resting / centered body — perfectly symmetric squircle (Figma node 1087:307,
+    /// updated). Edges at x=1 / x=21, centered at 11; clean 1 pt margin each side.
+    private static let bodyCenter: CGPath = flippedBody { p in
+        p.move(to:    .init(x: 13.00000, y:  1.00004))
+        p.addLine(to: .init(x:  9.00004, y:  1.00004))
+        p.addCurve(to: .init(x:  5.44712, y:  1.20448), control1: .init(x:  7.14009, y:  1.00004), control2: .init(x:  6.21012, y:  1.00004))
+        p.addCurve(to: .init(x:  1.20448, y:  5.44712), control1: .init(x:  3.37657, y:  1.75928), control2: .init(x:  1.75928, y:  3.37657))
+        p.addCurve(to: .init(x:  1.00004, y:  9.00004), control1: .init(x:  1.00004, y:  6.21012), control2: .init(x:  1.00004, y:  7.14009))
+        p.addCurve(to: .init(x:  1.20448, y: 12.553),   control1: .init(x:  1.00004, y: 10.86),    control2: .init(x:  1.00004, y: 11.79))
+        p.addCurve(to: .init(x:  5.44712, y: 16.7956),  control1: .init(x:  1.75928, y: 14.6235),  control2: .init(x:  3.37657, y: 16.2408))
+        p.addCurve(to: .init(x:  9.00004, y: 17),       control1: .init(x:  6.21012, y: 17),       control2: .init(x:  7.14009, y: 17))
+        p.addLine(to: .init(x: 13.00000, y: 17))
+        p.addCurve(to: .init(x: 16.553,  y: 16.7956),  control1: .init(x: 14.86,    y: 17),       control2: .init(x: 15.79,    y: 17))
+        p.addCurve(to: .init(x: 20.7956, y: 12.553),   control1: .init(x: 18.6235,  y: 16.2408),  control2: .init(x: 20.2408,  y: 14.6235))
+        p.addCurve(to: .init(x: 21.00000, y:  9.00004), control1: .init(x: 21,       y: 11.79),    control2: .init(x: 21,       y: 10.86))
+        p.addCurve(to: .init(x: 20.7956, y:  5.44712), control1: .init(x: 21,       y:  7.14009), control2: .init(x: 21,       y:  6.21012))
+        p.addCurve(to: .init(x: 16.553,  y:  1.20448), control1: .init(x: 20.2408,  y:  3.37657), control2: .init(x: 18.6235,  y:  1.75928))
+        p.addCurve(to: .init(x: 13.00000, y:  1.00004), control1: .init(x: 15.79,    y:  1.00004), control2: .init(x: 14.86,    y:  1.00004))
         p.closeSubpath()
-        return p
-    }()
+    }
 
-    /// Looking-down body — bottom edge recedes; exact vertical mirror of the
-    /// looking-up outline (Figma node 965:278).
-    private static let bodyPathDown: CGPath = {
-        let p = CGMutablePath()
-        p.move(to:    .init(x:  8.254, y: 15.000))
-        p.addLine(to: .init(x: 11.485, y: 15.000))
-        p.addCurve(to: .init(x: 14.957, y: 14.815), control1: .init(x: 13.520, y: 15.000), control2: .init(x: 14.331, y: 14.990))
-        p.addCurve(to: .init(x: 18.503, y: 11.041), control1: .init(x: 16.750, y: 14.315), control2: .init(x: 18.116, y: 12.861))
-        p.addCurve(to: .init(x: 18.470, y:  7.563), control1: .init(x: 18.639, y: 10.405), control2: .init(x: 18.597, y:  9.595))
-        p.addCurve(to: .init(x: 18.119, y:  4.457), control1: .init(x: 18.357, y:  5.749), control2: .init(x: 18.304, y:  5.028))
-        p.addCurve(to: .init(x: 14.607, y:  1.157), control1: .init(x: 17.590, y:  2.829), control2: .init(x: 16.265, y:  1.583))
-        p.addCurve(to: .init(x: 11.485, y:  1.000), control1: .init(x: 14.026, y:  1.008), control2: .init(x: 13.303, y:  1.000))
-        p.addLine(to: .init(x:  8.254, y:  1.000))
-        p.addCurve(to: .init(x:  5.047, y:  1.164), control1: .init(x:  6.383, y:  1.000), control2: .init(x:  5.639, y:  1.009))
-        p.addCurve(to: .init(x:  1.521, y:  4.581), control1: .init(x:  3.355, y:  1.608), control2: .init(x:  2.018, y:  2.904))
-        p.addCurve(to: .init(x:  1.257, y:  7.781), control1: .init(x:  1.347, y:  5.168), control2: .init(x:  1.315, y:  5.912))
-        p.addCurve(to: .init(x:  1.329, y: 11.168), control1: .init(x:  1.195, y:  9.760), control2: .init(x:  1.180, y: 10.548))
-        p.addCurve(to: .init(x:  4.871, y: 14.823), control1: .init(x:  1.755, y: 12.941), control2: .init(x:  3.112, y: 14.342))
-        p.addCurve(to: .init(x:  6.976, y: 14.996), control1: .init(x:  5.332, y: 14.949), control2: .init(x:  5.891, y: 14.986))
-        p.addLine(to: .init(x:  8.254, y: 15.000))
+    /// Gaze up-left — lower-left corner pulls toward the viewer (Figma 1087:296).
+    private static let bodyUpLeft: CGPath = flippedBody { p in
+        p.move(to:    .init(x: 13.1815, y:  1.00004))
+        p.addLine(to: .init(x:  9.24373, y:  1.00004))
+        p.addCurve(to: .init(x:  6.04569, y:  1.17354), control1: .init(x:  7.58219, y:  1.00004), control2: .init(x:  6.75142, y:  1.00004))
+        p.addCurve(to: .init(x:  1.87434, y:  4.85594), control1: .init(x:  4.13573, y:  1.64312), control2: .init(x:  2.57719, y:  3.01897))
+        p.addCurve(to: .init(x:  1.30551, y:  8.00776), control1: .init(x:  1.61464, y:  5.5347),  control2: .init(x:  1.5116,  y:  6.35905))
+        p.addCurve(to: .init(x:  1.05306, y: 11.9451),  control1: .init(x:  1.04761, y: 10.0709),  control2: .init(x:  0.918664, y: 11.1025))
+        p.addCurve(to: .init(x:  5.30548, y: 16.7622),  control1: .init(x:  1.41885, y: 14.2384),  control2: .init(x:  3.07522, y: 16.1147))
+        p.addCurve(to: .init(x:  9.24373, y: 17),       control1: .init(x:  6.12491, y: 17),       control2: .init(x:  7.16451, y: 17))
+        p.addLine(to: .init(x: 13.1815, y: 17))
+        p.addCurve(to: .init(x: 16.7344, y: 16.7956),  control1: .init(x: 15.0414, y: 17),       control2: .init(x: 15.9714, y: 17))
+        p.addCurve(to: .init(x: 20.977,  y: 12.553),   control1: .init(x: 18.8049, y: 16.2408),  control2: .init(x: 20.4222, y: 14.6235))
+        p.addCurve(to: .init(x: 21.1815, y:  9.00004), control1: .init(x: 21.1815, y: 11.79),    control2: .init(x: 21.1815, y: 10.86))
+        p.addCurve(to: .init(x: 20.977,  y:  5.44712), control1: .init(x: 21.1815, y:  7.14009), control2: .init(x: 21.1815, y:  6.21012))
+        p.addCurve(to: .init(x: 16.7344, y:  1.20448), control1: .init(x: 20.4222, y:  3.37657), control2: .init(x: 18.8049, y:  1.75928))
+        p.addCurve(to: .init(x: 13.1815, y:  1.00004), control1: .init(x: 15.9714, y:  1.00004), control2: .init(x: 15.0414, y:  1.00004))
         p.closeSubpath()
-        return p
-    }()
+    }
+
+    /// Gaze up-right — lower-right corner pulls toward the viewer (Figma 1087:322).
+    private static let bodyUpRight: CGPath = flippedBody { p in
+        p.move(to:    .init(x: 12.9378, y:  1.00004))
+        p.addLine(to: .init(x:  9.00004, y:  1.00004))
+        p.addCurve(to: .init(x:  5.44712, y:  1.20448), control1: .init(x:  7.14009, y:  1.00004), control2: .init(x:  6.21012, y:  1.00004))
+        p.addCurve(to: .init(x:  1.20448, y:  5.44712), control1: .init(x:  3.37657, y:  1.75928), control2: .init(x:  1.75928, y:  3.37657))
+        p.addCurve(to: .init(x:  1.00004, y:  9.00004), control1: .init(x:  1.00004, y:  6.21012), control2: .init(x:  1.00004, y:  7.14009))
+        p.addCurve(to: .init(x:  1.20448, y: 12.553),   control1: .init(x:  1.00004, y: 10.86),    control2: .init(x:  1.00004, y: 11.79))
+        p.addCurve(to: .init(x:  5.44712, y: 16.7956),  control1: .init(x:  1.75928, y: 14.6235),  control2: .init(x:  3.37657, y: 16.2408))
+        p.addCurve(to: .init(x:  9.00004, y: 17),       control1: .init(x:  6.21012, y: 17),       control2: .init(x:  7.14009, y: 17))
+        p.addLine(to: .init(x: 12.9378, y: 17))
+        p.addCurve(to: .init(x: 16.876,  y: 16.7622),  control1: .init(x: 15.017,  y: 17),       control2: .init(x: 16.0566, y: 17))
+        p.addCurve(to: .init(x: 21.1284, y: 11.9451),  control1: .init(x: 19.1063, y: 16.1147),  control2: .init(x: 20.7627, y: 14.2384))
+        p.addCurve(to: .init(x: 20.876,  y:  8.00778), control1: .init(x: 21.2628, y: 11.1025),  control2: .init(x: 21.1339, y: 10.0709))
+        p.addCurve(to: .init(x: 20.3072, y:  4.85594), control1: .init(x: 20.6699, y:  6.35905), control2: .init(x: 20.5669, y:  5.5347))
+        p.addCurve(to: .init(x: 16.1358, y:  1.17354), control1: .init(x: 19.6043, y:  3.01897), control2: .init(x: 18.0458, y:  1.64312))
+        p.addCurve(to: .init(x: 12.9378, y:  1.00004), control1: .init(x: 15.4301, y:  1.00004), control2: .init(x: 14.5993, y:  1.00004))
+        p.closeSubpath()
+    }
+
+    /// Gaze down-left — upper-left corner pulls toward the viewer (Figma 1087:311).
+    private static let bodyDownLeft: CGPath = flippedBody { p in
+        p.move(to:    .init(x: 13.1815, y:  1.00004))
+        p.addLine(to: .init(x:  9.24373, y:  1.00004))
+        p.addCurve(to: .init(x:  5.30548, y:  1.23792), control1: .init(x:  7.16451, y:  1.00004), control2: .init(x:  6.12491, y:  1.00004))
+        p.addCurve(to: .init(x:  1.05306, y:  6.05498), control1: .init(x:  3.07522, y:  1.88534), control2: .init(x:  1.41885, y:  3.76164))
+        p.addCurve(to: .init(x:  1.30551, y:  9.99232), control1: .init(x:  0.918664, y: 6.89758), control2: .init(x:  1.04761, y:  7.92916))
+        p.addCurve(to: .init(x:  1.87434, y: 13.1441),  control1: .init(x:  1.5116,  y: 11.641),   control2: .init(x:  1.61464, y: 12.4654))
+        p.addCurve(to: .init(x:  6.04569, y: 16.8265),  control1: .init(x:  2.57719, y: 14.9811),  control2: .init(x:  4.13573, y: 16.357))
+        p.addCurve(to: .init(x:  9.24373, y: 17),       control1: .init(x:  6.75142, y: 17),       control2: .init(x:  7.58219, y: 17))
+        p.addLine(to: .init(x: 13.1815, y: 17))
+        p.addCurve(to: .init(x: 16.7344, y: 16.7956),  control1: .init(x: 15.0414, y: 17),       control2: .init(x: 15.9714, y: 17))
+        p.addCurve(to: .init(x: 20.977,  y: 12.553),   control1: .init(x: 18.8049, y: 16.2408),  control2: .init(x: 20.4222, y: 14.6235))
+        p.addCurve(to: .init(x: 21.1815, y:  9.00004), control1: .init(x: 21.1815, y: 11.79),    control2: .init(x: 21.1815, y: 10.86))
+        p.addCurve(to: .init(x: 20.977,  y:  5.44713), control1: .init(x: 21.1815, y:  7.1401),  control2: .init(x: 21.1815, y:  6.21013))
+        p.addCurve(to: .init(x: 16.7344, y:  1.20449), control1: .init(x: 20.4222, y:  3.37658), control2: .init(x: 18.8049, y:  1.75929))
+        p.addCurve(to: .init(x: 13.1815, y:  1.00004), control1: .init(x: 15.9714, y:  1.00004), control2: .init(x: 15.0414, y:  1.00004))
+        p.closeSubpath()
+    }
+
+    /// Gaze down-right — upper-right corner pulls toward the viewer (Figma 1087:324).
+    private static let bodyDownRight: CGPath = flippedBody { p in
+        p.move(to:    .init(x: 12.9378, y:  1.00004))
+        p.addLine(to: .init(x:  9.00004, y:  1.00004))
+        p.addCurve(to: .init(x:  5.44712, y:  1.20449), control1: .init(x:  7.14009, y:  1.00004), control2: .init(x:  6.21012, y:  1.00004))
+        p.addCurve(to: .init(x:  1.20448, y:  5.44713), control1: .init(x:  3.37657, y:  1.75929), control2: .init(x:  1.75928, y:  3.37658))
+        p.addCurve(to: .init(x:  1.00004, y:  9.00004), control1: .init(x:  1.00004, y:  6.21013), control2: .init(x:  1.00004, y:  7.1401))
+        p.addCurve(to: .init(x:  1.20448, y: 12.553),   control1: .init(x:  1.00004, y: 10.86),    control2: .init(x:  1.00004, y: 11.79))
+        p.addCurve(to: .init(x:  5.44712, y: 16.7956),  control1: .init(x:  1.75928, y: 14.6235),  control2: .init(x:  3.37657, y: 16.2408))
+        p.addCurve(to: .init(x:  9.00004, y: 17),       control1: .init(x:  6.21012, y: 17),       control2: .init(x:  7.14009, y: 17))
+        p.addLine(to: .init(x: 12.9378, y: 17))
+        p.addCurve(to: .init(x: 16.1358, y: 16.8265),  control1: .init(x: 14.5993, y: 17),       control2: .init(x: 15.4301, y: 17))
+        p.addCurve(to: .init(x: 20.3072, y: 13.1441),  control1: .init(x: 18.0458, y: 16.357),   control2: .init(x: 19.6043, y: 14.9811))
+        p.addCurve(to: .init(x: 20.876,  y:  9.99232), control1: .init(x: 20.5669, y: 12.4654),  control2: .init(x: 20.6699, y: 11.641))
+        p.addCurve(to: .init(x: 21.1284, y:  6.05498), control1: .init(x: 21.1339, y:  7.92916), control2: .init(x: 21.2628, y:  6.89758))
+        p.addCurve(to: .init(x: 16.876,  y:  1.23792), control1: .init(x: 20.7627, y:  3.76164), control2: .init(x: 19.1063, y:  1.88534))
+        p.addCurve(to: .init(x: 12.9378, y:  1.00004), control1: .init(x: 16.0566, y:  1.00004), control2: .init(x: 15.017,  y:  1.00004))
+        p.closeSubpath()
+    }
 }

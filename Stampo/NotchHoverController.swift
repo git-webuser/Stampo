@@ -156,7 +156,7 @@ final class NotchHoverController: NSObject {
         button.image = nil
         button.imagePosition = .noImage
 
-        let mascot = MascotStatusView(frame: NSRect(x: 5, y: 3, width: 20, height: 16))
+        let mascot = MascotStatusView(frame: NSRect(x: 4, y: 2, width: 22, height: 18))
         button.addSubview(mascot)
         mascotView = mascot
 
