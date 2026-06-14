@@ -3,36 +3,51 @@ import SwiftUI
 // MARK: - HotkeySettingsView
 
 struct HotkeySettingsView: View {
-    @AppStorage(AppSettings.Keys.hotkeyPanelEnabled)      private var panelEnabled      = true
-    @AppStorage(AppSettings.Keys.hotkeySelectionEnabled)  private var selectionEnabled  = true
-    @AppStorage(AppSettings.Keys.hotkeyFullscreenEnabled) private var fullscreenEnabled = true
-    @AppStorage(AppSettings.Keys.hotkeyWindowEnabled)     private var windowEnabled     = true
-    @AppStorage(AppSettings.Keys.hotkeyColorEnabled)      private var colorEnabled      = true
-    @AppStorage(AppSettings.Keys.hotkeyHUDFormatEnabled)  private var hudFormatEnabled  = true
+    @AppStorage(AppSettings.Keys.hotkeyHUDFormatEnabled) private var hudFormatEnabled = true
+    @AppStorage(AppSettings.Keys.hotkeyArrowMoveEnabled) private var arrowMoveEnabled = true
+
+    /// Live mirror of each action's stored combo, so recorder edits redraw the row.
+    @State private var combos: [HotkeyAction: HotkeyCombo?] = HotkeyAction.allCases
+        .reduce(into: [:]) { $0[$1] = $1.combo }
 
     var body: some View {
         Form {
+            // MARK: Global shortcuts (editable)
             Section {
-                HotkeyRow(icon: "rectangle.topthird.inset", action: "Toggle Panel",          combo: "⌃⌥⌘N", isEnabled: $panelEnabled)
-                HotkeyRow(icon: "rectangle.dashed",         action: "Selection Screenshot",  combo: "⌃⌥⌘R", isEnabled: $selectionEnabled)
-                HotkeyRow(icon: "menubar.dock.rectangle",   action: "Fullscreen Screenshot", combo: "⌃⌥⌘B", isEnabled: $fullscreenEnabled)
-                HotkeyRow(icon: "macwindow",                action: "Window Screenshot",     combo: "⌃⌥⌘G", isEnabled: $windowEnabled)
-                HotkeyRow(icon: "eyedropper",               action: "Pick Color",            combo: "⌃⌥⌘C", isEnabled: $colorEnabled)
-            }
-            Section("Color HUD") {
-                HotkeyRow(icon: "arrow.2.squarepath",       action: "Cycle Color Format",    combo: "F",     isEnabled: $hudFormatEnabled)
-            }
-            Section {
-                HotkeyArrowRow(icon: "arrow.up.and.down.and.arrow.left.and.right", action: "Move 1 pt",  modifiers: [])
-                HotkeyArrowRow(icon: "arrow.up.and.down.and.arrow.left.and.right", action: "Move 10 pt", modifiers: ["⇧"])
-                HotkeyArrowRow(icon: "arrow.up.and.down.and.arrow.left.and.right", action: "Move 50 pt", modifiers: ["⇧", "⌥"])
+                ForEach(HotkeyAction.allCases, id: \.self) { action in
+                    EditableHotkeyRow(action: action, combo: combos[action] ?? nil) { newCombo in
+                        action.setCombo(newCombo)        // persists → controller reinstalls
+                        combos[action] = newCombo
+                    }
+                }
             } header: {
-                Text("Color Picker Movement")
+                Text("Shortcuts")
             } footer: {
-                Text("Arrow keys nudge the cursor while the color picker is active")
+                Button("Restore Defaults") { restoreDefaults() }
+                    .controlSize(.small)
+            }
+
+            // MARK: Color picker (fixed, toggleable)
+            Section {
+                FixedHotkeyRow(icon: "arrow.2.squarepath",
+                               action: "Cycle Color Format",
+                               caps: ["F"],
+                               isEnabled: $hudFormatEnabled)
+                FixedArrowRow(isEnabled: $arrowMoveEnabled)
+            } header: {
+                Text("Color Picker")
+            } footer: {
+                Text("These shortcuts work only while the color picker is active and can't be changed")
             }
         }
         .formStyle(.grouped)
+    }
+
+    private func restoreDefaults() {
+        for action in HotkeyAction.allCases {
+            action.setCombo(action.defaultCombo)
+            combos[action] = action.defaultCombo
+        }
     }
 }
 
@@ -116,22 +131,6 @@ public struct KeyCapView: View {
     }
 }
 
-// MARK: - KeyComboView
-
-/// Splits a combo string (e.g. "⌃⌥⌘N") into individual KeyCapViews.
-public struct KeyComboView: View {
-    public let combo: String
-    public var dimmed: Bool = false
-
-    public var body: some View {
-        HStack(spacing: 3) {
-            ForEach(Array(combo.map(String.init).enumerated()), id: \.offset) { _, key in
-                KeyCapView(key: key, dimmed: dimmed)
-            }
-        }
-    }
-}
-
 // MARK: - ArrowClusterView
 
 /// T-shaped arrow cluster that mirrors the physical layout: ↑ centred above ←↓→.
@@ -161,54 +160,73 @@ private struct ArrowClusterView: View {
     }
 }
 
-// MARK: - HotkeyArrowRow
+// MARK: - Row icon+label (shared leading)
 
-/// Movement row: modifier key caps (shown once) + T-shaped arrow cluster.
-/// Spacer() prevents LabeledContent from stretching the HStack to fill available width.
-private struct HotkeyArrowRow: View {
+private struct RowLabel: View {
     let icon: String
-    let action: String
-    let modifiers: [String]
+    let labelKey: String
+    var body: some View {
+        Image(systemName: icon)
+            .font(.title2)
+            .foregroundStyle(.secondary)
+            .frame(width: 28)
+        Text(LocalizedStringKey(labelKey))
+    }
+}
+
+// MARK: - EditableHotkeyRow
+
+/// Global shortcut row: icon + label + click-to-record field (with its own × and
+/// inline rejection reason).
+private struct EditableHotkeyRow: View {
+    let action: HotkeyAction
+    let combo: HotkeyCombo?
+    let onChange: (HotkeyCombo?) -> Void
 
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: icon)
-                .font(.title2)
-                .foregroundStyle(.secondary)
-                .frame(width: 28)
-            Text(LocalizedStringKey(action))
+            RowLabel(icon: action.icon, labelKey: action.labelKey)
             Spacer()
-            HStack(alignment: .center, spacing: 6) {
-                ForEach(modifiers, id: \.self) { mod in
-                    KeyCapView(key: mod)
-                }
-                ArrowClusterView()
-            }
-            .fixedSize()
+            ShortcutRecorderView(action: action, combo: combo, onChange: onChange)
         }
     }
 }
 
-// MARK: - HotkeyRow
+// MARK: - FixedHotkeyRow
 
-private struct HotkeyRow: View {
+/// Non-editable local shortcut shown as fixed key caps with an enable toggle.
+private struct FixedHotkeyRow: View {
     let icon: String
     let action: String
-    let combo: String
+    let caps: [String]
     @Binding var isEnabled: Bool
 
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: icon)
-                .font(.title2)
-                .foregroundStyle(.secondary)
-                .frame(width: 28)
-            Text(LocalizedStringKey(action))
+            RowLabel(icon: icon, labelKey: action)
             Spacer()
-            KeyComboView(combo: combo, dimmed: !isEnabled)
-            Toggle("", isOn: $isEnabled)
-                .labelsHidden()
-                .toggleStyle(.switch)
+            HStack(spacing: 3) {
+                ForEach(caps, id: \.self) { KeyCapView(key: $0, dimmed: !isEnabled) }
+            }
+            Toggle("", isOn: $isEnabled).labelsHidden().toggleStyle(.switch)
+        }
+    }
+}
+
+// MARK: - FixedArrowRow
+
+/// Arrow-key movement row: T-cluster + enable toggle (non-editable).
+private struct FixedArrowRow: View {
+    @Binding var isEnabled: Bool
+
+    var body: some View {
+        HStack(spacing: 12) {
+            RowLabel(icon: "arrow.up.and.down.and.arrow.left.and.right",
+                     labelKey: "Arrow key movement")
+            Spacer()
+            ArrowClusterView()
+                .opacity(isEnabled ? 1 : 0.4)
+            Toggle("", isOn: $isEnabled).labelsHidden().toggleStyle(.switch)
         }
     }
 }

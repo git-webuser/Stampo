@@ -13,14 +13,11 @@ final class NotchHoverController: NSObject {
     private var statusItem: NSStatusItem?
     private var eventTap: CFMachPort?
     private var eventTapSource: CFRunLoopSource?
-    private var hotKeyRef: EventHotKeyRef?
     private var hotKeyHandlerRef: EventHandlerRef?
 
-    // Registered hotkey refs for capture actions
-    private var hotKeyRefSelection: EventHotKeyRef?
-    private var hotKeyRefFullscreen: EventHotKeyRef?
-    private var hotKeyRefWindow: EventHotKeyRef?
-    private var hotKeyRefColor: EventHotKeyRef?
+    /// Live Carbon hotkey refs, keyed by action. Only enabled (non-nil combo)
+    /// actions appear here.
+    private var hotKeyRefs: [HotkeyAction: EventHotKeyRef] = [:]
 
     // Control + Option + Command + N  →  toggle panel
     private let hotKeyCode: UInt32 = UInt32(kVK_ANSI_N)
@@ -70,7 +67,15 @@ final class NotchHoverController: NSObject {
             name: .mascotCursorMoved,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            forName: .hotkeyRecordingChanged, object: nil, queue: .main
+        ) { [weak self] note in
+            self?.isRecordingHotkey = (note.object as? Bool) ?? false
+        }
     }
+
+    /// True while the shortcut recorder is armed — suppresses hotkey actions.
+    private var isRecordingHotkey = false
 
     func stop() {
         NotificationCenter.default.removeObserver(self, name: .settingsWindowDidClose, object: nil)
@@ -127,19 +132,13 @@ final class NotchHoverController: NSObject {
         }
     }
 
-    private var lastHotkeyEnabledState: [UInt32: Bool] = [
-        1: true, 2: true, 3: true, 4: true, 5: true
-    ]
+    private var lastHotkeyState: [HotkeyAction: HotkeyCombo?] = [:]
 
     private func reinstallHotKeysIfNeeded() {
-        let current: [UInt32: Bool] = [
-            1: AppSettings.hotkeyPanelEnabled,
-            2: AppSettings.hotkeySelectionEnabled,
-            3: AppSettings.hotkeyFullscreenEnabled,
-            4: AppSettings.hotkeyWindowEnabled,
-            5: AppSettings.hotkeyColorEnabled
-        ]
-        guard current != lastHotkeyEnabledState else { return }
+        let current = HotkeyAction.allCases.reduce(into: [HotkeyAction: HotkeyCombo?]()) {
+            $0[$1] = $1.combo
+        }
+        guard current != lastHotkeyState else { return }
         uninstallHotKey()
         installHotKey()
     }
@@ -209,6 +208,7 @@ final class NotchHoverController: NSObject {
     }
 
     private func installHotKey() {
+        HotkeyAction.migrateIfNeeded()
         var eventSpec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
 
         let callback: EventHandlerUPP = { _, eventRef, userData in
@@ -241,36 +241,18 @@ final class NotchHoverController: NSObject {
         )
         guard handlerStatus == noErr else { return }
 
-        let mods = UInt32(controlKey | optionKey | cmdKey)
         let sig = fourCharCode("STMP")
 
-        // id=1  Ctrl+Opt+Cmd+N  — toggle panel
-        if AppSettings.hotkeyPanelEnabled {
-            registerHotKey(code: UInt32(kVK_ANSI_N), mods: mods, id: 1, sig: sig, ref: &hotKeyRef)
+        for action in HotkeyAction.allCases {
+            guard let combo = action.combo else { continue }   // nil = disabled
+            var ref: EventHotKeyRef?
+            registerHotKey(code: UInt32(combo.keyCode), mods: combo.carbonModifiers,
+                           id: action.rawValue, sig: sig, ref: &ref)
+            if let ref { hotKeyRefs[action] = ref }
         }
-        // id=2  Ctrl+Opt+Cmd+R  — selection screenshot
-        if AppSettings.hotkeySelectionEnabled {
-            registerHotKey(code: UInt32(kVK_ANSI_R), mods: mods, id: 2, sig: sig, ref: &hotKeyRefSelection)
+        lastHotkeyState = HotkeyAction.allCases.reduce(into: [HotkeyAction: HotkeyCombo?]()) {
+            $0[$1] = $1.combo
         }
-        // id=3  Ctrl+Opt+Cmd+B  — fullscreen screenshot
-        if AppSettings.hotkeyFullscreenEnabled {
-            registerHotKey(code: UInt32(kVK_ANSI_B), mods: mods, id: 3, sig: sig, ref: &hotKeyRefFullscreen)
-        }
-        // id=4  Ctrl+Opt+Cmd+G  — window screenshot
-        if AppSettings.hotkeyWindowEnabled {
-            registerHotKey(code: UInt32(kVK_ANSI_G), mods: mods, id: 4, sig: sig, ref: &hotKeyRefWindow)
-        }
-        // id=5  Ctrl+Opt+Cmd+C  — pick color
-        if AppSettings.hotkeyColorEnabled {
-            registerHotKey(code: UInt32(kVK_ANSI_C), mods: mods, id: 5, sig: sig, ref: &hotKeyRefColor)
-        }
-        lastHotkeyEnabledState = [
-            1: AppSettings.hotkeyPanelEnabled,
-            2: AppSettings.hotkeySelectionEnabled,
-            3: AppSettings.hotkeyFullscreenEnabled,
-            4: AppSettings.hotkeyWindowEnabled,
-            5: AppSettings.hotkeyColorEnabled
-        ]
     }
 
     private func registerHotKey(code: UInt32, mods: UInt32, id: UInt32, sig: OSType, ref: inout EventHotKeyRef?) {
@@ -280,14 +262,10 @@ final class NotchHoverController: NSObject {
     }
 
     private func uninstallHotKey() {
-        for ref in [hotKeyRef, hotKeyRefSelection, hotKeyRefFullscreen, hotKeyRefWindow, hotKeyRefColor].compactMap({ $0 }) {
+        for ref in hotKeyRefs.values {
             UnregisterEventHotKey(ref)
         }
-        hotKeyRef = nil
-        hotKeyRefSelection = nil
-        hotKeyRefFullscreen = nil
-        hotKeyRefWindow = nil
-        hotKeyRefColor = nil
+        hotKeyRefs.removeAll()
 
         if let hotKeyHandlerRef {
             RemoveEventHandler(hotKeyHandlerRef)
@@ -296,6 +274,10 @@ final class NotchHoverController: NSObject {
     }
 
     private func handleHotKey(_ hotKeyID: EventHotKeyID) {
+        // While the user is recording a new shortcut, Carbon hotkeys still fire
+        // (they dispatch below the recorder's local NSEvent monitor). Ignore them
+        // so pressing an existing combo doesn't trigger its action mid-record.
+        guard !isRecordingHotkey else { return }
         guard let screen = preferredScreenForOpen() else { return }
         switch hotKeyID.id {
         case 1:
@@ -500,6 +482,10 @@ extension Notification.Name {
     /// Постится из GeneralSettingsView при нажатии кнопки Retry.
     /// NotchHoverController реагирует переустановкой event tap.
     static let retryEventTapInstall    = Notification.Name("Stampo.retryEventTapInstall")
+
+    /// Posted by ShortcutRecorderView with `object: Bool` (true = recording).
+    /// NotchHoverController suppresses hotkey actions while recording.
+    static let hotkeyRecordingChanged  = Notification.Name("Stampo.hotkeyRecordingChanged")
 
     /// Постится из NotchPanelController и ColorPickingCoordinator при смене
     /// состояния приложения. NotchHoverController передаёт это MascotStatusView.

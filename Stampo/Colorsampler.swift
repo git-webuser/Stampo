@@ -180,7 +180,7 @@ final class ColorSampler {
             KeyCode.arrowLeft:  (-1, 0),
             KeyCode.arrowRight: (1,  0),
         ]
-        if let (dx, dy) = arrowMap[event.keyCode] {
+        if let (dx, dy) = arrowMap[event.keyCode], AppSettings.hotkeyArrowMoveEnabled {
             let mods = event.modifierFlags
             let step: CGFloat = mods.contains([.shift, .option]) ? 50
                               : mods.contains(.shift)            ? 10 : 1

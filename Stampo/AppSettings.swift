@@ -46,13 +46,10 @@ enum AppSettings {
         static let settingsAppearance      = "settingsAppearance"
         static let settingsStyle           = "settingsStyle"
         static let preferredLanguage       = "preferredLanguage"
-        // Hotkeys
-        static let hotkeyPanelEnabled      = "hotkeyPanelEnabled"
-        static let hotkeySelectionEnabled  = "hotkeySelectionEnabled"
-        static let hotkeyFullscreenEnabled = "hotkeyFullscreenEnabled"
-        static let hotkeyWindowEnabled     = "hotkeyWindowEnabled"
-        static let hotkeyColorEnabled      = "hotkeyColorEnabled"
+        // Hotkeys (the 5 global actions store combos via HotkeyAction; these two
+        // are the local color-picker shortcuts, enable/disable only).
         static let hotkeyHUDFormatEnabled  = "hotkeyHUDFormatEnabled"
+        static let hotkeyArrowMoveEnabled  = "hotkeyArrowMoveEnabled"
     }
 
     // MARK: General
@@ -193,23 +190,11 @@ enum AppSettings {
     }
 
     // MARK: Hotkeys
-    static var hotkeyPanelEnabled: Bool {
-        UserDefaults.standard.object(forKey: Keys.hotkeyPanelEnabled) as? Bool ?? true
-    }
-    static var hotkeySelectionEnabled: Bool {
-        UserDefaults.standard.object(forKey: Keys.hotkeySelectionEnabled) as? Bool ?? true
-    }
-    static var hotkeyFullscreenEnabled: Bool {
-        UserDefaults.standard.object(forKey: Keys.hotkeyFullscreenEnabled) as? Bool ?? true
-    }
-    static var hotkeyWindowEnabled: Bool {
-        UserDefaults.standard.object(forKey: Keys.hotkeyWindowEnabled) as? Bool ?? true
-    }
-    static var hotkeyColorEnabled: Bool {
-        UserDefaults.standard.object(forKey: Keys.hotkeyColorEnabled) as? Bool ?? true
-    }
     static var hotkeyHUDFormatEnabled: Bool {
         UserDefaults.standard.object(forKey: Keys.hotkeyHUDFormatEnabled) as? Bool ?? true
+    }
+    static var hotkeyArrowMoveEnabled: Bool {
+        UserDefaults.standard.object(forKey: Keys.hotkeyArrowMoveEnabled) as? Bool ?? true
     }
 
     // MARK: Launch at Login
