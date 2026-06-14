@@ -187,6 +187,10 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         let win = NSWindow(contentViewController: tabController)
         win.title       = LocaleManager.shared.string("Settings")
         win.level       = .floating
+        // Follow the user across Spaces: re-invoking settings from another
+        // desktop hops the existing window to the active Space instead of
+        // silently no-op'ing on its origin Space.
+        win.collectionBehavior = [.moveToActiveSpace]
         win.styleMask   = [.titled, .closable, .miniaturizable]
         win.titlebarSeparatorStyle = .line
         win.setFrameAutosaveName("StampoSettingsWindow")
@@ -209,6 +213,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         let win = NSWindow(contentViewController: hosting)
         win.title      = LocaleManager.shared.string("Settings")
         win.level      = .floating
+        win.collectionBehavior = [.moveToActiveSpace]
         win.styleMask  = [.titled, .closable, .miniaturizable, .resizable]
         win.titlebarSeparatorStyle = .line
         win.setContentSize(NSSize(width: 800, height: 480))
