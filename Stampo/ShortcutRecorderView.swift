@@ -30,11 +30,21 @@ struct ShortcutRecorderView: View {
     @State private var monitor: Any?
     @State private var clickMonitor: Any?
 
+    /// Field width measured while the × button is present. When the shortcut is
+    /// cleared the × disappears, so the field grows to (this + gap + ×) and the
+    /// overall block width stays put.
+    @State private var widthWithButton: CGFloat = 96
+
+    private let buttonGap: CGFloat = 8
+    private let buttonWidth: CGFloat = 16
+
+    private var showsClearButton: Bool { combo != nil && !isRecording }
+
     var body: some View {
         VStack(alignment: .trailing, spacing: 4) {
-            HStack(spacing: 8) {
+            HStack(spacing: buttonGap) {
                 recorderField
-                if combo != nil && !isRecording {
+                if showsClearButton {
                     Button {
                         onChange(nil)            // clear → disabled
                     } label: {
@@ -74,9 +84,17 @@ struct ShortcutRecorderView: View {
                     .foregroundStyle(.tertiary)
             }
         }
-        .padding(.horizontal, 6)
-        .padding(.vertical, 3)
+        .padding(5)
         .frame(minWidth: 96, minHeight: 38)
+        // When the × is gone, take over its footprint so nothing collapses.
+        .frame(width: showsClearButton ? nil : widthWithButton + buttonGap + buttonWidth)
+        .background(
+            GeometryReader { geo in
+                Color.clear
+                    .onAppear { captureWidth(geo.size.width) }
+                    .onChange(of: geo.size.width) { _, w in captureWidth(w) }
+            }
+        )
         .contentShape(Rectangle())
         .overlay(
             RoundedRectangle(cornerRadius: 6, style: .continuous)
@@ -85,6 +103,12 @@ struct ShortcutRecorderView: View {
         .modifier(Shake(animatableData: shake))
 
         content.onTapGesture { toggleRecording() }
+    }
+
+    /// Remember the field width only while the × is showing — that's the size to
+    /// preserve (plus the button footprint) once it's cleared.
+    private func captureWidth(_ w: CGFloat) {
+        if showsClearButton { widthWithButton = w }
     }
 
     private var borderColor: Color {
