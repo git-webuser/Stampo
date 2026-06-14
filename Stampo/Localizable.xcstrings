@@ -144,6 +144,7 @@
     },
     "Add ⌘, ⌃ or ⌥ to the shortcut" : {
       "comment" : "Rejection: needs a strong modifier",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -161,6 +162,7 @@
     },
     "Already used by another Stampo action" : {
       "comment" : "Rejection: duplicate within Stampo",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -211,6 +213,7 @@
     },
     "Arrow key movement" : {
       "comment" : "Row label for arrow-key cursor nudging",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -228,6 +231,7 @@
     },
     "Arrow keys nudge the cursor while the color picker is active" : {
       "comment" : "Footer under the color picker movement section",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -513,6 +517,7 @@
     },
     "Color HUD" : {
       "comment" : "Settings section header for Color HUD hotkeys",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -547,6 +552,7 @@
     },
     "Color Picker Movement" : {
       "comment" : "Settings section header for color picker arrow-key shortcuts",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -1945,6 +1951,23 @@
         }
       }
     },
+    "Reset" : {
+      "comment" : "Button resetting all hotkeys to their defaults",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reset"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сбросить"
+          }
+        }
+      }
+    },
     "Restore Defaults" : {
       "comment" : "Button resetting all hotkeys to defaults",
       "localizations" : {
@@ -2585,6 +2608,7 @@
     },
     "This shortcut is already in use" : {
       "comment" : "Rejection: registration failed (taken by another app)",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -2602,6 +2626,7 @@
     },
     "This shortcut is reserved by macOS" : {
       "comment" : "Rejection: system-reserved combo",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {

@@ -75,8 +75,8 @@ struct ShortcutRecorderView: View {
             }
         }
         .padding(.horizontal, 6)
-        .frame(minHeight: 40)
-        .frame(minWidth: 96)
+        .padding(.vertical, 3)
+        .frame(minWidth: 96, minHeight: 38)
         .contentShape(Rectangle())
         .overlay(
             RoundedRectangle(cornerRadius: 6, style: .continuous)

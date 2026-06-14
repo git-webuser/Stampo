@@ -23,8 +23,12 @@ struct HotkeySettingsView: View {
             } header: {
                 Text("Shortcuts")
             } footer: {
-                Button("Restore Defaults") { restoreDefaults() }
-                    .controlSize(.small)
+                HStack {
+                    Spacer()
+                    Button("Reset") { restoreDefaults() }
+                        .buttonStyle(.bordered)
+                }
+                .padding(.top, 2)
             }
 
             // MARK: Color picker (fixed, toggleable)
@@ -55,9 +59,10 @@ struct HotkeySettingsView: View {
 
 /// arrowSize * 2 + arrowGap == capHeight so modifier keys and the arrow cluster align.
 private enum KC {
-    static let capHeight:  CGFloat = 36
-    static let arrowSize:  CGFloat = 17   // (17 + 2 + 17 = 36)
-    static let arrowGap:   CGFloat = 2
+    static let capHeight:    CGFloat = 32          // every cap is exactly this tall
+    static let modifierWidth: CGFloat = 44         // rectangular modifier caps
+    static let arrowSize:    CGFloat = 15           // (15 + 2 + 15 = 32)
+    static let arrowGap:     CGFloat = 2
 }
 
 // MARK: - Key cap background
@@ -105,14 +110,16 @@ public struct KeyCapView: View {
         .opacity(dimmed ? 0.4 : 1)
     }
 
+    /// Single key — square (widens only for multi-char labels like F12).
     private var regularCap: some View {
         Text(key)
             .font(.system(size: 13, weight: .regular))
-            .frame(minWidth: 26, maxWidth: 34, minHeight: KC.capHeight)
-            .padding(.horizontal, 7)
+            .padding(.horizontal, 4)
+            .frame(minWidth: KC.capHeight, minHeight: KC.capHeight, maxHeight: KC.capHeight)
             .keyCap()
     }
 
+    /// Modifier — rectangular, engraved glyph top-left + label bottom-right.
     private func modifierCap(symbol: String, label: String) -> some View {
         VStack(spacing: 0) {
             Text(symbol)
@@ -123,10 +130,9 @@ public struct KeyCapView: View {
                 .font(.system(size: 9, weight: .regular))
                 .frame(maxWidth: .infinity, alignment: .trailing)
         }
-        .padding(.horizontal, 7)
-        .padding(.vertical, 5)
-        // maxWidth caps growth when placed inside a flexible LabeledContent trailing slot
-        .frame(minWidth: 44, maxWidth: 48, minHeight: KC.capHeight)
+        .padding(.horizontal, 6)
+        .padding(.vertical, 4)
+        .frame(width: KC.modifierWidth, height: KC.capHeight)
         .keyCap()
     }
 }
@@ -160,33 +166,17 @@ private struct ArrowClusterView: View {
     }
 }
 
-// MARK: - Row icon+label (shared leading)
-
-private struct RowLabel: View {
-    let icon: String
-    let labelKey: String
-    var body: some View {
-        Image(systemName: icon)
-            .font(.title2)
-            .foregroundStyle(.secondary)
-            .frame(width: 28)
-        Text(LocalizedStringKey(labelKey))
-    }
-}
-
 // MARK: - EditableHotkeyRow
 
-/// Global shortcut row: icon + label + click-to-record field (with its own × and
-/// inline rejection reason).
+/// Global shortcut row, built on the shared SettingRow: icon + label +
+/// click-to-record field (which carries its own × and inline rejection reason).
 private struct EditableHotkeyRow: View {
     let action: HotkeyAction
     let combo: HotkeyCombo?
     let onChange: (HotkeyCombo?) -> Void
 
     var body: some View {
-        HStack(spacing: 12) {
-            RowLabel(icon: action.icon, labelKey: action.labelKey)
-            Spacer()
+        SettingRow(icon: action.icon, title: LocalizedStringKey(action.labelKey)) {
             ShortcutRecorderView(action: action, combo: combo, onChange: onChange)
         }
     }
@@ -194,7 +184,7 @@ private struct EditableHotkeyRow: View {
 
 // MARK: - FixedHotkeyRow
 
-/// Non-editable local shortcut shown as fixed key caps with an enable toggle.
+/// Non-editable local shortcut: fixed key caps + enable toggle.
 private struct FixedHotkeyRow: View {
     let icon: String
     let action: String
@@ -202,13 +192,13 @@ private struct FixedHotkeyRow: View {
     @Binding var isEnabled: Bool
 
     var body: some View {
-        HStack(spacing: 12) {
-            RowLabel(icon: icon, labelKey: action)
-            Spacer()
-            HStack(spacing: 3) {
-                ForEach(caps, id: \.self) { KeyCapView(key: $0, dimmed: !isEnabled) }
+        SettingRow(icon: icon, title: LocalizedStringKey(action)) {
+            HStack(spacing: 8) {
+                HStack(spacing: 3) {
+                    ForEach(caps, id: \.self) { KeyCapView(key: $0, dimmed: !isEnabled) }
+                }
+                Toggle("", isOn: $isEnabled).labelsHidden().toggleStyle(.switch)
             }
-            Toggle("", isOn: $isEnabled).labelsHidden().toggleStyle(.switch)
         }
     }
 }
@@ -220,13 +210,12 @@ private struct FixedArrowRow: View {
     @Binding var isEnabled: Bool
 
     var body: some View {
-        HStack(spacing: 12) {
-            RowLabel(icon: "arrow.up.and.down.and.arrow.left.and.right",
-                     labelKey: "Arrow key movement")
-            Spacer()
-            ArrowClusterView()
-                .opacity(isEnabled ? 1 : 0.4)
-            Toggle("", isOn: $isEnabled).labelsHidden().toggleStyle(.switch)
+        SettingRow(icon: "arrow.up.and.down.and.arrow.left.and.right",
+                   title: "Arrow key movement") {
+            HStack(spacing: 8) {
+                ArrowClusterView().opacity(isEnabled ? 1 : 0.4)
+                Toggle("", isOn: $isEnabled).labelsHidden().toggleStyle(.switch)
+            }
         }
     }
 }
