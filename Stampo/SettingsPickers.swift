@@ -47,6 +47,7 @@ private struct AppearanceThumbnailView: View {
                 Text(modeTitleKey)
                     .font(.system(size: 10))
                     .lineLimit(1)
+                    .fixedSize()          // never truncate — keep the full label
                     .foregroundStyle(isSelected ? Color.accentColor : .primary)
             }
         }
@@ -166,6 +167,7 @@ private struct SettingsStyleThumbnailView: View {
                 Text(styleTitleKey)
                     .font(.system(size: 10))
                     .lineLimit(1)
+                    .fixedSize()          // never truncate — keep the full label
                     .foregroundStyle(isSelected ? Color.accentColor : .primary)
             }
         }

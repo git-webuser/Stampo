@@ -207,7 +207,9 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
 
     private func openSidebarStyle() {
         let hosting = NSHostingController(rootView: SidebarSettingsView().managedLocale())
-        hosting.view.widthAnchor.constraint(greaterThanOrEqualToConstant: 620).isActive = true
+        // Wider minimum so the sidebar doesn't squeeze the detail pane — the
+        // theme thumbnails' labels (e.g. ru "Тёмная") must fit on one line.
+        hosting.view.widthAnchor.constraint(greaterThanOrEqualToConstant: 720).isActive = true
         hosting.view.heightAnchor.constraint(greaterThanOrEqualToConstant: 420).isActive = true
 
         let win = NSWindow(contentViewController: hosting)
@@ -216,7 +218,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         win.collectionBehavior = [.moveToActiveSpace]
         win.styleMask  = [.titled, .closable, .miniaturizable, .resizable]
         win.titlebarSeparatorStyle = .line
-        win.setContentSize(NSSize(width: 800, height: 480))
+        win.setContentSize(NSSize(width: 880, height: 480))
         win.setFrameAutosaveName("StampoSidebarSettingsWindow")
         win.appearance = AppSettings.settingsAppearance.nsAppearance
         win.center()
