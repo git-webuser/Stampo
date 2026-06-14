@@ -3,8 +3,10 @@ import SwiftUI
 // MARK: - HotkeySettingsView
 
 struct HotkeySettingsView: View {
-    @AppStorage(AppSettings.Keys.hotkeyHUDFormatEnabled) private var hudFormatEnabled = true
-    @AppStorage(AppSettings.Keys.hotkeyArrowMoveEnabled) private var arrowMoveEnabled = true
+    @AppStorage(AppSettings.Keys.hotkeyHUDFormatEnabled)  private var hudFormatEnabled = true
+    @AppStorage(AppSettings.Keys.hotkeyArrowMove1Enabled)  private var move1Enabled  = true
+    @AppStorage(AppSettings.Keys.hotkeyArrowMove10Enabled) private var move10Enabled = true
+    @AppStorage(AppSettings.Keys.hotkeyArrowMove50Enabled) private var move50Enabled = true
 
     /// Live mirror of each action's stored combo, so recorder edits redraw the row.
     @State private var combos: [HotkeyAction: HotkeyCombo?] = HotkeyAction.allCases
@@ -37,7 +39,9 @@ struct HotkeySettingsView: View {
                                action: "Cycle Color Format",
                                caps: ["F"],
                                isEnabled: $hudFormatEnabled)
-                FixedArrowRow(isEnabled: $arrowMoveEnabled)
+                ArrowStepRow(icon: "1.circle",  title: "Move 1 pt",  modifiers: [],         isEnabled: $move1Enabled)
+                ArrowStepRow(icon: "10.circle", title: "Move 10 pt", modifiers: ["⇧"],      isEnabled: $move10Enabled)
+                ArrowStepRow(icon: "50.circle", title: "Move 50 pt", modifiers: ["⇧", "⌥"], isEnabled: $move50Enabled)
             } header: {
                 Text("Color Picker")
             } footer: {
@@ -203,17 +207,23 @@ private struct FixedHotkeyRow: View {
     }
 }
 
-// MARK: - FixedArrowRow
+// MARK: - ArrowStepRow
 
-/// Arrow-key movement row: T-cluster + enable toggle (non-editable).
-private struct FixedArrowRow: View {
+/// One arrow-movement step: icon + label + modifier caps + arrow cluster, each
+/// with its own enable toggle (caps/cluster dim when off).
+private struct ArrowStepRow: View {
+    let icon: String
+    let title: String
+    let modifiers: [String]
     @Binding var isEnabled: Bool
 
     var body: some View {
-        SettingRow(icon: "arrow.up.and.down.and.arrow.left.and.right",
-                   title: "Arrow key movement") {
+        SettingRow(icon: icon, title: LocalizedStringKey(title)) {
             HStack(spacing: 8) {
-                ArrowClusterView().opacity(isEnabled ? 1 : 0.4)
+                HStack(alignment: .center, spacing: 6) {
+                    ForEach(modifiers, id: \.self) { KeyCapView(key: $0, dimmed: !isEnabled) }
+                    ArrowClusterView().opacity(isEnabled ? 1 : 0.4)
+                }
                 Toggle("", isOn: $isEnabled).labelsHidden().toggleStyle(.switch)
             }
         }

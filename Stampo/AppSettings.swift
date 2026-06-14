@@ -49,7 +49,9 @@ enum AppSettings {
         // Hotkeys (the 5 global actions store combos via HotkeyAction; these two
         // are the local color-picker shortcuts, enable/disable only).
         static let hotkeyHUDFormatEnabled  = "hotkeyHUDFormatEnabled"
-        static let hotkeyArrowMoveEnabled  = "hotkeyArrowMoveEnabled"
+        static let hotkeyArrowMove1Enabled  = "hotkeyArrowMove1Enabled"
+        static let hotkeyArrowMove10Enabled = "hotkeyArrowMove10Enabled"
+        static let hotkeyArrowMove50Enabled = "hotkeyArrowMove50Enabled"
     }
 
     // MARK: General
@@ -193,8 +195,14 @@ enum AppSettings {
     static var hotkeyHUDFormatEnabled: Bool {
         UserDefaults.standard.object(forKey: Keys.hotkeyHUDFormatEnabled) as? Bool ?? true
     }
-    static var hotkeyArrowMoveEnabled: Bool {
-        UserDefaults.standard.object(forKey: Keys.hotkeyArrowMoveEnabled) as? Bool ?? true
+    static var hotkeyArrowMove1Enabled: Bool {
+        UserDefaults.standard.object(forKey: Keys.hotkeyArrowMove1Enabled) as? Bool ?? true
+    }
+    static var hotkeyArrowMove10Enabled: Bool {
+        UserDefaults.standard.object(forKey: Keys.hotkeyArrowMove10Enabled) as? Bool ?? true
+    }
+    static var hotkeyArrowMove50Enabled: Bool {
+        UserDefaults.standard.object(forKey: Keys.hotkeyArrowMove50Enabled) as? Bool ?? true
     }
 
     // MARK: Launch at Login

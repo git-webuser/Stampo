@@ -180,10 +180,18 @@ final class ColorSampler {
             KeyCode.arrowLeft:  (-1, 0),
             KeyCode.arrowRight: (1,  0),
         ]
-        if let (dx, dy) = arrowMap[event.keyCode], AppSettings.hotkeyArrowMoveEnabled {
+        if let (dx, dy) = arrowMap[event.keyCode] {
             let mods = event.modifierFlags
-            let step: CGFloat = mods.contains([.shift, .option]) ? 50
-                              : mods.contains(.shift)            ? 10 : 1
+            let step: CGFloat
+            let enabled: Bool
+            if mods.contains([.shift, .option]) {
+                step = 50; enabled = AppSettings.hotkeyArrowMove50Enabled
+            } else if mods.contains(.shift) {
+                step = 10; enabled = AppSettings.hotkeyArrowMove10Enabled
+            } else {
+                step = 1;  enabled = AppSettings.hotkeyArrowMove1Enabled
+            }
+            guard enabled else { return }
             let cur = NSEvent.mouseLocation
             let primaryH = NSScreen.screens.first(where: { $0.frame.origin == .zero })?.frame.height
                            ?? NSScreen.screens.first?.frame.height ?? 0
