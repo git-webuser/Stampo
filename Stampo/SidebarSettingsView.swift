@@ -17,17 +17,7 @@ enum SettingsTab: Int, CaseIterable, Identifiable, Hashable {
         }
     }
 
-    var icon: String {
-        switch self {
-        case .general:  return "gearshape.fill"
-        case .capture:  return "camera.fill"
-        case .tray:     return "tray.fill"
-        case .hotkeys:  return "keyboard.fill"
-        case .about:    return "info.circle.fill"
-        }
-    }
-
-    /// Outline variant for the toolbar (.preference) style window.
+    /// SF Symbol for the toolbar (.preference) style window.
     var toolbarIcon: String {
         switch self {
         case .general:  return "gearshape"
@@ -38,13 +28,14 @@ enum SettingsTab: Int, CaseIterable, Identifiable, Hashable {
         }
     }
 
-    var color: Color {
+    /// Colorful sidebar icon asset (Icon Composer export, System Settings style).
+    var sidebarImage: String {
         switch self {
-        case .general:  return Color(nsColor: .systemGray)
-        case .capture:  return .blue
-        case .tray:     return .green
-        case .hotkeys:  return .orange
-        case .about:    return .indigo
+        case .general:  return "tab-general"
+        case .capture:  return "tab-capture"
+        case .tray:     return "tab-tray"
+        case .hotkeys:  return "tab-hotkeys"
+        case .about:    return "tab-about"
         }
     }
 
@@ -83,12 +74,10 @@ struct SidebarSettingsView: View {
             // Do NOT use .tag() here — that is for Picker, not List.
             List(SettingsTab.allCases, id: \.self, selection: $navigation.selectedTab) { tab in
                 HStack(spacing: 12) {
-                    Image(systemName: tab.icon)
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(.white)
+                    Image(tab.sidebarImage)
+                        .resizable()
+                        .interpolation(.high)
                         .frame(width: 28, height: 28)
-                        .background(tab.color)
-                        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
                     Text(LocalizedStringKey(tab.labelKey))
                         .font(.body)
                 }
