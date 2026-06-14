@@ -437,17 +437,19 @@ final class NotchPanelController: NSObject {
 
     /// Выводит панель на текущий активный Space.
     ///
-    /// Порядок шагов важен:
-    /// 1. `.moveToActiveSpace` — AppKit перетягивает окно в активный Space при orderFront.
-    /// 2. `orderFrontRegardless()` — фактическая привязка к Space происходит здесь.
-    /// 3. `.canJoinAllSpaces` — после привязки к текущему Space расширяем присутствие
-    ///    на все рабочие столы. `.stationary` восстановлен в `f02100f`, чтобы
-    ///    убрать «дыру» при анимации Mission Control; залипание Space защищено
-    ///    sleep/wake-инвалидацией и rebind-последовательностью выше.
+    /// Панель создаётся с `.canJoinAllSpaces` и должна присутствовать на всех
+    /// рабочих столах. Раньше здесь был трюк `.moveToActiveSpace` → orderFront →
+    /// `.canJoinAllSpaces`, который ломался: `.moveToActiveSpace` переносит окно
+    /// только при АКТИВАЦИИ приложения, а это `nonactivatingPanel`, выводимый
+    /// через `orderFrontRegardless()` без активации. Перенос не срабатывал, зато
+    /// `.canJoinAllSpaces` снимался — и окно залипало на одном Space. Поэтому
+    /// просто переутверждаем `.canJoinAllSpaces` и выводим панель вперёд:
+    /// окно остаётся на всех Space и появляется на том, что активен сейчас.
+    /// `.stationary` (восстановлен в `f02100f`) убирает «дыру» при анимации
+    /// Mission Control.
     private func orderFrontOnActiveSpace(_ panel: NSPanel) {
-        panel.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
-        panel.orderFrontRegardless()
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
+        panel.orderFrontRegardless()
     }
 
     /// Помечает Space-привязку панели устаревшей и аккуратно прячет её.
