@@ -45,6 +45,7 @@ enum AppSettings {
         // Appearance / Language
         static let settingsAppearance      = "settingsAppearance"
         static let settingsStyle           = "settingsStyle"
+        static let noNotchPanelStyle       = "noNotchPanelStyle"
         static let preferredLanguage       = "preferredLanguage"
         // Hotkeys (the 5 global actions store combos via HotkeyAction; these two
         // are the local color-picker shortcuts, enable/disable only).
@@ -63,6 +64,13 @@ enum AppSettings {
     static var settingsAppearance: SettingsAppearance {
         let raw = UserDefaults.standard.string(forKey: Keys.settingsAppearance) ?? "system"
         return SettingsAppearance(rawValue: raw) ?? .system
+    }
+
+    /// Panel shape used on displays without a physical notch.
+    static var noNotchPanelStyle: NoNotchPanelStyle {
+        let raw = UserDefaults.standard.string(forKey: Keys.noNotchPanelStyle)
+            ?? NoNotchPanelStyle.rounded.rawValue
+        return NoNotchPanelStyle(rawValue: raw) ?? .rounded
     }
 
     static var showThumbnailHUD: Bool {
@@ -312,6 +320,17 @@ enum SettingsAppearance: String, CaseIterable {
         case .dark:   return NSAppearance(named: .darkAqua)
         }
     }
+}
+
+// MARK: - NoNotchPanelStyle
+
+/// Panel shape on displays without a physical notch.
+/// (Display titles live in the settings Picker as localized literals.)
+enum NoNotchPanelStyle: String, CaseIterable {
+    /// Floating rounded rectangle sitting just below the menu bar.
+    case rounded = "rounded"
+    /// Mimics a notched Mac: the notch shape pinned flush to the top screen edge.
+    case notch   = "notch"
 }
 
 // MARK: - SettingsStyle

@@ -410,8 +410,11 @@ final class NotchHoverController: NSObject {
     private func handleGlobalLeftMouseDown() {
         let mouse = NSEvent.mouseLocation
         guard let screen = screenForPoint(mouse) else { return }
-        guard screen.notchGapWidth > 0 else { return }
 
+        // На экранах без челки триггер — зона в центре меню-бара (см. triggerRect).
+        // Раньше здесь стоял `guard screen.notchGapWidth > 0`, из-за чего на
+        // безчелочных дисплеях не работали ни открытие кликом, ни авто-закрытие
+        // по клику снаружи. Теперь обе ветви ниже отрабатывают везде.
         let trigger = triggerRect(on: screen)
         guard !trigger.isNull else { return }
 
@@ -430,7 +433,12 @@ final class NotchHoverController: NSObject {
         // needsSpaceRebind, чтобы не уйти в ветку «закрыть невидимую панель».
         if panel.isVisible && !panel.needsSpaceRebind {
             if panel.suppressesGlobalAutoHide { return }
-            if inTrigger {
+            // «Клик по триггеру = закрыть» применим только к физической челке, где
+            // триггер — это мёртвая зона выреза без кнопок. На безчелочных экранах
+            // зона-триггер в меню-баре перекрывает кнопки панели (notch-стиль
+            // прижимает панель к меню-бару), поэтому закрытие — только по клику ВНЕ
+            // панели; иначе нажатие, например, кнопки трея просто прятало бы панель.
+            if screen.notchGapWidth > 0 && inTrigger {
                 panel.hideAnimated(reason: .notchClick)
                 return
             }
@@ -457,17 +465,28 @@ final class NotchHoverController: NSObject {
         NSScreen.screens.first(where: { $0.frame.contains(p) }) ?? NSScreen.main
     }
 
+    /// Ширина зоны-триггера в центре меню-бара на экранах без физической челки.
+    /// Примерно соответствует ширине выреза MacBook, чтобы цель клика ощущалась
+    /// одинаково на разных дисплеях.
+    private let noNotchTriggerWidth: CGFloat = 180
+
     private func triggerRect(on screen: NSScreen) -> CGRect {
         let sf = screen.frame
         let vf = screen.visibleFrame
-        let notchWidth = screen.notchGapWidth
-        guard notchWidth > 0 else { return .null }
 
         let menuBarHeight = max(0, sf.maxY - vf.maxY)
         guard menuBarHeight > 0 else { return .null }
 
-        let horizontalHitInset: CGFloat = 12
-        let width = notchWidth + horizontalHitInset * 2
+        let notchWidth = screen.notchGapWidth
+        let width: CGFloat
+        if notchWidth > 0 {
+            let horizontalHitInset: CGFloat = 12
+            width = notchWidth + horizontalHitInset * 2
+        } else {
+            // Без челки: открываем/закрываем панель кликом по зоне в центре
+            // меню-бара — там, где у MacBook был бы вырез.
+            width = noNotchTriggerWidth
+        }
         let x = sf.midX - width / 2
         let y = vf.maxY
         return CGRect(x: x, y: y, width: width, height: menuBarHeight)

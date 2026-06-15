@@ -121,11 +121,24 @@ private struct NotchPanelRootView: View {
 
     var body: some View {
         ZStack(alignment: .top) {
-            // Single morphing background shape
-            PanelMorphShape(progress: p, pixel: m.pixel)
-                .fill(Color.black)
-                .compositingGroup()
-                .frame(height: trayH)
+            // Background. Notched screens use the morphing notch shape, whose
+            // viewBox bakes in side flares and inward bottom corners that blend
+            // into the physical notch. On screens without a notch that geometry
+            // pushes the panel buttons outside the fill, so we draw a plain
+            // rounded rectangle (radius = panelRadius) that simply grows in
+            // height with the tray morph instead.
+            if m.pinnedToTopEdge {
+                PanelMorphShape(progress: p, pixel: m.pixel)
+                    .fill(Color.black)
+                    .compositingGroup()
+                    .frame(height: trayH)
+            } else {
+                let bgHeight = m.panelHeight + p * (trayH - m.panelHeight)
+                RoundedRectangle(cornerRadius: m.panelRadius, style: .continuous)
+                    .fill(Color.black)
+                    .frame(height: bgHeight)
+                    .frame(height: trayH, alignment: .top)
+            }
 
             // Main — visible only in the last ~60% of the morph; hidden during countdown
             NotchPanelView(
@@ -192,6 +205,10 @@ private struct NotchPanelRootView: View {
 final class NotchPanelController: NSObject {
     // MARK: Private (main-file only)
     private var panel: NSPanel?
+
+    /// Starting width of the no-notch "notch" reveal: the panel emerges as a
+    /// narrow strip and widens to its full width as it descends from the edge.
+    private let noNotchNotchStartWidth: CGFloat = 140
     private let interactionState = NotchPanelInteractionState()
     private var isMenuTracking: Bool = false
 
@@ -594,7 +611,11 @@ final class NotchPanelController: NSObject {
             panel.setFrame(frameForWidth(collapsedWidth, on: screen, height: trayPanelHeight), display: false)
         } else {
             let w = clampedWidth(currentWidthForCurrentRoute, on: screen)
-            panel.setFrame(frameNoNotchHiddenAbove(width: w, on: screen, height: trayPanelHeight), display: false)
+            // Notch style starts as a narrow strip above the top edge so the reveal
+            // both descends and widens at once (like a notch unfurling); the rounded
+            // style slides straight down at its full width.
+            let startW = metrics.pinnedToTopEdge ? min(w, noNotchNotchStartWidth) : w
+            panel.setFrame(frameNoNotchHiddenAbove(width: startW, on: screen, height: trayPanelHeight), display: false)
         }
 
         // .moveToActiveSpace перед orderFront гарантирует привязку к текущему
@@ -628,12 +649,18 @@ final class NotchPanelController: NSObject {
             let w = clampedWidth(currentWidthForCurrentRoute, on: screen)
             let h = trayPanelHeight
             let visible = frameForWidth(w, on: screen, height: h)
+            let isNotchStyle = metrics.pinnedToTopEdge
 
             NSAnimationContext.runAnimationGroup { ctx in
-                ctx.duration = 0.20
+                // Notch style takes a touch longer (it descends and widens) and the
+                // buttons fade in only after the shell has mostly formed.
+                ctx.duration = isNotchStyle ? 0.24 : 0.20
                 ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
 
-                withAnimation(.easeOut(duration: ctx.duration)) {
+                let contentAnim: Animation = isNotchStyle
+                    ? .easeOut(duration: 0.16).delay(0.10)
+                    : .easeOut(duration: ctx.duration)
+                withAnimation(contentAnim) {
                     self.interactionState.contentVisibility = 1.0
                 }
                 panel.animator().setFrame(visible, display: true)
@@ -1010,12 +1037,15 @@ final class NotchPanelController: NSObject {
         guard let screen = currentScreen ?? NSScreen.main ?? NSScreen.screens.first else { return }
 
         let w = clampedWidth(expandedWidth, on: screen)
-        let target = frameForWidth(w, on: screen)
+        // Keep the window at the full tray height — only the width may change here.
+        // Animating height collapsed the panel vertically (it was created/shown at
+        // trayPanelHeight but this used the default panelHeight).
+        let target = frameForWidth(w, on: screen, height: trayPanelHeight)
 
-        NSAnimationContext.runAnimationGroup { ctx in
-            ctx.duration = 0.12
-            ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            panel.animator().setFrame(target, display: true)
-        }
+        // Resize instantly: the content (timer cell) reflows with no animation
+        // (`.animation(nil, value: model.delay)`), so a 0.12s window animation
+        // lagged behind the snapped content and looked like an abrupt collapse.
+        // Snapping the window in sync keeps the background flush with the buttons.
+        panel.setFrame(target, display: true)
     }
 }

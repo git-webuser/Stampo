@@ -26,10 +26,16 @@ extension NotchPanelController {
             return collapsedWidth + 2 * shoulder
         }
 
+        // The no-notch content is a single HStack of 6 cells (5 inter-cell gaps).
+        // `left` covers close + mode + timer, `right` covers tray + more + capture;
+        // the trailing `.gap` on `left` is the 5th gap joining the two groups —
+        // without it the panel background ends up one `gap` narrower than the
+        // content and the rightmost button overflows the shape.
         let left = metrics.edgeSafe
             + metrics.cellWidth + metrics.gap
             + metrics.cellWidth + metrics.gap
             + metrics.timerCellWidth(for: model.delay.shortLabel)
+            + metrics.gap
 
         let right = metrics.edgeSafe
             + metrics.cellWidth + metrics.gap
@@ -95,7 +101,7 @@ extension NotchPanelController {
         let topInsetNoNotch = snapToPixel(metrics.outerSideInset, scale: metrics.scale)
 
         let y: CGFloat
-        if metrics.hasNotch {
+        if metrics.pinnedToTopEdge {
             // Panel is anchored to the top edge of the screen; it grows downward when expanded.
             y = snapToPixel(sf.maxY - h, scale: metrics.scale)
         } else {

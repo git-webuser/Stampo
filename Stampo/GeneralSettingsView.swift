@@ -5,6 +5,7 @@ struct GeneralSettingsView: View {
     @AppStorage(AppSettings.Keys.thumbnailDismissDelay) private var thumbnailDismissDelay = 3.0
     @AppStorage(AppSettings.Keys.settingsAppearance)    private var settingsAppearance     = SettingsAppearance.system
     @AppStorage(AppSettings.Keys.settingsStyle)         private var settingsStyle          = SettingsStyle.toolbar
+    @AppStorage(AppSettings.Keys.noNotchPanelStyle)     private var noNotchPanelStyle      = NoNotchPanelStyle.rounded
     @AppStorage(AppSettings.Keys.preferredLanguage)     private var preferredLanguage      = "system"
 
     @State private var launchAtLogin = AppSettings.launchAtLoginEnabled
@@ -77,6 +78,19 @@ struct GeneralSettingsView: View {
                 }
                 .onChange(of: settingsAppearance) { _, newValue in
                     SettingsWindowController.shared.applyAppearance(newValue)
+                }
+
+                SettingRow(
+                    icon: "rectangle.tophalf.inset.filled",
+                    title: "Panel shape",
+                    description: "On displays without a notch — applies next time the panel opens"
+                ) {
+                    Picker("", selection: $noNotchPanelStyle) {
+                        Text("Rounded").tag(NoNotchPanelStyle.rounded)
+                        Text("Notch").tag(NoNotchPanelStyle.notch)
+                    }
+                    .pickerStyle(.menu)
+                    .labelsHidden()
                 }
 
                 // Language change takes effect immediately via LocaleManager — no restart needed.

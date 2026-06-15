@@ -158,7 +158,7 @@ struct NotchPanelView: View {
                 moreCell
                 captureButton
             }
-            .padding(.horizontal, metrics.outerSideInset)
+            .padding(.horizontal, metrics.edgeSafe)
             .frame(height: metrics.panelHeight)
             .opacity(contentOpacity)
             .animation(contentFade, value: interaction.contentVisibility)

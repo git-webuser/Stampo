@@ -17,6 +17,12 @@ struct NotchMetrics {
     /// Whether the screen has a physical notch cutout.
     let hasNotch: Bool
 
+    /// Whether the panel is pinned flush to the top screen edge and drawn with
+    /// the notch shape. Always true for real notches; on notch-less screens it
+    /// follows the user's NoNotchPanelStyle (`.notch` = pinned, `.rounded` =
+    /// floating rounded rectangle below the menu bar).
+    let pinnedToTopEdge: Bool
+
     /// Width of the notch gap (notchGapWidth of the screen).
     let notchGap: CGFloat
 
@@ -114,14 +120,21 @@ struct NotchMetrics {
         let notchGap = screen.notchGapWidth
         let hasNotch = notchGap > 0
 
+        // Real notches are always pinned; notch-less screens follow the user's
+        // chosen style. Pinned panels need the wider notch edge inset (20) so the
+        // buttons clear the notch shape's side flares; the floating rounded style
+        // sits inside a plain rounded rectangle and only needs a small inset (5).
+        let pinnedToTopEdge = hasNotch || AppSettings.noNotchPanelStyle == .notch
+
         return NotchMetrics(
             scale: scale,
             hasNotch: hasNotch,
+            pinnedToTopEdge: pinnedToTopEdge,
             notchGap: notchGap,
             panelHeight: 34,
             panelRadius: 10,
             outerSideInset: 5,
-            edgeSafe: hasNotch ? 20 : 5,
+            edgeSafe: pinnedToTopEdge ? 20 : 5,
             leftMinToNotch: 36,
             rightMinFromNotch: 12,
             cellWidth: 32,
@@ -147,6 +160,7 @@ struct NotchMetrics {
         return NotchMetrics(
             scale: 2.0,
             hasNotch: true,
+            pinnedToTopEdge: true,
             notchGap: 184,
             panelHeight: 34,
             panelRadius: 10,
