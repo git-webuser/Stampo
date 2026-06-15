@@ -23,6 +23,12 @@ struct NotchMetrics {
     /// floating rounded rectangle below the menu bar).
     let pinnedToTopEdge: Bool
 
+    /// Uniform scale applied to the whole panel (shape, buttons, fonts, paddings
+    /// and the window frame). 1 for real notches and the rounded style; on a
+    /// notch-less screen in notch style it shrinks the panel so the Main height
+    /// matches the menu bar and sits flush inside it.
+    let panelScale: CGFloat
+
     /// Width of the notch gap (notchGapWidth of the screen).
     let notchGap: CGFloat
 
@@ -126,15 +132,27 @@ struct NotchMetrics {
         // sits inside a plain rounded rectangle and only needs a small inset (5).
         let pinnedToTopEdge = hasNotch || AppSettings.noNotchPanelStyle == .notch
 
+        // Notch style on a notch-less screen scales the whole panel down so its
+        // Main height matches the (shorter) menu bar and sits flush inside it.
+        // Everything scales uniformly via panelScale (see NotchMetrics.panelScale);
+        // real notches and the rounded style render 1:1 at the 34pt design size.
+        let menuBarHeight = max(0, screen.frame.maxY - screen.visibleFrame.maxY)
+        let isNoNotchNotch = pinnedToTopEdge && !hasNotch
+        let panelScale: CGFloat = isNoNotchNotch ? min(1, max(0.55, menuBarHeight / 34)) : 1
+
         return NotchMetrics(
             scale: scale,
             hasNotch: hasNotch,
             pinnedToTopEdge: pinnedToTopEdge,
+            panelScale: panelScale,
             notchGap: notchGap,
             panelHeight: 34,
             panelRadius: 10,
             outerSideInset: 5,
-            edgeSafe: pinnedToTopEdge ? 20 : 5,
+            // Only the real notch shape has wide side flares that need a 20pt
+            // inset; notch-less shapes have straight sides, so 5pt matches the
+            // top/bottom margin and keeps the padding even.
+            edgeSafe: hasNotch ? 20 : 5,
             leftMinToNotch: 36,
             rightMinFromNotch: 12,
             cellWidth: 32,
@@ -161,6 +179,7 @@ struct NotchMetrics {
             scale: 2.0,
             hasNotch: true,
             pinnedToTopEdge: true,
+            panelScale: 1,
             notchGap: 184,
             panelHeight: 34,
             panelRadius: 10,

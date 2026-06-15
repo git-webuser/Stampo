@@ -120,24 +120,57 @@ private struct NotchPanelRootView: View {
     private var p: CGFloat { rootState.progress }
 
     var body: some View {
+        // Notch style on a notch-less screen renders the whole panel at its 34pt
+        // design size, then scales it uniformly (shape, buttons, fonts, paddings)
+        // to fit the menu bar. The window frame is scaled to match in the
+        // controller's frame* helpers. Real notch / rounded use panelScale == 1
+        // and the unscaled path — no behaviour change.
+        let s = m.panelScale
+        if s == 1 {
+            panelStack
+        } else {
+            GeometryReader { geo in
+                panelStack
+                    .frame(width: geo.size.width / s, height: geo.size.height / s, alignment: .top)
+                    .scaleEffect(s, anchor: .topLeading)
+            }
+        }
+    }
+
+    private var panelStack: some View {
         ZStack(alignment: .top) {
-            // Background. Notched screens use the morphing notch shape, whose
-            // viewBox bakes in side flares and inward bottom corners that blend
-            // into the physical notch. On screens without a notch that geometry
-            // pushes the panel buttons outside the fill, so we draw a plain
-            // rounded rectangle (radius = panelRadius) that simply grows in
-            // height with the tray morph instead.
-            if m.pinnedToTopEdge {
+            // Background. Only the real notch uses the morphing notch keyframes
+            // (its viewBox flares blend into the physical notch). Notch-less
+            // screens use fixed-radius shapes that grow in height with the tray
+            // morph — so corners never distort the way the 536-wide keyframes do
+            // when squished onto a narrow panel:
+            //   • notch style: pinned to the top edge → square top corners flush
+            //     with the screen edge, rounded bottom corners (a clean "tab").
+            //   • rounded style: a full rounded rectangle below the menu bar.
+            if m.hasNotch {
                 PanelMorphShape(progress: p, pixel: m.pixel)
                     .fill(Color.black)
                     .compositingGroup()
                     .frame(height: trayH)
             } else {
                 let bgHeight = m.panelHeight + p * (trayH - m.panelHeight)
-                RoundedRectangle(cornerRadius: m.panelRadius, style: .continuous)
-                    .fill(Color.black)
-                    .frame(height: bgHeight)
-                    .frame(height: trayH, alignment: .top)
+                Group {
+                    if m.pinnedToTopEdge {
+                        UnevenRoundedRectangle(
+                            topLeadingRadius: 0,
+                            bottomLeadingRadius: m.panelRadius,
+                            bottomTrailingRadius: m.panelRadius,
+                            topTrailingRadius: 0,
+                            style: .continuous
+                        )
+                        .fill(Color.black)
+                    } else {
+                        RoundedRectangle(cornerRadius: m.panelRadius, style: .continuous)
+                            .fill(Color.black)
+                    }
+                }
+                .frame(height: bgHeight)
+                .frame(height: trayH, alignment: .top)
             }
 
             // Main — visible only in the last ~60% of the morph; hidden during countdown
@@ -205,10 +238,6 @@ private struct NotchPanelRootView: View {
 final class NotchPanelController: NSObject {
     // MARK: Private (main-file only)
     private var panel: NSPanel?
-
-    /// Starting width of the no-notch "notch" reveal: the panel emerges as a
-    /// narrow strip and widens to its full width as it descends from the edge.
-    private let noNotchNotchStartWidth: CGFloat = 140
     private let interactionState = NotchPanelInteractionState()
     private var isMenuTracking: Bool = false
 
@@ -610,12 +639,10 @@ final class NotchPanelController: NSObject {
         if metrics.hasNotch {
             panel.setFrame(frameForWidth(collapsedWidth, on: screen, height: trayPanelHeight), display: false)
         } else {
+            // Both no-notch styles reveal by descending from above the top edge at
+            // full width — the exact reverse of the close animation.
             let w = clampedWidth(currentWidthForCurrentRoute, on: screen)
-            // Notch style starts as a narrow strip above the top edge so the reveal
-            // both descends and widens at once (like a notch unfurling); the rounded
-            // style slides straight down at its full width.
-            let startW = metrics.pinnedToTopEdge ? min(w, noNotchNotchStartWidth) : w
-            panel.setFrame(frameNoNotchHiddenAbove(width: startW, on: screen, height: trayPanelHeight), display: false)
+            panel.setFrame(frameNoNotchHiddenAbove(width: w, on: screen, height: trayPanelHeight), display: false)
         }
 
         // .moveToActiveSpace перед orderFront гарантирует привязку к текущему
@@ -649,18 +676,12 @@ final class NotchPanelController: NSObject {
             let w = clampedWidth(currentWidthForCurrentRoute, on: screen)
             let h = trayPanelHeight
             let visible = frameForWidth(w, on: screen, height: h)
-            let isNotchStyle = metrics.pinnedToTopEdge
 
             NSAnimationContext.runAnimationGroup { ctx in
-                // Notch style takes a touch longer (it descends and widens) and the
-                // buttons fade in only after the shell has mostly formed.
-                ctx.duration = isNotchStyle ? 0.24 : 0.20
+                ctx.duration = 0.20
                 ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
 
-                let contentAnim: Animation = isNotchStyle
-                    ? .easeOut(duration: 0.16).delay(0.10)
-                    : .easeOut(duration: ctx.duration)
-                withAnimation(contentAnim) {
+                withAnimation(.easeOut(duration: ctx.duration)) {
                     self.interactionState.contentVisibility = 1.0
                 }
                 panel.animator().setFrame(visible, display: true)

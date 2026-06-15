@@ -19,9 +19,14 @@ struct NotchTrayView: View {
         onBack()  // controller drives the content fade-out
     }
 
-    private let panelRounding: CGFloat = 19  // clearance for panel corner radius
-    private let innerInset:    CGFloat = 15  // scroll container inset from panel edge
-    private let contentInset:  CGFloat = 18  // leading/trailing padding inside scroll content
+    // Real notch has a large corner radius and wide flared shape, so it needs
+    // generous horizontal clearance; notch-less shapes are small/straight, so
+    // the side insets (and the soft fade) are tighter. Vertical paddings are
+    // unchanged. scrollPadH (header) stays aligned with the scroll content's
+    // first cell (innerInset + contentInset).
+    private var panelRounding: CGFloat { metrics.hasNotch ? 19 : 10 }  // clearance for panel corner radius
+    private var innerInset:    CGFloat { metrics.hasNotch ? 15 : 8 }   // scroll container inset from panel edge
+    private var contentInset:  CGFloat { metrics.hasNotch ? 18 : 10 }  // leading/trailing padding (and fade width) inside scroll content
     private var scrollPadH:    CGFloat { panelRounding + innerInset }
     private let cellSpacing:   CGFloat = 8
     private let cellH:         CGFloat = 32
@@ -87,7 +92,18 @@ struct NotchTrayView: View {
                 HStack(spacing: metrics.gap) {
                     backButton
                     schemeMenu
-                    Spacer()
+                    if metrics.pinnedToTopEdge {
+                        // Notch style has no notch pill to tap, so let the empty
+                        // centre of the header dismiss the panel — the same
+                        // tap-to-close gesture the notch pill provides on a real
+                        // notch. (Buttons sit on the shoulders and keep their taps.)
+                        Color.clear
+                            .frame(maxWidth: .infinity)
+                            .contentShape(Rectangle())
+                            .onTapGesture { onHidePanel() }
+                    } else {
+                        Spacer()
+                    }
                     pinButton
                     moreButton
                 }
@@ -188,14 +204,20 @@ struct NotchTrayView: View {
             .frame(maxHeight: .infinity, alignment: .top)
         }
         .frame(maxHeight: .infinity, alignment: .top)
-        .mask(
+        // Fade the scroll edges into the (black) panel background with a scrim
+        // overlay rather than an alpha .mask: a mask's near-transparent edge left
+        // a 1–2pt seam (made worse by the panel-wide scaleEffect). Black→clear
+        // gradients painted on top blend the cells into the black background and
+        // have no alpha-edge artifact.
+        .overlay(
             HStack(spacing: 0) {
-                LinearGradient(colors: [.clear, .black], startPoint: .leading, endPoint: .trailing)
-                    .frame(width: contentInset)
-                Color.black
                 LinearGradient(colors: [.black, .clear], startPoint: .leading, endPoint: .trailing)
                     .frame(width: contentInset)
+                Spacer(minLength: 0)
+                LinearGradient(colors: [.clear, .black], startPoint: .leading, endPoint: .trailing)
+                    .frame(width: contentInset)
             }
+            .allowsHitTesting(false)
         )
         .padding(.horizontal, innerInset)
     }

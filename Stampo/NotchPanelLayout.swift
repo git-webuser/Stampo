@@ -88,17 +88,22 @@ extension NotchPanelController {
     }
 
     func frameForWidth(_ width: CGFloat, on screen: NSScreen?, height: CGFloat? = nil) -> NSRect {
-        let h = height ?? metrics.panelHeight
-        guard let screen else { return NSRect(x: 0, y: 0, width: width, height: h) }
+        // Window dimensions are scaled by panelScale to match the SwiftUI
+        // scaleEffect applied to the content (notch style on notch-less screens).
+        // panelScale == 1 for real notch / rounded, so those are unaffected.
+        let s = metrics.panelScale
+        let w = width * s
+        let h = (height ?? metrics.panelHeight) * s
+        guard let screen else { return NSRect(x: 0, y: 0, width: w, height: h) }
 
         let sf = screen.frame
         let margin = snapToPixel(8, scale: metrics.scale)
 
-        var x = sf.midX - width / 2
-        x = max(sf.minX + margin, min(x, sf.maxX - margin - width))
+        var x = sf.midX - w / 2
+        x = max(sf.minX + margin, min(x, sf.maxX - margin - w))
         x = snapToPixel(x, scale: metrics.scale)
 
-        let topInsetNoNotch = snapToPixel(metrics.outerSideInset, scale: metrics.scale)
+        let topInsetNoNotch = snapToPixel(metrics.outerSideInset * s, scale: metrics.scale)
 
         let y: CGFloat
         if metrics.pinnedToTopEdge {
@@ -108,22 +113,24 @@ extension NotchPanelController {
             y = snapToPixel(screen.visibleFrame.maxY - h - topInsetNoNotch, scale: metrics.scale)
         }
 
-        return NSRect(x: x, y: y, width: snapToPixel(width, scale: metrics.scale), height: snapToPixel(h, scale: metrics.scale))
+        return NSRect(x: x, y: y, width: snapToPixel(w, scale: metrics.scale), height: snapToPixel(h, scale: metrics.scale))
     }
 
     func frameNoNotchHiddenAbove(width: CGFloat, on screen: NSScreen?, height: CGFloat? = nil) -> NSRect {
-        let h = height ?? metrics.panelHeight
-        guard let screen else { return NSRect(x: 0, y: 0, width: width, height: h) }
+        let s = metrics.panelScale
+        let w = width * s
+        let h = (height ?? metrics.panelHeight) * s
+        guard let screen else { return NSRect(x: 0, y: 0, width: w, height: h) }
 
         let sf = screen.frame
         let margin = snapToPixel(8, scale: metrics.scale)
 
-        var x = sf.midX - width / 2
-        x = max(sf.minX + margin, min(x, sf.maxX - margin - width))
+        var x = sf.midX - w / 2
+        x = max(sf.minX + margin, min(x, sf.maxX - margin - w))
         x = snapToPixel(x, scale: metrics.scale)
 
         let y = snapToPixel(sf.maxY + metrics.pixel, scale: metrics.scale)
-        return NSRect(x: x, y: y, width: snapToPixel(width, scale: metrics.scale), height: snapToPixel(h, scale: metrics.scale))
+        return NSRect(x: x, y: y, width: snapToPixel(w, scale: metrics.scale), height: snapToPixel(h, scale: metrics.scale))
     }
 }
 
