@@ -998,6 +998,13 @@ final class NotchPanelController: NSObject {
         guard let panel else { return }
         guard let screen = currentScreen ?? NSScreen.main ?? NSScreen.screens.first else { return }
 
+        // Coalesce re-entrant toggles: ignore a new tray morph while one is still
+        // in flight. Overlapping transitions orphan each other's completion
+        // handlers (generation mismatch), which left brief half-morphed/stuck
+        // states during rapid clicking. hideAnimated/showAnimated (Esc, hotkey,
+        // outside-click) are not routed through here, so they can still interrupt.
+        if case .transitioning = state { return }
+
         let gen = bumpGeneration()
         let target: TransitionTarget = (targetRoute == .tray) ? .tray : .main
         state = .transitioning(to: target)

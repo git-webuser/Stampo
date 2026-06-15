@@ -57,8 +57,11 @@ final class UpdateChecker {
     /// Call once at launch. Performs a delayed check, then re-checks daily.
     func startAutomaticChecks() {
         timer?.invalidate()
-        timer = Timer.scheduledTimer(withTimeInterval: 60 * 60, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.checkIfDue() }
+        timer = Timer.scheduledTimer(withTimeInterval: 60 * 60, repeats: true) { _ in
+            // Go through the (lifetime-long) singleton instead of capturing self in
+            // the concurrently-executing Task — avoids the Swift 6 "captured var
+            // 'self' in concurrent code" error with no retain-cycle concern.
+            Task { @MainActor in UpdateChecker.shared.checkIfDue() }
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 15) { [weak self] in
             self?.checkIfDue()
