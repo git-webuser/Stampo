@@ -138,7 +138,11 @@ struct NotchMetrics {
         // real notches and the rounded style render 1:1 at the 34pt design size.
         let menuBarHeight = max(0, screen.frame.maxY - screen.visibleFrame.maxY)
         let isNoNotchNotch = pinnedToTopEdge && !hasNotch
-        let panelScale: CGFloat = isNoNotchNotch ? min(1, max(0.55, menuBarHeight / 34)) : 1
+        // Auto base fits the menu bar; an optional user multiplier (Settings)
+        // nudges it. Final scale clamped to a sane range.
+        let autoScale = menuBarHeight / 34
+        let userScale = CGFloat(AppSettings.noNotchNotchScale)
+        let panelScale: CGFloat = isNoNotchNotch ? min(1.5, max(0.5, autoScale * userScale)) : 1
 
         return NotchMetrics(
             scale: scale,

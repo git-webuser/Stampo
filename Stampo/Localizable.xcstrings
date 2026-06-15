@@ -992,6 +992,23 @@
         }
       }
     },
+    "Fine-tune the size — applies next time the panel opens": {
+      "comment": "Description for the notch panel scale picker",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fine-tune the size — applies next time the panel opens"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Точная подгонка размера — применяется при следующем открытии панели"
+          }
+        }
+      }
+    },
     "Format": {
       "comment": "Label for the file format picker (PNG/JPEG/TIFF)",
       "localizations": {
@@ -1507,6 +1524,23 @@
         }
       }
     },
+    "Notch panel scale": {
+      "comment": "Title for the notch-style panel scale picker",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notch panel scale"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Масштаб панели «Челка»"
+          }
+        }
+      }
+    },
     "Nothing Here Yet": {
       "comment": "Empty state title in the tray",
       "localizations": {
@@ -1825,6 +1859,23 @@
         }
       }
     },
+    "Pill": {
+      "comment": "Panel shape option: floating rounded \"pill\" below the menu bar",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pill"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пилюля"
+          }
+        }
+      }
+    },
     "Pin": {
       "comment": "Tooltip and accessibility label — pin screenshot HUD so it stays visible",
       "localizations": {
@@ -2051,23 +2102,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Повторить"
-          }
-        }
-      }
-    },
-    "Rounded": {
-      "comment": "Panel shape option: floating rounded rectangle",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Rounded"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Скруглённая"
           }
         }
       }

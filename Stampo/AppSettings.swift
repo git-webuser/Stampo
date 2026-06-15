@@ -46,6 +46,7 @@ enum AppSettings {
         static let settingsAppearance      = "settingsAppearance"
         static let settingsStyle           = "settingsStyle"
         static let noNotchPanelStyle       = "noNotchPanelStyle"
+        static let noNotchNotchScale       = "noNotchNotchScale"
         static let preferredLanguage       = "preferredLanguage"
         // Hotkeys (the 5 global actions store combos via HotkeyAction; these two
         // are the local color-picker shortcuts, enable/disable only).
@@ -71,6 +72,13 @@ enum AppSettings {
         let raw = UserDefaults.standard.string(forKey: Keys.noNotchPanelStyle)
             ?? NoNotchPanelStyle.rounded.rawValue
         return NoNotchPanelStyle(rawValue: raw) ?? .rounded
+    }
+
+    /// User multiplier applied on top of the automatic notch-style scale
+    /// (menuBarHeight / 34). 1.0 = auto only. Clamped to a sane range.
+    static var noNotchNotchScale: Double {
+        let v = UserDefaults.standard.object(forKey: Keys.noNotchNotchScale) as? Double ?? 1.0
+        return min(1.5, max(0.5, v))
     }
 
     static var showThumbnailHUD: Bool {

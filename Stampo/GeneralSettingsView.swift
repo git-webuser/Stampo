@@ -6,6 +6,7 @@ struct GeneralSettingsView: View {
     @AppStorage(AppSettings.Keys.settingsAppearance)    private var settingsAppearance     = SettingsAppearance.system
     @AppStorage(AppSettings.Keys.settingsStyle)         private var settingsStyle          = SettingsStyle.toolbar
     @AppStorage(AppSettings.Keys.noNotchPanelStyle)     private var noNotchPanelStyle      = NoNotchPanelStyle.rounded
+    @AppStorage(AppSettings.Keys.noNotchNotchScale)     private var noNotchNotchScale      = 1.0
     @AppStorage(AppSettings.Keys.preferredLanguage)     private var preferredLanguage      = "system"
 
     @State private var launchAtLogin = AppSettings.launchAtLoginEnabled
@@ -86,11 +87,30 @@ struct GeneralSettingsView: View {
                     description: "On displays without a notch — applies next time the panel opens"
                 ) {
                     Picker("", selection: $noNotchPanelStyle) {
-                        Text("Rounded").tag(NoNotchPanelStyle.rounded)
+                        Text("Pill").tag(NoNotchPanelStyle.rounded)
                         Text("Notch").tag(NoNotchPanelStyle.notch)
                     }
                     .pickerStyle(.menu)
                     .labelsHidden()
+                }
+
+                if noNotchPanelStyle == .notch {
+                    SettingRow(
+                        icon: "arrow.up.left.and.arrow.down.right",
+                        title: "Notch panel scale",
+                        description: "Fine-tune the size — applies next time the panel opens"
+                    ) {
+                        Picker("", selection: $noNotchNotchScale) {
+                            Text(verbatim: "80%").tag(0.8)
+                            Text(verbatim: "90%").tag(0.9)
+                            Text(verbatim: "100%").tag(1.0)
+                            Text(verbatim: "110%").tag(1.1)
+                            Text(verbatim: "120%").tag(1.2)
+                            Text(verbatim: "130%").tag(1.3)
+                        }
+                        .pickerStyle(.menu)
+                        .labelsHidden()
+                    }
                 }
 
                 // Language change takes effect immediately via LocaleManager — no restart needed.
