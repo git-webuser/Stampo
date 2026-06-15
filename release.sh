@@ -73,6 +73,14 @@ echo "  Signature OK"
 
 # ---------- DMG ----------
 
+# Stage only the .app so the DMG window doesn't show xcodebuild's
+# export artifacts (DistributionSummary.plist, ExportOptions.plist,
+# Packaging.log).
+DMG_STAGE="$BUILD_DIR/dmg-stage"
+rm -rf "$DMG_STAGE"
+mkdir -p "$DMG_STAGE"
+cp -R "$EXPORT_PATH/Stampo.app" "$DMG_STAGE/"
+
 echo "▸ Creating DMG..."
 create-dmg \
   --volname "Stampo" \
@@ -83,7 +91,9 @@ create-dmg \
   --hide-extension "Stampo.app" \
   --app-drop-link 460 190 \
   "$DMG_PATH" \
-  "$EXPORT_PATH/"
+  "$DMG_STAGE/"
+
+rm -rf "$DMG_STAGE"
 
 CHECKSUM=$(shasum -a 256 "$DMG_PATH" | awk '{print $1}')
 
