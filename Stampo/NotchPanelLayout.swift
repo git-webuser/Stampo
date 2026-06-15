@@ -132,6 +132,17 @@ extension NotchPanelController {
         let y = snapToPixel(sf.maxY + metrics.pixel, scale: metrics.scale)
         return NSRect(x: x, y: y, width: snapToPixel(w, scale: metrics.scale), height: snapToPixel(h, scale: metrics.scale))
     }
+
+    /// Hidden start/end frame for the notch tab: the visible frame nudged up by
+    /// just the visible content height (the Main strip). The tab is pinned to the
+    /// top edge, so a full slide-from-above (`frameNoNotchHiddenAbove`) plays out
+    /// mostly off-screen and reads as a pop; nudging up by only the content
+    /// height makes the whole reveal/close the content wiping in/out at the edge.
+    func frameNotchTabHidden(width: CGFloat, on screen: NSScreen?) -> NSRect {
+        var f = frameForWidth(width, on: screen, height: trayPanelHeight)
+        f.origin.y += metrics.panelHeight * metrics.panelScale
+        return f
+    }
 }
 
 // MARK: - Pixel snapping

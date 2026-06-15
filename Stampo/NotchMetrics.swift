@@ -149,10 +149,11 @@ struct NotchMetrics {
             panelHeight: 34,
             panelRadius: 10,
             outerSideInset: 5,
-            // Only the real notch shape has wide side flares that need a 20pt
-            // inset; notch-less shapes have straight sides, so 5pt matches the
-            // top/bottom margin and keeps the padding even.
-            edgeSafe: hasNotch ? 20 : 5,
+            // The real notch and the notch tab both taper inward at the bottom
+            // shoulders, so their content needs a wider side inset to clear the
+            // skews (and the padding then visually follows the taper). The plain
+            // rounded style has straight sides, so 5pt matches the top/bottom.
+            edgeSafe: hasNotch ? 20 : (isNoNotchNotch ? 18 : 5),
             leftMinToNotch: 36,
             rightMinFromNotch: 12,
             cellWidth: 32,

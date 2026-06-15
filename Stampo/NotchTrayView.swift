@@ -28,6 +28,12 @@ struct NotchTrayView: View {
     private var innerInset:    CGFloat { metrics.hasNotch ? 15 : 8 }   // scroll container inset from panel edge
     private var contentInset:  CGFloat { metrics.hasNotch ? 18 : 10 }  // leading/trailing padding (and fade width) inside scroll content
     private var scrollPadH:    CGFloat { panelRounding + innerInset }
+    /// The notch tab tapers inward at the bottom shoulders (NotchTabShape: wall
+    /// at x=15, bottom edge at x=31 → a 16pt skew). Without this the tray
+    /// content — which reaches down into the shoulder band — spills past the
+    /// shape by exactly the skew, so inset the whole layout (header + scroll
+    /// stay aligned) by that amount. Rounded style has straight sides → 0.
+    private var skewInset: CGFloat { metrics.pinnedToTopEdge ? 16 : 0 }
     private let cellSpacing:   CGFloat = 8
     private let cellH:         CGFloat = 32
     private let badgeBleed:    CGFloat = 3
@@ -120,6 +126,8 @@ struct NotchTrayView: View {
                 emptyState.frame(height: trayHeight)
             }
         }
+        // Keep content inside the notch tab's tapering shoulders.
+        .padding(.horizontal, skewInset)
     }
 
     private var emptyState: some View {
@@ -204,20 +212,25 @@ struct NotchTrayView: View {
             .frame(maxHeight: .infinity, alignment: .top)
         }
         .frame(maxHeight: .infinity, alignment: .top)
-        // Fade the scroll edges into the (black) panel background with a scrim
-        // overlay rather than an alpha .mask: a mask's near-transparent edge left
-        // a 1–2pt seam (made worse by the panel-wide scaleEffect). Black→clear
-        // gradients painted on top blend the cells into the black background and
-        // have no alpha-edge artifact.
-        .overlay(
-            HStack(spacing: 0) {
-                LinearGradient(colors: [.black, .clear], startPoint: .leading, endPoint: .trailing)
-                    .frame(width: contentInset)
-                Spacer(minLength: 0)
-                LinearGradient(colors: [.clear, .black], startPoint: .leading, endPoint: .trailing)
-                    .frame(width: contentInset)
+        // Fade the scroll edges with an alpha mask (reveals the panel behind —
+        // never paints anything, so it can't spill outside the panel shape or
+        // look like animating "fangs" the way an opaque overlay scrim did). A
+        // single continuous gradient with stops — rather than three framed
+        // pieces — avoids the 1–2pt sub-pixel seam under the panel scaleEffect.
+        .mask(
+            GeometryReader { geo in
+                let f = min(0.5, contentInset / max(geo.size.width, 1))
+                LinearGradient(
+                    stops: [
+                        .init(color: .clear, location: 0),
+                        .init(color: .black, location: f),
+                        .init(color: .black, location: 1 - f),
+                        .init(color: .clear, location: 1)
+                    ],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
             }
-            .allowsHitTesting(false)
         )
         .padding(.horizontal, innerInset)
     }

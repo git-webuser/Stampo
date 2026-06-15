@@ -138,7 +138,12 @@ private struct NotchPanelRootView: View {
     }
 
     private var panelStack: some View {
-        ZStack(alignment: .top) {
+        // Panel content height at the current morph progress (Main → Tray).
+        // Drives the no-notch background height and clips the tray content so its
+        // lower rows are revealed in step with the growing panel — not before it
+        // has opened.
+        let revealH = m.panelHeight + p * (trayH - m.panelHeight)
+        return ZStack(alignment: .top) {
             // Background. Only the real notch uses the morphing notch keyframes
             // (its viewBox flares blend into the physical notch). Notch-less
             // screens use fixed-radius shapes that grow in height with the tray
@@ -153,23 +158,17 @@ private struct NotchPanelRootView: View {
                     .compositingGroup()
                     .frame(height: trayH)
             } else {
-                let bgHeight = m.panelHeight + p * (trayH - m.panelHeight)
                 Group {
                     if m.pinnedToTopEdge {
-                        UnevenRoundedRectangle(
-                            topLeadingRadius: 0,
-                            bottomLeadingRadius: m.panelRadius,
-                            bottomTrailingRadius: m.panelRadius,
-                            topTrailingRadius: 0,
-                            style: .continuous
-                        )
-                        .fill(Color.black)
+                        // Notch tab with the notch's tapering bottom shoulders.
+                        NotchTabShape()
+                            .fill(Color.black)
                     } else {
                         RoundedRectangle(cornerRadius: m.panelRadius, style: .continuous)
                             .fill(Color.black)
                     }
                 }
-                .frame(height: bgHeight)
+                .frame(height: revealH)
                 .frame(height: trayH, alignment: .top)
             }
 
@@ -217,6 +216,16 @@ private struct NotchPanelRootView: View {
             .opacity(rootState.trayContentVisible)
             .opacity(p)
             .allowsHitTesting(p >= 0.5)
+            // Reveal the tray content in step with the growing panel: clip it to
+            // the current panel height so the lower rows don't show before the
+            // background has expanded to cover them. revealH is a hair shorter
+            // than the notch morph, so content reveals just behind the shape edge
+            // (safe) rather than ahead of it. At rest (p=1) revealH == trayH.
+            .mask(
+                Color.black
+                    .frame(height: revealH)
+                    .frame(height: trayH, alignment: .top)
+            )
 
             // Notch close zone — always topmost, width = notchGap, height = panelHeight.
             // Lets the user close the panel by tapping the notch pill even when the tray
@@ -639,10 +648,15 @@ final class NotchPanelController: NSObject {
         if metrics.hasNotch {
             panel.setFrame(frameForWidth(collapsedWidth, on: screen, height: trayPanelHeight), display: false)
         } else {
-            // Both no-notch styles reveal by descending from above the top edge at
-            // full width — the exact reverse of the close animation.
+            // Reveal by descending from above the top edge — the exact reverse of
+            // the close animation. The notch tab starts just the content height
+            // above so the whole descent is visible (see frameNotchTabHidden);
+            // the rounded style slides down at full width from fully above.
             let w = clampedWidth(currentWidthForCurrentRoute, on: screen)
-            panel.setFrame(frameNoNotchHiddenAbove(width: w, on: screen, height: trayPanelHeight), display: false)
+            let start = metrics.pinnedToTopEdge
+                ? frameNotchTabHidden(width: w, on: screen)
+                : frameNoNotchHiddenAbove(width: w, on: screen, height: trayPanelHeight)
+            panel.setFrame(start, display: false)
         }
 
         // .moveToActiveSpace перед orderFront гарантирует привязку к текущему
@@ -797,7 +811,11 @@ final class NotchPanelController: NSObject {
         } else {
             let w = clampedWidth(currentWidthForCurrentRoute, on: screen)
             let h = trayPanelHeight
-            let hidden = frameNoNotchHiddenAbove(width: w, on: screen, height: h)
+            // Mirror of the reveal: notch tab rises just the content height (so the
+            // close is fully visible), rounded style slides up fully above.
+            let hidden = metrics.pinnedToTopEdge
+                ? frameNotchTabHidden(width: w, on: screen)
+                : frameNoNotchHiddenAbove(width: w, on: screen, height: h)
 
             NSAnimationContext.runAnimationGroup { ctx in
                 ctx.duration = PanelTiming.hideAnimation
@@ -1024,6 +1042,11 @@ final class NotchPanelController: NSObject {
         } else {
             // Opening: spring easing
             route = .tray
+            // Ensure the tray content is visible on open. A rapid open→close can
+            // strand trayContentVisible at 0 — the close pre-fades it to 0 and its
+            // reset back to 1 is generation-gated, so an interrupted close skips
+            // the reset; without this line the next open showed only empty bg.
+            rootState.trayContentVisible = 1.0
             let targetFrame = frameForWidth(
                 clampedWidth(currentWidthForCurrentRoute, on: screen),
                 on: screen, height: trayPanelHeight
