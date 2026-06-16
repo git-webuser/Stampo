@@ -438,7 +438,7 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Нажмите на выемку для открытия панели"
+            "value": "Кликните по челке для открытия панели"
           }
         }
       }
@@ -1518,7 +1518,7 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Клик по выемке"
+            "value": "Клик по челке"
           }
         }
       }
@@ -2020,37 +2020,39 @@
         }
       }
     },
-    "Required for clicking the notch and global hotkeys.": {
+    "Required for clicking the notch and global hotkeys": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Required for clicking the notch and global hotkeys."
+            "value": "Required for clicking the notch and global hotkeys"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Необходимо для клика по выемке и глобальных горячих клавиш."
+            "value": "Необходим для клика по челке и глобальных горячих клавиш"
           }
         }
-      }
+      },
+      "comment": "Onboarding: Input Monitoring permission reason"
     },
-    "Required for screenshots and color sampling.": {
+    "Required for screenshots and color sampling": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Required for screenshots and color sampling."
+            "value": "Required for screenshots and color sampling"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Необходимо для скриншотов и захвата цвета."
+            "value": "Необходима для скриншотов и захвата цвета пипеткой"
           }
         }
-      }
+      },
+      "comment": "Onboarding: Screen Recording permission reason"
     },
     "Reset": {
       "comment": "Button resetting all hotkeys to their defaults",
@@ -2224,19 +2226,19 @@
         }
       }
     },
-    "Screenshot & color picker\nfor MacBooks with a notch": {
-      "comment": "App tagline shown on the About page",
+    "Screenshot & color picker\nfor any Mac": {
+      "comment": "About tab tagline under the app name",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Screenshot & color picker\nfor MacBooks with a notch"
+            "value": "Screenshot & color picker\nfor any Mac"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Скриншоты и пипетка\nдля MacBook с выемкой"
+            "value": "Скриншоты и пипетка\nдля любого Mac"
           }
         }
       }
@@ -2981,7 +2983,7 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Без этих разрешений захват экрана, захват цвета, клик по выемке и горячие клавиши могут не работать."
+            "value": "Без этих разрешений захват экрана, захват цвета, клик по челке и горячие клавиши могут не работать."
           }
         }
       }

@@ -25,7 +25,7 @@ struct AboutSettingsView: View {
                             .font(.title2.bold())
                         Text("Version \(appVersion)")
                             .foregroundStyle(.secondary)
-                        Text("Screenshot & color picker\nfor MacBooks with a notch")
+                        Text("Screenshot & color picker\nfor any Mac")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }

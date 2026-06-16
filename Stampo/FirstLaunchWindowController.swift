@@ -73,7 +73,7 @@ struct FirstLaunchView: View {
             permissionRow(
                 icon: "rectangle.dashed.badge.record",
                 title: "Screen Recording",
-                description: "Required for screenshots and color sampling.",
+                description: "Required for screenshots and color sampling",
                 granted: screenRecordingGranted,
                 settingsURL: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
                 preflight: {
@@ -87,7 +87,7 @@ struct FirstLaunchView: View {
             permissionRow(
                 icon: "keyboard",
                 title: "Input Monitoring",
-                description: "Required for clicking the notch and global hotkeys.",
+                description: "Required for clicking the notch and global hotkeys",
                 granted: inputMonitoringGranted,
                 settingsURL: "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent"
             )
