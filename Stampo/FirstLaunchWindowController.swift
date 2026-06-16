@@ -146,7 +146,7 @@ struct FirstLaunchView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Welcome to Stampo")
                     .font(.title2.bold())
-                Text("Screenshot and color picker\nfor your MacBook's notch.")
+                Text("Screenshot and color picker\nthat lives in your menu bar.")
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -155,11 +155,11 @@ struct FirstLaunchView: View {
 
     private var notchTip: some View {
         HStack(spacing: 10) {
-            Image(systemName: "cursorarrow.motionlines")
+            Image(systemName: "cursorarrow.click")
                 .font(.title3)
                 .foregroundStyle(.blue)
                 .frame(width: 28)
-            Text("Hover near the top center of your screen to open the panel.")
+            Text("Click the notch — or the center of the menu bar on screens without one — to open the panel.")
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(12)

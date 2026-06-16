@@ -1,11 +1,19 @@
 #!/usr/bin/env bash
-# Usage: ./release.sh <version>  e.g. ./release.sh 0.2.0-beta.1
+# Usage: ./release.sh <version> [notes-file]
+#   e.g. ./release.sh 0.4.2 notes.md
+# notes-file (optional): markdown whose contents fill the "Что нового" section
+# of the GitHub release. Omit it to leave a placeholder dash.
 set -euo pipefail
 
 VERSION="${1:-}"
+NOTES_FILE="${2:-}"
 if [[ -z "$VERSION" ]]; then
-  echo "Usage: ./release.sh <version>"
-  echo "Example: ./release.sh 0.2.0-beta.1"
+  echo "Usage: ./release.sh <version> [notes-file]"
+  echo "Example: ./release.sh 0.4.2 notes.md"
+  exit 1
+fi
+if [[ -n "$NOTES_FILE" && ! -f "$NOTES_FILE" ]]; then
+  echo "Error: notes file not found: $NOTES_FILE"
   exit 1
 fi
 
@@ -101,17 +109,23 @@ CHECKSUM=$(shasum -a 256 "$DMG_PATH" | awk '{print $1}')
 
 echo "▸ Creating GitHub Release..."
 
+if [[ -n "$NOTES_FILE" ]]; then
+  CHANGES="$(cat "$NOTES_FILE")"
+else
+  CHANGES="-"
+fi
+
 NOTES="## Stampo $VERSION
 
 > ⚠️ Этот билд не нотаризован. При первом запуске macOS покажет предупреждение.
 > Правый клик → Открыть (Open) чтобы запустить.
 
 ### Что нового
--
+$CHANGES
 
 ### Совместимость
 - macOS 15.7 и новее
-- MacBook с вырезом (MacBook Pro 14\"/16\", MacBook Air M2+)
+- MacBook с вырезом и обычные дисплеи, включая внешние мониторы
 
 ### Checksum
 \`SHA256: $CHECKSUM\`"
