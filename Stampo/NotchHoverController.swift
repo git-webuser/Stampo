@@ -295,6 +295,9 @@ final class NotchHoverController: NSObject {
         case 5:
             // Pick color — open panel then invoke pick color
             triggerPickColor(on: screen)
+        case 6:
+            // Capture text (OCR) — area selection, recognized text → clipboard
+            triggerCaptureText(on: screen)
         default:
             break
         }
@@ -322,6 +325,16 @@ final class NotchHoverController: NSObject {
             panel.pickColorDirectly()
         } else {
             panel.pickColorDirectly(on: screen)
+        }
+    }
+
+    private func triggerCaptureText(on screen: NSScreen) {
+        // Тот же stale-инвариант, что и у triggerPickColor: при ненадёжной
+        // Space-привязке передаём экран явно, чтобы overlay попал на активный.
+        if panel.isVisible && !panel.needsSpaceRebind {
+            panel.captureText()
+        } else {
+            panel.captureText(on: screen)
         }
     }
 

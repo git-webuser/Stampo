@@ -107,6 +107,7 @@ private struct NotchPanelRootView: View {
     let onCapture: (CaptureMode, CaptureDelay) -> Void
     let onToggleTray: () -> Void
     let onPickColor: () -> Void
+    let onCaptureText: () -> Void
     let onModeDelayChanged: () -> Void
     let onBack: () -> Void
     let onHidePanel: () -> Void
@@ -182,6 +183,7 @@ private struct NotchPanelRootView: View {
                 onCapture: onCapture,
                 onToggleTray: onToggleTray,
                 onPickColor: onPickColor,
+                onCaptureText: onCaptureText,
                 onModeDelayChanged: onModeDelayChanged
             )
             .opacity(max(0.0, min(1.0, (0.6 - p) / 0.6)) * (1.0 - rootState.countdownVisible))
@@ -337,6 +339,7 @@ final class NotchPanelController: NSObject {
     let trayModel = NotchTrayModel()
     let screenshot = ScreenshotService()
     let colorPicker = ColorPickingCoordinator()
+    let textCapture = TextCaptureCoordinator()
 
     enum CaptureTarget {
         case screen
@@ -533,6 +536,7 @@ final class NotchPanelController: NSObject {
         selectionOverlay.cancel()
         windowPickerOverlay.cancel()
         colorPicker.cancel()
+        textCapture.cancel()
         screenshot.cancelCurrentCapture()
 
         activeCountdown?.timer?.invalidate()
@@ -973,6 +977,7 @@ final class NotchPanelController: NSObject {
             },
             onToggleTray: { [weak self] in self?.switchToTray() },
             onPickColor: { [weak self] in self?.pickColor() },
+            onCaptureText: { [weak self] in self?.captureText() },
             onModeDelayChanged: { [weak self] in self?.updateWidthForNoNotchIfNeeded() },
             onBack: { [weak self] in self?.switchToMain() },
             onHidePanel: { [weak self] in self?.hideAnimated(reason: .closeButton) },

@@ -1,7 +1,7 @@
 import Foundation
 import Carbon.HIToolbox
 
-/// The five global, user-rebindable hotkey actions. The raw value is the Carbon
+/// The global, user-rebindable hotkey actions. The raw value is the Carbon
 /// `EventHotKeyID.id` used when registering and dispatching.
 enum HotkeyAction: UInt32, CaseIterable {
     case togglePanel = 1
@@ -9,6 +9,7 @@ enum HotkeyAction: UInt32, CaseIterable {
     case fullscreen  = 3
     case window      = 4
     case color       = 5
+    case ocr         = 6
 
     /// Localization key for the row label.
     var labelKey: String {
@@ -18,6 +19,7 @@ enum HotkeyAction: UInt32, CaseIterable {
         case .fullscreen:  return "Fullscreen Screenshot"
         case .window:      return "Window Screenshot"
         case .color:       return "Pick Color"
+        case .ocr:         return "Capture Text"
         }
     }
 
@@ -29,6 +31,7 @@ enum HotkeyAction: UInt32, CaseIterable {
         case .fullscreen:  return "menubar.dock.rectangle"
         case .window:      return "macwindow"
         case .color:       return "eyedropper"
+        case .ocr:         return "text.viewfinder"
         }
     }
 
@@ -42,6 +45,7 @@ enum HotkeyAction: UInt32, CaseIterable {
         case .fullscreen:  key = kVK_ANSI_B
         case .window:      key = kVK_ANSI_G
         case .color:       key = kVK_ANSI_C
+        case .ocr:         key = kVK_ANSI_T
         }
         return HotkeyCombo(keyCode: UInt16(key), carbonModifiers: mods)
     }
@@ -49,6 +53,8 @@ enum HotkeyAction: UInt32, CaseIterable {
     private var storageKey: String { "hotkey.combo.\(rawValue)" }
 
     /// Legacy enable/disable key used before combos were customizable.
+    /// `.ocr` was added after the combo migration, so its key never existed —
+    /// `migrateIfNeeded` reads nil and treats the action as enabled.
     private var legacyEnabledKey: String {
         switch self {
         case .togglePanel: return "hotkeyPanelEnabled"
@@ -56,6 +62,7 @@ enum HotkeyAction: UInt32, CaseIterable {
         case .fullscreen:  return "hotkeyFullscreenEnabled"
         case .window:      return "hotkeyWindowEnabled"
         case .color:       return "hotkeyColorEnabled"
+        case .ocr:         return "hotkeyOcrEnabled"
         }
     }
 
