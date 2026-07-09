@@ -53,9 +53,7 @@ final class SelectionOverlay {
         // Allow cursor control even when our process is not the active app —
         // without this NSCursor.set() has no effect while another app is
         // frontmost (e.g. text field I-beam from the underlying app overrides us).
-        let cid = _CGSDefaultConnection()
-        CGSSetConnectionProperty(cid, cid, "SetsCursorInBackground" as CFString,
-                                 kCFBooleanTrue)
+        CGSCursorBridge.setCursorInBackground(true)
 
         NSApp.activate(ignoringOtherApps: true)
         panel.orderFrontRegardless()
@@ -80,9 +78,7 @@ final class SelectionOverlay {
             cursorPushed = false
         }
         selectionCursor = nil
-        let cid = _CGSDefaultConnection()
-        CGSSetConnectionProperty(cid, cid, "SetsCursorInBackground" as CFString,
-                                 kCFBooleanFalse)
+        CGSCursorBridge.setCursorInBackground(false)
         NSCursor.arrow.set()
         DispatchQueue.main.async { NSCursor.arrow.set() }
     }
@@ -97,9 +93,7 @@ final class SelectionOverlay {
         }
         selectionCursor = nil
 
-        let cid = _CGSDefaultConnection()
-        CGSSetConnectionProperty(cid, cid, "SetsCursorInBackground" as CFString,
-                                 kCFBooleanFalse)
+        CGSCursorBridge.setCursorInBackground(false)
 
         escMonitors.forEach { NSEvent.removeMonitor($0) }
         escMonitors.removeAll()
