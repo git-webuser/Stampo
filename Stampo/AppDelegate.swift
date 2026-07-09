@@ -2,8 +2,16 @@ import AppKit
 import CoreGraphics
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    private let panel = NotchPanelController()
+    private lazy var panel = NotchPanelController()
     private lazy var hover = NotchHoverController(panel: panel)
+
+    /// True when the process is the TEST_HOST of a unit-test run. Startup
+    /// side effects (event taps, hotkeys, panel, permission prompts) must be
+    /// skipped so tests exercise pure logic without hijacking the machine.
+    private static let isRunningTests =
+        ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+            || ProcessInfo.processInfo.environment["XCTestBundlePath"] != nil
+            || ProcessInfo.processInfo.environment["XCTestSessionIdentifier"] != nil
 
     /// Called before any nib/window is loaded — the right place to set
     /// AppleLanguages so the entire SwiftUI hierarchy picks up the override.
@@ -18,6 +26,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        guard !Self.isRunningTests else { return }
         AppSettings.migrateLegacySaveDirectoryIfNeeded()
         hover.start()
         interceptSettingsMenuItem()

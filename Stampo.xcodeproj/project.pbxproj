@@ -8,6 +8,7 @@
 
 /* Begin PBXFileReference section */
 		458BCE762F26708D00C08299 /* Stampo.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Stampo.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		45AA00012FAABBCC00C08299 /* StampoTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = StampoTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -29,10 +30,22 @@
 			path = Stampo;
 			sourceTree = "<group>";
 		};
+		45AA00022FAABBCC00C08299 /* StampoTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = StampoTests;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		458BCE732F26708D00C08299 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		45AA00042FAABBCC00C08299 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -46,6 +59,7 @@
 			isa = PBXGroup;
 			children = (
 				458BCE782F26708D00C08299 /* Stampo */,
+				45AA00022FAABBCC00C08299 /* StampoTests */,
 				458BCE772F26708D00C08299 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -54,6 +68,7 @@
 			isa = PBXGroup;
 			children = (
 				458BCE762F26708D00C08299 /* Stampo.app */,
+				45AA00012FAABBCC00C08299 /* StampoTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -83,6 +98,29 @@
 			productReference = 458BCE762F26708D00C08299 /* Stampo.app */;
 			productType = "com.apple.product-type.application";
 		};
+		45AA00062FAABBCC00C08299 /* StampoTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 45AA000A2FAABBCC00C08299 /* Build configuration list for PBXNativeTarget "StampoTests" */;
+			buildPhases = (
+				45AA00032FAABBCC00C08299 /* Sources */,
+				45AA00042FAABBCC00C08299 /* Frameworks */,
+				45AA00052FAABBCC00C08299 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				45AA00072FAABBCC00C08299 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				45AA00022FAABBCC00C08299 /* StampoTests */,
+			);
+			name = StampoTests;
+			packageProductDependencies = (
+			);
+			productName = StampoTests;
+			productReference = 45AA00012FAABBCC00C08299 /* StampoTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -95,6 +133,10 @@
 				TargetAttributes = {
 					458BCE752F26708D00C08299 = {
 						CreatedOnToolsVersion = 26.2;
+					};
+					45AA00062FAABBCC00C08299 = {
+						CreatedOnToolsVersion = 26.2;
+						TestTargetID = 458BCE752F26708D00C08299;
 					};
 				};
 			};
@@ -114,12 +156,27 @@
 			projectRoot = "";
 			targets = (
 				458BCE752F26708D00C08299 /* Stampo */,
+				45AA00062FAABBCC00C08299 /* StampoTests */,
 			);
 		};
 /* End PBXProject section */
 
+/* Begin PBXTargetDependency section */
+		45AA00072FAABBCC00C08299 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 458BCE752F26708D00C08299 /* Stampo */;
+		};
+/* End PBXTargetDependency section */
+
 /* Begin PBXResourcesBuildPhase section */
 		458BCE742F26708D00C08299 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		45AA00052FAABBCC00C08299 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -130,6 +187,13 @@
 
 /* Begin PBXSourcesBuildPhase section */
 		458BCE722F26708D00C08299 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		45AA00032FAABBCC00C08299 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -329,6 +393,46 @@
 			};
 			name = Release;
 		};
+		45AA00082FAABBCC00C08299 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 10;
+				DEVELOPMENT_TEAM = C4KBH3KJS5;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 15.7;
+				MARKETING_VERSION = 0.4.2;
+				PRODUCT_BUNDLE_IDENTIFIER = com.hex000.StampoTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Stampo.app/Contents/MacOS/Stampo";
+			};
+			name = Debug;
+		};
+		45AA00092FAABBCC00C08299 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 10;
+				DEVELOPMENT_TEAM = C4KBH3KJS5;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 15.7;
+				MARKETING_VERSION = 0.4.2;
+				PRODUCT_BUNDLE_IDENTIFIER = com.hex000.StampoTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Stampo.app/Contents/MacOS/Stampo";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -346,6 +450,15 @@
 			buildConfigurations = (
 				458BCE842F26708E00C08299 /* Debug */,
 				458BCE852F26708E00C08299 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		45AA000A2FAABBCC00C08299 /* Build configuration list for PBXNativeTarget "StampoTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				45AA00082FAABBCC00C08299 /* Debug */,
+				45AA00092FAABBCC00C08299 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
