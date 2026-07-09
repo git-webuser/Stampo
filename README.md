@@ -1,19 +1,18 @@
 # Stampo
 
-Screenshot and color picker for MacBooks with a notch. The panel lives at the notch — no Dock icon, minimal menu bar presence.
+Screenshot, text capture, and color picker for any Mac. The panel lives at the notch (or at the center of the menu bar on screens without one) — no Dock icon, minimal menu bar presence.
 
 ---
 
 ## What is Stampo
 
-Stampo replaces the usual screenshot workflow with a panel that appears when you hover near the top of your screen. From the panel you can take area, window, or fullscreen screenshots, pick colors from the screen, and browse your recent captures in the tray.
+Stampo replaces the usual screenshot workflow with a panel that appears when you hover near the top of your screen. From the panel you can take area, window, or fullscreen screenshots, capture text from the screen (OCR), pick colors, and browse your recent captures in the tray.
 
 ## Requirements
 
 - macOS 15.7 or later
-- MacBook with a built-in notch display (MacBook Pro 14" or 16", MacBook Air M2 or later)
 
-> **Note:** Stampo is designed for notch displays. It will launch on non-notch Macs but the panel positioning may not be ideal.
+> **Note:** Stampo is designed around the notch, but works on any Mac. On screens without a notch the panel is drawn at the top center of the menu bar; its style and size are configurable in **Settings → General**.
 
 ## Installation
 
@@ -51,27 +50,32 @@ To grant permissions: **System Settings → Privacy & Security → Screen Record
 ## How to use
 
 - **Hover** near the top center of your screen (at the notch) to open the panel.
-- **Click a capture mode** to start a screenshot or color pick.
+- **Click a capture mode** to start a screenshot, text capture, or color pick.
 - **Click the tray icon** (stack icon) to browse recent captures.
 - All screenshots are saved to your chosen folder (default: `~/Downloads`).
 
+## Capture Text (OCR)
+
+Select an area of the screen and Stampo recognizes the text in it (English and Russian, detected automatically) and copies it to the clipboard. Nothing is saved to disk. Start it from the capture-mode menu in the panel or with `⌃⌥⌘T`.
+
 ## Hotkeys
 
-| Action | Shortcut |
+| Action | Default shortcut |
 |---|---|
 | Toggle panel | `⌃⌥⌘N` |
 | Selection screenshot | `⌃⌥⌘R` |
 | Fullscreen screenshot | `⌃⌥⌘B` |
 | Window screenshot | `⌃⌥⌘G` |
 | Pick color | `⌃⌥⌘C` |
+| Capture text (OCR) | `⌃⌥⌘T` |
 
-Hotkeys can be enabled or disabled individually in **Settings → Hotkeys**.
+Every hotkey is fully customizable in **Settings → Hotkeys** — record a new combination, restore the default, or clear it to disable the action.
 
 ## Where screenshots are saved
 
 By default, screenshots are saved to **~/Downloads**. You can change the save folder in **Settings → Capture → Save Location**.
 
-File names follow the format: `Stampo YYYY-MM-DD at HH.MM.SS.png` (configurable in Settings).
+File names follow one of four presets, selectable in **Settings → Capture**: compact `Jan·05-14·30·22` (default), ISO `2026-01-05 14-30-22`, numbered `2026-01-05 #1`, or dense `20260105-143022`. The file format is PNG, JPG, or TIFF.
 
 ## Tray
 
@@ -84,10 +88,8 @@ The tray shows recent screenshots and color swatches.
 
 ## Known Limitations
 
-- **Notch display required** — the panel is designed around the notch area. On non-notch Macs the experience is degraded.
-- **Hotkeys are fixed** — key combinations cannot currently be customized.
 - **Window screenshot** without a timer uses the frontmost window at the moment of capture. If another window becomes active during the hotkey press, it may be captured instead.
-- **Cursor behavior** in the window picker overlay relies on a private macOS API (`CGSSetConnectionProperty`). This works on macOS 14–15 but may change in a future release.
+- **Cursor behavior** in the capture overlays relies on a private macOS API (`CGSSetConnectionProperty`), resolved at runtime. If a future macOS removes it, Stampo keeps working — only the cursor override while another app is frontmost is skipped.
 
 ## Privacy & Security
 
@@ -129,4 +131,4 @@ MIT License. See [LICENSE](LICENSE).
 
 ---
 
-*Stampo 0.2.0-beta.1 — Public beta for macOS 15.7+*
+*Stampo 0.4.2 — for macOS 15.7+*
