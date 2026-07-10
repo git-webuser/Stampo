@@ -6,6 +6,16 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXContainerItemProxy section */
+		4504D83A30017E700037A357 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 458BCE6E2F26708D00C08299 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 458BCE752F26708D00C08299;
+			remoteInfo = Stampo;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
 		458BCE762F26708D00C08299 /* Stampo.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Stampo.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		45AA00012FAABBCC00C08299 /* StampoTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = StampoTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -161,13 +171,6 @@
 		};
 /* End PBXProject section */
 
-/* Begin PBXTargetDependency section */
-		45AA00072FAABBCC00C08299 /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = 458BCE752F26708D00C08299 /* Stampo */;
-		};
-/* End PBXTargetDependency section */
-
 /* Begin PBXResourcesBuildPhase section */
 		458BCE742F26708D00C08299 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
@@ -201,6 +204,14 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		45AA00072FAABBCC00C08299 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 458BCE752F26708D00C08299 /* Stampo */;
+			targetProxy = 4504D83A30017E700037A357 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		458BCE812F26708E00C08299 /* Debug */ = {
