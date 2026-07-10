@@ -6,11 +6,13 @@ import Foundation
 enum TrayItem: Identifiable, Equatable {
     case color(TrayColor)
     case screenshot(TrayScreenshot)
+    case text(TrayText)
 
     var id: UUID {
         switch self {
         case .color(let c):      return c.id
         case .screenshot(let s): return s.id
+        case .text(let t):       return t.id
         }
     }
 }
@@ -24,6 +26,17 @@ struct TrayColor: Identifiable, Equatable {
 struct TrayScreenshot: Identifiable, Equatable {
     let id = UUID()
     let url: URL
+}
+
+/// A snippet of OCR-recognized text captured via Capture Text.
+struct TrayText: Identifiable, Equatable {
+    let id = UUID()
+    let text: String
+
+    /// First non-empty line — used as the compact cell caption.
+    var firstLine: String {
+        text.split(whereSeparator: \.isNewline).first.map(String.init) ?? text
+    }
 }
 
 // MARK: - ColorSchemeType
@@ -60,10 +73,11 @@ enum ColorSchemeType: CaseIterable, Equatable {
 // MARK: - Tray Persistence (Codable)
 
 private struct PersistedTrayItem: Codable {
-    enum Kind: String, Codable { case color, screenshot }
+    enum Kind: String, Codable { case color, screenshot, text }
     let kind: Kind
     let hex:  String?   // color items
     let path: String?   // screenshot items
+    let text: String?   // text items
 }
 
 // MARK: - NotchTrayModel
@@ -104,6 +118,18 @@ private struct PersistedTrayItem: Codable {
             return false
         }
         items.insert(.color(TrayColor(color: c, hex: hex)), at: 0)
+        trim()
+        schedulePersist()
+    }
+
+    func add(text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        items.removeAll {
+            if case .text(let existing) = $0 { return existing.text == trimmed }
+            return false
+        }
+        items.insert(.text(TrayText(text: trimmed)), at: 0)
         trim()
         schedulePersist()
     }
@@ -183,9 +209,11 @@ private struct PersistedTrayItem: Codable {
         let encoded: [PersistedTrayItem] = items.compactMap {
             switch $0 {
             case .color(let c):
-                return PersistedTrayItem(kind: .color, hex: c.hex, path: nil)
+                return PersistedTrayItem(kind: .color, hex: c.hex, path: nil, text: nil)
             case .screenshot(let s):
-                return PersistedTrayItem(kind: .screenshot, hex: nil, path: s.url.path)
+                return PersistedTrayItem(kind: .screenshot, hex: nil, path: s.url.path, text: nil)
+            case .text(let t):
+                return PersistedTrayItem(kind: .text, hex: nil, path: nil, text: t.text)
             }
         }
         if let data = try? JSONEncoder().encode(encoded) {
@@ -209,6 +237,9 @@ private struct PersistedTrayItem: Codable {
                 let url = URL(fileURLWithPath: path)
                 guard FileManager.default.fileExists(atPath: path) else { return nil }
                 return .screenshot(TrayScreenshot(url: url))
+            case .text:
+                guard let text = p.text, !text.isEmpty else { return nil }
+                return .text(TrayText(text: text))
             }
         }
         items = restored

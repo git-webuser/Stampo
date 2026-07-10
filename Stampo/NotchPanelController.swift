@@ -394,6 +394,7 @@ final class NotchPanelController: NSObject {
         colorPicker.onCursorMoved = { point in
             NotificationCenter.default.post(name: .mascotCursorMoved, object: NSValue(point: point))
         }
+        textCapture.addText = { [weak self] text in self?.trayModel.add(text: text) }
         screenshot.onCaptured = { [weak self] url in
             self?.trayModel.add(screenshotURL: url)
             // Clear preSelection so the next capture attempt isn't blocked.

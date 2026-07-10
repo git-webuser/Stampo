@@ -13,6 +13,9 @@ final class TextCaptureCoordinator {
     private let hud = TextCaptureHUD()
     private let capturer = ScreenshotCapturer()
 
+    /// Called with the recognized text on success — the owner adds it to the tray.
+    var addText: (String) -> Void = { _ in }
+
     /// Прерывает активную сессию распознавания без показа HUD.
     /// Вызывается из invalidatePanelAfterEnvironmentChange (sleep, display
     /// change и т. д.) — результат устаревшей сессии просто отбрасывается.
@@ -38,6 +41,7 @@ final class TextCaptureCoordinator {
                 case .some(let text) where !text.isEmpty:
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(text, forType: .string)
+                    self.addText(text)
                     self.hud.show(.copied, on: screen)
                 case .some:
                     // Recognition ran but the selection had no readable text.

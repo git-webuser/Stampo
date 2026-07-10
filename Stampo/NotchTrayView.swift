@@ -139,7 +139,7 @@ struct NotchTrayView: View {
                 Text("Nothing Here Yet")
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(.white.opacity(0.4))
-                Text("Screenshots and colors you capture will appear here.")
+                Text("Screenshots, text, and colors you capture will appear here.")
                     .font(.system(size: 10, weight: .regular))
                     .foregroundStyle(.white.opacity(0.25))
                     .lineLimit(1)
@@ -193,6 +193,19 @@ struct NotchTrayView: View {
                                 onRemove: {
                                     withAnimation(.easeInOut(duration: 0.18)) {
                                         trayModel.remove(id: c.id)
+                                    }
+                                }
+                            )
+                        case .text(let t):
+                            TrayTextCell(
+                                item: t,
+                                height: cellH,
+                                badgeBleed: badgeBleed,
+                                labelOffset: labelOffset,
+                                cornerRadius: metrics.buttonRadius,
+                                onRemove: {
+                                    withAnimation(.easeInOut(duration: 0.18)) {
+                                        trayModel.remove(id: t.id)
                                     }
                                 }
                             )
@@ -375,6 +388,111 @@ private struct TrayColorCell: View {
                         }
                     }
             )
+    }
+}
+
+// MARK: - Tray Text Cell
+
+/// OCR snippet captured via Capture Text. Tap copies the full text to the
+/// clipboard (mirrors TrayColorCell); the context menu offers Copy / Remove.
+private struct TrayTextCell: View {
+    let item: TrayText
+    let height: CGFloat
+    let badgeBleed: CGFloat
+    let labelOffset: CGFloat
+    let cornerRadius: CGFloat
+    let onRemove: () -> Void
+
+    @State private var isHovered    = false
+    @State private var isPressed    = false
+    @State private var isCopied     = false
+    @State private var isBadgeActive = false
+
+    private var width: CGFloat { height * 1.6 }
+
+    private func copyText() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(item.text, forType: .string)
+        withAnimation { isCopied = true }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+            withAnimation { isCopied = false }
+        }
+    }
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                .fill(Color.white.opacity(0.08))
+                .overlay(
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .stroke(Color.white.opacity(isHovered ? 0.35 : 0.12), lineWidth: 1)
+                )
+
+            // Miniature of the recognized text — enough to tell snippets apart.
+            Text(item.text)
+                .font(.system(size: 5, weight: .regular))
+                .foregroundStyle(.white.opacity(0.75))
+                .lineLimit(5)
+                .multilineTextAlignment(.leading)
+                .padding(4)
+
+            Image(systemName: "text.viewfinder")
+                .font(.system(size: 8, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.5))
+                .padding(3)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+        }
+        .frame(width: width, height: height)
+        .contentShape(Rectangle())
+        .overlay(alignment: .bottom) {
+            ZStack {
+                Text(item.firstLine).opacity(isCopied ? 0 : 1)
+                Text("Copied!").opacity(isCopied ? 1 : 0)
+            }
+            .font(.system(size: 11, weight: .regular, design: .default))
+            .foregroundStyle(.white)
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .padding(.horizontal, 4)
+            .padding(.vertical, 2)
+            .background(Capsule(style: .continuous).fill(Color.black.opacity(0.65)))
+            .frame(maxWidth: width * 2)
+            .fixedSize()
+            .opacity(isHovered ? 1 : 0)
+            .allowsHitTesting(false)
+            .offset(y: labelOffset)
+            .animation(.easeInOut(duration: 0.14), value: isCopied)
+        }
+        .overlay(alignment: .topTrailing) {
+            TrayDeleteBadge(action: { onRemove() },
+                            isPressed: $isBadgeActive)
+            .opacity(isHovered ? 1 : 0)
+            .allowsHitTesting(isHovered)
+            .offset(x: badgeBleed, y: -badgeBleed)
+        }
+        .contextMenu {
+            Button("Copy") { copyText() }
+            Divider()
+            Button("Remove from tray") { onRemove() }
+        }
+        .scaleEffect(isPressed ? 0.88 : 1.0)
+        .animation(.spring(response: 0.2, dampingFraction: 0.8), value: isHovered)
+        .animation(.spring(response: 0.15, dampingFraction: 0.7), value: isPressed)
+        .accessibilityLabel("Recognized text \(item.firstLine)")
+        .accessibilityHint("Tap to copy, hold to delete")
+        .accessibilityAddTraits(.isButton)
+        .onHover { isHovered = $0 }
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { _ in
+                    if !isBadgeActive { isPressed = true }
+                }
+                .onEnded { _ in
+                    isPressed = false
+                    guard !isBadgeActive else { isBadgeActive = false; return }
+                    copyText()
+                }
+        )
     }
 }
 
