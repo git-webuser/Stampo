@@ -12,6 +12,8 @@ struct EditorView: View {
     @State private var tool: EditorTool = .arrow
     @State private var style = ToolStyle()
     @State private var editingTextID: UUID?
+    @State private var zoomFactor: CGFloat = 1
+    @State private var panOffset: CGSize = .zero
     @State private var feedback: FeedbackKind?
     @State private var feedbackTask: DispatchWorkItem?
 
@@ -25,7 +27,9 @@ struct EditorView: View {
                 document: document,
                 tool: $tool,
                 style: $style,
-                editingTextID: $editingTextID
+                editingTextID: $editingTextID,
+                zoomFactor: $zoomFactor,
+                panOffset: $panOffset
             )
             .background(Color(nsColor: .underPageBackgroundColor))
         }
@@ -42,6 +46,8 @@ struct EditorView: View {
             toolPicker
             Divider().frame(height: 20)
             stylePicker
+            Divider().frame(height: 20)
+            zoomControls
             Spacer(minLength: 8)
             feedbackLabel
             undoRedoButtons
@@ -119,6 +125,23 @@ struct EditorView: View {
             .labelsHidden()
             .frame(width: 130)
         }
+
+        if tool == .rect || tool == .oval || isFillableSelection {
+            Button {
+                fillEnabledBinding.wrappedValue.toggle()
+            } label: {
+                Image(systemName: "paintbrush.pointed.fill")
+                    .frame(width: 26, height: 22)
+            }
+            .buttonStyle(.borderless)
+            .background(
+                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    .fill(fillEnabledBinding.wrappedValue ? Color.accentColor.opacity(0.22) : .clear)
+            )
+            .foregroundStyle(fillEnabledBinding.wrappedValue ? Color.accentColor : Color.primary)
+            .help("Fill")
+            .accessibilityLabel("Fill")
+        }
     }
 
     private var thicknessBinding: Binding<CGFloat> {
@@ -139,6 +162,28 @@ struct EditorView: View {
             set: { newValue in
                 style.blurStyle = newValue
                 applyToSelection { if $0.kind == .blur { $0.blurStyle = newValue } }
+            }
+        )
+    }
+
+    private var isFillableSelection: Bool {
+        document.selectedAnnotation?.kind == .rect || document.selectedAnnotation?.kind == .oval
+    }
+
+    private var fillEnabledBinding: Binding<Bool> {
+        Binding(
+            get: {
+                isFillableSelection
+                    ? (document.selectedAnnotation?.fillOpacity ?? 0) > 0
+                    : style.fillEnabled
+            },
+            set: { enabled in
+                style.fillEnabled = enabled
+                applyToSelection {
+                    if $0.kind == .rect || $0.kind == .oval {
+                        $0.fillOpacity = enabled ? 0.2 : 0
+                    }
+                }
             }
         )
     }
@@ -182,6 +227,41 @@ struct EditorView: View {
             .keyboardShortcut("z", modifiers: [.command, .shift])
             .disabled(!document.canRedo || textEditingActive)
             .help("Redo")
+        }
+    }
+
+    private var zoomControls: some View {
+        HStack(spacing: 2) {
+            Button { adjustZoom(by: -0.25) } label: {
+                Image(systemName: "minus.magnifyingglass").frame(width: 24, height: 22)
+            }
+            .buttonStyle(.borderless)
+            .keyboardShortcut("-", modifiers: .command)
+            .disabled(textEditingActive || zoomFactor <= 0.25)
+            .help("Zoom Out")
+
+            Button { fitZoom() } label: {
+                Text("Fit")
+                    .font(.system(size: 11, weight: .medium))
+                    .frame(width: 28, height: 22)
+            }
+            .buttonStyle(.borderless)
+            .keyboardShortcut("0", modifiers: .command)
+            .disabled(textEditingActive)
+            .help("Zoom to Fit")
+
+            Text("\(Int((zoomFactor * 100).rounded()))%")
+                .font(.system(size: 11, design: .monospaced))
+                .frame(width: 38)
+                .accessibilityLabel("Zoom")
+
+            Button { adjustZoom(by: 0.25) } label: {
+                Image(systemName: "plus.magnifyingglass").frame(width: 24, height: 22)
+            }
+            .buttonStyle(.borderless)
+            .keyboardShortcut("+", modifiers: .command)
+            .disabled(textEditingActive || zoomFactor >= 8)
+            .help("Zoom In")
         }
     }
 
@@ -234,6 +314,15 @@ struct EditorView: View {
         } else {
             NSApp.keyWindow?.performClose(nil)
         }
+    }
+
+    private func adjustZoom(by amount: CGFloat) {
+        zoomFactor = min(8, max(0.25, zoomFactor + amount))
+    }
+
+    private func fitZoom() {
+        zoomFactor = 1
+        panOffset = .zero
     }
 
     private func showFeedback(_ kind: FeedbackKind) {

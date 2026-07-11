@@ -1,8 +1,9 @@
+import AppKit
 import SwiftUI
 
 /// Active tool in the editor toolbar.
 enum EditorTool: Equatable, CaseIterable {
-    case select, arrow, rect, oval, text, blur
+    case select, arrow, rect, oval, text, blur, step
 
     var systemImage: String {
         switch self {
@@ -12,6 +13,7 @@ enum EditorTool: Equatable, CaseIterable {
         case .oval:   return "oval"
         case .text:   return "textformat"
         case .blur:   return "drop"
+        case .step:   return "1.circle"
         }
     }
 
@@ -23,6 +25,7 @@ enum EditorTool: Equatable, CaseIterable {
         case .oval:   return "Oval"
         case .text:   return "Text"
         case .blur:   return "Blur"
+        case .step:   return "Step"
         }
     }
 }
@@ -34,6 +37,7 @@ struct ToolStyle {
     /// on a 2x screenshot while preserving native-resolution export.
     var lineWidth: CGFloat = 4
     var blurStyle: BlurStyle = .pixelate
+    var fillEnabled = false
 }
 
 // MARK: - EditorCanvasView
@@ -46,14 +50,20 @@ struct EditorCanvasView: View {
     @Binding var tool: EditorTool
     @Binding var style: ToolStyle
     @Binding var editingTextID: UUID?
+    @Binding var zoomFactor: CGFloat
+    @Binding var panOffset: CGSize
 
     @FocusState private var textFieldFocused: Bool
+    @State private var magnificationStart: CGFloat?
+    @State private var isSpaceHeld = false
+    @State private var keyMonitor: Any?
 
     private enum DragMode {
         case undecided(pixelPoint: CGPoint)
         case creating(UUID)
         case moving(UUID, last: CGPoint)
         case resizing(UUID, Annotation.Handle)
+        case panning(last: CGPoint)
         case ignore
     }
     @State private var dragMode: DragMode?
@@ -65,12 +75,13 @@ struct EditorCanvasView: View {
     var body: some View {
         GeometryReader { geo in
             let pixel = document.pixelSize
-            let fitScale = min(min(geo.size.width / pixel.width,
-                                   geo.size.height / pixel.height), 1.0)
-            let drawSize = CGSize(width: pixel.width * fitScale,
-                                  height: pixel.height * fitScale)
-            let offset = CGPoint(x: (geo.size.width - drawSize.width) / 2,
-                                 y: (geo.size.height - drawSize.height) / 2)
+            let baseFitScale = min(min(geo.size.width / pixel.width,
+                                       geo.size.height / pixel.height), 1.0)
+            let fitScale = baseFitScale * zoomFactor
+            let fitSize = CGSize(width: pixel.width * baseFitScale,
+                                 height: pixel.height * baseFitScale)
+            let offset = CGPoint(x: (geo.size.width - fitSize.width) / 2 + panOffset.width,
+                                 y: (geo.size.height - fitSize.height) / 2 + panOffset.height)
 
             ZStack(alignment: .topLeading) {
                 canvas(fitScale: fitScale, offset: offset)
@@ -81,11 +92,15 @@ struct EditorCanvasView: View {
                 }
             }
             .gesture(dragGesture(fitScale: fitScale, offset: offset, pixel: pixel))
+            .simultaneousGesture(magnificationGesture())
+            .clipped()
         }
         .onDeleteCommand {
             guard editingTextID == nil else { return }
             document.deleteSelected()
         }
+        .onAppear { installKeyMonitor() }
+        .onDisappear { removeKeyMonitor() }
     }
 
     // MARK: Canvas
@@ -127,7 +142,11 @@ struct EditorCanvasView: View {
                                   size: CGSize(width: r.width * fitScale, height: r.height * fitScale))
                 .insetBy(dx: -3, dy: -3)
             var path = Path()
-            path.addRect(viewRect)
+            if a.kind == .step {
+                path.addEllipse(in: viewRect)
+            } else {
+                path.addRect(viewRect)
+            }
             context.stroke(path, with: .color(.white.opacity(0.9)),
                            style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
             context.stroke(path, with: .color(.black.opacity(0.4)),
@@ -158,7 +177,9 @@ struct EditorCanvasView: View {
                         dragMode = .ignore
                         return
                     }
-                    dragMode = beginDrag(at: p, fitScale: fitScale)
+                    dragMode = isSpaceHeld
+                        ? .panning(last: value.location)
+                        : beginDrag(at: p, fitScale: fitScale)
                 }
 
                 switch dragMode {
@@ -170,12 +191,16 @@ struct EditorCanvasView: View {
                     var annotation = Annotation(kind: kind, start: startPixel, end: p,
                                                 color: style.color, lineWidth: style.lineWidth)
                     annotation.blurStyle = style.blurStyle
+                    annotation.fillOpacity = style.fillEnabled ? 0.2 : 0
+                    annotation.end = constrainedEndpoint(p, from: startPixel, kind: kind)
                     document.annotations.append(annotation)
                     document.selectedID = annotation.id
                     dragMode = .creating(annotation.id)
 
                 case .creating(let id):
-                    update(id) { $0.end = p }
+                    update(id) {
+                        $0.end = constrainedEndpoint(p, from: $0.start, kind: $0.kind)
+                    }
 
                 case .moving(let id, let last):
                     let delta = CGPoint(x: p.x - last.x, y: p.y - last.y)
@@ -183,7 +208,25 @@ struct EditorCanvasView: View {
                     dragMode = .moving(id, last: p)
 
                 case .resizing(let id, let handle):
-                    update(id) { $0.apply(handle: handle, to: p) }
+                    update(id) { annotation in
+                        if isShiftHeld, annotation.kind == .arrow {
+                            switch handle {
+                            case .start:
+                                annotation.start = Annotation.snappedArrowEnd(from: annotation.end, to: p)
+                            case .end:
+                                annotation.end = Annotation.snappedArrowEnd(from: annotation.start, to: p)
+                            default:
+                                break
+                            }
+                        } else {
+                            annotation.apply(handle: handle, to: p, aspectLocked: isShiftHeld)
+                        }
+                    }
+
+                case .panning(let last):
+                    panOffset.width += value.location.x - last.x
+                    panOffset.height += value.location.y - last.y
+                    dragMode = .panning(last: value.location)
 
                 case .ignore, nil:
                     break
@@ -206,7 +249,7 @@ struct EditorCanvasView: View {
                     }
                 case .moving, .resizing:
                     document.commitChange()
-                case .ignore, nil:
+                case .panning, .ignore, nil:
                     break
                 }
             }
@@ -237,7 +280,7 @@ struct EditorCanvasView: View {
         case .text:
             // Text places on click (handled in onEnded), never by drag.
             return .undecided(pixelPoint: p)
-        case .arrow, .rect, .oval, .blur:
+        case .arrow, .rect, .oval, .blur, .step:
             // Dragging the selected annotation's body moves it even with a
             // shape tool active; empty space starts a new shape on drag.
             if let selected = document.selectedAnnotation,
@@ -262,6 +305,11 @@ struct EditorCanvasView: View {
             return
         }
 
+        if tool == .step {
+            placeStep(at: p)
+            return
+        }
+
         if let hit = document.annotation(at: p, tolerance: tolerancePx) {
             if hit.kind == .text, document.selectedID == hit.id {
                 // Second click on an already-selected text = edit it.
@@ -280,7 +328,7 @@ struct EditorCanvasView: View {
         case .rect:  return .rect
         case .oval:  return .oval
         case .blur:  return .blur
-        case .select, .text: return nil
+        case .select, .text, .step: return nil
         }
     }
 
@@ -295,6 +343,75 @@ struct EditorCanvasView: View {
                 y: max(0, min(pixel.height, (viewPoint.y - offset.y) / fitScale)))
     }
 
+    private var isShiftHeld: Bool {
+        NSEvent.modifierFlags.contains(.shift)
+    }
+
+    private func constrainedEndpoint(_ point: CGPoint, from start: CGPoint,
+                                     kind: AnnotationKind) -> CGPoint {
+        guard isShiftHeld else { return point }
+        switch kind {
+        case .arrow:
+            return Annotation.snappedArrowEnd(from: start, to: point)
+        case .rect, .oval:
+            return Annotation.aspectLockedEnd(from: start, to: point)
+        case .text, .blur, .step:
+            return point
+        }
+    }
+
+    private func magnificationGesture() -> some Gesture {
+        MagnificationGesture()
+            .onChanged { magnification in
+                if magnificationStart == nil { magnificationStart = zoomFactor }
+                zoomFactor = clampedZoom((magnificationStart ?? zoomFactor) * magnification)
+            }
+            .onEnded { _ in magnificationStart = nil }
+    }
+
+    private func clampedZoom(_ value: CGFloat) -> CGFloat {
+        min(8, max(0.25, value))
+    }
+
+    // MARK: Keyboard input
+
+    private func installKeyMonitor() {
+        guard keyMonitor == nil else { return }
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp]) { event in
+            guard EditorWindowController.shared.isKeyWindow,
+                  self.editingTextID == nil
+            else { return event }
+
+            if event.keyCode == 49 { // Space
+                self.isSpaceHeld = event.type == .keyDown
+                return nil
+            }
+
+            guard event.type == .keyDown,
+                  self.document.selectedID != nil,
+                  event.modifierFlags.intersection([.command, .control, .option]).isEmpty
+            else { return event }
+
+            let amount: CGFloat = event.modifierFlags.contains(.shift) ? 10 : 1
+            let delta: CGPoint
+            switch event.keyCode {
+            case 123: delta = CGPoint(x: -amount, y: 0) // left
+            case 124: delta = CGPoint(x: amount, y: 0)  // right
+            case 125: delta = CGPoint(x: 0, y: amount)  // down
+            case 126: delta = CGPoint(x: 0, y: -amount) // up
+            default: return event
+            }
+            self.document.nudgeSelected(by: delta)
+            return nil
+        }
+    }
+
+    private func removeKeyMonitor() {
+        if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
+        keyMonitor = nil
+        isSpaceHeld = false
+    }
+
     // MARK: Text editing
 
     private func placeText(at p: CGPoint) {
@@ -305,6 +422,16 @@ struct EditorCanvasView: View {
         document.annotations.append(annotation)
         document.selectedID = annotation.id
         startEditingText(annotation.id, isNew: true)
+    }
+
+    private func placeStep(at p: CGPoint) {
+        document.beginChange()
+        var annotation = Annotation(kind: .step, start: p, end: p,
+                                    color: style.color, lineWidth: style.lineWidth)
+        annotation.stepNumber = document.nextStepNumber
+        document.annotations.append(annotation)
+        document.selectedID = annotation.id
+        document.commitChange()
     }
 
     private func startEditingText(_ id: UUID, isNew: Bool = false) {

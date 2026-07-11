@@ -18,6 +18,8 @@ final class EditorWindowController: NSObject, NSWindowDelegate {
     private var document: EditorDocument?
     private let store = ScreenshotFileStore()
 
+    var isKeyWindow: Bool { window?.isKeyWindow == true }
+
     // MARK: Open
 
     func open(url: URL) {

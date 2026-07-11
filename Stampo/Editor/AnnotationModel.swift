@@ -121,6 +121,7 @@ struct Annotation: Identifiable, Equatable {
         case .rect:
             // On the stroked border (inflate/deflate by tolerance).
             let outer = rect.insetBy(dx: -tolerance - lineWidth / 2, dy: -tolerance - lineWidth / 2)
+            if fillOpacity > 0 { return outer.contains(p) }
             let inner = rect.insetBy(dx: tolerance + lineWidth / 2, dy: tolerance + lineWidth / 2)
             return outer.contains(p) && !(inner.width > 0 && inner.height > 0 && inner.contains(p))
         case .oval:
@@ -133,6 +134,7 @@ struct Annotation: Identifiable, Equatable {
             let d = sqrt(nx * nx + ny * ny)
             // Convert tolerance to normalized units using the smaller radius.
             let tol = (tolerance + lineWidth / 2) / min(rx, ry)
+            if fillOpacity > 0 { return d <= 1 + tol }
             return abs(d - 1.0) <= tol
         case .text, .blur:
             return rect.insetBy(dx: -tolerance, dy: -tolerance).contains(p)
