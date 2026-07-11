@@ -476,8 +476,16 @@ final class NotchPanelController: NSObject {
         let t7 = NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification,
             object: nil, queue: .main, using: onDisplayChange)
+        // Edited screenshots saved from the annotation editor join the tray.
+        let t8 = NotificationCenter.default.addObserver(
+            forName: .editorDidSaveImage,
+            object: nil, queue: .main
+        ) { [weak self] note in
+            guard let url = note.object as? URL else { return }
+            self?.trayModel.add(screenshotURL: url)
+        }
 
-        notificationObservers = [t1, t2, t3, t4, t5, t6, t7]
+        notificationObservers = [t1, t2, t3, t4, t5, t6, t7, t8]
     }
 
     deinit {

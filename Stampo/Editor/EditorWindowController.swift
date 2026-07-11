@@ -16,8 +16,7 @@ final class EditorWindowController: NSObject, NSWindowDelegate {
 
     private var window: NSWindow?
     private var document: EditorDocument?
-    /// Filled in by the save/copy integration; nil keeps Save disabled.
-    var saveHandler: ((EditorDocument) -> Bool)?
+    private let store = ScreenshotFileStore()
 
     // MARK: Open
 
@@ -30,8 +29,8 @@ final class EditorWindowController: NSObject, NSWindowDelegate {
         }
 
         // A dirty document is open: settle it before replacing.
-        if let document, document.isDirty {
-            guard resolveUnsavedChanges(document) else { return }
+        if let existing = document, existing.isDirty {
+            guard resolveUnsavedChanges(existing) else { return }
         }
 
         guard let image = Self.loadFullResImage(at: url) else {
@@ -72,11 +71,34 @@ final class EditorWindowController: NSObject, NSWindowDelegate {
 
     // MARK: Save
 
-    /// Bridges EditorView's Save to the injected handler; marks the document
-    /// clean and announces the new file on success.
+    /// Renders the annotated image and writes it to the save directory as a
+    /// new file; marks the document clean and announces the file so the
+    /// panel controller can add it to the tray.
     private func performSave(_ document: EditorDocument) -> Bool {
-        guard let saveHandler else { return false }
-        return saveHandler(document)
+        guard let rep = AnnotationRenderer.renderBitmap(
+            base: document.baseImage,
+            blurred: document.blurredBase,
+            pixelated: document.pixelatedBase,
+            annotations: document.annotations
+        ) else {
+            Log.capture.error("editor: render for save failed")
+            return false
+        }
+        do {
+            let url = try store.saveImage(rep)
+            document.markSaved()
+            NotificationCenter.default.post(name: .editorDidSaveImage, object: url)
+            return true
+        } catch {
+            Log.capture.error("editor: save failed: \(error)")
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = String(localized: "Could not save the edited image")
+            alert.informativeText = error.localizedDescription
+            alert.addButton(withTitle: String(localized: "OK"))
+            alert.runModal()
+            return false
+        }
     }
 
     // MARK: Unsaved-changes guard
@@ -87,22 +109,17 @@ final class EditorWindowController: NSObject, NSWindowDelegate {
         alert.alertStyle = .warning
         alert.messageText = String(localized: "Save changes before closing?")
         alert.informativeText = String(localized: "Your annotations will be lost otherwise.")
-        let canSave = saveHandler != nil
-        if canSave {
-            alert.addButton(withTitle: String(localized: "Save"))
-        }
+        alert.addButton(withTitle: String(localized: "Save"))
         alert.addButton(withTitle: String(localized: "Discard"))
         alert.addButton(withTitle: String(localized: "Cancel"))
 
         NSApp.activate(ignoringOtherApps: true)
-        let response = alert.runModal()
-        switch (canSave, response) {
-        case (true, .alertFirstButtonReturn):        // Save
+        switch alert.runModal() {
+        case .alertFirstButtonReturn:   // Save
             return performSave(document)
-        case (true, .alertSecondButtonReturn),        // Discard
-             (false, .alertFirstButtonReturn):
+        case .alertSecondButtonReturn:  // Discard
             return true
-        default:                                      // Cancel
+        default:                        // Cancel
             return false
         }
     }

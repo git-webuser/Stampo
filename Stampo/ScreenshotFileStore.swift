@@ -1,10 +1,14 @@
-import Foundation
+import AppKit
 
 // MARK: - ScreenshotFileStore
 
 /// Generates filenames and moves temp captures to the final save directory.
 final class ScreenshotFileStore {
     private let fm = FileManager.default
+
+    enum SaveError: Error {
+        case encodingFailed
+    }
 
     /// Moves `tmpURL` to the user's configured save directory.
     /// Returns the final URL on success; throws on failure.
@@ -13,6 +17,33 @@ final class ScreenshotFileStore {
             let dest = uniqueDestURL(in: outputDir, filename: makeFilename())
             try fm.moveItem(at: tmpURL, to: dest)
             return dest
+        }
+    }
+
+    /// Encodes an in-memory bitmap (e.g. an edited screenshot) into the save
+    /// directory as a NEW file with a standard uniqued name, honoring the
+    /// configured file format. Returns the written URL.
+    func saveImage(_ rep: NSBitmapImageRep) throws -> URL {
+        let (fileType, properties) = Self.encoding(for: AppSettings.fileFormat)
+        guard let data = rep.representation(using: fileType, properties: properties) else {
+            throw SaveError.encodingFailed
+        }
+        return try AppSettings.withSaveDirectoryAccess { outputDir in
+            let dest = uniqueDestURL(in: outputDir, filename: makeFilename())
+            try data.write(to: dest)
+            return dest
+        }
+    }
+
+    /// Maps the user-facing format string (png/jpg/tiff) onto bitmap encoding
+    /// parameters. Pure — unit-testable.
+    static func encoding(for format: String)
+        -> (NSBitmapImageRep.FileType, [NSBitmapImageRep.PropertyKey: Any])
+    {
+        switch format {
+        case "jpg":  return (.jpeg, [.compressionFactor: 0.9])
+        case "tiff": return (.tiff, [:])
+        default:     return (.png, [:])
         }
     }
 

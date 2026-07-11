@@ -825,6 +825,23 @@
         }
       }
     },
+    "Could not save the edited image": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not save the edited image"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось сохранить отредактированное изображение"
+          }
+        }
+      }
+    },
     "Could not save to the selected folder: %@\n\nThe file was kept in the temporary folder instead.": {
       "comment": "NSAlert informative text when screenshot move to save folder fails; %@ is the error description",
       "localizations": {
