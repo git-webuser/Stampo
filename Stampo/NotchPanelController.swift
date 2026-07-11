@@ -285,6 +285,20 @@ final class NotchPanelController: NSObject {
         return animationGeneration
     }
 
+    /// Caller completion for the hide currently in flight. Capture/OCR/color
+    /// flows hide the panel and start their overlay from this closure, so it
+    /// must survive a Space switch that tears the panel down mid-hide (the
+    /// animation completions die on the closed window and would drop it).
+    /// Single point of truth: every path delivers via
+    /// `firePendingHideCompletion()`, never by calling a captured closure.
+    private var pendingHideCompletion: (() -> Void)?
+
+    private func firePendingHideCompletion() {
+        let completion = pendingHideCompletion
+        pendingHideCompletion = nil
+        completion?()
+    }
+
     // MARK: - Mascot notifications
 
     /// Pending work item that posts .sleeping after a short debounce delay.
@@ -449,8 +463,11 @@ final class NotchPanelController: NSObject {
             guard let self else { return }
             self.trace("spaceDidChange.begin")
             if case .hiding = self.state {
-                // Respect a close already in progress; rebuilding here would
-                // cancel the hide animation and unexpectedly reopen the panel.
+                // A close is in progress: cut the hide animation short and tear
+                // the panel down immediately (the user is mid-Space-switch and
+                // won't see the truncated animation). markPanelSpaceBindingStale
+                // delivers the pending hide completion so capture flows that
+                // wait for the panel to disappear still start.
                 self.markPanelSpaceBindingStale()
             } else if let panel = self.panel, panel.isVisible {
                 self.recreateVisiblePanelAfterSpaceChange(from: panel)
@@ -563,15 +580,24 @@ final class NotchPanelController: NSObject {
         panel.alphaValue = 1
         interactionState.contentVisibility = 1
         interactionState.isEnabled = true
+        // Snap the morph to the restored route's rest values. A Space switch
+        // caught mid tray→main morph leaves trayContentVisible pre-faded to 0
+        // and progress between the endpoints; the generation bump above killed
+        // the completions that would have reset them.
+        rootState.trayContentVisible = 1.0
+        rootState.progress = route == .tray ? 1.0 : 0.0
         state = restoredState
         orderFrontOnActiveSpace(panel)
         trace("spaceDidChange.visible.recreate.done")
     }
 
-    /// Помечает Space-привязку панели устаревшей и аккуратно прячет её.
-    /// Используется при переключении Space пока панель скрыта.
+    /// Помечает Space-привязку панели устаревшей и немедленно уничтожает окно.
+    /// Используется при переключении Space пока панель скрыта или закрывается.
     private func markPanelSpaceBindingStale() {
         trace("markStale.begin")
+        // Осиротевшие completion'ы анимации скрытия не должны перезаписать
+        // .stale на .hidden после того, как окно уже уничтожено.
+        bumpGeneration()
         panel?.orderOut(nil)
         panel?.close()
         panel = nil
@@ -582,6 +608,10 @@ final class NotchPanelController: NSObject {
         route = .main
         rootState.progress = 0.0
         rootState.countdownVisible = 0.0
+        // Если Space сменился во время скрытия — панель уже исчезла, так что
+        // семантика «спрятал → продолжай» соблюдена; доставляем completion,
+        // иначе capture/OCR/color-поток молча не стартует.
+        firePendingHideCompletion()
     }
 
     /// Полностью уничтожает NSPanel после sleep/wake/display-change.
@@ -590,6 +620,10 @@ final class NotchPanelController: NSObject {
     private func invalidatePanelAfterEnvironmentChange(reason: StaleReason = .sleep) {
         trace("invalidateEnvironment.begin reason=\(reason)")
         bumpGeneration()
+        // Overlay sessions below are cancelled outright, so a hide completion
+        // waiting to start one must be dropped, not delivered (a capture
+        // overlay popping up right after wake would be a surprise).
+        pendingHideCompletion = nil
 
         // Отменяем любые активные overlay-сессии: если sleep/wake случился во время
         // выбора области, окна или цвета, preSelection / colorPicker.isInFlight
@@ -703,6 +737,9 @@ final class NotchPanelController: NSObject {
 
         state = .showing
         let gen = bumpGeneration()
+        // A show interrupting an in-flight hide aborts it: the panel never
+        // finished disappearing, so the hide's caller completion must not fire.
+        pendingHideCompletion = nil
         interactionState.isEnabled = false
         interactionState.contentVisibility = 0.0
         panel.alphaValue = 1
@@ -801,17 +838,19 @@ final class NotchPanelController: NSObject {
         state = .hiding
         interactionState.isEnabled = false
         bumpGeneration()
+        pendingHideCompletion = completion
 
         guard let screen = (currentScreen ?? NSScreen.main ?? NSScreen.screens.first) else {
             panel.orderOut(nil)
             interactionState.isEnabled = true
+            firePendingHideCompletion()
             return
         }
 
         if wasTray {
-            hideTrayThenMain(panel: panel, screen: screen, completion: completion)
+            hideTrayThenMain(panel: panel, screen: screen)
         } else {
-            hideMainPanel(panel: panel, screen: screen, completion: completion)
+            hideMainPanel(panel: panel, screen: screen)
         }
     }
 
@@ -819,7 +858,7 @@ final class NotchPanelController: NSObject {
     // Phase 1 — content hides instantly.
     // Phase 2 — shape morphs back to Main (Y axis).
     // Phase 3 — standard Main close animation (X axis).
-    private func hideTrayThenMain(panel: NSPanel, screen: NSScreen, completion: (() -> Void)?) {
+    private func hideTrayThenMain(panel: NSPanel, screen: NSScreen) {
         let gen = animationGeneration
         // Instantly hide both tray and main content (otherwise main bleeds through in phase 2).
         rootState.trayContentVisible = 0.0
@@ -838,12 +877,12 @@ final class NotchPanelController: NSObject {
             DispatchQueue.main.asyncAfter(deadline: .now() + PanelTiming.hideAnimation) { [weak self, weak panel] in
                 guard let self, let panel, self.animationGeneration == gen else { return }
                 self.rootState.trayContentVisible = 1.0  // reset for next open
-                self.hideMainPanel(panel: panel, screen: screen, completion: completion)
+                self.hideMainPanel(panel: panel, screen: screen)
             }
         }
     }
 
-    private func hideMainPanel(panel: NSPanel, screen: NSScreen, completion: (() -> Void)?) {
+    private func hideMainPanel(panel: NSPanel, screen: NSScreen) {
         let gen = animationGeneration
         if metrics.hasNotch {
             let target = frameForWidth(collapsedWidth, on: screen, height: trayPanelHeight)
@@ -871,7 +910,7 @@ final class NotchPanelController: NSObject {
                 self.rootState.countdownSeconds = 0
                 self.rootState.countdownTotal = 0
                 self.trace("hideMainPanel.completion.orderOut")
-                completion?()
+                self.firePendingHideCompletion()
             }
         } else {
             let w = clampedWidth(currentWidthForCurrentRoute, on: screen)
@@ -905,7 +944,7 @@ final class NotchPanelController: NSObject {
                 self.rootState.countdownSeconds = 0
                 self.rootState.countdownTotal = 0
                 self.trace("hideMainPanel.completion.orderOut")
-                completion?()
+                self.firePendingHideCompletion()
             }
         }
     }

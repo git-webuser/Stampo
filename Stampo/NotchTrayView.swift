@@ -149,7 +149,7 @@ struct NotchTrayView: View {
     }
 
     private var scrollContent: some View {
-        return ScrollView(.horizontal, showsIndicators: false) {
+        ScrollView(.horizontal, showsIndicators: false) {
             HStack(alignment: .top, spacing: cellSpacing) {
                 ForEach(trayModel.items) { item in
                     Group {
@@ -219,7 +219,6 @@ struct NotchTrayView: View {
                         .scale(scale: 0.6, anchor: .center)
                         .combined(with: .opacity)
                     )
-                    .id(item.id)
                 }
             }
             .padding(.horizontal, contentInset)
