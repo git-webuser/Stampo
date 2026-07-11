@@ -300,6 +300,24 @@ struct Annotation: Identifiable, Equatable {
     }
 }
 
+// MARK: - Document history
+
+/// One point-in-time snapshot of everything the undo stack must restore: the
+/// annotations, the base image, and the rotation count. Carrying the image (by
+/// reference — cheap for annotation-only edits that don't change it) is what
+/// lets whole-image operations like crop and rotate be undone.
+struct DocumentSnapshot: Equatable {
+    var annotations: [Annotation]
+    var image: CGImage
+    var rotationQuarters: Int
+
+    static func == (lhs: DocumentSnapshot, rhs: DocumentSnapshot) -> Bool {
+        lhs.rotationQuarters == rhs.rotationQuarters
+            && lhs.image === rhs.image                 // identity: same image object
+            && lhs.annotations == rhs.annotations
+    }
+}
+
 // MARK: - EditorDocument
 
 /// The open image plus its annotations, selection, and undo history.
@@ -308,10 +326,9 @@ struct Annotation: Identifiable, Equatable {
     private(set) var baseImage: CGImage
     let sourceURL: URL
 
-    /// Net 90° turns applied to the image since open (mod 4). Folds into
-    /// `isDirty` so a rotation alone still prompts to save on close.
+    /// Net 90° turns applied to the image since open (mod 4). Part of the
+    /// snapshot so a rotation alone still counts as a change.
     private var rotationQuarters = 0
-    private var savedRotationQuarters = 0
 
     /// Pre-filtered full-size copies for the blur tool, keyed by style and
     /// intensity level and computed lazily off the main thread on first
@@ -323,16 +340,24 @@ struct Annotation: Identifiable, Equatable {
     var annotations: [Annotation] = []
     var selectedID: UUID?
 
-    /// Annotation state at last save (or open) — dirty means "differs from it".
-    private var savedAnnotations: [Annotation] = []
-    private(set) var undoStack: [[Annotation]] = []
-    private(set) var redoStack: [[Annotation]] = []
+    /// Document state at last save (or open) — dirty means "differs from it".
+    private var savedSnapshot: DocumentSnapshot
+    private(set) var undoStack: [DocumentSnapshot] = []
+    private(set) var redoStack: [DocumentSnapshot] = []
     /// Snapshot captured at gesture/edit begin, pushed on commit if changed.
-    private var pendingSnapshot: [Annotation]?
+    private var pendingSnapshot: DocumentSnapshot?
 
     init(baseImage: CGImage, sourceURL: URL) {
         self.baseImage = baseImage
         self.sourceURL = sourceURL
+        self.savedSnapshot = DocumentSnapshot(annotations: [], image: baseImage,
+                                              rotationQuarters: 0)
+    }
+
+    /// Everything the history restores, captured from live state.
+    private var currentSnapshot: DocumentSnapshot {
+        DocumentSnapshot(annotations: annotations, image: baseImage,
+                         rotationQuarters: rotationQuarters)
     }
 
     var pixelSize: CGSize {
@@ -376,12 +401,22 @@ struct Annotation: Identifiable, Equatable {
     }
 
     var isDirty: Bool {
-        annotations != savedAnnotations || rotationQuarters != savedRotationQuarters
+        currentSnapshot != savedSnapshot
     }
 
     func markSaved() {
-        savedAnnotations = annotations
-        savedRotationQuarters = rotationQuarters
+        savedSnapshot = currentSnapshot
+    }
+
+    /// The blur caches belong to one specific base image, so any operation that
+    /// replaces `baseImage` (rotate, crop, an undo/redo across one) must drop
+    /// and re-warm them.
+    private func rebuildBlurSources() {
+        blurSources.removeAll()
+        blurSourcesInFlight.removeAll()
+        prepareBlurSource(style: .gaussian, level: BlurIntensity.defaultLevel)
+        prepareBlurSource(style: .pixelate, level: BlurIntensity.defaultLevel)
+        prepareBlurSourcesForAnnotations()
     }
 
     // MARK: Whole-image rotation (90° steps)
@@ -407,25 +442,41 @@ struct Annotation: Identifiable, Equatable {
 
     /// Rotates the base image and every stored coordinate a quarter turn so
     /// the whole pipeline keeps operating in one consistent (rotated) frame —
-    /// no special-casing in the renderer, hit-testing, or handles. The blur
-    /// caches belong to the old orientation, so they're dropped and rebuilt.
+    /// no special-casing in the renderer, hit-testing, or handles. Undoable as
+    /// one step; the snapshot carries the pre-rotation image so undo restores it.
     func rotate(clockwise: Bool) {
         guard let rotated = AnnotationRenderer.rotated90(baseImage, clockwise: clockwise) else { return }
+        beginChange()
         let oldSize = pixelSize
         annotations = Self.rotateAnnotations(annotations, in: oldSize, clockwise: clockwise)
-        savedAnnotations = Self.rotateAnnotations(savedAnnotations, in: oldSize, clockwise: clockwise)
-        undoStack = undoStack.map { Self.rotateAnnotations($0, in: oldSize, clockwise: clockwise) }
-        redoStack = redoStack.map { Self.rotateAnnotations($0, in: oldSize, clockwise: clockwise) }
-        if let pending = pendingSnapshot {
-            pendingSnapshot = Self.rotateAnnotations(pending, in: oldSize, clockwise: clockwise)
-        }
         baseImage = rotated
         rotationQuarters = ((rotationQuarters + (clockwise ? 1 : -1)) % 4 + 4) % 4
-        blurSources.removeAll()
-        blurSourcesInFlight.removeAll()
-        prepareBlurSource(style: .gaussian, level: BlurIntensity.defaultLevel)
-        prepareBlurSource(style: .pixelate, level: BlurIntensity.defaultLevel)
-        prepareBlurSourcesForAnnotations()
+        rebuildBlurSources()
+        commitChange()
+    }
+
+    /// Crops the base image and remaps annotations to `rect` (in current
+    /// image-pixel space). Undoable as one step: annotations shift by the crop
+    /// origin and any that no longer overlap the cropped canvas are dropped.
+    func crop(to rect: CGRect) {
+        let bounds = CGRect(origin: .zero, size: pixelSize)
+        let region = rect.integral.intersection(bounds)
+        guard region.width >= 1, region.height >= 1, region != bounds,
+              let cropped = baseImage.cropping(to: region) else { return }
+        beginChange()
+        let newBounds = CGRect(x: 0, y: 0, width: region.width, height: region.height)
+        let offset = CGPoint(x: -region.origin.x, y: -region.origin.y)
+        annotations = annotations.compactMap { a in
+            var moved = a
+            moved.move(by: offset)
+            return moved.rect.intersects(newBounds) ? moved : nil
+        }
+        baseImage = cropped
+        rebuildBlurSources()
+        if let selectedID, !annotations.contains(where: { $0.id == selectedID }) {
+            self.selectedID = nil
+        }
+        commitChange()
     }
 
     var selectedAnnotation: Annotation? {
@@ -462,42 +513,51 @@ struct Annotation: Identifiable, Equatable {
     var canUndo: Bool { !undoStack.isEmpty }
     var canRedo: Bool { !redoStack.isEmpty }
 
-    /// Capture the pre-change state at the start of a gesture or text edit.
+    /// Capture the pre-change state at the start of a gesture or edit.
     func beginChange() {
-        pendingSnapshot = annotations
+        pendingSnapshot = currentSnapshot
     }
 
     /// Push the captured snapshot if the gesture actually changed something.
     func commitChange() {
         guard let snapshot = pendingSnapshot else { return }
         pendingSnapshot = nil
-        guard snapshot != annotations else { return }
+        guard snapshot != currentSnapshot else { return }
         undoStack.append(snapshot)
         redoStack.removeAll()
     }
 
     /// Abandon a change without pushing (e.g. cancelled gesture).
     func discardChange() {
-        if let snapshot = pendingSnapshot { annotations = snapshot }
+        if let snapshot = pendingSnapshot { restore(snapshot) }
         pendingSnapshot = nil
     }
 
     func undo() {
         guard let previous = undoStack.popLast() else { return }
-        redoStack.append(annotations)
-        annotations = previous
-        prepareBlurSourcesForAnnotations()
-        // Selection may point at an annotation that no longer exists.
-        if let selectedID, !annotations.contains(where: { $0.id == selectedID }) {
-            self.selectedID = nil
-        }
+        redoStack.append(currentSnapshot)
+        restore(previous)
     }
 
     func redo() {
         guard let next = redoStack.popLast() else { return }
-        undoStack.append(annotations)
-        annotations = next
-        prepareBlurSourcesForAnnotations()
+        undoStack.append(currentSnapshot)
+        restore(next)
+    }
+
+    /// Restores a snapshot's annotations, image, and rotation. Rebuilds blur
+    /// caches only when the image actually changed (crop/rotate steps), and
+    /// drops a selection that no longer exists.
+    private func restore(_ snapshot: DocumentSnapshot) {
+        let imageChanged = snapshot.image !== baseImage
+        annotations = snapshot.annotations
+        baseImage = snapshot.image
+        rotationQuarters = snapshot.rotationQuarters
+        if imageChanged {
+            rebuildBlurSources()
+        } else {
+            prepareBlurSourcesForAnnotations()
+        }
         if let selectedID, !annotations.contains(where: { $0.id == selectedID }) {
             self.selectedID = nil
         }

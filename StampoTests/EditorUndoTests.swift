@@ -195,6 +195,63 @@ import Testing
         #expect(doc.annotations[0].end == CGPoint(x: 6, y: 3))
     }
 
+    @Test func rotateIsUndoable() {
+        let doc = EditorDocument(baseImage: TestImages.make(width: 8, height: 4),
+                                 sourceURL: URL(fileURLWithPath: "/tmp/test.png"))
+        doc.rotate(clockwise: true)
+        #expect(doc.pixelSize == CGSize(width: 4, height: 8))
+        #expect(doc.canUndo)
+        doc.undo()
+        #expect(doc.pixelSize == CGSize(width: 8, height: 4))
+    }
+
+    @Test func cropShrinksImageAndOffsetsAnnotations() {
+        let doc = EditorDocument(baseImage: TestImages.make(width: 20, height: 20),
+                                 sourceURL: URL(fileURLWithPath: "/tmp/test.png"))
+        doc.annotations = [Annotation(kind: .rect, start: CGPoint(x: 10, y: 10),
+                                      end: CGPoint(x: 14, y: 14), color: .red, lineWidth: 2)]
+        doc.crop(to: CGRect(x: 8, y: 8, width: 8, height: 8))
+        #expect(doc.pixelSize == CGSize(width: 8, height: 8))
+        #expect(doc.annotations.count == 1)
+        #expect(doc.annotations[0].start == CGPoint(x: 2, y: 2))   // shifted by -origin
+        #expect(doc.isDirty)
+    }
+
+    @Test func cropDropsAnnotationsOutsideRegion() {
+        let doc = EditorDocument(baseImage: TestImages.make(width: 20, height: 20),
+                                 sourceURL: URL(fileURLWithPath: "/tmp/test.png"))
+        let inside = Annotation(kind: .rect, start: CGPoint(x: 2, y: 2),
+                                end: CGPoint(x: 6, y: 6), color: .red, lineWidth: 2)
+        let outside = Annotation(kind: .rect, start: CGPoint(x: 15, y: 15),
+                                 end: CGPoint(x: 19, y: 19), color: .red, lineWidth: 2)
+        doc.annotations = [inside, outside]
+        doc.crop(to: CGRect(x: 0, y: 0, width: 8, height: 8))
+        #expect(doc.annotations.count == 1)
+        #expect(doc.annotations[0].id == inside.id)
+    }
+
+    @Test func cropIsUndoableAndRestoresImageAndAnnotations() {
+        let doc = EditorDocument(baseImage: TestImages.make(width: 20, height: 20),
+                                 sourceURL: URL(fileURLWithPath: "/tmp/test.png"))
+        doc.annotations = [Annotation(kind: .rect, start: CGPoint(x: 10, y: 10),
+                                      end: CGPoint(x: 14, y: 14), color: .red, lineWidth: 2)]
+        doc.crop(to: CGRect(x: 4, y: 4, width: 8, height: 8))
+        #expect(doc.pixelSize == CGSize(width: 8, height: 8))
+
+        doc.undo()
+        #expect(doc.pixelSize == CGSize(width: 20, height: 20))
+        #expect(doc.annotations[0].start == CGPoint(x: 10, y: 10))
+    }
+
+    @Test func fullImageCropIsANoOp() {
+        let doc = EditorDocument(baseImage: TestImages.make(width: 12, height: 8),
+                                 sourceURL: URL(fileURLWithPath: "/tmp/test.png"))
+        doc.crop(to: CGRect(x: 0, y: 0, width: 12, height: 8))
+        #expect(doc.pixelSize == CGSize(width: 12, height: 8))
+        #expect(!doc.canUndo)
+        #expect(!doc.isDirty)
+    }
+
     @Test func rotatePointClockwiseThenCounterReturnsOriginal() {
         let size = CGSize(width: 8, height: 4)
         let p = CGPoint(x: 3, y: 1)

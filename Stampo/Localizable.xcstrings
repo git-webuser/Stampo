@@ -217,6 +217,23 @@
         }
       }
     },
+    "Apply" : {
+      "comment" : "Editor crop mode — commit the crop.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Apply"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Применить"
+          }
+        }
+      }
+    },
     "Arrow" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -952,6 +969,60 @@
         }
       }
     },
+    "Crop" : {
+      "comment" : "Tooltip for the editor's crop button.",
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Crop"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Кадрировать"
+          }
+        }
+      }
+    },
+    "Crop Height" : {
+      "comment" : "Tooltip for the crop height input field.",
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Crop Height"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Высота кадра"
+          }
+        }
+      }
+    },
+    "Crop Width" : {
+      "comment" : "Tooltip for the crop width input field.",
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Crop Width"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ширина кадра"
+          }
+        }
+      }
+    },
     "Cycle Color Format" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1108,6 +1179,24 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Закрыть"
+          }
+        }
+      }
+    },
+    "Drag the frame, then Apply" : {
+      "comment" : "Hint shown in the editor context bar while the crop tool is active.",
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Drag the frame, then Apply"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Потяните за рамку и нажмите «Применить»"
           }
         }
       }

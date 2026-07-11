@@ -3,11 +3,11 @@ import SwiftUI
 
 /// Active tool in the editor toolbar.
 enum EditorTool: Equatable, CaseIterable {
-    case select, arrow, rect, oval, text, blur, step, ocr
+    case select, arrow, rect, oval, text, blur, step, ocr, crop
 
-    /// Drawing tools shown in the toolbar picker. `.ocr` is a transient
-    /// marquee mode driven by its own button in the actions group, not a
-    /// persistent drawing tool, so it's excluded here.
+    /// Drawing tools shown in the toolbar picker. `.ocr` and `.crop` are
+    /// transient marquee modes driven by their own buttons in the actions
+    /// group, not persistent drawing tools, so they're excluded here.
     static let pickerCases: [EditorTool] = [.select, .arrow, .rect, .oval, .text, .blur, .step]
 
     var systemImage: String {
@@ -20,6 +20,7 @@ enum EditorTool: Equatable, CaseIterable {
         case .blur:   return "drop"
         case .step:   return "1.circle"
         case .ocr:    return "text.viewfinder"
+        case .crop:   return "crop"
         }
     }
 
@@ -33,8 +34,15 @@ enum EditorTool: Equatable, CaseIterable {
         case .blur:   return "Blur"
         case .step:   return "Step"
         case .ocr:    return "Recognize Text"
+        case .crop:   return "Crop"
         }
     }
+}
+
+/// The eight draggable handles of the crop rectangle (corners resize two
+/// edges, side handles resize one).
+enum CropHandle: CaseIterable {
+    case topLeft, top, topRight, right, bottomRight, bottom, bottomLeft, left
 }
 
 /// Current stroke style shared by the toolbar and the canvas.
@@ -76,6 +84,12 @@ struct EditorCanvasView: View {
     /// Called with the marquee's image-pixel rect when the `.ocr` tool's drag
     /// ends, so the owner can OCR just that region.
     var onRecognizeRegion: (CGRect) -> Void = { _ in }
+    /// The crop rectangle (image-pixel space) while the `.crop` tool is active;
+    /// nil otherwise. The canvas draws it and adjusts it via drag.
+    @Binding var cropRect: CGRect?
+    /// Commit / cancel the pending crop (also invoked from Return / Esc).
+    var onCropApply: () -> Void = {}
+    var onCropCancel: () -> Void = {}
 
     @FocusState private var textFieldFocused: Bool
     @State private var magnificationStart: CGFloat?
@@ -92,6 +106,9 @@ struct EditorCanvasView: View {
         case resizing(UUID, Annotation.Handle)
         case panning(last: CGPoint)
         case ocrSelecting(start: CGPoint, current: CGPoint)
+        case cropCreating(start: CGPoint)
+        case cropMoving(last: CGPoint)
+        case cropResizing(CropHandle)
         case ignore
     }
     @State private var dragMode: DragMode?
@@ -103,8 +120,14 @@ struct EditorCanvasView: View {
     var body: some View {
         GeometryReader { geo in
             let pixel = document.pixelSize
-            let baseFitScale = min(min(geo.size.width / pixel.width,
-                                       geo.size.height / pixel.height), 1.0)
+            // Reserve a margin around the fitted image so its edges (and a
+            // crop frame snapped to them) never sit flush against the window,
+            // where a drag would resize the window instead of the frame.
+            let edgeInset: CGFloat = 24
+            let availWidth = max(1, geo.size.width - edgeInset * 2)
+            let availHeight = max(1, geo.size.height - edgeInset * 2)
+            let baseFitScale = min(min(availWidth / pixel.width,
+                                       availHeight / pixel.height), 1.0)
             let fitScale = baseFitScale * zoomFactor
             let drawSize = CGSize(width: pixel.width * fitScale,
                                   height: pixel.height * fitScale)
@@ -169,6 +192,61 @@ struct EditorCanvasView: View {
                 drawOCRMarquee(from: start, to: current, context: context,
                                fitScale: fitScale, offset: offset)
             }
+
+            // Crop overlay: dim everything outside the crop rect, frame it, and
+            // draw its handles.
+            if tool == .crop, let cropRect {
+                drawCropOverlay(cropRect, context: context, fitScale: fitScale,
+                                offset: offset, drawSize: drawSize(fitScale: fitScale))
+            }
+        }
+    }
+
+    /// Pixel image size scaled to the view.
+    private func drawSize(fitScale: CGFloat) -> CGSize {
+        CGSize(width: document.pixelSize.width * fitScale,
+               height: document.pixelSize.height * fitScale)
+    }
+
+    private func drawCropOverlay(_ rect: CGRect, context: GraphicsContext,
+                                 fitScale: CGFloat, offset: CGPoint, drawSize: CGSize) {
+        func toView(_ p: CGPoint) -> CGPoint {
+            CGPoint(x: p.x * fitScale + offset.x, y: p.y * fitScale + offset.y)
+        }
+        let viewRect = CGRect(origin: toView(rect.origin),
+                              size: CGSize(width: rect.width * fitScale,
+                                           height: rect.height * fitScale))
+        let imageRect = CGRect(origin: offset, size: drawSize)
+
+        // Dim the four bands of image outside the crop rect.
+        var outside = Path(imageRect)
+        outside.addRect(viewRect)
+        context.fill(outside, with: .color(.black.opacity(0.5)), style: FillStyle(eoFill: true))
+
+        // Frame.
+        var frame = Path()
+        frame.addRect(viewRect)
+        context.stroke(frame, with: .color(.white.opacity(0.95)), lineWidth: 1)
+
+        // Rule-of-thirds guides inside the frame.
+        var thirds = Path()
+        for i in 1...2 {
+            let x = viewRect.minX + viewRect.width / 3 * CGFloat(i)
+            thirds.move(to: CGPoint(x: x, y: viewRect.minY))
+            thirds.addLine(to: CGPoint(x: x, y: viewRect.maxY))
+            let y = viewRect.minY + viewRect.height / 3 * CGFloat(i)
+            thirds.move(to: CGPoint(x: viewRect.minX, y: y))
+            thirds.addLine(to: CGPoint(x: viewRect.maxX, y: y))
+        }
+        context.stroke(thirds, with: .color(.white.opacity(0.35)), lineWidth: 0.5)
+
+        // Handles.
+        for (_, position) in cropHandlePositions(rect) {
+            let c = toView(position)
+            let r = CGRect(x: c.x - 4, y: c.y - 4, width: 8, height: 8)
+            let square = Path(roundedRect: r, cornerRadius: 1.5)
+            context.fill(square, with: .color(.white))
+            context.stroke(square, with: .color(.black.opacity(0.5)), lineWidth: 1)
         }
     }
 
@@ -188,6 +266,82 @@ struct EditorCanvasView: View {
                        style: StrokeStyle(lineWidth: 1, dash: [5, 3]))
         context.stroke(path, with: .color(.black.opacity(0.5)),
                        style: StrokeStyle(lineWidth: 1, dash: [5, 3], dashPhase: 4))
+    }
+
+    // MARK: Crop geometry (image-pixel space)
+
+    private func cropHandlePositions(_ r: CGRect) -> [(CropHandle, CGPoint)] {
+        [(.topLeft, CGPoint(x: r.minX, y: r.minY)),
+         (.top, CGPoint(x: r.midX, y: r.minY)),
+         (.topRight, CGPoint(x: r.maxX, y: r.minY)),
+         (.right, CGPoint(x: r.maxX, y: r.midY)),
+         (.bottomRight, CGPoint(x: r.maxX, y: r.maxY)),
+         (.bottom, CGPoint(x: r.midX, y: r.maxY)),
+         (.bottomLeft, CGPoint(x: r.minX, y: r.maxY)),
+         (.left, CGPoint(x: r.minX, y: r.midY))]
+    }
+
+    private func cropHandle(at p: CGPoint, rect: CGRect, tolerance: CGFloat) -> CropHandle? {
+        cropHandlePositions(rect).first { hypot($0.1.x - p.x, $0.1.y - p.y) <= tolerance }?.0
+    }
+
+    /// Applies a handle drag to the crop rect, clamped to the image and to a
+    /// minimum size (the moved edge is pushed back rather than crossing over).
+    private func resizedCrop(_ r: CGRect, handle: CropHandle, to p: CGPoint) -> CGRect {
+        let pixel = document.pixelSize
+        let px = min(max(p.x, 0), pixel.width)
+        let py = min(max(p.y, 0), pixel.height)
+        var minX = r.minX, minY = r.minY, maxX = r.maxX, maxY = r.maxY
+        switch handle {
+        case .topLeft:     minX = px; minY = py
+        case .top:         minY = py
+        case .topRight:    maxX = px; minY = py
+        case .right:       maxX = px
+        case .bottomRight: maxX = px; maxY = py
+        case .bottom:      maxY = py
+        case .bottomLeft:  minX = px; maxY = py
+        case .left:        minX = px
+        }
+        let minSize: CGFloat = 8
+        if maxX - minX < minSize {
+            switch handle {
+            case .topLeft, .bottomLeft, .left: minX = maxX - minSize
+            default:                           maxX = minX + minSize
+            }
+        }
+        if maxY - minY < minSize {
+            switch handle {
+            case .topLeft, .topRight, .top: minY = maxY - minSize
+            default:                        maxY = minY + minSize
+            }
+        }
+        // The min-size push-back can nudge an edge past the border when the
+        // fixed edge is within minSize of it; clamp back inside the image.
+        minX = max(0, minX); minY = max(0, minY)
+        maxX = min(pixel.width, maxX); maxY = min(pixel.height, maxY)
+        return CGRect(x: minX, y: minY,
+                      width: max(0, maxX - minX), height: max(0, maxY - minY))
+    }
+
+    private func movedCrop(_ r: CGRect, by d: CGPoint) -> CGRect {
+        let pixel = document.pixelSize
+        var moved = r.offsetBy(dx: d.x, dy: d.y)
+        moved.origin.x = min(max(0, moved.origin.x), pixel.width - moved.width)
+        moved.origin.y = min(max(0, moved.origin.y), pixel.height - moved.height)
+        return moved
+    }
+
+    /// Decides what a mouse-down in crop mode does: grab a handle, move the
+    /// rect from inside, or start a fresh rect on empty space.
+    private func beginCropDrag(at p: CGPoint, fitScale: CGFloat) -> DragMode {
+        let grabPx = handleGrabPt / fitScale
+        if let rect = cropRect {
+            if let handle = cropHandle(at: p, rect: rect, tolerance: grabPx) {
+                return .cropResizing(handle)
+            }
+            if rect.contains(p) { return .cropMoving(last: p) }
+        }
+        return .cropCreating(start: p)
     }
 
     private func drawSelection(for a: Annotation, context: GraphicsContext,
@@ -239,7 +393,12 @@ struct EditorCanvasView: View {
                         dragMode = .ignore
                         return
                     }
-                    if isSpaceHeld {
+                    if tool == .crop {
+                        // Interacting with the frame takes focus off the size
+                        // fields, so arrow keys move the frame (not the caret).
+                        NSApp.keyWindow?.makeFirstResponder(nil)
+                        dragMode = beginCropDrag(at: p, fitScale: fitScale)
+                    } else if isSpaceHeld {
                         dragMode = .panning(last: value.location)
                     } else if tool != .ocr, beginEditingIfDoubleClick(at: p, fitScale: fitScale) {
                         // A double-click on text/step opens its inline editor
@@ -302,6 +461,28 @@ struct EditorCanvasView: View {
                 case .ocrSelecting(let start, _):
                     dragMode = .ocrSelecting(start: start, current: p)
 
+                case .cropCreating(let start):
+                    // Ignore a stray click (or the first sub-pixel of a drag) so
+                    // it doesn't collapse the existing frame; only a real drag
+                    // starts a fresh rect.
+                    let moved = hypot(value.translation.width, value.translation.height)
+                    if moved >= 3 {
+                        let raw = CGRect(x: min(start.x, p.x), y: min(start.y, p.y),
+                                         width: abs(p.x - start.x), height: abs(p.y - start.y))
+                        cropRect = raw.intersection(CGRect(origin: .zero, size: pixel))
+                    }
+
+                case .cropMoving(let last):
+                    if let rect = cropRect {
+                        cropRect = movedCrop(rect, by: CGPoint(x: p.x - last.x, y: p.y - last.y))
+                    }
+                    dragMode = .cropMoving(last: p)
+
+                case .cropResizing(let handle):
+                    if let rect = cropRect {
+                        cropRect = resizedCrop(rect, handle: handle, to: p)
+                    }
+
                 case .panning(let last):
                     // Clamp so the image can't be dragged past its overflow
                     // (and stays centered when it fits — no free-floating).
@@ -336,7 +517,7 @@ struct EditorCanvasView: View {
                     let rect = CGRect(x: min(start.x, p.x), y: min(start.y, p.y),
                                       width: abs(p.x - start.x), height: abs(p.y - start.y))
                     if rect.width >= 4, rect.height >= 4 { onRecognizeRegion(rect) }
-                case .panning, .ignore, nil:
+                case .cropCreating, .cropMoving, .cropResizing, .panning, .ignore, nil:
                     break
                 }
             }
@@ -360,6 +541,9 @@ struct EditorCanvasView: View {
             // The recognize-text tool never touches annotations: any drag is a
             // marquee over the region to OCR.
             return .ocrSelecting(start: p, current: p)
+        case .crop:
+            // Crop drags are routed through beginCropDrag before reaching here.
+            return .ignore
         case .select:
             if let hit = document.annotation(at: p, tolerance: tolerancePx) {
                 document.selectedID = hit.id
@@ -439,7 +623,7 @@ struct EditorCanvasView: View {
         case .rect:  return .rect
         case .oval:  return .oval
         case .blur:  return .blur
-        case .select, .text, .step, .ocr: return nil
+        case .select, .text, .step, .ocr, .crop: return nil
         }
     }
 
@@ -498,6 +682,24 @@ struct EditorCanvasView: View {
                 return nil
             }
 
+            // Crop mode: Return applies, Esc cancels — handled before the
+            // generic Esc so it doesn't just drop the tool. Skip while a text
+            // field (the dimension inputs) has focus, so Return commits the
+            // typed value instead of the whole crop.
+            let fieldHasFocus = NSApp.keyWindow?.firstResponder is NSText
+            if event.type == .keyDown, self.tool == .crop, !fieldHasFocus {
+                switch event.keyCode {
+                case 36, 76: self.onCropApply();  return nil   // Return, keypad Enter
+                case 53:     self.onCropCancel(); return nil   // Esc
+                default:     break
+                }
+                // Nudge the crop frame with the same 1 / ⇧10 / ⌥⇧50 tiers.
+                if let rect = self.cropRect, let delta = Self.nudgeDelta(for: event) {
+                    self.cropRect = self.movedCrop(rect, by: delta)
+                    return nil
+                }
+            }
+
             // Esc walks the interaction hierarchy. Handled here (not via
             // SwiftUI onExitCommand) because the Canvas is never first
             // responder, so the command modifier never reaches the view.
@@ -523,22 +725,27 @@ struct EditorCanvasView: View {
                 return nil
             }
 
-            // Arrow-key nudge in native image pixels: 1, ⇧ 10, ⌥⇧ 50.
-            // Command/Control are reserved for menu shortcuts.
-            guard event.modifierFlags.intersection([.command, .control]).isEmpty else { return event }
-            let shift = event.modifierFlags.contains(.shift)
-            let option = event.modifierFlags.contains(.option)
-            let amount: CGFloat = (shift && option) ? 50 : (shift ? 10 : 1)
-            let delta: CGPoint
-            switch event.keyCode {
-            case 123: delta = CGPoint(x: -amount, y: 0) // left
-            case 124: delta = CGPoint(x: amount, y: 0)  // right
-            case 125: delta = CGPoint(x: 0, y: amount)  // down
-            case 126: delta = CGPoint(x: 0, y: -amount) // up
-            default: return event
-            }
+            // Arrow-key nudge of the selected annotation (same tiers as crop).
+            guard let delta = Self.nudgeDelta(for: event) else { return event }
             self.document.nudgeSelected(by: delta)
             return nil
+        }
+    }
+
+    /// Arrow-key nudge delta in native image pixels: 1, ⇧ 10, ⌥⇧ 50. Returns
+    /// nil for non-arrow keys or when Command/Control is held (reserved for
+    /// menu shortcuts). Shared by the annotation nudge and the crop frame.
+    private static func nudgeDelta(for event: NSEvent) -> CGPoint? {
+        guard event.modifierFlags.intersection([.command, .control]).isEmpty else { return nil }
+        let shift = event.modifierFlags.contains(.shift)
+        let option = event.modifierFlags.contains(.option)
+        let amount: CGFloat = (shift && option) ? 50 : (shift ? 10 : 1)
+        switch event.keyCode {
+        case 123: return CGPoint(x: -amount, y: 0) // left
+        case 124: return CGPoint(x: amount, y: 0)  // right
+        case 125: return CGPoint(x: 0, y: amount)  // down
+        case 126: return CGPoint(x: 0, y: -amount) // up
+        default:  return nil
         }
     }
 

@@ -15,6 +15,8 @@ struct EditorView: View {
     @State private var editingTextID: UUID?
     @State private var zoomFactor: CGFloat = 1
     @State private var panOffset: CGSize = .zero
+    /// Pending crop rectangle (image-pixel space) while the crop tool is active.
+    @State private var cropRect: CGRect?
     @State private var feedback: FeedbackKind?
     @State private var feedbackTask: DispatchWorkItem?
 
@@ -46,7 +48,10 @@ struct EditorView: View {
                 editingTextID: $editingTextID,
                 zoomFactor: $zoomFactor,
                 panOffset: $panOffset,
-                onRecognizeRegion: { recognizeRegion($0) }
+                onRecognizeRegion: { recognizeRegion($0) },
+                cropRect: $cropRect,
+                onCropApply: applyCrop,
+                onCropCancel: cancelCrop
             )
             .background(Color(nsColor: .underPageBackgroundColor))
         }
@@ -65,6 +70,8 @@ struct EditorView: View {
             fitButton
             Divider().frame(height: 20)
             rotateButtons
+            Divider().frame(height: 20)
+            cropButton
             Spacer(minLength: 8)
             feedbackLabel
             undoRedoButtons
@@ -80,6 +87,7 @@ struct EditorView: View {
             ForEach(EditorTool.pickerCases, id: \.self) { t in
                 Button {
                     tool = t
+                    cropRect = nil
                     if t != .select { document.selectedID = nil }
                     if t == .blur {
                         document.prepareBlurSource(style: style.blurStyle,
@@ -111,6 +119,8 @@ struct EditorView: View {
                 Label("Drag to select an area to recognize", systemImage: "text.viewfinder")
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
+            } else if tool == .crop {
+                cropSizeControls
             } else {
                 contextControls
             }
@@ -159,7 +169,7 @@ struct EditorView: View {
     private var contextKind: AnnotationKind? {
         if let selected = document.selectedAnnotation { return selected.kind }
         switch tool {
-        case .select, .ocr: return nil
+        case .select, .ocr, .crop: return nil
         case .arrow:  return .arrow
         case .rect:   return .rect
         case .oval:   return .oval
@@ -564,14 +574,14 @@ struct EditorView: View {
 
     private var rotateButtons: some View {
         HStack(spacing: 2) {
-            Button { document.rotate(clockwise: false) } label: {
+            Button { rotate(clockwise: false) } label: {
                 Image(systemName: "rotate.left").frame(width: 24, height: 22)
             }
             .buttonStyle(.borderless)
             .disabled(textEditingActive)
             .hoverTip("Rotate Left")
 
-            Button { document.rotate(clockwise: true) } label: {
+            Button { rotate(clockwise: true) } label: {
                 Image(systemName: "rotate.right").frame(width: 24, height: 22)
             }
             .buttonStyle(.borderless)
@@ -580,7 +590,61 @@ struct EditorView: View {
         }
     }
 
-    private var actionButtons: some View {
+    /// Rotates the image, and — if a crop frame is active — rotates that frame
+    /// with it so it keeps framing the same region and stays within the new
+    /// (swapped) bounds.
+    private func rotate(clockwise: Bool) {
+        let oldSize = document.pixelSize
+        document.rotate(clockwise: clockwise)
+        if let rect = cropRect {
+            let p1 = EditorDocument.rotatePoint(CGPoint(x: rect.minX, y: rect.minY),
+                                                in: oldSize, clockwise: clockwise)
+            let p2 = EditorDocument.rotatePoint(CGPoint(x: rect.maxX, y: rect.maxY),
+                                                in: oldSize, clockwise: clockwise)
+            cropRect = CGRect(x: min(p1.x, p2.x), y: min(p1.y, p2.y),
+                              width: abs(p2.x - p1.x), height: abs(p2.y - p1.y))
+        }
+    }
+
+    private var cropButton: some View {
+        Button {
+            if tool == .crop { cancelCrop() } else { enterCropMode() }
+        } label: {
+            Image(systemName: "crop")
+                .frame(width: 24, height: 22)
+                .foregroundStyle(tool == .crop ? Color.accentColor : Color.primary)
+        }
+        .buttonStyle(.borderless)
+        .disabled(textEditingActive)
+        .hoverTip("Crop")
+    }
+
+    /// In crop mode the Copy/Save actions are replaced by Cancel/Apply.
+    @ViewBuilder private var actionButtons: some View {
+        if tool == .crop {
+            cropActionButtons
+        } else {
+            standardActionButtons
+        }
+    }
+
+    private var cropActionButtons: some View {
+        HStack(spacing: 8) {
+            Button { cancelCrop() } label: {
+                collapsibleLabel("Cancel", systemImage: "xmark")
+            }
+            .hoverTip("Cancel")
+
+            Button { applyCrop() } label: {
+                collapsibleLabel("Apply", systemImage: "checkmark")
+            }
+            .disabled(cropRect == nil)
+            .hoverTip("Apply")
+        }
+        .controlSize(.small)
+    }
+
+    private var standardActionButtons: some View {
         HStack(spacing: 8) {
             Button {
                 tool = (tool == .ocr) ? .select : .ocr
@@ -675,6 +739,74 @@ struct EditorView: View {
         let region = pixelRect.integral.intersection(bounds)
         guard region.width >= 1, region.height >= 1 else { return nil }
         return document.baseImage.cropping(to: region)
+    }
+
+    // MARK: Crop
+
+    /// Live pixel dimensions of the crop rect, typed in for an exact size. The
+    /// frame stays within the image: an over-large value clamps to the image
+    /// and shifts the origin inward to fit rather than spilling over.
+    private var cropSizeControls: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "crop")
+                .font(.system(size: 11)).foregroundStyle(.secondary)
+            TextField("", value: cropDimensionBinding(\.width), format: .number)
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 56).multilineTextAlignment(.center)
+                .hoverTip("Crop Width")
+            Text(verbatim: "×").foregroundStyle(.secondary)
+            TextField("", value: cropDimensionBinding(\.height), format: .number)
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 56).multilineTextAlignment(.center)
+                .hoverTip("Crop Height")
+            Text(verbatim: "px").font(.system(size: 11)).foregroundStyle(.secondary)
+        }
+        .font(.system(size: 12))
+        .controlSize(.small)
+    }
+
+    /// Rounds the crop rect's width or height to an integer for the field, and
+    /// on entry resizes that axis (clamped, origin nudged to keep it on-image).
+    private func cropDimensionBinding(_ axis: WritableKeyPath<CGSize, CGFloat>) -> Binding<Int> {
+        Binding(
+            get: { Int((cropRect?.size[keyPath: axis] ?? 0).rounded()) },
+            set: { newValue in setCropDimension(axis, to: CGFloat(newValue)) }
+        )
+    }
+
+    private func setCropDimension(_ axis: WritableKeyPath<CGSize, CGFloat>, to value: CGFloat) {
+        guard var rect = cropRect else { return }
+        let isWidth = axis == \CGSize.width
+        let limit = isWidth ? document.pixelSize.width : document.pixelSize.height
+        let size = min(max(8, value), limit)                 // 8px floor, image ceiling
+        var origin = isWidth ? rect.origin.x : rect.origin.y
+        if origin + size > limit { origin = limit - size }   // slide inward to fit
+        origin = max(0, origin)
+        if isWidth {
+            rect.origin.x = origin; rect.size.width = size
+        } else {
+            rect.origin.y = origin; rect.size.height = size
+        }
+        cropRect = rect
+    }
+
+    /// Enters crop mode with the frame initialized to the whole image, so the
+    /// user drags the edges inward (or draws a new rect).
+    private func enterCropMode() {
+        document.selectedID = nil
+        cropRect = CGRect(origin: .zero, size: document.pixelSize)
+        tool = .crop
+    }
+
+    private func applyCrop() {
+        if let cropRect { document.crop(to: cropRect) }
+        cropRect = nil
+        tool = .select
+    }
+
+    private func cancelCrop() {
+        cropRect = nil
+        tool = .select
     }
 
     private func adjustZoom(by amount: CGFloat) {
