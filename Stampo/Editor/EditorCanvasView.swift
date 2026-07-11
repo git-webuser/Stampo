@@ -315,17 +315,7 @@ struct EditorCanvasView: View {
         guard let id = editingTextID else { return }
         editingTextID = nil
         textFieldFocused = false
-        guard let idx = document.annotations.firstIndex(where: { $0.id == id }) else { return }
-        var a = document.annotations[idx]
-        if a.isDegenerate {
-            document.annotations.remove(at: idx)
-            if document.selectedID == id { document.selectedID = nil }
-        } else {
-            let size = AnnotationRenderer.measureText(a)
-            a.end = CGPoint(x: a.start.x + size.width, y: a.start.y + size.height)
-            document.annotations[idx] = a
-        }
-        document.commitChange()
+        document.finishTextEditing(id)
     }
 
     private func textOverlay(for annotation: Annotation, fitScale: CGFloat,

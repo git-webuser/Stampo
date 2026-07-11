@@ -305,4 +305,22 @@ struct Annotation: Identifiable, Equatable {
         self.selectedID = nil
         commitChange()
     }
+
+    /// Completes an inline text edit. An empty new label disappears without
+    /// affecting history; non-empty text gets its export bounds and commits
+    /// the snapshot captured when editing began.
+    func finishTextEditing(_ id: UUID) {
+        guard let idx = annotations.firstIndex(where: { $0.id == id }) else { return }
+        var annotation = annotations[idx]
+        if annotation.isDegenerate {
+            annotations.remove(at: idx)
+            if selectedID == id { selectedID = nil }
+        } else {
+            let size = AnnotationRenderer.measureText(annotation)
+            annotation.end = CGPoint(x: annotation.start.x + size.width,
+                                     y: annotation.start.y + size.height)
+            annotations[idx] = annotation
+        }
+        commitChange()
+    }
 }

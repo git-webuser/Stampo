@@ -109,4 +109,40 @@ import Testing
         doc.undo()
         #expect(doc.isDirty)
     }
+
+    @Test func finishingTextEditMeasuresAndCommitsIt() {
+        let doc = makeDocument()
+        var text = annotation()
+        text.kind = .text
+        text.start = CGPoint(x: 4, y: 6)
+        text.end = text.start
+        text.text = "Текст"
+        text.fontSize = 24
+
+        doc.beginChange()
+        doc.annotations.append(text)
+        doc.selectedID = text.id
+        doc.finishTextEditing(text.id)
+
+        #expect(doc.annotations[0].end.x > text.start.x)
+        #expect(doc.annotations[0].end.y > text.start.y)
+        #expect(doc.canUndo)
+    }
+
+    @Test func finishingEmptyTextEditRemovesItWithoutHistory() {
+        let doc = makeDocument()
+        var text = annotation()
+        text.kind = .text
+        text.end = text.start
+
+        doc.beginChange()
+        doc.annotations.append(text)
+        doc.selectedID = text.id
+        doc.finishTextEditing(text.id)
+
+        #expect(doc.annotations.isEmpty)
+        #expect(doc.selectedID == nil)
+        #expect(!doc.canUndo)
+        #expect(!doc.isDirty)
+    }
 }

@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// Editor window content: toolbar (tools, style, undo/redo, copy/save) over
@@ -29,6 +30,7 @@ struct EditorView: View {
             .background(Color(nsColor: .underPageBackgroundColor))
         }
         .frame(minWidth: 560, minHeight: 360)
+        .onExitCommand { handleEscape() }
     }
 
     private var textEditingActive: Bool { editingTextID != nil }
@@ -218,6 +220,20 @@ struct EditorView: View {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.writeObjects([image])
         showFeedback(.copied)
+    }
+
+    /// Esc walks down the editor's interaction hierarchy: leave inline text
+    /// editing, clear the selection, then ask AppKit to close (which invokes
+    /// EditorWindowController's unsaved-changes guard).
+    private func handleEscape() {
+        if let editingTextID {
+            document.finishTextEditing(editingTextID)
+            self.editingTextID = nil
+        } else if document.selectedID != nil {
+            document.selectedID = nil
+        } else {
+            NSApp.keyWindow?.performClose(nil)
+        }
     }
 
     private func showFeedback(_ kind: FeedbackKind) {
