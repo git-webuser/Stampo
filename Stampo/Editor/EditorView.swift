@@ -100,9 +100,9 @@ struct EditorView: View {
 
         // Stroke thickness.
         Picker("Thickness", selection: thicknessBinding) {
-            Text("S").tag(CGFloat(4))
-            Text("M").tag(CGFloat(8))
-            Text("L").tag(CGFloat(14))
+            Text("2").tag(CGFloat(2))
+            Text("4").tag(CGFloat(4))
+            Text("6").tag(CGFloat(6))
         }
         .pickerStyle(.segmented)
         .labelsHidden()

@@ -30,7 +30,9 @@ enum EditorTool: Equatable, CaseIterable {
 /// Current stroke style shared by the toolbar and the canvas.
 struct ToolStyle {
     var color: AnnotationColor = .red
-    var lineWidth: CGFloat = 8
+    /// Pixels in the image-space model. 4 px is a comfortable 2 pt stroke
+    /// on a 2x screenshot while preserving native-resolution export.
+    var lineWidth: CGFloat = 4
     var blurStyle: BlurStyle = .pixelate
 }
 
