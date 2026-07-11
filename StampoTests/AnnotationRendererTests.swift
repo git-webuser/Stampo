@@ -63,6 +63,22 @@ enum TestImages {
         #expect(blurred?.width == 64 && blurred?.height == 48)
         #expect(pixelated?.width == 64 && pixelated?.height == 48)
     }
+
+    @Test func fillAndStepDrawInsideTheirBounds() {
+        let base = TestImages.make(width: 80, height: 80)
+        var rect = Annotation(kind: .rect, start: CGPoint(x: 5, y: 5),
+                              end: CGPoint(x: 35, y: 35), color: .red, lineWidth: 2)
+        rect.fillOpacity = 0.2
+        var step = Annotation(kind: .step, start: CGPoint(x: 60, y: 60),
+                              end: CGPoint(x: 60, y: 60), color: .black, lineWidth: 0)
+        step.stepNumber = 2
+        step.stepDiameter = 24
+        let rep = AnnotationRenderer.renderBitmap(
+            base: base, blurred: nil, pixelated: nil, annotations: [rect, step])!
+        #expect(rep.colorAt(x: 20, y: 20)?.redComponent ?? 1 < 1)
+        // Sample beside the white number at the marker center.
+        #expect(rep.colorAt(x: 52, y: 60)?.brightnessComponent ?? 1 < 0.5)
+    }
 }
 
 @Suite struct FileStoreEncodingTests {

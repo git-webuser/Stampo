@@ -9,6 +9,7 @@ enum AnnotationKind: Equatable {
     case oval
     case text
     case blur
+    case step
 }
 
 enum BlurStyle: String, Equatable, CaseIterable {
@@ -28,6 +29,11 @@ struct AnnotationColor: Equatable {
     }
     var nsColor: NSColor {
         NSColor(srgbRed: red, green: green, blue: blue, alpha: alpha)
+    }
+
+    func multipliedAlpha(_ multiplier: CGFloat) -> AnnotationColor {
+        AnnotationColor(red: red, green: green, blue: blue,
+                        alpha: alpha * Double(multiplier))
     }
 
     // Toolbar presets (red is the default tool color).
@@ -50,16 +56,23 @@ struct Annotation: Identifiable, Equatable {
     let id: UUID
     var kind: AnnotationKind
     /// Anchor point. For .arrow this is the tail; for shapes a drag corner;
-    /// for .text the top-left of the text box.
+    /// for .text the top-left of the text box; for .step its center.
     var start: CGPoint
     /// Second point. For .arrow the tip; for shapes the opposite corner;
-    /// for .text the bottom-right of the measured text bounds.
+    /// for .text the bottom-right of the measured text bounds. Step keeps it
+    /// equal to `start`, since its bounds come from `stepDiameter`.
     var end: CGPoint
     var color: AnnotationColor
     var lineWidth: CGFloat
     var text: String = ""
     var fontSize: CGFloat = 28
     var blurStyle: BlurStyle = .pixelate
+    /// 0 is outline-only; rect and oval use a translucent fill above 0.
+    var fillOpacity: CGFloat = 0
+    /// Number rendered by a `.step` marker.
+    var stepNumber: Int = 1
+    /// Diameter of a `.step` marker in image pixels.
+    var stepDiameter: CGFloat = 40
 
     init(id: UUID = UUID(), kind: AnnotationKind, start: CGPoint, end: CGPoint,
          color: AnnotationColor, lineWidth: CGFloat) {
@@ -74,10 +87,15 @@ struct Annotation: Identifiable, Equatable {
     /// Normalized bounding rect (positive width/height) regardless of the
     /// direction the user dragged.
     var rect: CGRect {
-        CGRect(x: min(start.x, end.x),
-               y: min(start.y, end.y),
-               width: abs(end.x - start.x),
-               height: abs(end.y - start.y))
+        if kind == .step {
+            return CGRect(x: start.x - stepDiameter / 2,
+                          y: start.y - stepDiameter / 2,
+                          width: stepDiameter, height: stepDiameter)
+        }
+        return CGRect(x: min(start.x, end.x),
+                      y: min(start.y, end.y),
+                      width: abs(end.x - start.x),
+                      height: abs(end.y - start.y))
     }
 
     /// True when the annotation is too small to be meaningful (accidental click).
@@ -89,6 +107,8 @@ struct Annotation: Identifiable, Equatable {
             return rect.width < 4 || rect.height < 4
         case .text:
             return text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        case .step:
+            return stepDiameter <= 0
         }
     }
 
@@ -116,6 +136,8 @@ struct Annotation: Identifiable, Equatable {
             return abs(d - 1.0) <= tol
         case .text, .blur:
             return rect.insetBy(dx: -tolerance, dy: -tolerance).contains(p)
+        case .step:
+            return hypot(p.x - start.x, p.y - start.y) <= stepDiameter / 2 + tolerance
         }
     }
 
@@ -146,7 +168,7 @@ struct Annotation: Identifiable, Equatable {
                     (.topRight, CGPoint(x: r.maxX, y: r.minY)),
                     (.bottomLeft, CGPoint(x: r.minX, y: r.maxY)),
                     (.bottomRight, CGPoint(x: r.maxX, y: r.maxY))]
-        case .text:
+        case .text, .step:
             return [] // move-only; double-click edits
         }
     }
@@ -162,7 +184,7 @@ struct Annotation: Identifiable, Equatable {
 
     /// Drags one handle to a new position. Corner handles re-anchor
     /// start/end so the opposite corner stays fixed.
-    mutating func apply(handle: Handle, to p: CGPoint) {
+    mutating func apply(handle: Handle, to p: CGPoint, aspectLocked: Bool = false) {
         switch handle {
         case .start: start = p
         case .end:   end = p
@@ -177,7 +199,9 @@ struct Annotation: Identifiable, Equatable {
             default: return
             }
             start = anchor
-            end = p
+            end = aspectLocked && (kind == .rect || kind == .oval)
+                ? Self.aspectLockedEnd(from: anchor, to: p)
+                : p
         }
     }
 
@@ -196,6 +220,27 @@ struct Annotation: Identifiable, Equatable {
         let b2 = CGPoint(x: tip.x - headLength * cos(angle + spread),
                          y: tip.y - headLength * sin(angle + spread))
         return (b1, b2)
+    }
+
+    /// Snaps an arrow endpoint to its nearest 45-degree ray from `from`.
+    static func snappedArrowEnd(from: CGPoint, to point: CGPoint) -> CGPoint {
+        let dx = point.x - from.x, dy = point.y - from.y
+        let length = hypot(dx, dy)
+        guard length > 0 else { return point }
+        let increment = CGFloat.pi / 4
+        let angle = atan2(dy, dx)
+        let snapped = (angle / increment).rounded() * increment
+        return CGPoint(x: from.x + length * cos(snapped),
+                       y: from.y + length * sin(snapped))
+    }
+
+    /// Returns the square/circle endpoint that preserves the drag quadrant.
+    static func aspectLockedEnd(from: CGPoint, to point: CGPoint) -> CGPoint {
+        let dx = point.x - from.x, dy = point.y - from.y
+        let side = max(abs(dx), abs(dy))
+        guard side > 0 else { return point }
+        return CGPoint(x: from.x + (dx < 0 ? -side : side),
+                       y: from.y + (dy < 0 ? -side : side))
     }
 }
 
@@ -239,6 +284,10 @@ struct Annotation: Identifiable, Equatable {
     var selectedAnnotation: Annotation? {
         guard let selectedID else { return nil }
         return annotations.first { $0.id == selectedID }
+    }
+
+    var nextStepNumber: Int {
+        (annotations.compactMap { $0.kind == .step ? $0.stepNumber : nil }.max() ?? 0) + 1
     }
 
     /// Topmost annotation under the point (annotations later in the array
@@ -303,6 +352,15 @@ struct Annotation: Identifiable, Equatable {
         beginChange()
         annotations.removeAll { $0.id == selectedID }
         self.selectedID = nil
+        commitChange()
+    }
+
+    /// Moves the selected annotation by an exact image-pixel amount and
+    /// records that keyboard nudge as one undoable edit.
+    func nudgeSelected(by delta: CGPoint) {
+        guard selectedID != nil else { return }
+        beginChange()
+        updateSelected { $0.move(by: delta) }
         commitChange()
     }
 

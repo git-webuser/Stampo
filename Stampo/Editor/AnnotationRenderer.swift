@@ -63,14 +63,9 @@ enum AnnotationRenderer {
             case .arrow:
                 drawArrow(annotation, ctx: ctx)
             case .rect:
-                ctx.setStrokeColor(annotation.color.cgColor)
-                ctx.setLineWidth(annotation.lineWidth)
-                ctx.setLineJoin(.miter)
-                ctx.stroke(annotation.rect)
+                drawShape(annotation, isOval: false, ctx: ctx)
             case .oval:
-                ctx.setStrokeColor(annotation.color.cgColor)
-                ctx.setLineWidth(annotation.lineWidth)
-                ctx.strokeEllipse(in: annotation.rect)
+                drawShape(annotation, isOval: true, ctx: ctx)
             case .blur:
                 let source = annotation.blurStyle == .pixelate ? pixelated : blurred
                 guard let source else { break }
@@ -80,6 +75,8 @@ enum AnnotationRenderer {
                 ctx.restoreGState()
             case .text:
                 drawText(annotation, ctx: ctx)
+            case .step:
+                drawStep(annotation, ctx: ctx)
             }
         }
     }
@@ -119,6 +116,47 @@ enum AnnotationRenderer {
         ctx.addLine(to: b2)
         ctx.closePath()
         ctx.fillPath()
+    }
+
+    private static func drawShape(_ a: Annotation, isOval: Bool, ctx: CGContext) {
+        if a.fillOpacity > 0 {
+            ctx.setFillColor(a.color.multipliedAlpha(a.fillOpacity).cgColor)
+            if isOval {
+                ctx.fillEllipse(in: a.rect)
+            } else {
+                ctx.fill(a.rect)
+            }
+        }
+        ctx.setStrokeColor(a.color.cgColor)
+        ctx.setLineWidth(a.lineWidth)
+        ctx.setLineJoin(.miter)
+        if isOval {
+            ctx.strokeEllipse(in: a.rect)
+        } else {
+            ctx.stroke(a.rect)
+        }
+    }
+
+    private static func drawStep(_ a: Annotation, ctx: CGContext) {
+        ctx.setFillColor(a.color.cgColor)
+        ctx.fillEllipse(in: a.rect)
+
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: max(14, a.stepDiameter * 0.52), weight: .bold),
+            .foregroundColor: NSColor.white,
+        ]
+        let string = NSAttributedString(string: String(a.stepNumber), attributes: attributes)
+        let measured = string.boundingRect(
+            with: CGSize(width: a.stepDiameter, height: a.stepDiameter),
+            options: [.usesLineFragmentOrigin]
+        )
+        let previous = NSGraphicsContext.current
+        NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: true)
+        string.draw(
+            at: CGPoint(x: a.rect.midX - measured.width / 2,
+                        y: a.rect.midY - measured.height / 2)
+        )
+        NSGraphicsContext.current = previous
     }
 
     static func textAttributes(for a: Annotation) -> [NSAttributedString.Key: Any] {

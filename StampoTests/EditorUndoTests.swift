@@ -145,4 +145,30 @@ import Testing
         #expect(!doc.canUndo)
         #expect(!doc.isDirty)
     }
+
+    @Test func keyboardNudgeIsUndoable() {
+        let doc = makeDocument()
+        let a = annotation()
+        doc.beginChange()
+        doc.annotations.append(a)
+        doc.commitChange()
+        doc.selectedID = a.id
+
+        doc.nudgeSelected(by: CGPoint(x: 10, y: -1))
+        #expect(doc.annotations[0].start == CGPoint(x: 10, y: -1))
+        doc.undo()
+        #expect(doc.annotations[0].start == .zero)
+    }
+
+    @Test func nextStepNumberFollowsHighestExistingMarker() {
+        let doc = makeDocument()
+        var first = annotation()
+        first.kind = .step
+        first.stepNumber = 1
+        var third = annotation(40)
+        third.kind = .step
+        third.stepNumber = 3
+        doc.annotations = [first, third]
+        #expect(doc.nextStepNumber == 4)
+    }
 }

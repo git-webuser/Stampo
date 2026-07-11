@@ -58,6 +58,17 @@ import Testing
         #expect(!blur.hitTest(CGPoint(x: 100, y: 100), tolerance: 4))
     }
 
+    @Test func stepUsesCircularBoundsAndIsMoveOnly() {
+        var step = make(.step, start: CGPoint(x: 50, y: 40), end: CGPoint(x: 50, y: 40))
+        step.stepDiameter = 40
+        #expect(step.rect == CGRect(x: 30, y: 20, width: 40, height: 40))
+        #expect(step.hitTest(CGPoint(x: 50, y: 40), tolerance: 0))
+        #expect(!step.hitTest(CGPoint(x: 75, y: 40), tolerance: 0))
+        #expect(step.handles.isEmpty)
+        step.move(by: CGPoint(x: 10, y: -5))
+        #expect(step.start == CGPoint(x: 60, y: 35))
+    }
+
     // MARK: handles
 
     @Test func arrowHasEndpointHandles() {
@@ -98,6 +109,13 @@ import Testing
         #expect(a.rect == CGRect(x: 0, y: 0, width: 60, height: 70))
     }
 
+    @Test func aspectLockPreservesSquareAcrossQuadrants() {
+        #expect(Annotation.aspectLockedEnd(from: CGPoint(x: 10, y: 10),
+                                           to: CGPoint(x: 30, y: 15)) == CGPoint(x: 30, y: 30))
+        #expect(Annotation.aspectLockedEnd(from: CGPoint(x: 10, y: 10),
+                                           to: CGPoint(x: 3, y: 40)) == CGPoint(x: -20, y: 40))
+    }
+
     // MARK: arrowhead
 
     @Test func arrowheadBarbsAreSymmetricAndBehindTip() {
@@ -116,6 +134,14 @@ import Testing
         let (thick, _) = Annotation.arrowheadBarbs(from: from, tip: tip, lineWidth: 10)
         // Thicker stroke -> longer head -> barb sits further from the tip.
         #expect((100 - thick.x) > (100 - thin.x))
+    }
+
+    @Test func arrowEndpointSnapsToNearest45DegreeRay() {
+        let origin = CGPoint(x: 10, y: 10)
+        let horizontal = Annotation.snappedArrowEnd(from: origin, to: CGPoint(x: 60, y: 8))
+        #expect(abs(horizontal.y - 10) < 0.001)
+        let diagonal = Annotation.snappedArrowEnd(from: origin, to: CGPoint(x: 45, y: 40))
+        #expect(abs((diagonal.x - 10) - (diagonal.y - 10)) < 0.001)
     }
 
     // MARK: degenerate
