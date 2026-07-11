@@ -51,6 +51,16 @@ import Testing
         #expect(!a.hitTest(CGPoint(x: 50, y: 50), tolerance: 4))  // center
     }
 
+    @Test func filledShapesHitTheirInterior() {
+        var rect = make(.rect, start: CGPoint(x: 10, y: 10), end: CGPoint(x: 90, y: 70))
+        rect.fillOpacity = 0.2
+        #expect(rect.hitTest(CGPoint(x: 50, y: 40), tolerance: 0))
+
+        var oval = make(.oval, start: CGPoint(x: 10, y: 10), end: CGPoint(x: 90, y: 90))
+        oval.fillOpacity = 0.2
+        #expect(oval.hitTest(CGPoint(x: 50, y: 50), tolerance: 0))
+    }
+
     @Test func blurAndTextHitAnywhereInside() {
         var blur = make(.blur, start: CGPoint(x: 10, y: 10), end: CGPoint(x: 60, y: 40))
         blur.blurStyle = .gaussian

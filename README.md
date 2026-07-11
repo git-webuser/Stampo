@@ -60,10 +60,12 @@ Select an area of the screen and Stampo recognizes the text in it (English and R
 
 ## Annotation Editor
 
-Click the post-capture thumbnail (or right-click a screenshot in the tray → **Edit**) to open the built-in editor: arrows, rectangles, ovals, text labels, and blur/pixelate regions, with color and thickness presets and full undo/redo (`⌘Z` / `⇧⌘Z`).
+Click the post-capture thumbnail (or right-click a screenshot in the tray → **Edit**) to open the built-in editor: arrows, rectangles, ovals, numbered steps, text labels, and blur/pixelate regions, with color, translucent fills, thickness presets, and full undo/redo (`⌘Z` / `⇧⌘Z`).
 
 - **Save** (`⌘S`) always writes a **new file** to your save folder — the original screenshot is never modified — and the result appears in the tray.
 - **Copy** (`⌘C`) puts the annotated image on the clipboard at the original pixel resolution.
+- Hold **Shift** to snap arrows to 45° or draw square/circular shapes; use arrow keys to nudge the selected annotation by 1 px (`⇧` + arrows: 10 px).
+- Pinch to zoom, hold **Space** while dragging to pan, and use `⌘−`, `⌘+`, or `⌘0` to zoom out, zoom in, or fit the image.
 - Prefer the old behavior? Set **Settings → General → On thumbnail click** to *Open preview*.
 
 ## Hotkeys

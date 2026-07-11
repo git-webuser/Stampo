@@ -78,10 +78,10 @@ struct EditorCanvasView: View {
             let baseFitScale = min(min(geo.size.width / pixel.width,
                                        geo.size.height / pixel.height), 1.0)
             let fitScale = baseFitScale * zoomFactor
-            let fitSize = CGSize(width: pixel.width * baseFitScale,
-                                 height: pixel.height * baseFitScale)
-            let offset = CGPoint(x: (geo.size.width - fitSize.width) / 2 + panOffset.width,
-                                 y: (geo.size.height - fitSize.height) / 2 + panOffset.height)
+            let drawSize = CGSize(width: pixel.width * fitScale,
+                                  height: pixel.height * fitScale)
+            let offset = CGPoint(x: (geo.size.width - drawSize.width) / 2 + panOffset.width,
+                                 y: (geo.size.height - drawSize.height) / 2 + panOffset.height)
 
             ZStack(alignment: .topLeading) {
                 canvas(fitScale: fitScale, offset: offset)
