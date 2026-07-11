@@ -79,8 +79,7 @@ final class EditorWindowController: NSObject, NSWindowDelegate {
     private func performSave(_ document: EditorDocument) -> Bool {
         guard let rep = AnnotationRenderer.renderBitmap(
             base: document.baseImage,
-            blurred: document.blurredBase,
-            pixelated: document.pixelatedBase,
+            blurSources: document.blurSources,
             annotations: document.annotations
         ) else {
             Log.capture.error("editor: render for save failed")
@@ -153,16 +152,11 @@ final class EditorWindowController: NSObject, NSWindowDelegate {
         return CGImageSourceCreateImageAtIndex(source, 0, nil)
     }
 
+    /// Warm the default-intensity sources so the blur tool works instantly;
+    /// other levels are computed lazily when the slider first asks for them.
     private func prepareBlurSources(for document: EditorDocument) {
-        let base = document.baseImage
-        DispatchQueue.global(qos: .userInitiated).async { [weak document] in
-            let blurred = AnnotationRenderer.makeBlurred(base: base)
-            let pixelated = AnnotationRenderer.makePixelated(base: base)
-            DispatchQueue.main.async {
-                document?.blurredBase = blurred
-                document?.pixelatedBase = pixelated
-            }
-        }
+        document.prepareBlurSource(style: .gaussian, level: BlurIntensity.defaultLevel)
+        document.prepareBlurSource(style: .pixelate, level: BlurIntensity.defaultLevel)
     }
 
     /// Image at ~50% of its pixel size (native look on 2x displays), capped

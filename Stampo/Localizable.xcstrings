@@ -28,9 +28,6 @@
         }
       }
     },
-    "2" : {
-
-    },
     "2 seconds" : {
       "localizations" : {
         "en" : {
@@ -81,9 +78,6 @@
         }
       }
     },
-    "4" : {
-
-    },
     "5 seconds" : {
       "localizations" : {
         "en" : {
@@ -117,9 +111,6 @@
           }
         }
       }
-    },
-    "6" : {
-
     },
     "10 Seconds" : {
       "comment" : "Capture delay option: 10 seconds",
@@ -243,6 +234,22 @@
         }
       }
     },
+    "Arrow Style" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Arrow Style"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Стиль стрелки"
+          }
+        }
+      }
+    },
     "Arrow key movement" : {
       "comment" : "Row label for arrow-key cursor nudging",
       "extractionState" : "stale",
@@ -358,6 +365,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Блюр"
+          }
+        }
+      }
+    },
+    "Bold" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bold"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Полужирный"
           }
         }
       }
@@ -1370,6 +1393,22 @@
         }
       }
     },
+    "Intensity" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Intensity"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Интенсивность"
+          }
+        }
+      }
+    },
     "ISO 8601" : {
       "comment" : "Filename preset name (standard)",
       "extractionState" : "stale",
@@ -1384,6 +1423,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "ISO 8601"
+          }
+        }
+      }
+    },
+    "Italic" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Italic"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Курсив"
           }
         }
       }
@@ -1508,6 +1563,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "macOS не смогла сделать скриншот. Обычно это означает, что разрешение «Запись экрана» отсутствует или было отозвано."
+          }
+        }
+      }
+    },
+    "Marker Size" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Marker Size"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Размер маркера"
           }
         }
       }
@@ -2456,6 +2527,38 @@
         }
       }
     },
+    "Rotate Left" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rotate Left"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Повернуть влево"
+          }
+        }
+      }
+    },
+    "Rotate Right" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rotate Right"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Повернуть вправо"
+          }
+        }
+      }
+    },
     "Save" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -3015,6 +3118,22 @@
         }
       }
     },
+    "Strikethrough" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Strikethrough"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Зачёркнутый"
+          }
+        }
+      }
+    },
     "Style" : {
       "comment" : "Label for the filename style picker in capture settings",
       "localizations" : {
@@ -3100,6 +3219,54 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Текст"
+          }
+        }
+      }
+    },
+    "Text Background" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Text Background"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Фон текста"
+          }
+        }
+      }
+    },
+    "Text Shadow" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Text Shadow"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Тень текста"
+          }
+        }
+      }
+    },
+    "Text Size" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Text Size"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Размер текста"
           }
         }
       }
@@ -3293,6 +3460,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Лоток"
+          }
+        }
+      }
+    },
+    "Underline" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Underline"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Подчёркнутый"
           }
         }
       }

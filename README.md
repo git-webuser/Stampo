@@ -60,12 +60,16 @@ Select an area of the screen and Stampo recognizes the text in it (English and R
 
 ## Annotation Editor
 
-Click the post-capture thumbnail (or right-click a screenshot in the tray → **Edit**) to open the built-in editor: arrows, rectangles, ovals, numbered steps, text labels, and blur/pixelate regions, with color, translucent fills, thickness presets, and full undo/redo (`⌘Z` / `⇧⌘Z`).
+Click the post-capture thumbnail (or right-click a screenshot in the tray → **Edit**) to open the built-in editor: arrows, rectangles, ovals, numbered steps, text labels, and blur/pixelate regions, with full undo/redo (`⌘Z` / `⇧⌘Z`). The second toolbar row shows the settings for the active tool — colors, three arrow styles (solid, dashed, bold), text formatting (bold, italic, underline, strikethrough, shadow, and a light/dark/none background plate), and sliders for line thickness, text size, marker size, fill opacity (0–100%), and blur/pixelate intensity. On narrow windows the toolbar buttons collapse from label to icon so nothing wraps.
 
 - **Save** (`⌘S`) always writes a **new file** to your save folder — the original screenshot is never modified — and the result appears in the tray.
 - **Copy** (`⌘C`) puts the annotated image on the clipboard at the original pixel resolution.
-- Hold **Shift** to snap arrows to 45° or draw square/circular shapes; use arrow keys to nudge the selected annotation by 1 px (`⇧` + arrows: 10 px).
-- Pinch to zoom, hold **Space** while dragging to pan, and use `⌘−`, `⌘+`, or `⌘0` to zoom out, zoom in, or fit the image.
+- Rotate the whole image in 90° steps with the toolbar buttons.
+- Double-click a text label or step marker to edit it; inside a text label, **Return** commits and **⇧Return** starts a new line. New step markers auto-number from the highest numeric label (labels can be any text, e.g. `1.1` or `4.12`).
+- Blur/pixelate always sits beneath the other annotations, so arrows, text, and shapes stay crisp on top of a redacted region.
+- Press **Delete** / **Backspace** to remove the selected annotation, and **Esc** to drop the active tool back to the cursor.
+- Hold **Shift** to snap arrows to 45° or draw square/circular shapes; use arrow keys to nudge the selected annotation by 1 px (`⇧`: 10 px, `⌥⇧`: 50 px).
+- Pinch to zoom, and pan a zoomed image by dragging an empty area (or holding **Space** while dragging); use `⌘−`, `⌘+`, or `⌘0` to zoom out, zoom in, or fit the image.
 - Prefer the old behavior? Set **Settings → General → On thumbnail click** to *Open preview*.
 
 ## Hotkeys

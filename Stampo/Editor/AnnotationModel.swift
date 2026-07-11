@@ -17,6 +17,37 @@ enum BlurStyle: String, Equatable, CaseIterable {
     case pixelate
 }
 
+/// Visual variant of an `.arrow`. `filled` is the default.
+enum ArrowStyle: String, Equatable, CaseIterable {
+    case filled   // solid shaft, filled triangle head   (→)
+    case dashed   // dashed shaft, filled head           (⇢)
+    case bold     // heavy shaft, oversized filled head  (⇨)
+}
+
+/// Backing plate drawn behind `.text` for legibility over busy images.
+enum TextBackground: String, Equatable, CaseIterable {
+    case none
+    case dark
+    case light
+}
+
+/// Detented intensity scale shared by the toolbar slider and the renderer.
+nonisolated enum BlurIntensity {
+    static let range = 1...5
+    static let defaultLevel = 3
+
+    static func clamped(_ level: Int) -> Int {
+        min(range.upperBound, max(range.lowerBound, level))
+    }
+}
+
+/// Cache key for one prefiltered full-size copy of the base image.
+/// nonisolated: hashed inside the renderer's background filtering closures.
+nonisolated struct BlurSource: Hashable {
+    var style: BlurStyle
+    var level: Int
+}
+
 /// Color stored as sRGB components so Annotation stays Equatable/value-only.
 struct AnnotationColor: Equatable {
     var red: Double
@@ -66,11 +97,23 @@ struct Annotation: Identifiable, Equatable {
     var lineWidth: CGFloat
     var text: String = ""
     var fontSize: CGFloat = 28
+    // Text formatting.
+    var bold: Bool = false
+    var italic: Bool = false
+    var underline: Bool = false
+    var strikethrough: Bool = false
+    var textShadow: Bool = true
+    var textBackground: TextBackground = .none
     var blurStyle: BlurStyle = .pixelate
+    /// Intensity detent for `.blur` (BlurIntensity.range).
+    var blurLevel: Int = BlurIntensity.defaultLevel
     /// 0 is outline-only; rect and oval use a translucent fill above 0.
     var fillOpacity: CGFloat = 0
-    /// Number rendered by a `.step` marker.
-    var stepNumber: Int = 1
+    /// Visual variant for `.arrow`.
+    var arrowStyle: ArrowStyle = .filled
+    /// Label rendered inside a `.step` marker. Auto-assigned as "1", "2", …
+    /// on placement, but editable to arbitrary text (e.g. "1.1", "4.12").
+    var stepLabel: String = "1"
     /// Diameter of a `.step` marker in image pixels.
     var stepDiameter: CGFloat = 40
 
@@ -251,14 +294,20 @@ struct Annotation: Identifiable, Equatable {
 /// The open image plus its annotations, selection, and undo history.
 /// Same @Observable pattern as NotchTrayModel.
 @Observable final class EditorDocument {
-    let baseImage: CGImage
+    private(set) var baseImage: CGImage
     let sourceURL: URL
 
-    /// Pre-filtered full-size copies for the blur tool, computed once per
-    /// document off the main thread after opening. Until ready, blur
-    /// annotations render as no-ops (a fraction of a second in practice).
-    var blurredBase: CGImage?
-    var pixelatedBase: CGImage?
+    /// Net 90° turns applied to the image since open (mod 4). Folds into
+    /// `isDirty` so a rotation alone still prompts to save on close.
+    private var rotationQuarters = 0
+    private var savedRotationQuarters = 0
+
+    /// Pre-filtered full-size copies for the blur tool, keyed by style and
+    /// intensity level and computed lazily off the main thread on first
+    /// request. Until a source is ready, its blur annotations render as
+    /// no-ops (a fraction of a second in practice).
+    private(set) var blurSources: [BlurSource: CGImage] = [:]
+    private var blurSourcesInFlight: Set<BlurSource> = []
 
     var annotations: [Annotation] = []
     var selectedID: UUID?
@@ -279,23 +328,115 @@ struct Annotation: Identifiable, Equatable {
         CGSize(width: baseImage.width, height: baseImage.height)
     }
 
-    var isDirty: Bool { annotations != savedAnnotations }
+    /// Image-relative default for newly placed text (also the slider's value
+    /// while nothing is selected and the user hasn't picked a size yet).
+    var autoFontSize: CGFloat {
+        max(24, pixelSize.width / 60)
+    }
 
-    func markSaved() { savedAnnotations = annotations }
+    // MARK: Blur sources
+
+    /// Kicks off background filtering for one style+level if it's neither
+    /// cached nor already being computed. Same GCD pattern as the window
+    /// controller's original one-shot preparation.
+    func prepareBlurSource(style: BlurStyle, level: Int) {
+        let key = BlurSource(style: style, level: BlurIntensity.clamped(level))
+        guard blurSources[key] == nil, !blurSourcesInFlight.contains(key) else { return }
+        blurSourcesInFlight.insert(key)
+        let base = baseImage
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let image = key.style == .pixelate
+                ? AnnotationRenderer.makePixelated(base: base, level: key.level)
+                : AnnotationRenderer.makeBlurred(base: base, level: key.level)
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.blurSourcesInFlight.remove(key)
+                if let image { self.blurSources[key] = image }
+            }
+        }
+    }
+
+    /// Undo/redo can resurrect blur annotations whose source was never
+    /// computed in this session; request any that are missing.
+    private func prepareBlurSourcesForAnnotations() {
+        for annotation in annotations where annotation.kind == .blur {
+            prepareBlurSource(style: annotation.blurStyle, level: annotation.blurLevel)
+        }
+    }
+
+    var isDirty: Bool {
+        annotations != savedAnnotations || rotationQuarters != savedRotationQuarters
+    }
+
+    func markSaved() {
+        savedAnnotations = annotations
+        savedRotationQuarters = rotationQuarters
+    }
+
+    // MARK: Whole-image rotation (90° steps)
+
+    /// Maps an image-pixel point through one 90° turn, given the pre-rotation
+    /// size. Pure so the same transform can be replayed over every stored
+    /// coordinate (live, saved, and each undo/redo snapshot).
+    static func rotatePoint(_ p: CGPoint, in size: CGSize, clockwise: Bool) -> CGPoint {
+        clockwise
+            ? CGPoint(x: size.height - p.y, y: p.x)          // (x,y) → (H−y, x)
+            : CGPoint(x: p.y, y: size.width - p.x)           // (x,y) → (y, W−x)
+    }
+
+    private static func rotateAnnotations(_ list: [Annotation], in size: CGSize,
+                                          clockwise: Bool) -> [Annotation] {
+        list.map { a in
+            var a = a
+            a.start = rotatePoint(a.start, in: size, clockwise: clockwise)
+            a.end = rotatePoint(a.end, in: size, clockwise: clockwise)
+            return a
+        }
+    }
+
+    /// Rotates the base image and every stored coordinate a quarter turn so
+    /// the whole pipeline keeps operating in one consistent (rotated) frame —
+    /// no special-casing in the renderer, hit-testing, or handles. The blur
+    /// caches belong to the old orientation, so they're dropped and rebuilt.
+    func rotate(clockwise: Bool) {
+        guard let rotated = AnnotationRenderer.rotated90(baseImage, clockwise: clockwise) else { return }
+        let oldSize = pixelSize
+        annotations = Self.rotateAnnotations(annotations, in: oldSize, clockwise: clockwise)
+        savedAnnotations = Self.rotateAnnotations(savedAnnotations, in: oldSize, clockwise: clockwise)
+        undoStack = undoStack.map { Self.rotateAnnotations($0, in: oldSize, clockwise: clockwise) }
+        redoStack = redoStack.map { Self.rotateAnnotations($0, in: oldSize, clockwise: clockwise) }
+        if let pending = pendingSnapshot {
+            pendingSnapshot = Self.rotateAnnotations(pending, in: oldSize, clockwise: clockwise)
+        }
+        baseImage = rotated
+        rotationQuarters = ((rotationQuarters + (clockwise ? 1 : -1)) % 4 + 4) % 4
+        blurSources.removeAll()
+        blurSourcesInFlight.removeAll()
+        prepareBlurSource(style: .gaussian, level: BlurIntensity.defaultLevel)
+        prepareBlurSource(style: .pixelate, level: BlurIntensity.defaultLevel)
+        prepareBlurSourcesForAnnotations()
+    }
 
     var selectedAnnotation: Annotation? {
         guard let selectedID else { return nil }
         return annotations.first { $0.id == selectedID }
     }
 
-    var nextStepNumber: Int {
-        (annotations.compactMap { $0.kind == .step ? $0.stepNumber : nil }.max() ?? 0) + 1
+    /// Next auto-label for a placed step: one past the highest purely-numeric
+    /// existing label. Custom labels like "1.1" don't participate, so manual
+    /// edits never derail the running count.
+    var nextStepLabel: String {
+        let highest = annotations.compactMap { $0.kind == .step ? Int($0.stepLabel) : nil }.max() ?? 0
+        return String(highest + 1)
     }
 
     /// Topmost annotation under the point (annotations later in the array
-    /// draw on top, so search in reverse).
+    /// draw on top, so search in reverse). Blur is a bottom redaction layer,
+    /// so a non-blur annotation over it wins the hit even when the blur was
+    /// added later.
     func annotation(at p: CGPoint, tolerance: CGFloat) -> Annotation? {
-        annotations.reversed().first { $0.hitTest(p, tolerance: tolerance) }
+        annotations.reversed().first { $0.kind != .blur && $0.hitTest(p, tolerance: tolerance) }
+            ?? annotations.reversed().first { $0.kind == .blur && $0.hitTest(p, tolerance: tolerance) }
     }
 
     func updateSelected(_ mutate: (inout Annotation) -> Void) {
@@ -334,6 +475,7 @@ struct Annotation: Identifiable, Equatable {
         guard let previous = undoStack.popLast() else { return }
         redoStack.append(annotations)
         annotations = previous
+        prepareBlurSourcesForAnnotations()
         // Selection may point at an annotation that no longer exists.
         if let selectedID, !annotations.contains(where: { $0.id == selectedID }) {
             self.selectedID = nil
@@ -344,6 +486,7 @@ struct Annotation: Identifiable, Equatable {
         guard let next = redoStack.popLast() else { return }
         undoStack.append(annotations)
         annotations = next
+        prepareBlurSourcesForAnnotations()
         if let selectedID, !annotations.contains(where: { $0.id == selectedID }) {
             self.selectedID = nil
         }
@@ -380,6 +523,17 @@ struct Annotation: Identifiable, Equatable {
             annotation.end = CGPoint(x: annotation.start.x + size.width,
                                      y: annotation.start.y + size.height)
             annotations[idx] = annotation
+        }
+        commitChange()
+    }
+
+    /// Completes an inline step-label edit. A step is a placed marker, so an
+    /// empty label is not deletion — it falls back to "?" so the circle keeps
+    /// meaning. Bounds come from `stepDiameter`, so there's nothing to remeasure.
+    func finishStepEditing(_ id: UUID) {
+        guard let idx = annotations.firstIndex(where: { $0.id == id }) else { return }
+        if annotations[idx].stepLabel.trimmingCharacters(in: .whitespaces).isEmpty {
+            annotations[idx].stepLabel = "?"
         }
         commitChange()
     }

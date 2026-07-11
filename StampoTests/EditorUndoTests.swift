@@ -160,15 +160,71 @@ import Testing
         #expect(doc.annotations[0].start == .zero)
     }
 
-    @Test func nextStepNumberFollowsHighestExistingMarker() {
+    @Test func hitTestPrefersNonBlurOverBlur() {
+        let doc = makeDocument()
+        var rect = Annotation(kind: .rect, start: .zero, end: CGPoint(x: 40, y: 40),
+                              color: .red, lineWidth: 4)
+        rect.fillOpacity = 0.2   // filled, so its interior hit-tests
+        let blur = Annotation(kind: .blur, start: .zero, end: CGPoint(x: 40, y: 40),
+                              color: .red, lineWidth: 0)
+        // Blur sits last (topmost by array order) but must not win the hit.
+        doc.annotations = [rect, blur]
+        #expect(doc.annotation(at: CGPoint(x: 20, y: 20), tolerance: 2)?.kind == .rect)
+    }
+
+    @Test func rotateSwapsDimensionsAndMarksDirty() {
+        let doc = EditorDocument(baseImage: TestImages.make(width: 8, height: 4),
+                                 sourceURL: URL(fileURLWithPath: "/tmp/test.png"))
+        #expect(doc.pixelSize == CGSize(width: 8, height: 4))
+        #expect(!doc.isDirty)
+        doc.rotate(clockwise: true)
+        #expect(doc.pixelSize == CGSize(width: 4, height: 8))
+        #expect(doc.isDirty)   // image changed even with no annotation edits
+    }
+
+    @Test func fourRotationsRestoreCoordinates() {
+        let doc = EditorDocument(baseImage: TestImages.make(width: 8, height: 4),
+                                 sourceURL: URL(fileURLWithPath: "/tmp/test.png"))
+        var a = Annotation(kind: .arrow, start: CGPoint(x: 1, y: 2),
+                           end: CGPoint(x: 6, y: 3), color: .red, lineWidth: 2)
+        a.kind = .rect
+        doc.annotations = [a]
+        for _ in 0..<4 { doc.rotate(clockwise: true) }
+        #expect(doc.pixelSize == CGSize(width: 8, height: 4))
+        #expect(doc.annotations[0].start == CGPoint(x: 1, y: 2))
+        #expect(doc.annotations[0].end == CGPoint(x: 6, y: 3))
+    }
+
+    @Test func rotatePointClockwiseThenCounterReturnsOriginal() {
+        let size = CGSize(width: 8, height: 4)
+        let p = CGPoint(x: 3, y: 1)
+        let cw = EditorDocument.rotatePoint(p, in: size, clockwise: true)
+        // After a CW turn the frame is 4×8; the inverse turn uses that size.
+        let back = EditorDocument.rotatePoint(cw, in: CGSize(width: 4, height: 8), clockwise: false)
+        #expect(back == p)
+    }
+
+    @Test func nextStepLabelFollowsHighestNumericMarker() {
         let doc = makeDocument()
         var first = annotation()
         first.kind = .step
-        first.stepNumber = 1
+        first.stepLabel = "1"
         var third = annotation(40)
         third.kind = .step
-        third.stepNumber = 3
+        third.stepLabel = "3"
         doc.annotations = [first, third]
-        #expect(doc.nextStepNumber == 4)
+        #expect(doc.nextStepLabel == "4")
+    }
+
+    @Test func nextStepLabelIgnoresNonNumericLabels() {
+        let doc = makeDocument()
+        var custom = annotation()
+        custom.kind = .step
+        custom.stepLabel = "1.1"       // custom labels don't advance the count
+        var numbered = annotation(40)
+        numbered.kind = .step
+        numbered.stepLabel = "2"
+        doc.annotations = [custom, numbered]
+        #expect(doc.nextStepLabel == "3")
     }
 }

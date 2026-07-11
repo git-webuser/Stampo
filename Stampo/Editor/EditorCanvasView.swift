@@ -35,9 +35,23 @@ struct ToolStyle {
     var color: AnnotationColor = .red
     /// Pixels in the image-space model. 4 px is a comfortable 2 pt stroke
     /// on a 2x screenshot while preserving native-resolution export.
-    var lineWidth: CGFloat = 4
+    var lineWidth: CGFloat = 6
     var blurStyle: BlurStyle = .pixelate
-    var fillEnabled = false
+    /// Intensity detent for new blur annotations (BlurIntensity.range).
+    var blurLevel: Int = BlurIntensity.defaultLevel
+    var arrowStyle: ArrowStyle = .filled
+    /// Fill opacity (0…1) for new rect/oval; 0 is outline-only.
+    var fillOpacity: CGFloat = 0
+    /// nil = image-relative automatic size at placement.
+    var fontSize: CGFloat?
+    var bold = false
+    var italic = false
+    var underline = false
+    var strikethrough = false
+    var textShadow = true
+    var textBackground: TextBackground = .none
+    /// Diameter of new step markers in image pixels.
+    var stepDiameter: CGFloat = 40
 }
 
 // MARK: - EditorCanvasView
@@ -57,6 +71,9 @@ struct EditorCanvasView: View {
     @State private var magnificationStart: CGFloat?
     @State private var isSpaceHeld = false
     @State private var keyMonitor: Any?
+    /// Last committed click, for timing-based double-click detection (the
+    /// gesture layer doesn't surface a reliable OS click count).
+    @State private var lastClick: (id: UUID?, time: Date, point: CGPoint)?
 
     private enum DragMode {
         case undecided(pixelPoint: CGPoint)
@@ -88,19 +105,26 @@ struct EditorCanvasView: View {
 
                 if let editingID = editingTextID,
                    let annotation = document.annotations.first(where: { $0.id == editingID }) {
-                    textOverlay(for: annotation, fitScale: fitScale, offset: offset)
+                    if annotation.kind == .step {
+                        stepOverlay(for: annotation, fitScale: fitScale, offset: offset)
+                    } else {
+                        textOverlay(for: annotation, fitScale: fitScale, offset: offset)
+                    }
                 }
             }
-            .gesture(dragGesture(fitScale: fitScale, offset: offset, pixel: pixel))
+            .gesture(dragGesture(fitScale: fitScale, offset: offset, pixel: pixel,
+                                 viewport: geo.size, drawSize: drawSize))
             .simultaneousGesture(magnificationGesture())
             .clipped()
         }
-        .onDeleteCommand {
-            guard editingTextID == nil else { return }
-            document.deleteSelected()
-        }
         .onAppear { installKeyMonitor() }
         .onDisappear { removeKeyMonitor() }
+    }
+
+    /// The annotation currently in inline editing, if any.
+    private var editingAnnotation: Annotation? {
+        guard let editingTextID else { return nil }
+        return document.annotations.first { $0.id == editingTextID }
     }
 
     // MARK: Canvas
@@ -111,13 +135,15 @@ struct EditorCanvasView: View {
                 cg.saveGState()
                 cg.translateBy(x: offset.x, y: offset.y)
                 cg.scaleBy(x: fitScale, y: fitScale)
+                // Only hide a text annotation while its TextField overlays it;
+                // a step keeps its circle drawn under the label editor.
+                let skipID = editingAnnotation?.kind == .text ? editingTextID : nil
                 AnnotationRenderer.draw(
                     in: cg,
                     base: document.baseImage,
-                    blurred: document.blurredBase,
-                    pixelated: document.pixelatedBase,
+                    blurSources: document.blurSources,
                     annotations: document.annotations,
-                    skipping: editingTextID
+                    skipping: skipID
                 )
                 cg.restoreGState()
             }
@@ -164,7 +190,8 @@ struct EditorCanvasView: View {
 
     // MARK: Gesture
 
-    private func dragGesture(fitScale: CGFloat, offset: CGPoint, pixel: CGSize) -> some Gesture {
+    private func dragGesture(fitScale: CGFloat, offset: CGPoint, pixel: CGSize,
+                             viewport: CGSize, drawSize: CGSize) -> some Gesture {
         DragGesture(minimumDistance: 0)
             .onChanged { value in
                 let p = pixelPoint(value.location, fitScale: fitScale, offset: offset, pixel: pixel)
@@ -177,21 +204,35 @@ struct EditorCanvasView: View {
                         dragMode = .ignore
                         return
                     }
-                    dragMode = isSpaceHeld
-                        ? .panning(last: value.location)
-                        : beginDrag(at: p, fitScale: fitScale)
+                    if isSpaceHeld {
+                        dragMode = .panning(last: value.location)
+                    } else if beginEditingIfDoubleClick(at: p, fitScale: fitScale) {
+                        // A double-click on text/step opens its inline editor
+                        // instead of starting a move — detected at mouse-down
+                        // so it works even on an already-selected annotation.
+                        dragMode = .ignore
+                    } else {
+                        dragMode = beginDrag(at: p, fitScale: fitScale)
+                    }
                 }
 
                 switch dragMode {
                 case .undecided(let startPixel):
-                    // Promote to creation once the user actually drags.
                     let viewDistance = hypot(value.translation.width, value.translation.height)
-                    guard viewDistance >= 3, let kind = shapeKind(for: tool) else { break }
+                    guard viewDistance >= 3 else { break }
+                    // The select tool has nothing to create on empty space, so
+                    // an empty-space drag pans the (zoomed) image instead.
+                    guard let kind = shapeKind(for: tool) else {
+                        if tool == .select { dragMode = .panning(last: value.location) }
+                        break
+                    }
                     document.beginChange()
                     var annotation = Annotation(kind: kind, start: startPixel, end: p,
                                                 color: style.color, lineWidth: style.lineWidth)
                     annotation.blurStyle = style.blurStyle
-                    annotation.fillOpacity = style.fillEnabled ? 0.2 : 0
+                    annotation.blurLevel = style.blurLevel
+                    annotation.arrowStyle = style.arrowStyle
+                    annotation.fillOpacity = style.fillOpacity
                     annotation.end = constrainedEndpoint(p, from: startPixel, kind: kind)
                     document.annotations.append(annotation)
                     document.selectedID = annotation.id
@@ -224,8 +265,12 @@ struct EditorCanvasView: View {
                     }
 
                 case .panning(let last):
-                    panOffset.width += value.location.x - last.x
-                    panOffset.height += value.location.y - last.y
+                    // Clamp so the image can't be dragged past its overflow
+                    // (and stays centered when it fits — no free-floating).
+                    let maxX = max(0, (drawSize.width - viewport.width) / 2)
+                    let maxY = max(0, (drawSize.height - viewport.height) / 2)
+                    panOffset.width = min(maxX, max(-maxX, panOffset.width + value.location.x - last.x))
+                    panOffset.height = min(maxY, max(-maxY, panOffset.height + value.location.y - last.y))
                     dragMode = .panning(last: value.location)
 
                 case .ignore, nil:
@@ -275,10 +320,16 @@ struct EditorCanvasView: View {
                 document.beginChange()
                 return .moving(hit.id, last: p)
             }
-            document.selectedID = nil
-            return .ignore
+            // Empty space: a click deselects (in handleClick), a drag pans.
+            return .undecided(pixelPoint: p)
         case .text:
-            // Text places on click (handled in onEnded), never by drag.
+            // Drag the selected text's body to move it; otherwise a click
+            // places or edits (handled in onEnded).
+            if let selected = document.selectedAnnotation,
+               selected.kind == .text, selected.hitTest(p, tolerance: tolerancePx) {
+                document.beginChange()
+                return .moving(selected.id, last: p)
+            }
             return .undecided(pixelPoint: p)
         case .arrow, .rect, .oval, .blur, .step:
             // Dragging the selected annotation's body moves it even with a
@@ -292,34 +343,48 @@ struct EditorCanvasView: View {
         }
     }
 
-    /// A click that never became a drag.
+    /// A single click that never became a drag: select what's under it, or
+    /// place a new text/step marker on empty space. (Double-click editing is
+    /// handled up front at mouse-down.)
     private func handleClick(at p: CGPoint, fitScale: CGFloat) {
         let tolerancePx = hitTolerancePt / fitScale
+        let hit = document.annotation(at: p, tolerance: tolerancePx)
 
-        if tool == .text {
-            if let hit = document.annotation(at: p, tolerance: tolerancePx), hit.kind == .text {
-                startEditingText(hit.id)
-            } else {
-                placeText(at: p)
-            }
-            return
+        switch tool {
+        case .text:
+            if let hit, hit.kind == .text { document.selectedID = hit.id }
+            else { placeText(at: p) }        // new text opens straight into editing
+        case .step:
+            if let hit, hit.kind == .step { document.selectedID = hit.id }
+            else { placeStep(at: p) }
+        default:
+            document.selectedID = hit?.id
         }
+    }
 
-        if tool == .step {
-            placeStep(at: p)
-            return
-        }
+    /// Records the mouse-down and, if it's the second click of a double-click
+    /// on a text or step annotation, opens that annotation's inline editor.
+    /// Returns true when it started editing (so the caller skips the drag).
+    private func beginEditingIfDoubleClick(at p: CGPoint, fitScale: CGFloat) -> Bool {
+        let tolerancePx = hitTolerancePt / fitScale
+        let hit = document.annotation(at: p, tolerance: tolerancePx)
+        let double = isDoubleClick(on: hit?.id, at: p)
+        lastClick = (hit?.id, Date(), p)
 
-        if let hit = document.annotation(at: p, tolerance: tolerancePx) {
-            if hit.kind == .text, document.selectedID == hit.id {
-                // Second click on an already-selected text = edit it.
-                startEditingText(hit.id)
-            } else {
-                document.selectedID = hit.id
-            }
-        } else {
-            document.selectedID = nil
+        guard double, let hit else { return false }
+        switch hit.kind {
+        case .text: startEditingText(hit.id); return true
+        case .step: startEditingStep(hit.id); return true
+        default:    return false
         }
+    }
+
+    /// True when this mouse-down lands on the same target as the previous one
+    /// within the double-click window and distance.
+    private func isDoubleClick(on id: UUID?, at p: CGPoint) -> Bool {
+        guard let id, let last = lastClick, last.id == id else { return false }
+        return Date().timeIntervalSince(last.time) < 0.5
+            && hypot(p.x - last.point.x, p.y - last.point.y) < 12
     }
 
     private func shapeKind(for tool: EditorTool) -> AnnotationKind? {
@@ -387,12 +452,37 @@ struct EditorCanvasView: View {
                 return nil
             }
 
-            guard event.type == .keyDown,
-                  self.document.selectedID != nil,
-                  event.modifierFlags.intersection([.command, .control, .option]).isEmpty
-            else { return event }
+            // Esc walks the interaction hierarchy. Handled here (not via
+            // SwiftUI onExitCommand) because the Canvas is never first
+            // responder, so the command modifier never reaches the view.
+            if event.type == .keyDown, event.keyCode == 53 {
+                if self.tool != .select {
+                    self.tool = .select
+                } else if self.document.selectedID != nil {
+                    self.document.selectedID = nil
+                } else {
+                    NSApp.keyWindow?.performClose(nil)
+                }
+                return nil
+            }
 
-            let amount: CGFloat = event.modifierFlags.contains(.shift) ? 10 : 1
+            guard event.type == .keyDown, self.document.selectedID != nil else { return event }
+
+            // Delete / Backspace removes the selection. SwiftUI's
+            // onDeleteCommand never fires because the Canvas isn't first
+            // responder, so the monitor owns this.
+            if event.keyCode == 51 || event.keyCode == 117,
+               event.modifierFlags.intersection([.command, .control, .option]).isEmpty {
+                self.document.deleteSelected()
+                return nil
+            }
+
+            // Arrow-key nudge in native image pixels: 1, ⇧ 10, ⌥⇧ 50.
+            // Command/Control are reserved for menu shortcuts.
+            guard event.modifierFlags.intersection([.command, .control]).isEmpty else { return event }
+            let shift = event.modifierFlags.contains(.shift)
+            let option = event.modifierFlags.contains(.option)
+            let amount: CGFloat = (shift && option) ? 50 : (shift ? 10 : 1)
             let delta: CGPoint
             switch event.keyCode {
             case 123: delta = CGPoint(x: -amount, y: 0) // left
@@ -418,7 +508,13 @@ struct EditorCanvasView: View {
         document.beginChange()
         var annotation = Annotation(kind: .text, start: p, end: p,
                                     color: style.color, lineWidth: style.lineWidth)
-        annotation.fontSize = max(24, document.pixelSize.width / 60)
+        annotation.fontSize = style.fontSize ?? document.autoFontSize
+        annotation.bold = style.bold
+        annotation.italic = style.italic
+        annotation.underline = style.underline
+        annotation.strikethrough = style.strikethrough
+        annotation.textShadow = style.textShadow
+        annotation.textBackground = style.textBackground
         document.annotations.append(annotation)
         document.selectedID = annotation.id
         startEditingText(annotation.id, isNew: true)
@@ -428,7 +524,8 @@ struct EditorCanvasView: View {
         document.beginChange()
         var annotation = Annotation(kind: .step, start: p, end: p,
                                     color: style.color, lineWidth: style.lineWidth)
-        annotation.stepNumber = document.nextStepNumber
+        annotation.stepLabel = document.nextStepLabel
+        annotation.stepDiameter = style.stepDiameter
         document.annotations.append(annotation)
         document.selectedID = annotation.id
         document.commitChange()
@@ -440,11 +537,24 @@ struct EditorCanvasView: View {
         textFieldFocused = true
     }
 
+    /// Relabeling an existing step is one undoable edit; the same
+    /// `editingTextID` state drives the overlay, branching on kind.
+    private func startEditingStep(_ id: UUID) {
+        document.selectedID = id
+        document.beginChange()
+        editingTextID = id
+        textFieldFocused = true
+    }
+
     func finishTextEditing() {
         guard let id = editingTextID else { return }
         editingTextID = nil
         textFieldFocused = false
-        document.finishTextEditing(id)
+        if document.annotations.first(where: { $0.id == id })?.kind == .step {
+            document.finishStepEditing(id)
+        } else {
+            document.finishTextEditing(id)
+        }
     }
 
     private func textOverlay(for annotation: Annotation, fitScale: CGFloat,
@@ -456,16 +566,132 @@ struct EditorCanvasView: View {
             set: { newValue in update(annotation.id) { $0.text = newValue } }
         )
 
+        let overlayBackground: Color = {
+            switch annotation.textBackground {
+            case .none:  return Color.black.opacity(0.25)   // faint scrim aids editing
+            case .dark:  return Color.black.opacity(0.55)
+            case .light: return Color.white.opacity(0.75)
+            }
+        }()
+
+        // Screen-space font that preserves bold/italic traits, plus the box
+        // sized to the measured text (Return commits, ⇧Return adds a line).
+        let baseFont = AnnotationRenderer.textFont(for: annotation)
+        let scaledFont = NSFont(descriptor: baseFont.fontDescriptor,
+                                size: annotation.fontSize * fitScale) ?? baseFont
+        let inset = AnnotationRenderer.textInset(for: annotation) * fitScale
+        let measured = AnnotationRenderer.measureText(annotation)
+        let boxWidth = max(measured.width * fitScale, scaledFont.pointSize * 3)
+        let boxHeight = max(measured.height * fitScale, scaledFont.pointSize * 1.4)
+
+        return InlineTextView(
+            text: binding, font: scaledFont, color: annotation.color.nsColor,
+            underline: annotation.underline, strikethrough: annotation.strikethrough,
+            inset: inset, onCommit: { finishTextEditing() }
+        )
+        .frame(width: boxWidth, height: boxHeight, alignment: .topLeading)
+        .background(overlayBackground)
+        .offset(x: origin.x, y: origin.y)
+    }
+
+    /// Small centered field over a step marker for editing its label.
+    private func stepOverlay(for annotation: Annotation, fitScale: CGFloat,
+                             offset: CGPoint) -> some View {
+        let diameter = annotation.stepDiameter * fitScale
+        let center = CGPoint(x: annotation.start.x * fitScale + offset.x,
+                             y: annotation.start.y * fitScale + offset.y)
+        let binding = Binding<String>(
+            get: { document.annotations.first(where: { $0.id == annotation.id })?.stepLabel ?? "" },
+            set: { newValue in update(annotation.id) { $0.stepLabel = newValue } }
+        )
+
+        let fontSize = AnnotationRenderer.stepFontSize(
+            label: annotation.stepLabel, diameter: annotation.stepDiameter) * fitScale
         return TextField("", text: binding)
             .textFieldStyle(.plain)
-            .font(.system(size: annotation.fontSize * fitScale, weight: .semibold))
-            .foregroundStyle(Color(nsColor: annotation.color.nsColor))
-            .background(Color.black.opacity(0.25))
-            .frame(minWidth: 120)
-            .fixedSize()
+            .multilineTextAlignment(.center)
+            .font(.system(size: fontSize, weight: .bold))
+            .foregroundStyle(.white)
+            .frame(width: max(diameter, 32), height: diameter)
+            .background(Circle().fill(Color(nsColor: annotation.color.nsColor)))
             .focused($textFieldFocused)
             .onSubmit { finishTextEditing() }
             .onExitCommand { finishTextEditing() }
-            .offset(x: origin.x, y: origin.y)
+            .offset(x: center.x - max(diameter, 32) / 2, y: center.y - diameter / 2)
+    }
+}
+
+// MARK: - Inline multi-line text editor
+
+/// A minimal `NSTextView` wrapper for editing a text annotation inline:
+/// **Return commits**, **⇧Return inserts a newline**, **Esc commits**. The
+/// annotation renderer already lays out embedded newlines, so multi-line
+/// labels round-trip to the exported image.
+private struct InlineTextView: NSViewRepresentable {
+    @Binding var text: String
+    var font: NSFont
+    var color: NSColor
+    var underline: Bool
+    var strikethrough: Bool
+    var inset: CGFloat
+    var onCommit: () -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    func makeNSView(context: Context) -> CommitTextView {
+        let tv = CommitTextView()
+        tv.delegate = context.coordinator
+        tv.isRichText = false
+        tv.drawsBackground = false
+        tv.backgroundColor = .clear
+        tv.textContainer?.lineFragmentPadding = 0
+        tv.string = text
+        tv.onCommit = onCommit
+        apply(to: tv)
+        // Take focus once the view is in a window.
+        DispatchQueue.main.async { tv.window?.makeFirstResponder(tv) }
+        return tv
+    }
+
+    func updateNSView(_ tv: CommitTextView, context: Context) {
+        if tv.string != text { tv.string = text }
+        tv.onCommit = onCommit
+        apply(to: tv)
+    }
+
+    private func apply(to tv: NSTextView) {
+        tv.textContainerInset = CGSize(width: inset, height: inset)
+        var attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: color]
+        if underline { attrs[.underlineStyle] = NSUnderlineStyle.single.rawValue }
+        if strikethrough { attrs[.strikethroughStyle] = NSUnderlineStyle.single.rawValue }
+        tv.typingAttributes = attrs
+        tv.textStorage?.setAttributes(
+            attrs, range: NSRange(location: 0, length: (tv.string as NSString).length))
+    }
+
+    final class Coordinator: NSObject, NSTextViewDelegate {
+        let parent: InlineTextView
+        init(_ parent: InlineTextView) { self.parent = parent }
+        func textDidChange(_ notification: Notification) {
+            guard let tv = notification.object as? NSTextView else { return }
+            parent.text = tv.string
+        }
+    }
+}
+
+/// NSTextView that commits on Return / Esc and inserts a newline on ⇧Return.
+final class CommitTextView: NSTextView {
+    var onCommit: (() -> Void)?
+
+    override func keyDown(with event: NSEvent) {
+        switch event.keyCode {
+        case 36, 76:   // Return, keypad Enter
+            if event.modifierFlags.contains(.shift) { insertNewline(self) }
+            else { onCommit?() }
+        case 53:       // Esc
+            onCommit?()
+        default:
+            super.keyDown(with: event)
+        }
     }
 }
