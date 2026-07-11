@@ -343,12 +343,21 @@ struct ScreenshotThumbnailView: View {
         )
         .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .onTapGesture {
-            let cfg = NSWorkspace.OpenConfiguration()
-            cfg.activates = true
-            NSWorkspace.shared.open(imageURL, configuration: cfg)
+            switch AppSettings.thumbnailClickAction {
+            case .editor:
+                EditorWindowController.shared.open(url: imageURL)
+            case .preview:
+                let cfg = NSWorkspace.OpenConfiguration()
+                cfg.activates = true
+                NSWorkspace.shared.open(imageURL, configuration: cfg)
+            }
             if !isPinned { onDismiss() }
         }
         .contextMenu {
+            Button("Edit") {
+                EditorWindowController.shared.open(url: imageURL)
+                if !isPinned { onDismiss() }
+            }
             Button("Copy") {
                 NSPasteboard.general.writeImage(at: imageURL)
             }

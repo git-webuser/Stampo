@@ -603,6 +603,10 @@ private struct TrayScreenshotCell: View {
             .offset(x: badgeBleed, y: -badgeBleed)
         }
         .contextMenu {
+            Button("Edit") {
+                EditorWindowController.shared.open(url: shot.url)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { onOpen() }
+            }
             Button("Open") {
                 let cfg = NSWorkspace.OpenConfiguration()
                 cfg.activates = true

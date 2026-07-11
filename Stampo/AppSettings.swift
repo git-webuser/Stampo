@@ -44,6 +44,7 @@ enum AppSettings {
         static let skippedUpdateVersion   = "skippedUpdateVersion"
         // Appearance / Language
         static let settingsAppearance      = "settingsAppearance"
+        static let thumbnailClickAction    = "thumbnailClickAction"
         static let settingsStyle           = "settingsStyle"
         static let noNotchPanelStyle       = "noNotchPanelStyle"
         static let noNotchNotchScale       = "noNotchNotchScale"
@@ -65,6 +66,13 @@ enum AppSettings {
     static var settingsAppearance: SettingsAppearance {
         let raw = UserDefaults.standard.string(forKey: Keys.settingsAppearance) ?? "system"
         return SettingsAppearance(rawValue: raw) ?? .system
+    }
+
+    /// What a click on the post-capture thumbnail HUD opens.
+    static var thumbnailClickAction: ThumbnailClickAction {
+        let raw = UserDefaults.standard.string(forKey: Keys.thumbnailClickAction)
+            ?? ThumbnailClickAction.editor.rawValue
+        return ThumbnailClickAction(rawValue: raw) ?? .editor
     }
 
     /// Panel shape used on displays without a physical notch.
@@ -328,6 +336,17 @@ enum SettingsAppearance: String, CaseIterable {
         case .dark:   return NSAppearance(named: .darkAqua)
         }
     }
+}
+
+// MARK: - ThumbnailClickAction
+
+/// What clicking the post-capture thumbnail opens.
+/// (Display titles live in the settings Picker as localized literals.)
+enum ThumbnailClickAction: String, CaseIterable {
+    /// Stampo's built-in annotation editor.
+    case editor  = "editor"
+    /// The system default app (previous behavior).
+    case preview = "preview"
 }
 
 // MARK: - NoNotchPanelStyle

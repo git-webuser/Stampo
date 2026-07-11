@@ -528,19 +528,19 @@
         }
       }
     },
-    "Click the preview thumbnail to open the tray": {
-      "comment": "Footer under the thumbnail preview options",
+    "Click the preview thumbnail to edit or open the screenshot": {
+      "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Click the preview thumbnail to open the tray"
+            "value": "Click the preview thumbnail to edit or open the screenshot"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Нажмите на миниатюру для открытия лотка"
+            "value": "Клик по миниатюре редактирует или открывает скриншот"
           }
         }
       }
@@ -998,6 +998,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Закрыть"
+          }
+        }
+      }
+    },
+    "Edit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edit"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Редактировать"
           }
         }
       }
@@ -1746,6 +1763,23 @@
         }
       }
     },
+    "On thumbnail click": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On thumbnail click"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "По клику на миниатюру"
+          }
+        }
+      }
+    },
     "Open": {
       "comment": "Context menu item — open screenshot in default viewer",
       "localizations": {
@@ -1831,6 +1865,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Открыть системные настройки"
+          }
+        }
+      }
+    },
+    "Open editor": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open editor"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Открывать редактор"
+          }
+        }
+      }
+    },
+    "Open preview": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open preview"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Открывать просмотр"
           }
         }
       }

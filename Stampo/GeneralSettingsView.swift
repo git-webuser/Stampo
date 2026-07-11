@@ -3,6 +3,7 @@ import SwiftUI
 struct GeneralSettingsView: View {
     @AppStorage(AppSettings.Keys.showThumbnailHUD)      private var showThumbnailHUD      = true
     @AppStorage(AppSettings.Keys.thumbnailDismissDelay) private var thumbnailDismissDelay = 3.0
+    @AppStorage(AppSettings.Keys.thumbnailClickAction)  private var thumbnailClickAction  = ThumbnailClickAction.editor
     @AppStorage(AppSettings.Keys.settingsAppearance)    private var settingsAppearance     = SettingsAppearance.system
     @AppStorage(AppSettings.Keys.settingsStyle)         private var settingsStyle          = SettingsStyle.toolbar
     @AppStorage(AppSettings.Keys.noNotchPanelStyle)     private var noNotchPanelStyle      = NoNotchPanelStyle.rounded
@@ -142,10 +143,20 @@ struct GeneralSettingsView: View {
                     .labelsHidden()
                     .disabled(!showThumbnailHUD)
                 }
+
+                SettingRow(icon: "cursorarrow.click", title: "On thumbnail click") {
+                    Picker("", selection: $thumbnailClickAction) {
+                        Text("Open editor").tag(ThumbnailClickAction.editor)
+                        Text("Open preview").tag(ThumbnailClickAction.preview)
+                    }
+                    .pickerStyle(.menu)
+                    .labelsHidden()
+                    .disabled(!showThumbnailHUD)
+                }
             } header: {
                 Text("Thumbnail Preview")
             } footer: {
-                Text("Click the preview thumbnail to open the tray")
+                Text("Click the preview thumbnail to edit or open the screenshot")
             }
         }
         .formStyle(.grouped)
