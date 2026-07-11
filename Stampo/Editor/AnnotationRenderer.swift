@@ -216,7 +216,7 @@ enum AnnotationRenderer {
         let fontSize = stepFontSize(label: a.stepLabel, diameter: a.stepDiameter)
         let attributes: [NSAttributedString.Key: Any] = [
             .font: NSFont.systemFont(ofSize: fontSize, weight: .bold),
-            .foregroundColor: NSColor.white,
+            .foregroundColor: a.color.contrastingTextColor,
         ]
         let string = NSAttributedString(string: a.stepLabel, attributes: attributes)
         let measured = string.boundingRect(

@@ -68,13 +68,7 @@ final class TextCaptureCoordinator {
         }
         defer { try? FileManager.default.removeItem(at: tmpURL) }
 
-        let request = VNRecognizeTextRequest()
-        request.recognitionLevel = .accurate
-        request.usesLanguageCorrection = true
-        request.automaticallyDetectsLanguage = true
-        // Hint matching the app's localization; auto-detection still allows others.
-        request.recognitionLanguages = ["en-US", "ru-RU"]
-
+        let request = TextRecognition.makeRequest()
         let handler = VNImageRequestHandler(url: tmpURL)
         do {
             try handler.perform([request])

@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import Vision
 
 /// Editor window content: toolbar (tools, style, undo/redo, copy/save) over
 /// the annotation canvas. Standard-window styling (accent color), not the
@@ -9,7 +10,7 @@ struct EditorView: View {
     /// Wired by EditorWindowController in the save/copy commit; nil disables Save.
     var saveHandler: ((EditorDocument) -> Bool)?
 
-    @State private var tool: EditorTool = .arrow
+    @State private var tool: EditorTool = .select
     @State private var style = ToolStyle()
     @State private var editingTextID: UUID?
     @State private var zoomFactor: CGFloat = 1
@@ -17,7 +18,20 @@ struct EditorView: View {
     @State private var feedback: FeedbackKind?
     @State private var feedbackTask: DispatchWorkItem?
 
-    enum FeedbackKind { case saved, copied }
+    enum FeedbackKind {
+        case saved, copied, textCopied, noText
+
+        var message: LocalizedStringKey {
+            switch self {
+            case .saved:      return "Saved"
+            case .copied:     return "Copied"
+            case .textCopied: return "Text Copied"
+            case .noText:     return "No Text Found"
+            }
+        }
+
+        var isWarning: Bool { self == .noText }
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -31,7 +45,8 @@ struct EditorView: View {
                 style: $style,
                 editingTextID: $editingTextID,
                 zoomFactor: $zoomFactor,
-                panOffset: $panOffset
+                panOffset: $panOffset,
+                onRecognizeRegion: { recognizeRegion($0) }
             )
             .background(Color(nsColor: .underPageBackgroundColor))
         }
@@ -62,7 +77,7 @@ struct EditorView: View {
 
     private var toolPicker: some View {
         HStack(spacing: 2) {
-            ForEach(EditorTool.allCases, id: \.self) { t in
+            ForEach(EditorTool.pickerCases, id: \.self) { t in
                 Button {
                     tool = t
                     if t != .select { document.selectedID = nil }
@@ -81,8 +96,7 @@ struct EditorView: View {
                         .fill(tool == t ? Color.accentColor.opacity(0.22) : .clear)
                 )
                 .foregroundStyle(tool == t ? Color.accentColor : Color.primary)
-                .help(LocalizedStringKey(t.labelKey))
-                .accessibilityLabel(LocalizedStringKey(t.labelKey))
+                .hoverTip(t.labelKey)
             }
         }
     }
@@ -93,7 +107,21 @@ struct EditorView: View {
     /// reflow the canvas.
     private var contextBar: some View {
         HStack(spacing: 12) {
-            switch contextKind {
+            if tool == .ocr, document.selectedAnnotation == nil {
+                Label("Drag to select an area to recognize", systemImage: "text.viewfinder")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+            } else {
+                contextControls
+            }
+            Spacer()
+        }
+        .padding(.horizontal, 12)
+        .frame(height: 34)
+    }
+
+    @ViewBuilder private var contextControls: some View {
+        switch contextKind {
             case .blur:
                 blurStylePicker
                     .padding(.horizontal, 6)
@@ -124,18 +152,14 @@ struct EditorView: View {
             default: // select tool with nothing selected
                 colorSwatches
                 thicknessSlider
-            }
-            Spacer()
         }
-        .padding(.horizontal, 12)
-        .frame(height: 34)
     }
 
     /// What the bottom row configures right now.
     private var contextKind: AnnotationKind? {
         if let selected = document.selectedAnnotation { return selected.kind }
         switch tool {
-        case .select: return nil
+        case .select, .ocr: return nil
         case .arrow:  return .arrow
         case .rect:   return .rect
         case .oval:   return .oval
@@ -145,9 +169,14 @@ struct EditorView: View {
         }
     }
 
+    /// String-catalog keys for the preset names, aligned with
+    /// `AnnotationColor.presets`.
+    private let colorNames: [String] =
+        ["Red", "Orange", "Yellow", "Green", "Blue", "Black", "White"]
+
     private var colorSwatches: some View {
         HStack(spacing: 5) {
-            ForEach(Array(AnnotationColor.presets.enumerated()), id: \.offset) { _, preset in
+            ForEach(Array(AnnotationColor.presets.enumerated()), id: \.offset) { index, preset in
                 Button {
                     style.color = preset
                     applyToSelection { $0.color = preset }
@@ -163,6 +192,7 @@ struct EditorView: View {
                         .frame(width: 14, height: 14)
                 }
                 .buttonStyle(.plain)
+                .hoverTip(colorNames[index])
             }
         }
         .accessibilityLabel("Color")
@@ -176,6 +206,7 @@ struct EditorView: View {
         .pickerStyle(.segmented)
         .labelsHidden()
         .frame(width: 130)
+        .hoverTip("Blur Style")
     }
 
     private var fillSlider: some View {
@@ -202,11 +233,11 @@ struct EditorView: View {
             .pickerStyle(.segmented)
             .labelsHidden()
             .frame(width: 108)
-            .help("Text Background")
+            .hoverTip("Text Background")
         }
     }
 
-    private func formatToggle(_ label: LocalizedStringKey, systemImage: String,
+    private func formatToggle(_ label: String, systemImage: String,
                               binding: Binding<Bool>) -> some View {
         Button { binding.wrappedValue.toggle() } label: {
             Image(systemName: systemImage).frame(width: 24, height: 22)
@@ -217,8 +248,7 @@ struct EditorView: View {
                 .fill(binding.wrappedValue ? Color.accentColor.opacity(0.22) : .clear)
         )
         .foregroundStyle(binding.wrappedValue ? Color.accentColor : Color.primary)
-        .help(label)
-        .accessibilityLabel(label)
+        .hoverTip(label)
     }
 
     private var arrowStylePicker: some View {
@@ -230,7 +260,7 @@ struct EditorView: View {
         .pickerStyle(.segmented)
         .labelsHidden()
         .frame(width: 108)
-        .help("Arrow Style")
+        .hoverTip("Arrow Style")
     }
 
     private var thicknessSlider: some View {
@@ -242,7 +272,7 @@ struct EditorView: View {
     /// slider is continuous (no tick marks) and the caller's binding rounds to
     /// the step. `format` adds a trailing readout.
     private func settingSlider(
-        _ label: LocalizedStringKey, systemImage: String,
+        _ label: String, systemImage: String,
         value: Binding<CGFloat>, range: ClosedRange<CGFloat>, step: CGFloat,
         ticks: Bool = true, format: ((CGFloat) -> String)? = nil
     ) -> some View {
@@ -267,8 +297,7 @@ struct EditorView: View {
                     .frame(width: 34, alignment: .trailing)
             }
         }
-        .help(label)
-        .accessibilityLabel(label)
+        .hoverTip(label)
     }
 
     /// One undo step per slider gesture when it restyles a selection: the
@@ -463,11 +492,12 @@ struct EditorView: View {
     @ViewBuilder private var feedbackLabel: some View {
         if let feedback {
             HStack(spacing: 4) {
-                Image(systemName: "checkmark.circle.fill")
-                Text(feedback == .saved ? "Saved" : "Copied")
+                Image(systemName: feedback.isWarning
+                      ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
+                Text(feedback.message)
             }
             .font(.system(size: 12, weight: .medium))
-            .foregroundStyle(.green)
+            .foregroundStyle(feedback.isWarning ? Color.orange : Color.green)
             .transition(.opacity)
         }
     }
@@ -481,7 +511,7 @@ struct EditorView: View {
             .buttonStyle(.borderless)
             .keyboardShortcut("z", modifiers: .command)
             .disabled(!document.canUndo || textEditingActive)
-            .help("Undo")
+            .hoverTip("Undo")
 
             Button { document.redo() } label: {
                 Image(systemName: "arrow.uturn.forward")
@@ -490,7 +520,7 @@ struct EditorView: View {
             .buttonStyle(.borderless)
             .keyboardShortcut("z", modifiers: [.command, .shift])
             .disabled(!document.canRedo || textEditingActive)
-            .help("Redo")
+            .hoverTip("Redo")
         }
     }
 
@@ -502,12 +532,12 @@ struct EditorView: View {
             .buttonStyle(.borderless)
             .keyboardShortcut("-", modifiers: .command)
             .disabled(textEditingActive || zoomFactor <= 0.25)
-            .help("Zoom Out")
+            .hoverTip("Zoom Out")
 
             Text("\(Int((zoomFactor * 100).rounded()))%")
                 .font(.system(size: 11, design: .monospaced))
                 .frame(width: 38)
-                .accessibilityLabel("Zoom")
+                .hoverTip("Zoom")
 
             Button { adjustZoom(by: 0.25) } label: {
                 Image(systemName: "plus.magnifyingglass").frame(width: 24, height: 22)
@@ -515,7 +545,7 @@ struct EditorView: View {
             .buttonStyle(.borderless)
             .keyboardShortcut("+", modifiers: .command)
             .disabled(textEditingActive || zoomFactor >= 8)
-            .help("Zoom In")
+            .hoverTip("Zoom In")
         }
     }
 
@@ -523,16 +553,13 @@ struct EditorView: View {
     /// the icon alone when the toolbar runs short of width.
     private var fitButton: some View {
         Button { fitZoom() } label: {
-            ViewThatFits(in: .horizontal) {
-                Label("Fit", systemImage: "square.arrowtriangle.4.outward")
-                Image(systemName: "square.arrowtriangle.4.outward")
-                    .frame(width: 24, height: 22)
-            }
+            Image(systemName: "square.arrowtriangle.4.outward")
+                .frame(width: 24, height: 22)
         }
         .buttonStyle(.borderless)
         .keyboardShortcut("0", modifiers: .command)
         .disabled(textEditingActive)
-        .help("Zoom to Fit")
+        .hoverTip("Zoom to Fit")
     }
 
     private var rotateButtons: some View {
@@ -542,19 +569,29 @@ struct EditorView: View {
             }
             .buttonStyle(.borderless)
             .disabled(textEditingActive)
-            .help("Rotate Left")
+            .hoverTip("Rotate Left")
 
             Button { document.rotate(clockwise: true) } label: {
                 Image(systemName: "rotate.right").frame(width: 24, height: 22)
             }
             .buttonStyle(.borderless)
             .disabled(textEditingActive)
-            .help("Rotate Right")
+            .hoverTip("Rotate Right")
         }
     }
 
     private var actionButtons: some View {
         HStack(spacing: 8) {
+            Button {
+                tool = (tool == .ocr) ? .select : .ocr
+                document.selectedID = nil
+            } label: {
+                Image(systemName: "text.viewfinder")
+                    .foregroundStyle(tool == .ocr ? Color.accentColor : Color.primary)
+            }
+            .disabled(textEditingActive)
+            .hoverTip("Recognize Text")
+
             Button {
                 copyToClipboard()
             } label: {
@@ -562,6 +599,7 @@ struct EditorView: View {
             }
             .keyboardShortcut("c", modifiers: .command)
             .disabled(textEditingActive)
+            .hoverTip("Copy")
 
             Button {
                 if let saveHandler, saveHandler(document) { showFeedback(.saved) }
@@ -570,6 +608,7 @@ struct EditorView: View {
             }
             .keyboardShortcut("s", modifiers: .command)
             .disabled(saveHandler == nil || textEditingActive)
+            .hoverTip("Save")
         }
         .controlSize(.small)
     }
@@ -595,6 +634,47 @@ struct EditorView: View {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.writeObjects([image])
         showFeedback(.copied)
+    }
+
+    /// OCRs just the marquee region the user dragged and copies the recognized
+    /// text to the clipboard. Runs off the main thread so a large crop doesn't
+    /// stall the UI; feedback reports success or "no text found". Leaving OCR
+    /// mode after a scan matches the "select once, then copy" flow.
+    private func recognizeRegion(_ pixelRect: CGRect) {
+        tool = .select
+        guard let cropped = croppedBaseImage(pixelRect) else { showFeedback(.noText); return }
+        DispatchQueue.global(qos: .userInitiated).async {
+            let request = TextRecognition.makeRequest()
+            let handler = VNImageRequestHandler(cgImage: cropped, options: [:])
+            var recognized = ""
+            do {
+                try handler.perform([request])
+                let lines = (request.results ?? [])
+                    .compactMap { $0.topCandidates(1).first?.string }
+                recognized = lines.joined(separator: "\n")
+            } catch {
+                recognized = ""
+            }
+            DispatchQueue.main.async {
+                let trimmed = recognized.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty else { showFeedback(.noText); return }
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(recognized, forType: .string)
+                showFeedback(.textCopied)
+            }
+        }
+    }
+
+    /// Crops the base image to an image-pixel rect (top-left origin, matching
+    /// the annotation coordinate space and `CGImage.cropping`), clamped to the
+    /// image bounds. Returns nil for a degenerate selection.
+    private func croppedBaseImage(_ pixelRect: CGRect) -> CGImage? {
+        let bounds = CGRect(x: 0, y: 0,
+                            width: CGFloat(document.baseImage.width),
+                            height: CGFloat(document.baseImage.height))
+        let region = pixelRect.integral.intersection(bounds)
+        guard region.width >= 1, region.height >= 1 else { return nil }
+        return document.baseImage.cropping(to: region)
     }
 
     private func adjustZoom(by amount: CGFloat) {

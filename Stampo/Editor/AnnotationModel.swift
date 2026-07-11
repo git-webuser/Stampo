@@ -62,6 +62,17 @@ struct AnnotationColor: Equatable {
         NSColor(srgbRed: red, green: green, blue: blue, alpha: alpha)
     }
 
+    /// Perceived brightness (0…1). Used to pick legible label text over a fill.
+    var luminance: Double {
+        0.299 * red + 0.587 * green + 0.114 * blue
+    }
+
+    /// Black on light fills (white, yellow, orange), white on dark ones — so a
+    /// step marker's number stays readable on every preset.
+    var contrastingTextColor: NSColor {
+        luminance > 0.6 ? .black : .white
+    }
+
     func multipliedAlpha(_ multiplier: CGFloat) -> AnnotationColor {
         AnnotationColor(red: red, green: green, blue: blue,
                         alpha: alpha * Double(multiplier))
@@ -102,7 +113,7 @@ struct Annotation: Identifiable, Equatable {
     var italic: Bool = false
     var underline: Bool = false
     var strikethrough: Bool = false
-    var textShadow: Bool = true
+    var textShadow: Bool = false
     var textBackground: TextBackground = .none
     var blurStyle: BlurStyle = .pixelate
     /// Intensity detent for `.blur` (BlurIntensity.range).

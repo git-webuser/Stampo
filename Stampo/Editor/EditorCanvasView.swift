@@ -3,7 +3,12 @@ import SwiftUI
 
 /// Active tool in the editor toolbar.
 enum EditorTool: Equatable, CaseIterable {
-    case select, arrow, rect, oval, text, blur, step
+    case select, arrow, rect, oval, text, blur, step, ocr
+
+    /// Drawing tools shown in the toolbar picker. `.ocr` is a transient
+    /// marquee mode driven by its own button in the actions group, not a
+    /// persistent drawing tool, so it's excluded here.
+    static let pickerCases: [EditorTool] = [.select, .arrow, .rect, .oval, .text, .blur, .step]
 
     var systemImage: String {
         switch self {
@@ -14,6 +19,7 @@ enum EditorTool: Equatable, CaseIterable {
         case .text:   return "textformat"
         case .blur:   return "drop"
         case .step:   return "1.circle"
+        case .ocr:    return "text.viewfinder"
         }
     }
 
@@ -26,6 +32,7 @@ enum EditorTool: Equatable, CaseIterable {
         case .text:   return "Text"
         case .blur:   return "Blur"
         case .step:   return "Step"
+        case .ocr:    return "Recognize Text"
         }
     }
 }
@@ -48,7 +55,7 @@ struct ToolStyle {
     var italic = false
     var underline = false
     var strikethrough = false
-    var textShadow = true
+    var textShadow = false
     var textBackground: TextBackground = .none
     /// Diameter of new step markers in image pixels.
     var stepDiameter: CGFloat = 40
@@ -66,6 +73,9 @@ struct EditorCanvasView: View {
     @Binding var editingTextID: UUID?
     @Binding var zoomFactor: CGFloat
     @Binding var panOffset: CGSize
+    /// Called with the marquee's image-pixel rect when the `.ocr` tool's drag
+    /// ends, so the owner can OCR just that region.
+    var onRecognizeRegion: (CGRect) -> Void = { _ in }
 
     @FocusState private var textFieldFocused: Bool
     @State private var magnificationStart: CGFloat?
@@ -81,6 +91,7 @@ struct EditorCanvasView: View {
         case moving(UUID, last: CGPoint)
         case resizing(UUID, Annotation.Handle)
         case panning(last: CGPoint)
+        case ocrSelecting(start: CGPoint, current: CGPoint)
         case ignore
     }
     @State private var dragMode: DragMode?
@@ -152,7 +163,31 @@ struct EditorCanvasView: View {
             if let selected = document.selectedAnnotation, selected.id != editingTextID {
                 drawSelection(for: selected, context: context, fitScale: fitScale, offset: offset)
             }
+
+            // OCR marquee (drawn while dragging with the recognize-text tool).
+            if case let .ocrSelecting(start, current) = dragMode {
+                drawOCRMarquee(from: start, to: current, context: context,
+                               fitScale: fitScale, offset: offset)
+            }
         }
+    }
+
+    private func drawOCRMarquee(from start: CGPoint, to current: CGPoint,
+                                context: GraphicsContext,
+                                fitScale: CGFloat, offset: CGPoint) {
+        func toView(_ p: CGPoint) -> CGPoint {
+            CGPoint(x: p.x * fitScale + offset.x, y: p.y * fitScale + offset.y)
+        }
+        let a = toView(start), b = toView(current)
+        let rect = CGRect(x: min(a.x, b.x), y: min(a.y, b.y),
+                          width: abs(b.x - a.x), height: abs(b.y - a.y))
+        var path = Path()
+        path.addRect(rect)
+        context.fill(path, with: .color(Color.accentColor.opacity(0.15)))
+        context.stroke(path, with: .color(.white.opacity(0.9)),
+                       style: StrokeStyle(lineWidth: 1, dash: [5, 3]))
+        context.stroke(path, with: .color(.black.opacity(0.5)),
+                       style: StrokeStyle(lineWidth: 1, dash: [5, 3], dashPhase: 4))
     }
 
     private func drawSelection(for a: Annotation, context: GraphicsContext,
@@ -206,7 +241,7 @@ struct EditorCanvasView: View {
                     }
                     if isSpaceHeld {
                         dragMode = .panning(last: value.location)
-                    } else if beginEditingIfDoubleClick(at: p, fitScale: fitScale) {
+                    } else if tool != .ocr, beginEditingIfDoubleClick(at: p, fitScale: fitScale) {
                         // A double-click on text/step opens its inline editor
                         // instead of starting a move — detected at mouse-down
                         // so it works even on an already-selected annotation.
@@ -264,6 +299,9 @@ struct EditorCanvasView: View {
                         }
                     }
 
+                case .ocrSelecting(let start, _):
+                    dragMode = .ocrSelecting(start: start, current: p)
+
                 case .panning(let last):
                     // Clamp so the image can't be dragged past its overflow
                     // (and stays centered when it fits — no free-floating).
@@ -294,6 +332,10 @@ struct EditorCanvasView: View {
                     }
                 case .moving, .resizing:
                     document.commitChange()
+                case .ocrSelecting(let start, _):
+                    let rect = CGRect(x: min(start.x, p.x), y: min(start.y, p.y),
+                                      width: abs(p.x - start.x), height: abs(p.y - start.y))
+                    if rect.width >= 4, rect.height >= 4 { onRecognizeRegion(rect) }
                 case .panning, .ignore, nil:
                     break
                 }
@@ -314,6 +356,10 @@ struct EditorCanvasView: View {
         }
 
         switch tool {
+        case .ocr:
+            // The recognize-text tool never touches annotations: any drag is a
+            // marquee over the region to OCR.
+            return .ocrSelecting(start: p, current: p)
         case .select:
             if let hit = document.annotation(at: p, tolerance: tolerancePx) {
                 document.selectedID = hit.id
@@ -393,7 +439,7 @@ struct EditorCanvasView: View {
         case .rect:  return .rect
         case .oval:  return .oval
         case .blur:  return .blur
-        case .select, .text, .step: return nil
+        case .select, .text, .step, .ocr: return nil
         }
     }
 
@@ -581,7 +627,11 @@ struct EditorCanvasView: View {
                                 size: annotation.fontSize * fitScale) ?? baseFont
         let inset = AnnotationRenderer.textInset(for: annotation) * fitScale
         let measured = AnnotationRenderer.measureText(annotation)
-        let boxWidth = max(measured.width * fitScale, scaledFont.pointSize * 3)
+        // The box hugs the measured text and grows in both axes as the user
+        // types (the editor never wraps — only explicit newlines add rows). A
+        // little trailing slack keeps the caret visible past the last glyph.
+        let caretSlack = scaledFont.pointSize * 0.6
+        let boxWidth = max(measured.width * fitScale + caretSlack, scaledFont.pointSize * 3)
         let boxHeight = max(measured.height * fitScale, scaledFont.pointSize * 1.4)
 
         return InlineTextView(
@@ -611,7 +661,7 @@ struct EditorCanvasView: View {
             .textFieldStyle(.plain)
             .multilineTextAlignment(.center)
             .font(.system(size: fontSize, weight: .bold))
-            .foregroundStyle(.white)
+            .foregroundStyle(Color(nsColor: annotation.color.contrastingTextColor))
             .frame(width: max(diameter, 32), height: diameter)
             .background(Circle().fill(Color(nsColor: annotation.color.nsColor)))
             .focused($textFieldFocused)
@@ -645,6 +695,17 @@ private struct InlineTextView: NSViewRepresentable {
         tv.drawsBackground = false
         tv.backgroundColor = .clear
         tv.textContainer?.lineFragmentPadding = 0
+        // Never soft-wrap: the container is unbounded so a long line keeps
+        // extending horizontally, and the SwiftUI frame (sized to the measured
+        // text) grows to match. Only an explicit ⇧Return adds a row.
+        tv.isHorizontallyResizable = true
+        tv.isVerticallyResizable = true
+        tv.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude,
+                            height: CGFloat.greatestFiniteMagnitude)
+        tv.textContainer?.widthTracksTextView = false
+        tv.textContainer?.heightTracksTextView = false
+        tv.textContainer?.size = NSSize(width: CGFloat.greatestFiniteMagnitude,
+                                        height: CGFloat.greatestFiniteMagnitude)
         tv.string = text
         tv.onCommit = onCommit
         apply(to: tv)
