@@ -6,7 +6,7 @@ Screenshot, text capture, and color picker for any Mac. The panel lives at the n
 
 ## What is Stampo
 
-Stampo replaces the usual screenshot workflow with a panel that appears when you hover near the top of your screen. From the panel you can take area, window, or fullscreen screenshots, capture text from the screen (OCR), pick colors, and browse your recent captures in the tray.
+Stampo replaces the usual screenshot workflow with a panel that appears when you hover near the top of your screen. From the panel you can take area, window, or fullscreen screenshots, annotate them in the built-in editor, capture text from the screen (OCR), pick colors, and browse your recent captures in the tray.
 
 ## Requirements
 
@@ -58,6 +58,14 @@ To grant permissions: **System Settings → Privacy & Security → Screen Record
 
 Select an area of the screen and Stampo recognizes the text in it (English and Russian, detected automatically) and copies it to the clipboard. Nothing is saved to disk. Start it from the capture-mode menu in the panel or with `⌃⌥⌘T`.
 
+## Annotation Editor
+
+Click the post-capture thumbnail (or right-click a screenshot in the tray → **Edit**) to open the built-in editor: arrows, rectangles, ovals, text labels, and blur/pixelate regions, with color and thickness presets and full undo/redo (`⌘Z` / `⇧⌘Z`).
+
+- **Save** (`⌘S`) always writes a **new file** to your save folder — the original screenshot is never modified — and the result appears in the tray.
+- **Copy** (`⌘C`) puts the annotated image on the clipboard at the original pixel resolution.
+- Prefer the old behavior? Set **Settings → General → On thumbnail click** to *Open preview*.
+
 ## Hotkeys
 
 | Action | Default shortcut |
@@ -82,7 +90,7 @@ File names follow one of four presets, selectable in **Settings → Capture**: c
 The tray shows recent screenshots and color swatches.
 
 - **Click** a screenshot to open it.
-- **Right-click** for options: Open, Show in Finder, Copy, Move to Trash.
+- **Right-click** for options: Edit, Open, Show in Finder, Copy, Move to Trash.
 - **X button** (on hover) removes the item from the tray — the file is not deleted.
 - **Drag** a screenshot out of the tray to copy it anywhere.
 
