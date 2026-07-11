@@ -65,6 +65,9 @@ Click the post-capture thumbnail (or right-click a screenshot in the tray → **
 - **Save** (`⌘S`) always writes a **new file** to your save folder — the original screenshot is never modified — and the result appears in the tray.
 - **Copy** (`⌘C`) puts the annotated image on the clipboard at the original pixel resolution.
 - Rotate the whole image in 90° steps with the toolbar buttons.
+- **Crop** the image: drag a frame with corner/edge handles (or type an exact **W × H** in the toolbar), then **Apply** (**Return**) or **Cancel** (**Esc**). The frame shows a rule-of-thirds grid, nudges with the arrow keys (`⇧` 10 px, `⌥⇧` 50 px), rotates with the image, and stays within the picture; cropping is undoable.
+- **Recognize text** from a region: pick the text-recognition tool, drag over an area, and its text is copied to the clipboard.
+- Hover any toolbar control for a tooltip describing it.
 - Double-click a text label or step marker to edit it; inside a text label, **Return** commits and **⇧Return** starts a new line. New step markers auto-number from the highest numeric label (labels can be any text, e.g. `1.1` or `4.12`).
 - Blur/pixelate always sits beneath the other annotations, so arrows, text, and shapes stay crisp on top of a redacted region.
 - Press **Delete** / **Backspace** to remove the selected annotation, and **Esc** to drop the active tool back to the cursor.
