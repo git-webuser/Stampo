@@ -149,7 +149,7 @@ struct NotchTrayView: View {
     }
 
     private var scrollContent: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
+        return ScrollView(.horizontal, showsIndicators: false) {
             HStack(alignment: .top, spacing: cellSpacing) {
                 ForEach(trayModel.items) { item in
                     Group {
@@ -157,6 +157,7 @@ struct NotchTrayView: View {
                         case .screenshot(let shot):
                             TrayScreenshotCell(
                                 shot: shot,
+                                loader: trayModel.thumbnailLoader(for: shot),
                                 height: cellH,
                                 badgeBleed: badgeBleed,
                                 labelOffset: labelOffset,
@@ -218,6 +219,7 @@ struct NotchTrayView: View {
                         .scale(scale: 0.6, anchor: .center)
                         .combined(with: .opacity)
                     )
+                    .id(item.id)
                 }
             }
             .padding(.horizontal, contentInset)
@@ -500,6 +502,7 @@ private struct TrayTextCell: View {
 
 private struct TrayScreenshotCell: View {
     let shot: TrayScreenshot
+    let loader: ThumbnailLoader
     let height: CGFloat
     let badgeBleed: CGFloat
     let labelOffset: CGFloat
@@ -510,7 +513,6 @@ private struct TrayScreenshotCell: View {
     let onRemove: () -> Void
     let onMoveToTrash: () -> Void
 
-    @State private var loader = ThumbnailLoader()
     @State private var isPressed    = false
     @State private var isBadgeActive = false
     @State private var isDragging   = false
@@ -626,7 +628,6 @@ private struct TrayScreenshotCell: View {
                 onMoveToTrash()
             }
         }
-        .task(id: shot.url) { loader.load(imageURL: shot.url) }
         .accessibilityLabel("Screenshot \(shot.url.deletingPathExtension().lastPathComponent)")
         .accessibilityHint("Tap to open, hold to delete")
         .accessibilityAddTraits(.isButton)

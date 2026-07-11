@@ -50,7 +50,7 @@ enum DebugTrace {
 enum PanelTrace {
     static func panelSummary(_ panel: NSPanel?) -> String {
         guard let panel else { return "nil" }
-        return "visible=\(panel.isVisible) key=\(panel.isKeyWindow) " +
+        return "id=\(panel.windowNumber) visible=\(panel.isVisible) key=\(panel.isKeyWindow) " +
                "frame=\(rectStr(panel.frame)) alpha=\(String(format: "%.2f", panel.alphaValue)) " +
                "collection=\(collectionStr(panel.collectionBehavior))"
     }

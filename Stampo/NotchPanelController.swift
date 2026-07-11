@@ -436,9 +436,11 @@ final class NotchPanelController: NSObject {
         ) { [weak self] _ in
             self?.isMenuTracking = false
         }
-        // Space switched: если панель видима — держим её поверх окон нового Space;
-        // если скрыта — помечаем привязку устаревшей, чтобы следующий show не
-        // попал на старый Desktop.
+        // A Space switch can leave WindowServer's binding for a long-lived
+        // non-activating NSPanel corrupted even though AppKit still reports
+        // isVisible=true and canJoinAllSpaces. Re-ordering that same window does
+        // not repair the binding. Recreate it instead: visible UI is restored
+        // immediately, while a hidden panel is rebuilt lazily on the next show.
         let t3 = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.activeSpaceDidChangeNotification,
             object: nil,
@@ -446,9 +448,12 @@ final class NotchPanelController: NSObject {
         ) { [weak self] _ in
             guard let self else { return }
             self.trace("spaceDidChange.begin")
-            if let panel = self.panel, panel.isVisible {
-                self.orderFrontOnActiveSpace(panel)
-                self.trace("spaceDidChange.visible.rebind.done")
+            if case .hiding = self.state {
+                // Respect a close already in progress; rebuilding here would
+                // cancel the hide animation and unexpectedly reopen the panel.
+                self.markPanelSpaceBindingStale()
+            } else if let panel = self.panel, panel.isVisible {
+                self.recreateVisiblePanelAfterSpaceChange(from: panel)
             } else {
                 self.markPanelSpaceBindingStale()
             }
@@ -519,11 +524,58 @@ final class NotchPanelController: NSObject {
         panel.orderFrontRegardless()
     }
 
+    /// Replaces a visible panel with a fresh WindowServer window after the
+    /// active Space changes. The existing NSHostingView is moved to the new
+    /// window instead of rebuilding the SwiftUI hierarchy. This preserves all
+    /// view-local state, including NSScrollView's exact content offset.
+    private func recreateVisiblePanelAfterSpaceChange(from oldPanel: NSPanel) {
+        let restoredState: PanelState
+        switch state {
+        case .countdown:
+            restoredState = .countdown
+        default:
+            restoredState = route == .tray ? .tray : .main
+        }
+
+        bumpGeneration() // invalidate completions that still reference oldPanel
+        let retainedContentView = oldPanel.contentView
+        oldPanel.orderOut(nil)
+        // Detach before close so AppKit does not tear down the hosting tree.
+        oldPanel.contentView = nil
+        oldPanel.close()
+        panel = nil
+        removeEscMonitor()
+
+        create(reusing: retainedContentView)
+        guard let panel,
+              let screen = currentScreen ?? NSScreen.main ?? NSScreen.screens.first else {
+            state = .stale(reason: .spaceChange)
+            trace("spaceDidChange.visible.recreate.failed")
+            return
+        }
+
+        updateScreenMetrics(for: screen)
+        let width = clampedWidth(currentWidthForCurrentRoute, on: screen)
+        panel.setFrame(
+            frameForWidth(width, on: screen, height: trayPanelHeight),
+            display: false
+        )
+        panel.alphaValue = 1
+        interactionState.contentVisibility = 1
+        interactionState.isEnabled = true
+        state = restoredState
+        orderFrontOnActiveSpace(panel)
+        trace("spaceDidChange.visible.recreate.done")
+    }
+
     /// Помечает Space-привязку панели устаревшей и аккуратно прячет её.
     /// Используется при переключении Space пока панель скрыта.
     private func markPanelSpaceBindingStale() {
         trace("markStale.begin")
         panel?.orderOut(nil)
+        panel?.close()
+        panel = nil
+        removeEscMonitor()
         // Сброс состояния, чтобы следующий show начался из чистого Main.
         state = .stale(reason: .spaceChange)
         interactionState.isEnabled = true
@@ -640,9 +692,9 @@ final class NotchPanelController: NSObject {
         if panel == nil { create() }
         guard let panel else { return }
 
-        // При stale-привязке (после sleep/wake/Space-switch) выводим панель из
-        // WindowServer до orderFront, чтобы macOS дала ей чистую новую привязку
-        // к активному Space. Если panel==nil — create() уже сделал свежий объект.
+        // Environment/Space invalidation normally destroys the old NSPanel, so
+        // create() above gives WindowServer a fresh Space binding. Keep orderOut
+        // as a defensive fallback if a stale state ever arrives with a panel.
         if forceRebind {
             panel.orderOut(nil)
             // state.isStale is cleared automatically when we transition to
@@ -865,7 +917,7 @@ final class NotchPanelController: NSObject {
 
     // MARK: - Panel lifecycle
 
-    private func create() {
+    private func create(reusing contentView: NSView? = nil) {
         let panel = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: collapsedWidth, height: trayPanelHeight),
             styleMask: [.nonactivatingPanel, .borderless],
@@ -883,7 +935,8 @@ final class NotchPanelController: NSObject {
         panel.ignoresMouseEvents = false
         panel.appearance = NSAppearance(named: .darkAqua)
 
-        panel.contentView = NSHostingView(rootView: makeRootView().managedLocale())
+        panel.contentView = contentView
+            ?? NSHostingView(rootView: makeRootView().managedLocale())
         self.panel = panel
 
         installEscMonitor()

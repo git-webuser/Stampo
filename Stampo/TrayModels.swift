@@ -87,6 +87,10 @@ private struct PersistedTrayItem: Codable {
 
     private var persistWorkItem: DispatchWorkItem?
     @ObservationIgnored private var fileWatchers: [UUID: DispatchSourceFileSystemObject] = [:]
+    /// Thumbnail loaders outlive individual SwiftUI cells and hosting views.
+    /// Without this cache, recreating the panel briefly replaces every preview
+    /// with the placeholder while the same files are decoded again.
+    @ObservationIgnored private var thumbnailLoaders: [UUID: ThumbnailLoader] = [:]
 
     private func schedulePersist() {
         persistWorkItem?.cancel()
@@ -137,11 +141,16 @@ private struct PersistedTrayItem: Codable {
     func add(screenshotURL url: URL) {
         items.removeAll {
             if case .screenshot(let s) = $0 {
-                if s.url == url { stopWatching(id: s.id); return true }
+                if s.url == url {
+                    stopWatching(id: s.id)
+                    thumbnailLoaders.removeValue(forKey: s.id)
+                    return true
+                }
             }
             return false
         }
         let shot = TrayScreenshot(url: url)
+        prepareThumbnail(for: shot)
         items.insert(.screenshot(shot), at: 0)
         startWatching(shot)
         trim()
@@ -150,6 +159,7 @@ private struct PersistedTrayItem: Codable {
 
     func remove(id: UUID) {
         stopWatching(id: id)
+        thumbnailLoaders.removeValue(forKey: id)
         items.removeAll { $0.id == id }
         schedulePersist()
     }
@@ -158,6 +168,7 @@ private struct PersistedTrayItem: Codable {
         items.removeAll {
             if case .screenshot(let s) = $0, s.url == url {
                 stopWatching(id: s.id)
+                thumbnailLoaders.removeValue(forKey: s.id)
                 return true
             }
             return false
@@ -168,8 +179,29 @@ private struct PersistedTrayItem: Codable {
     private func trim() {
         let limit = AppSettings.trayMaxItems
         guard items.count > limit else { return }
+        let removed = items.dropFirst(limit)
+        for item in removed {
+            stopWatching(id: item.id)
+            thumbnailLoaders.removeValue(forKey: item.id)
+        }
         items = Array(items.prefix(limit))
         schedulePersist()
+    }
+
+    // MARK: Thumbnail Cache
+
+    func thumbnailLoader(for shot: TrayScreenshot) -> ThumbnailLoader {
+        if let loader = thumbnailLoaders[shot.id] { return loader }
+        // Defensive lazy path for data created by future import/migration code.
+        return prepareThumbnail(for: shot)
+    }
+
+    @discardableResult
+    private func prepareThumbnail(for shot: TrayScreenshot) -> ThumbnailLoader {
+        let loader = ThumbnailLoader()
+        thumbnailLoaders[shot.id] = loader
+        loader.load(imageURL: shot.url)
+        return loader
     }
 
     // MARK: File Watching
@@ -243,7 +275,10 @@ private struct PersistedTrayItem: Codable {
             }
         }
         items = restored
-        for case .screenshot(let shot) in items { startWatching(shot) }
+        for case .screenshot(let shot) in items {
+            prepareThumbnail(for: shot)
+            startWatching(shot)
+        }
     }
 
 
