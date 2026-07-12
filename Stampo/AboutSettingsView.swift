@@ -25,7 +25,7 @@ struct AboutSettingsView: View {
                             .font(.title2.bold())
                         Text("Version \(appVersion)")
                             .foregroundStyle(.secondary)
-                        Text("Screenshot & color picker\nfor any Mac")
+                        Text("Screenshot & color picker for any Mac")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -38,7 +38,7 @@ struct AboutSettingsView: View {
                 SettingRow(
                     icon: "arrow.triangle.2.circlepath",
                     title: "Check for updates automatically",
-                    description: "Asks GitHub once a day. No other data is sent."
+                    description: "Asks GitHub once a day. No other data is sent"
                 ) {
                     Toggle("", isOn: $checkForUpdates).labelsHidden()
                 }
@@ -85,7 +85,7 @@ struct AboutSettingsView: View {
                 SettingRow(
                     icon: "stethoscope",
                     title: "Copy Diagnostics",
-                    description: "Paste in a bug report to help diagnose issues."
+                    description: "Paste in a bug report to help diagnose issues"
                 ) {
                     Button {
                         NSPasteboard.general.clearContents()

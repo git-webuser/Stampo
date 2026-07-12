@@ -466,6 +466,14 @@ final class NotchHoverController: NSObject {
         }
     }
 
+    /// Reveals the panel on the most appropriate screen. Used when the user
+    /// activates the app (e.g. clicking the icon in Launchpad/Dock) so the app
+    /// visibly reacts instead of appearing dead. No-op if no screen is available.
+    func revealPanel() {
+        guard let screen = preferredScreenForOpen() else { return }
+        panel.showAnimated(on: screen, forceRebind: panel.needsSpaceRebind)
+    }
+
     /// Returns the screen best suited to present the panel on, or nil if no
     /// screen is currently available (headless / mid-reconfiguration). Callers
     /// must guard nil and skip the action rather than crashing on screens[0].

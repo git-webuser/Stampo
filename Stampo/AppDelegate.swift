@@ -87,6 +87,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return false
     }
 
+    /// Fires when the user activates an already-running instance — clicking the
+    /// icon in Launchpad or the Dock. As an accessory app Stampo has no windows
+    /// to restore, so AppKit would otherwise do nothing and the app feels dead.
+    /// Reveal the panel so there's always visible feedback.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        guard !Self.isRunningTests else { return true }
+        hover.revealPanel()
+        return true
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         // Safety net: restore cursor in case the app terminated during color sampling.
         CGDisplayShowCursor(CGMainDisplayID())

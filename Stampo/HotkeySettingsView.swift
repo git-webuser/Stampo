@@ -36,16 +36,16 @@ struct HotkeySettingsView: View {
             // MARK: Color picker (fixed, toggleable)
             Section {
                 FixedHotkeyRow(icon: "arrow.2.squarepath",
-                               action: "Cycle Color Format",
+                               action: "Cycle Color Format in the Color Picker",
                                caps: ["F"],
                                isEnabled: $hudFormatEnabled)
                 ArrowStepRow(icon: "1.circle",  title: "Move 1 pt",  modifiers: [],         isEnabled: $move1Enabled)
                 ArrowStepRow(icon: "10.circle", title: "Move 10 pt", modifiers: ["⇧"],      isEnabled: $move10Enabled)
                 ArrowStepRow(icon: "50.circle", title: "Move 50 pt", modifiers: ["⇧", "⌥"], isEnabled: $move50Enabled)
             } header: {
-                Text("Color Picker")
+                Text("Element Controls")
             } footer: {
-                Text("These shortcuts work only while the color picker is active and can't be changed")
+                Text("The arrow-key steps also work in the editor; these shortcuts can't be changed")
             }
         }
         .formStyle(.grouped)
