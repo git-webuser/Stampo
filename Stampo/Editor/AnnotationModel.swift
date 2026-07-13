@@ -12,6 +12,7 @@ enum AnnotationKind: Equatable {
     case freehand
     case blur
     case step
+    case loupe
 }
 
 /// Visual variant of a straight `.line` annotation.
@@ -229,6 +230,11 @@ struct Annotation: Identifiable, Equatable {
     var freehandPoints: [CGPoint] = []
     /// Rendering strategy for a `.freehand` annotation.
     var freehandStyle: FreehandStyle = .pen
+    /// Magnification factor of a `.loupe`.
+    var loupeScale: CGFloat = 2
+    /// A `.loupe` magnifies the redacted image by default so blur keeps
+    /// hiding what it hides; opting in reveals the raw original pixels.
+    var loupeRevealsOriginal: Bool = false
 
     init(id: UUID = UUID(), kind: AnnotationKind, start: CGPoint, end: CGPoint,
          color: AnnotationColor, lineWidth: CGFloat) {
@@ -302,7 +308,7 @@ struct Annotation: Identifiable, Equatable {
         switch kind {
         case .line, .arrow:
             return hypot(end.x - start.x, end.y - start.y) < 4
-        case .rect, .oval, .blur:
+        case .rect, .oval, .blur, .loupe:
             return rect.width < 4 || rect.height < 4
         case .text:
             return text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -357,6 +363,9 @@ struct Annotation: Identifiable, Equatable {
             }
         case .step:
             return hypot(p.x - start.x, p.y - start.y) <= stepDiameter / 2 + tolerance
+        case .loupe:
+            // Full disk: the loupe occludes what's beneath it anyway.
+            return hypot(p.x - rect.midX, p.y - rect.midY) <= rect.width / 2 + tolerance
         }
     }
 
@@ -388,7 +397,7 @@ struct Annotation: Identifiable, Equatable {
             return [(.start, start), (.end, end), (.control, control)]
         case .line:
             return [(.start, start), (.end, end)]
-        case .rect, .oval, .blur:
+        case .rect, .oval, .blur, .loupe:
             let r = rect
             return [(.topLeft, CGPoint(x: r.minX, y: r.minY)),
                     (.topRight, CGPoint(x: r.maxX, y: r.minY)),
@@ -511,7 +520,9 @@ struct Annotation: Identifiable, Equatable {
             default: return
             }
             start = anchor
-            end = aspectLocked && (kind == .rect || kind == .oval)
+            // A loupe is always a circle, so its corner resize is always
+            // aspect-locked; rect/oval lock only while shift is held.
+            end = (aspectLocked && (kind == .rect || kind == .oval)) || kind == .loupe
                 ? Self.aspectLockedEnd(from: anchor, to: p)
                 : p
         }

@@ -130,6 +130,101 @@ enum TestImages {
         }
     }
 
+    // MARK: loupe
+
+    /// Solid-color image for deterministic loupe/blur source tests.
+    private func solidImage(width: Int, height: Int,
+                            red: CGFloat, green: CGFloat, blue: CGFloat) -> CGImage {
+        let ctx = CGContext(
+            data: nil, width: width, height: height,
+            bitsPerComponent: 8, bytesPerRow: 0,
+            space: CGColorSpace(name: CGColorSpace.sRGB)!,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        )!
+        ctx.setFillColor(CGColor(srgbRed: red, green: green, blue: blue, alpha: 1))
+        ctx.fill(CGRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height)))
+        return ctx.makeImage()!
+    }
+
+    /// 60×60 base: left half (x < 30) black, right half white.
+    private func halfToneBase() -> CGImage {
+        let ctx = CGContext(
+            data: nil, width: 60, height: 60,
+            bitsPerComponent: 8, bytesPerRow: 0,
+            space: CGColorSpace(name: CGColorSpace.sRGB)!,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        )!
+        ctx.setFillColor(CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 1))
+        ctx.fill(CGRect(x: 0, y: 0, width: 60, height: 60))
+        ctx.setFillColor(CGColor(srgbRed: 0, green: 0, blue: 0, alpha: 1))
+        ctx.fill(CGRect(x: 0, y: 0, width: 30, height: 60))
+        return ctx.makeImage()!
+    }
+
+    @Test func loupeMagnifiesPixelsUnderIt() {
+        // Loupe center (36, 30) sits right of the black/white boundary at
+        // x = 30. At ×2, an output pixel samples base at 36 + (x − 36) / 2,
+        // so everything inside the circle is white — including (27, 30),
+        // which is black without the loupe.
+        var loupe = Annotation(kind: .loupe, start: CGPoint(x: 26, y: 20),
+                               end: CGPoint(x: 46, y: 40), color: .red, lineWidth: 2)
+        loupe.loupeScale = 2
+        let rep = AnnotationRenderer.renderBitmap(base: halfToneBase(),
+                                                  annotations: [loupe])!
+        let inside = rep.colorAt(x: 30, y: 30)?.brightnessComponent ?? 0
+        #expect(inside > 0.9)                            // magnified white
+        let outside = rep.colorAt(x: 10, y: 30)?.brightnessComponent ?? 1
+        #expect(outside < 0.1)                           // untouched black
+        let farRight = rep.colorAt(x: 55, y: 30)?.brightnessComponent ?? 0
+        #expect(farRight > 0.9)                          // untouched white
+    }
+
+    @Test func loupeStrokesRingInAnnotationColor() {
+        var loupe = Annotation(kind: .loupe, start: CGPoint(x: 20, y: 20),
+                               end: CGPoint(x: 40, y: 40), color: .red, lineWidth: 3)
+        loupe.loupeScale = 2
+        let rep = AnnotationRenderer.renderBitmap(
+            base: TestImages.make(width: 60, height: 60), annotations: [loupe])!
+        // Rightmost point of the ring.
+        let ring = rep.colorAt(x: 40, y: 30)
+        #expect((ring?.redComponent ?? 0) > 0.7)
+        #expect((ring?.greenComponent ?? 1) < 0.5)
+    }
+
+    @Test func loupeRespectsBlurRedactionUnlessOptedOut() {
+        // A fake solid-green "blur source" makes the assertion deterministic
+        // (no CoreImage filter math): wherever the blur pass shows, we see
+        // green; wherever the original shows, we see white.
+        let base = TestImages.make(width: 60, height: 60)       // all white
+        let greenSource = solidImage(width: 60, height: 60, red: 0, green: 1, blue: 0)
+        var blur = Annotation(kind: .blur, start: .zero,
+                              end: CGPoint(x: 60, y: 60), color: .red, lineWidth: 2)
+        blur.blurStyle = .pixelate
+        blur.blurLevel = 3
+        let sources = [BlurSource(style: .pixelate, level: 3): greenSource]
+
+        var loupe = Annotation(kind: .loupe, start: CGPoint(x: 20, y: 20),
+                               end: CGPoint(x: 40, y: 40), color: .red, lineWidth: 2)
+        loupe.loupeScale = 2
+
+        // Default: redaction is replayed inside the loupe → green.
+        let redacted = AnnotationRenderer.renderBitmap(
+            base: base, blurSources: sources, annotations: [blur, loupe])!
+        let redactedInside = redacted.colorAt(x: 30, y: 30)
+        #expect((redactedInside?.greenComponent ?? 0) > 0.7)
+        #expect((redactedInside?.redComponent ?? 1) < 0.3)
+
+        // Opt-in: the loupe reveals the raw base → white.
+        loupe.loupeRevealsOriginal = true
+        let revealed = AnnotationRenderer.renderBitmap(
+            base: base, blurSources: sources, annotations: [blur, loupe])!
+        let revealedInside = revealed.colorAt(x: 30, y: 30)
+        #expect((revealedInside?.brightnessComponent ?? 0) > 0.9)
+        // Outside the loupe the redaction still applies in both modes.
+        let outsideLoupe = revealed.colorAt(x: 50, y: 10)
+        #expect((outsideLoupe?.greenComponent ?? 0) > 0.7)
+    }
+
     @Test func stepFontIsProportionalAcrossDigitCounts() {
         let d: CGFloat = 40
         let one = AnnotationRenderer.stepFontSize(label: "1", diameter: d)

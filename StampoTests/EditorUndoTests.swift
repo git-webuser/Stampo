@@ -207,7 +207,7 @@ import Testing
             (15, .rect, "R"), (31, .oval, "O"), (17, .text, "T"),
             (35, .drawing, "P"),
             (14, .eraser, "E"),
-            (11, .blur, "B"), (1, .step, "S")
+            (11, .blur, "B"), (1, .step, "S"), (46, .loupe, "M")
         ]
 
         #expect(expected.count == EditorTool.pickerCases.count)

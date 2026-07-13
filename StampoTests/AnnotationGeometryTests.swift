@@ -344,6 +344,34 @@ import Testing
         #expect(abs((diagonal.x - 10) - (diagonal.y - 10)) < 0.001)
     }
 
+    // MARK: loupe
+
+    @Test func loupeHitsFullDisk() {
+        let a = make(.loupe, start: CGPoint(x: 20, y: 20), end: CGPoint(x: 60, y: 60))
+        #expect(a.hitTest(CGPoint(x: 40, y: 40), tolerance: 4))   // center
+        #expect(a.hitTest(CGPoint(x: 58, y: 40), tolerance: 4))   // near the ring
+        #expect(!a.hitTest(CGPoint(x: 62, y: 62), tolerance: 4))  // outside (corner)
+        #expect(!a.hitTest(CGPoint(x: 80, y: 40), tolerance: 4))  // far outside
+    }
+
+    @Test func loupeHasFourCornerHandles() {
+        let a = make(.loupe, start: CGPoint(x: 0, y: 0), end: CGPoint(x: 40, y: 40))
+        #expect(a.handles.count == 4)
+        #expect(a.handle(at: CGPoint(x: 40, y: 40), tolerance: 3) == .bottomRight)
+    }
+
+    @Test func loupeCornerResizeIsAlwaysSquare() {
+        var a = make(.loupe, start: CGPoint(x: 0, y: 0), end: CGPoint(x: 40, y: 40))
+        // Non-square target without aspectLocked still yields a square.
+        a.apply(handle: .bottomRight, to: CGPoint(x: 80, y: 50))
+        #expect(a.rect.width == a.rect.height)
+    }
+
+    @Test func loupeDegenerateUnderFourPixels() {
+        #expect(make(.loupe, start: .zero, end: CGPoint(x: 3, y: 3)).isDegenerate)
+        #expect(!make(.loupe, start: .zero, end: CGPoint(x: 20, y: 20)).isDegenerate)
+    }
+
     // MARK: degenerate
 
     @Test func degenerateDetection() {

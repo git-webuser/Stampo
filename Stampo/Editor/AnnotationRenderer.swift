@@ -121,6 +121,8 @@ enum AnnotationRenderer {
             case .text:  drawText(annotation, ctx: ctx)
             case .freehand: drawFreehand(annotation, ctx: ctx)
             case .step:  drawStep(annotation, ctx: ctx)
+            case .loupe: drawLoupe(annotation, base: base, blurSources: blurSources,
+                                   annotations: annotations, ctx: ctx)
             case .blur:  break  // handled in the first pass
             }
         }
@@ -299,6 +301,51 @@ enum AnnotationRenderer {
         } else {
             ctx.stroke(a.rect)
         }
+    }
+
+    /// Circular magnifier: the pixels under the loupe scaled up around its
+    /// center, then a ring stroke in the annotation color. By default the
+    /// magnified content respects blur redaction (the blur pass is replayed
+    /// inside the magnified frame); `loupeRevealsOriginal` opts into raw
+    /// base pixels instead.
+    private static func drawLoupe(_ a: Annotation, base: CGImage,
+                                  blurSources: [BlurSource: CGImage],
+                                  annotations: [Annotation], ctx: CGContext) {
+        let r = a.rect
+        guard r.width > 0, r.height > 0 else { return }
+        let center = CGPoint(x: r.midX, y: r.midY)
+        let scale = max(1, a.loupeScale)
+        let fullRect = CGRect(x: 0, y: 0,
+                              width: CGFloat(base.width), height: CGFloat(base.height))
+
+        ctx.saveGState()
+        ctx.addEllipse(in: r)
+        ctx.clip()
+        // Magnify about the loupe center. The clip stays fixed in device
+        // space, so the circle shows the pixels beneath it scaled up.
+        ctx.translateBy(x: center.x, y: center.y)
+        ctx.scaleBy(x: scale, y: scale)
+        ctx.translateBy(x: -center.x, y: -center.y)
+        drawImageInFlippedSpace(base, in: fullRect, ctx: ctx)
+        if !a.loupeRevealsOriginal {
+            // Replay the blur redaction pass inside the magnified frame.
+            // Blur rects are image-space, so under this CTM each clips at
+            // its magnified position — redacted stays redacted.
+            for blur in annotations where blur.kind == .blur {
+                let key = BlurSource(style: blur.blurStyle, level: blur.blurLevel)
+                guard let source = blurSources[key] else { continue }
+                ctx.saveGState()
+                ctx.clip(to: blur.rect)
+                drawImageInFlippedSpace(source, in: fullRect, ctx: ctx)
+                ctx.restoreGState()
+            }
+        }
+        ctx.restoreGState()
+
+        // Ring on top.
+        ctx.setStrokeColor(a.color.cgColor)
+        ctx.setLineWidth(a.lineWidth)
+        ctx.strokeEllipse(in: r)
     }
 
     /// Bold font sized so `label` fits inside a marker of `diameter`, capped

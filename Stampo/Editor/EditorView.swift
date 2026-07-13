@@ -164,6 +164,15 @@ struct EditorView: View {
                 colorSwatches
                 settingSlider("Marker Size", systemImage: "circle.circle",
                               value: stepSizeBinding, range: 24...72, step: 8)
+            case .loupe:
+                colorSwatches
+                thicknessSlider
+                settingSlider("Magnification", systemImage: "plus.magnifyingglass",
+                              value: loupeScaleBinding, range: 1.5...4, step: 0.5,
+                              ticks: false, format: { String(format: "×%.1f", $0) })
+                if documentHasBlur {
+                    loupeSourcePicker
+                }
             case .line:
                 colorSwatches
                 lineStylePicker
@@ -196,6 +205,7 @@ struct EditorView: View {
         case .drawing:return .freehand
         case .blur:   return .blur
         case .step:   return .step
+        case .loupe:  return .loupe
         }
     }
 
@@ -241,6 +251,28 @@ struct EditorView: View {
         .fixedSize()
         .accessibilityLabel("Blur")
         .hoverTip("Blur Style")
+    }
+
+    /// Whether the loupe magnifies the redacted image (default) or the raw
+    /// original. Only offered while the document actually has a blur — without
+    /// one, the two modes render identically.
+    private var loupeSourcePicker: some View {
+        IconSegmentedPicker(
+            segments: [
+                .init("Redacted", systemImage: "eye.slash",
+                      value: false),
+                .init("Original", systemImage: "eye",
+                      value: true)
+            ],
+            selection: loupeRevealsOriginalBinding
+        )
+        .fixedSize()
+        .accessibilityLabel("Loupe Source")
+        .hoverTip("Loupe Source")
+    }
+
+    private var documentHasBlur: Bool {
+        document.annotations.contains { $0.kind == .blur }
     }
 
     private var drawingModePicker: some View {
@@ -563,6 +595,39 @@ struct EditorView: View {
             set: { newValue in
                 style.stepDiameter = newValue
                 document.updateSelected { if $0.kind == .step { $0.stepDiameter = newValue } }
+            }
+        )
+    }
+
+    private var loupeScaleBinding: Binding<CGFloat> {
+        Binding(
+            get: {
+                if let selected = document.selectedAnnotation, selected.kind == .loupe {
+                    return selected.loupeScale
+                }
+                return style.loupeScale
+            },
+            set: { rawValue in
+                let newValue = (rawValue * 2).rounded() / 2   // 0.5× detents
+                style.loupeScale = newValue
+                document.updateSelected { if $0.kind == .loupe { $0.loupeScale = newValue } }
+            }
+        )
+    }
+
+    private var loupeRevealsOriginalBinding: Binding<Bool> {
+        Binding(
+            get: {
+                if let selected = document.selectedAnnotation, selected.kind == .loupe {
+                    return selected.loupeRevealsOriginal
+                }
+                return style.loupeRevealsOriginal
+            },
+            set: { newValue in
+                style.loupeRevealsOriginal = newValue
+                applyToSelection {
+                    if $0.kind == .loupe { $0.loupeRevealsOriginal = newValue }
+                }
             }
         )
     }

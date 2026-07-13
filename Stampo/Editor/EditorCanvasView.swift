@@ -3,13 +3,13 @@ import SwiftUI
 
 /// Active tool in the editor toolbar.
 enum EditorTool: Equatable, CaseIterable {
-    case select, line, arrow, rect, oval, text, drawing, eraser, blur, step, ocr, crop
+    case select, line, arrow, rect, oval, text, drawing, eraser, blur, step, loupe, ocr, crop
 
     /// Drawing tools shown in the toolbar picker. `.ocr` and `.crop` are
     /// transient marquee modes driven by their own buttons in the actions
     /// group, not persistent drawing tools, so they're excluded here.
     static let pickerCases: [EditorTool] = [
-        .select, .line, .arrow, .rect, .oval, .text, .drawing, .eraser, .blur, .step
+        .select, .line, .arrow, .rect, .oval, .text, .drawing, .eraser, .blur, .step, .loupe
     ]
 
     /// Layout-independent physical-key shortcuts used while the editor window
@@ -26,6 +26,7 @@ enum EditorTool: Equatable, CaseIterable {
         case .eraser: return (14, "E")
         case .blur:   return (11, "B")
         case .step:   return (1, "S")
+        case .loupe:  return (46, "M")
         case .ocr, .crop: return nil
         }
     }
@@ -46,6 +47,7 @@ enum EditorTool: Equatable, CaseIterable {
         case .eraser: return "eraser"
         case .blur:   return "drop"
         case .step:   return "1.circle"
+        case .loupe:  return "magnifyingglass"
         case .ocr:    return "text.viewfinder"
         case .crop:   return "crop"
         }
@@ -63,6 +65,7 @@ enum EditorTool: Equatable, CaseIterable {
         case .eraser: return "Eraser"
         case .blur:   return "Blur"
         case .step:   return "Step"
+        case .loupe:  return "Loupe"
         case .ocr:    return "Recognize Text"
         case .crop:   return "Crop"
         }
@@ -119,6 +122,10 @@ struct ToolStyle {
     var textBackground: TextBackground = .none
     /// Diameter of new step markers in image pixels.
     var stepDiameter: CGFloat = 40
+    /// Magnification factor of new loupes.
+    var loupeScale: CGFloat = 2
+    /// Whether new loupes reveal the original (unredacted) pixels.
+    var loupeRevealsOriginal = false
     var drawingMode: DrawingMode = .pen
     var penWidth: CGFloat = 6
     var markerWidth: CGFloat = 24
@@ -487,7 +494,7 @@ struct EditorCanvasView: View {
                                   size: CGSize(width: r.width * fitScale, height: r.height * fitScale))
                 .insetBy(dx: -3, dy: -3)
             var path = Path()
-            if a.kind == .step {
+            if a.kind == .step || a.kind == .loupe {
                 path.addEllipse(in: viewRect)
             } else {
                 path.addRect(viewRect)
@@ -619,6 +626,8 @@ struct EditorCanvasView: View {
                     annotation.arrowHeadPlacement = style.arrowHeadPlacement
                     annotation.lineStyle = style.lineStyle
                     annotation.fillOpacity = style.fillOpacity
+                    annotation.loupeScale = style.loupeScale
+                    annotation.loupeRevealsOriginal = style.loupeRevealsOriginal
                     annotation.end = constrainedEndpoint(p, from: startPixel, kind: kind)
                     document.annotations.append(annotation)
                     document.selectedID = annotation.id
@@ -817,7 +826,7 @@ struct EditorCanvasView: View {
             document.beginChange()
             document.eraseFreehand(from: p, to: p, diameter: style.eraserDiameter)
             return .erasing(last: p)
-        case .line, .arrow, .rect, .oval, .blur, .step:
+        case .line, .arrow, .rect, .oval, .blur, .step, .loupe:
             // Dragging the selected annotation's body moves it even with a
             // shape tool active; empty space starts a new shape on drag.
             if let selected = document.selectedAnnotation,
@@ -880,6 +889,7 @@ struct EditorCanvasView: View {
         case .rect:  return .rect
         case .oval:  return .oval
         case .blur:  return .blur
+        case .loupe: return .loupe
         case .select, .text, .drawing, .eraser, .step, .ocr, .crop: return nil
         }
     }
@@ -905,13 +915,15 @@ struct EditorCanvasView: View {
 
     private func constrainedEndpoint(_ point: CGPoint, from start: CGPoint,
                                      kind: AnnotationKind) -> CGPoint {
+        // A loupe is always circular — no shift required.
+        if kind == .loupe { return Annotation.aspectLockedEnd(from: start, to: point) }
         guard isShiftHeld else { return point }
         switch kind {
         case .line, .arrow:
             return Annotation.snappedArrowEnd(from: start, to: point)
         case .rect, .oval:
             return Annotation.aspectLockedEnd(from: start, to: point)
-        case .text, .freehand, .blur, .step:
+        case .text, .freehand, .blur, .step, .loupe:
             return point
         }
     }
