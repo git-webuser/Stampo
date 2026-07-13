@@ -501,6 +501,50 @@ import Testing
         #expect(doc.nextStepLabel == "3")
     }
 
+    // MARK: Curved arrows
+
+    @Test func bendGestureUndoRestoresStraightArrow() {
+        let doc = makeDocument()
+        var arrow = annotation()
+        arrow.kind = .arrow
+        doc.annotations = [arrow]
+
+        doc.beginChange()                          // control-handle drag begins
+        doc.annotations[0].curveControl = CGPoint(x: 10, y: 30)
+        doc.commitChange()
+        #expect(doc.annotations[0].curveControl == CGPoint(x: 10, y: 30))
+
+        doc.undo()
+        #expect(doc.annotations[0].curveControl == nil)
+    }
+
+    @Test func rotateRemapsCurveControl() {
+        let doc = EditorDocument(baseImage: TestImages.make(width: 8, height: 4),
+                                 sourceURL: URL(fileURLWithPath: "/tmp/test.png"))
+        var arrow = Annotation(kind: .arrow, start: CGPoint(x: 1, y: 1),
+                               end: CGPoint(x: 7, y: 3), color: .red, lineWidth: 2)
+        arrow.curveControl = CGPoint(x: 4, y: 2)
+        doc.annotations = [arrow]
+
+        doc.rotate(clockwise: true)                // (x,y) → (H−y, x), H = 4
+        #expect(doc.annotations[0].curveControl == CGPoint(x: 2, y: 4))
+
+        doc.undo()
+        #expect(doc.annotations[0].curveControl == CGPoint(x: 4, y: 2))
+    }
+
+    @Test func cropOffsetsCurveControl() {
+        let doc = EditorDocument(baseImage: TestImages.make(width: 20, height: 20),
+                                 sourceURL: URL(fileURLWithPath: "/tmp/test.png"))
+        var arrow = Annotation(kind: .arrow, start: CGPoint(x: 8, y: 8),
+                               end: CGPoint(x: 16, y: 16), color: .red, lineWidth: 2)
+        arrow.curveControl = CGPoint(x: 12, y: 8)
+        doc.annotations = [arrow]
+
+        doc.crop(to: CGRect(x: 4, y: 4, width: 12, height: 12))
+        #expect(doc.annotations[0].curveControl == CGPoint(x: 8, y: 4))
+    }
+
     // MARK: Z-order
 
     @Test func bringForwardSwapsAdjacentAndUndoRestores() {

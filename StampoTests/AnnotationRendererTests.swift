@@ -64,6 +64,18 @@ enum TestImages {
         #expect(markerBrightness < 0.9)
     }
 
+    @Test func curvedArrowPaintsCurveNotChord() {
+        let base = TestImages.make(width: 100, height: 60)  // all white
+        var arrow = Annotation(kind: .arrow, start: CGPoint(x: 4, y: 4),
+                               end: CGPoint(x: 96, y: 4), color: .black, lineWidth: 4)
+        arrow.curveControl = CGPoint(x: 50, y: 52)          // apex at y = 28
+        let rep = AnnotationRenderer.renderBitmap(base: base, annotations: [arrow])!
+        let apex = rep.colorAt(x: 50, y: 28)?.brightnessComponent ?? 1
+        let chordMid = rep.colorAt(x: 50, y: 4)?.brightnessComponent ?? 1
+        #expect(apex < 0.5)          // ink on the curve
+        #expect(chordMid > 0.9)      // straight chord midpoint stays white
+    }
+
     @Test(arguments: ArrowStyle.allCases)
     func everyArrowStyleDrawsPixels(arrowStyle: ArrowStyle) {
         let base = TestImages.make(width: 60, height: 20)  // all white

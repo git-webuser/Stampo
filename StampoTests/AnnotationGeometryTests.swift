@@ -146,13 +146,15 @@ import Testing
 
     // MARK: handles
 
-    @Test func arrowHasEndpointHandles() {
+    @Test func arrowHasEndpointAndCurveControlHandles() {
         let a = make(.arrow, start: CGPoint(x: 5, y: 6), end: CGPoint(x: 50, y: 60))
         let kinds = a.handles.map(\.0)
-        #expect(kinds == [.start, .end])
+        #expect(kinds == [.start, .end, .control])
         #expect(a.handle(at: CGPoint(x: 6, y: 7), tolerance: 5) == .start)
         #expect(a.handle(at: CGPoint(x: 49, y: 59), tolerance: 5) == .end)
-        #expect(a.handle(at: CGPoint(x: 25, y: 30), tolerance: 5) == nil)
+        // The bend control of a straight arrow sits at the midpoint.
+        #expect(a.handle(at: CGPoint(x: 27, y: 33), tolerance: 5) == .control)
+        #expect(a.handle(at: CGPoint(x: 15, y: 45), tolerance: 5) == nil)
     }
 
     @Test func rectHasFourCornerHandles() {
@@ -255,6 +257,83 @@ import Testing
         let (thick, _) = Annotation.arrowheadBarbs(from: from, tip: tip, lineWidth: 10)
         // Thicker stroke -> longer head -> barb sits further from the tip.
         #expect((100 - thick.x) > (100 - thin.x))
+    }
+
+    // MARK: curved arrow
+
+    /// Curve fixture: start (0,0), end (100,0), control (50,50) — the
+    /// quadratic's apex is at (50,25).
+    private func curvedArrow() -> Annotation {
+        var a = make(.arrow, start: .zero, end: CGPoint(x: 100, y: 0))
+        a.curveControl = CGPoint(x: 50, y: 50)
+        return a
+    }
+
+    @Test func curvedArrowHitsCurveNotChord() {
+        let a = curvedArrow()
+        #expect(a.hitTest(CGPoint(x: 50, y: 22), tolerance: 4))   // near apex
+        #expect(!a.hitTest(CGPoint(x: 50, y: 2), tolerance: 4))   // on the chord
+    }
+
+    @Test func curvedArrowRectIncludesBulge() {
+        let a = curvedArrow()
+        #expect(a.rect.maxY >= 20)
+        #expect(a.rect.minX <= 0 && a.rect.maxX >= 100)
+    }
+
+    @Test func arrowHandlesIncludeControlAtMidpointWhenStraight() {
+        let straight = make(.arrow, start: .zero, end: CGPoint(x: 100, y: 0))
+        #expect(straight.handles.map(\.0) == [.start, .end, .control])
+        #expect(straight.handles.last?.1 == CGPoint(x: 50, y: 0))
+
+        let curved = curvedArrow()
+        #expect(curved.handles.last?.1 == CGPoint(x: 50, y: 50))
+    }
+
+    @Test func applyControlHandleBendsArrowOnly() {
+        var arrow = make(.arrow, start: .zero, end: CGPoint(x: 100, y: 0))
+        arrow.apply(handle: .control, to: CGPoint(x: 50, y: 40))
+        #expect(arrow.curveControl == CGPoint(x: 50, y: 40))
+
+        var line = make(.line, start: .zero, end: CGPoint(x: 100, y: 0))
+        line.apply(handle: .control, to: CGPoint(x: 50, y: 40))
+        #expect(line.curveControl == nil)
+    }
+
+    @Test func moveOffsetsCurveControl() {
+        var a = curvedArrow()
+        a.move(by: CGPoint(x: 10, y: -5))
+        #expect(a.curveControl == CGPoint(x: 60, y: 45))
+    }
+
+    @Test func duplicatedRetainsCurveControl() {
+        let copy = curvedArrow().duplicated(offset: CGPoint(x: 10, y: 10))
+        #expect(copy.curveControl == CGPoint(x: 60, y: 60))
+    }
+
+    @Test func arrowheadAnchorUsesControlUnlessDegenerate() {
+        let a = curvedArrow()
+        #expect(a.arrowheadAnchor(towardTip: a.end, opposite: a.start)
+                == CGPoint(x: 50, y: 50))
+
+        var degenerate = a
+        degenerate.curveControl = CGPoint(x: 100, y: 0.5) // on top of the tip
+        #expect(degenerate.arrowheadAnchor(towardTip: degenerate.end,
+                                           opposite: degenerate.start) == degenerate.start)
+
+        let straight = make(.arrow, start: .zero, end: CGPoint(x: 100, y: 0))
+        #expect(straight.arrowheadAnchor(towardTip: straight.end,
+                                         opposite: straight.start) == straight.start)
+    }
+
+    @Test func quadraticPointsSpanEndpoints() {
+        let points = Annotation.quadraticPoints(from: .zero,
+                                                control: CGPoint(x: 50, y: 50),
+                                                to: CGPoint(x: 100, y: 0))
+        #expect(points.first == .zero)
+        #expect(points.last == CGPoint(x: 100, y: 0))
+        // Apex sample: t = 0.5 → (50, 25).
+        #expect(points.contains { abs($0.x - 50) < 0.001 && abs($0.y - 25) < 0.001 })
     }
 
     @Test func arrowEndpointSnapsToNearest45DegreeRay() {

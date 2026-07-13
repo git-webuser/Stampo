@@ -216,6 +216,8 @@ struct Annotation: Identifiable, Equatable {
     var arrowStyle: ArrowStyle = .filled
     /// Endpoint(s) that receive a filled arrowhead.
     var arrowHeadPlacement: ArrowHeadPlacement = .end
+    /// Quadratic Bézier control point for a curved `.arrow`; nil is straight.
+    var curveControl: CGPoint? = nil
     /// Visual variant for `.line`.
     var lineStyle: LineStyle = .solid
     /// Label rendered inside a `.step` marker. Auto-assigned as "1", "2", …
@@ -238,6 +240,30 @@ struct Annotation: Identifiable, Equatable {
         self.lineWidth = lineWidth
     }
 
+    /// Flattened polyline of a quadratic Bézier — the shared approximation
+    /// used by hit-testing and bounds so both agree with what's rendered.
+    static func quadraticPoints(from: CGPoint, control: CGPoint, to: CGPoint,
+                                segments: Int = 16) -> [CGPoint] {
+        (0...segments).map { step in
+            let t = CGFloat(step) / CGFloat(segments)
+            let m = 1 - t
+            let a = m * m, b = 2 * m * t, c = t * t
+            let x = a * from.x + b * control.x + c * to.x
+            let y = a * from.y + b * control.y + c * to.y
+            return CGPoint(x: x, y: y)
+        }
+    }
+
+    /// Anchor the arrowhead's tangent points along. A quadratic Bézier's
+    /// tangent at an endpoint runs along control→endpoint, so a curved head
+    /// anchors on the control; degenerate controls (on top of the tip) fall
+    /// back to the opposite endpoint so the head keeps a direction.
+    func arrowheadAnchor(towardTip tip: CGPoint, opposite: CGPoint) -> CGPoint {
+        guard let control = curveControl,
+              hypot(control.x - tip.x, control.y - tip.y) >= 1 else { return opposite }
+        return control
+    }
+
     /// Normalized bounding rect (positive width/height) regardless of the
     /// direction the user dragged.
     var rect: CGRect {
@@ -245,6 +271,13 @@ struct Annotation: Identifiable, Equatable {
             return CGRect(x: start.x - stepDiameter / 2,
                           y: start.y - stepDiameter / 2,
                           width: stepDiameter, height: stepDiameter)
+        }
+        if kind == .arrow, let control = curveControl {
+            let points = Self.quadraticPoints(from: start, control: control, to: end)
+            let xs = points.map(\.x), ys = points.map(\.y)
+            return CGRect(x: xs.min() ?? start.x, y: ys.min() ?? start.y,
+                          width: (xs.max() ?? end.x) - (xs.min() ?? start.x),
+                          height: (ys.max() ?? end.y) - (ys.min() ?? start.y))
         }
         if kind == .freehand, let first = freehandPoints.first {
             var minX = first.x, maxX = first.x
@@ -285,7 +318,14 @@ struct Annotation: Identifiable, Equatable {
     func hitTest(_ p: CGPoint, tolerance: CGFloat) -> Bool {
         switch kind {
         case .line, .arrow:
-            return Self.distance(from: p, toSegment: start, end) <= tolerance + lineWidth / 2
+            let distance = tolerance + lineWidth / 2
+            if kind == .arrow, let control = curveControl {
+                let points = Self.quadraticPoints(from: start, control: control, to: end)
+                return zip(points, points.dropFirst()).contains { a, b in
+                    Self.distance(from: p, toSegment: a, b) <= distance
+                }
+            }
+            return Self.distance(from: p, toSegment: start, end) <= distance
         case .rect:
             // On the stroked border (inflate/deflate by tolerance).
             let outer = rect.insetBy(dx: -tolerance - lineWidth / 2, dy: -tolerance - lineWidth / 2)
@@ -333,13 +373,20 @@ struct Annotation: Identifiable, Equatable {
 
     enum Handle: CaseIterable, Equatable {
         case start, end                                  // line/arrow endpoints
+        case control                                     // arrow curve control
         case topLeft, topRight, bottomLeft, bottomRight  // shape corners
     }
 
     /// Draggable handles for the current kind, with their positions.
     var handles: [(Handle, CGPoint)] {
         switch kind {
-        case .line, .arrow:
+        case .arrow:
+            // Control last so endpoint grabs win on tiny arrows. A straight
+            // arrow offers it at the midpoint — dragging it bends the shaft.
+            let control = curveControl
+                ?? CGPoint(x: (start.x + end.x) / 2, y: (start.y + end.y) / 2)
+            return [(.start, start), (.end, end), (.control, control)]
+        case .line:
             return [(.start, start), (.end, end)]
         case .rect, .oval, .blur:
             let r = rect
@@ -359,6 +406,9 @@ struct Annotation: Identifiable, Equatable {
     mutating func move(by delta: CGPoint) {
         start.x += delta.x; start.y += delta.y
         end.x += delta.x; end.y += delta.y
+        if let control = curveControl {
+            curveControl = CGPoint(x: control.x + delta.x, y: control.y + delta.y)
+        }
         if kind == .freehand {
             freehandPoints = freehandPoints.map {
                 CGPoint(x: $0.x + delta.x, y: $0.y + delta.y)
@@ -448,6 +498,8 @@ struct Annotation: Identifiable, Equatable {
         switch handle {
         case .start: start = p
         case .end:   end = p
+        case .control:
+            if kind == .arrow { curveControl = p }
         case .topLeft, .topRight, .bottomLeft, .bottomRight:
             let r = rect
             let anchor: CGPoint
@@ -640,6 +692,9 @@ struct DocumentSnapshot: Equatable {
             var a = a
             a.start = rotatePoint(a.start, in: size, clockwise: clockwise)
             a.end = rotatePoint(a.end, in: size, clockwise: clockwise)
+            if let control = a.curveControl {
+                a.curveControl = rotatePoint(control, in: size, clockwise: clockwise)
+            }
             if a.kind == .freehand {
                 a.freehandPoints = a.freehandPoints.map {
                     rotatePoint($0, in: size, clockwise: clockwise)

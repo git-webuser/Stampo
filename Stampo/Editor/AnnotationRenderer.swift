@@ -199,6 +199,35 @@ enum AnnotationRenderer {
         // annotation's own line width.
         let shaftWidth = a.arrowStyle == .bold ? a.lineWidth * 1.8 : a.lineWidth
         let headWidth = a.arrowStyle == .bold ? a.lineWidth * 1.8 : a.lineWidth
+
+        // Curved shaft: stroke the full Bézier, then paint the heads over its
+        // ends — the filled triangle covers the round cap, so no inset math.
+        if let control = a.curveControl {
+            ctx.setStrokeColor(a.color.cgColor)
+            ctx.setFillColor(a.color.cgColor)
+            ctx.setLineWidth(shaftWidth)
+            ctx.setLineCap(.round)
+            ctx.setLineJoin(.round)
+            if a.arrowStyle == .dashed {
+                let dash = max(6, shaftWidth * 2.4)
+                ctx.setLineDash(phase: 0, lengths: [dash, dash * 0.8])
+            }
+            ctx.move(to: a.start)
+            ctx.addQuadCurve(to: a.end, control: control)
+            ctx.strokePath()
+            ctx.setLineDash(phase: 0, lengths: [])
+
+            if a.arrowHeadPlacement.includesStart {
+                drawArrowhead(from: a.arrowheadAnchor(towardTip: a.start, opposite: a.end),
+                              tip: a.start, lineWidth: headWidth, ctx: ctx)
+            }
+            if a.arrowHeadPlacement.includesEnd {
+                drawArrowhead(from: a.arrowheadAnchor(towardTip: a.end, opposite: a.start),
+                              tip: a.end, lineWidth: headWidth, ctx: ctx)
+            }
+            return
+        }
+
         let angle = atan2(a.end.y - a.start.y, a.end.x - a.start.x)
         let headLength = max(12, headWidth * 4)
         let overlap = headLength * 0.6

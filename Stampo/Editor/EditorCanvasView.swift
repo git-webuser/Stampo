@@ -636,6 +636,18 @@ struct EditorCanvasView: View {
 
                 case .resizing(let id, let handle):
                     update(id) { annotation in
+                        // Curve control: dragging near the straight start–end
+                        // segment snaps the arrow back to straight, so bending
+                        // is fully reversible without any extra UI.
+                        if handle == .control, annotation.kind == .arrow {
+                            let snapDistance = 4 / fitScale
+                            let straightDistance = Annotation.distance(
+                                from: p, toSegment: annotation.start, annotation.end
+                            )
+                            annotation.curveControl =
+                                straightDistance <= snapDistance ? nil : p
+                            return
+                        }
                         if isShiftHeld,
                            annotation.kind == .line || annotation.kind == .arrow {
                             switch handle {
