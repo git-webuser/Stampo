@@ -206,6 +206,7 @@ import Testing
             (9, .select, "V"), (37, .line, "L"), (0, .arrow, "A"),
             (15, .rect, "R"), (31, .oval, "O"), (17, .text, "T"),
             (35, .drawing, "P"),
+            (14, .eraser, "E"),
             (11, .blur, "B"), (1, .step, "S")
         ]
 

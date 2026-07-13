@@ -121,6 +121,10 @@ struct EditorView: View {
                     .foregroundStyle(.secondary)
             } else if tool == .crop {
                 cropSizeControls
+            } else if tool == .eraser, document.selectedAnnotation == nil {
+                settingSlider("Eraser Size", systemImage: "eraser",
+                              value: eraserDiameterBinding,
+                              range: 8...80, step: 4)
             } else {
                 contextControls
             }
@@ -149,19 +153,13 @@ struct EditorView: View {
                 textControls
             case .freehand:
                 drawingModePicker
-                if effectiveDrawingMode == .eraser {
-                    settingSlider("Eraser Size", systemImage: "eraser",
-                                  value: eraserDiameterBinding,
-                                  range: 8...80, step: 4)
-                } else {
-                    colorSwatches
-                    let range: ClosedRange<CGFloat> = effectiveDrawingMode == .marker
-                        ? 8...64 : 2...32
-                    settingSlider("Brush Size", systemImage: "lineweight",
-                                  value: drawingWidthBinding,
-                                  range: range,
-                                  step: effectiveDrawingMode == .marker ? 4 : 2)
-                }
+                colorSwatches
+                let range: ClosedRange<CGFloat> = effectiveDrawingMode == .marker
+                    ? 8...64 : 2...32
+                settingSlider("Brush Size", systemImage: "lineweight",
+                              value: drawingWidthBinding,
+                              range: range,
+                              step: effectiveDrawingMode == .marker ? 4 : 2)
             case .step:
                 colorSwatches
                 settingSlider("Marker Size", systemImage: "circle.circle",
@@ -189,7 +187,7 @@ struct EditorView: View {
     private var contextKind: AnnotationKind? {
         if let selected = document.selectedAnnotation { return selected.kind }
         switch tool {
-        case .select, .ocr, .crop: return nil
+        case .select, .eraser, .ocr, .crop: return nil
         case .line:   return .line
         case .arrow:  return .arrow
         case .rect:   return .rect
@@ -245,11 +243,10 @@ struct EditorView: View {
         Picker("Drawing Instrument", selection: drawingModeBinding) {
             Text("Pen").tag(DrawingMode.pen)
             Text("Marker").tag(DrawingMode.marker)
-            Text("Eraser").tag(DrawingMode.eraser)
         }
         .pickerStyle(.segmented)
         .labelsHidden()
-        .frame(width: 190)
+        .frame(width: 130)
         .hoverTip("Drawing Instrument")
     }
 
@@ -401,9 +398,9 @@ struct EditorView: View {
                 style.drawingMode = newValue
                 tool = .drawing
                 cropRect = nil
-                // Pen, Marker and Eraser choose the next drawing gesture.
-                // Switching instruments must not mutate a previously selected
-                // stroke or register an unexpected undo operation.
+                // Pen and Marker choose the next drawing gesture. Switching
+                // instruments must not mutate a previously selected stroke or
+                // register an unexpected undo operation.
                 document.selectedID = nil
             }
         )
@@ -421,7 +418,6 @@ struct EditorView: View {
                 switch effectiveDrawingMode {
                 case .pen:    style.penWidth = newValue
                 case .marker: style.markerWidth = newValue
-                case .eraser: style.eraserDiameter = newValue
                 }
                 document.updateSelected {
                     if $0.kind == .freehand { $0.lineWidth = newValue }

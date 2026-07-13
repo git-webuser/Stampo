@@ -50,18 +50,16 @@ enum FreehandStyle: String, Equatable, CaseIterable {
     }
 }
 
-/// Active mode of the shared Drawing tool. Eraser is an operation over stored
-/// freehand strokes, not a drawable annotation style of its own.
+/// Active instrument of the shared Drawing tool. Destructive erasing is a
+/// separate top-level editor tool rather than a drawable annotation style.
 enum DrawingMode: String, Equatable, CaseIterable {
     case pen
     case marker
-    case eraser
 
-    var freehandStyle: FreehandStyle? {
+    var freehandStyle: FreehandStyle {
         switch self {
         case .pen:    return .pen
         case .marker: return .marker
-        case .eraser: return nil
         }
     }
 
