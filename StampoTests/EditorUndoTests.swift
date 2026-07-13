@@ -216,6 +216,27 @@ import Testing
         #expect(EditorTool.crop.shortcut == nil)
     }
 
+    @Test func zoomScalesAndClampsPanInTheSameUpdate() {
+        let baseDrawSize = CGSize(width: 500, height: 300)
+        let viewport = CGSize(width: 600, height: 400)
+
+        let scaled = EditorViewportGeometry.scaledPanOffset(
+            CGSize(width: 160, height: -80), from: 2, to: 1.5
+        )
+        #expect(scaled == CGSize(width: 120, height: -60))
+
+        let clamped = EditorViewportGeometry.clampedPanOffset(
+            scaled, baseDrawSize: baseDrawSize, zoom: 1.5, viewport: viewport
+        )
+        #expect(clamped == CGSize(width: 75, height: -25))
+
+        let fitted = EditorViewportGeometry.clampedPanOffset(
+            CGSize(width: 75, height: -25),
+            baseDrawSize: baseDrawSize, zoom: 1, viewport: viewport
+        )
+        #expect(fitted == .zero)
+    }
+
     @Test func textStyleShortcutsUseExpectedExactModifiers() {
         let expected: [(TextStyleFlag, UInt16, NSEvent.ModifierFlags, String)] = [
             (.bold, 11, .command, "⌘B"),

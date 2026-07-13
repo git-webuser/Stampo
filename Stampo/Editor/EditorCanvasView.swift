@@ -61,6 +61,26 @@ enum EditorTool: Equatable, CaseIterable {
     }
 }
 
+/// Pure viewport math shared by drag, pinch, toolbar zoom, and tests. Keeping
+/// pan normalization in the same update as zoom prevents a stale oversized
+/// offset from snapping back a frame later.
+enum EditorViewportGeometry {
+    static func scaledPanOffset(_ offset: CGSize, from oldZoom: CGFloat,
+                                to newZoom: CGFloat) -> CGSize {
+        guard oldZoom > 0 else { return .zero }
+        let ratio = newZoom / oldZoom
+        return CGSize(width: offset.width * ratio, height: offset.height * ratio)
+    }
+
+    static func clampedPanOffset(_ offset: CGSize, baseDrawSize: CGSize,
+                                 zoom: CGFloat, viewport: CGSize) -> CGSize {
+        let maxX = max(0, (baseDrawSize.width * zoom - viewport.width) / 2)
+        let maxY = max(0, (baseDrawSize.height * zoom - viewport.height) / 2)
+        return CGSize(width: min(maxX, max(-maxX, offset.width)),
+                      height: min(maxY, max(-maxY, offset.height)))
+    }
+}
+
 /// The eight draggable handles of the crop rectangle (corners resize two
 /// edges, side handles resize one).
 enum CropHandle: CaseIterable {
@@ -138,6 +158,7 @@ struct EditorCanvasView: View {
 
     @FocusState private var textFieldFocused: Bool
     @State private var magnificationStart: CGFloat?
+    @State private var magnificationStartPan: CGSize?
     @State private var isSpaceHeld = false
     @State private var keyMonitor: Any?
     /// Last committed click, for timing-based double-click detection (the
@@ -175,8 +196,10 @@ struct EditorCanvasView: View {
             let baseFitScale = min(min(availWidth / pixel.width,
                                        availHeight / pixel.height), 1.0)
             let fitScale = baseFitScale * zoomFactor
-            let drawSize = CGSize(width: pixel.width * fitScale,
-                                  height: pixel.height * fitScale)
+            let baseDrawSize = CGSize(width: pixel.width * baseFitScale,
+                                      height: pixel.height * baseFitScale)
+            let drawSize = CGSize(width: baseDrawSize.width * zoomFactor,
+                                  height: baseDrawSize.height * zoomFactor)
             let offset = CGPoint(x: (geo.size.width - drawSize.width) / 2 + panOffset.width,
                                  y: (geo.size.height - drawSize.height) / 2 + panOffset.height)
 
@@ -193,8 +216,33 @@ struct EditorCanvasView: View {
                 }
             }
             .gesture(dragGesture(fitScale: fitScale, offset: offset, pixel: pixel,
-                                 viewport: geo.size, drawSize: drawSize))
-            .simultaneousGesture(magnificationGesture())
+                                 viewport: geo.size, baseDrawSize: baseDrawSize))
+            .simultaneousGesture(magnificationGesture(baseDrawSize: baseDrawSize,
+                                                       viewport: geo.size))
+            .onChange(of: zoomFactor) { oldZoom, newZoom in
+                // Pinch owns its synchronous pan update below. This path
+                // normalizes toolbar and keyboard zoom changes.
+                guard magnificationStart == nil else { return }
+                let scaled = EditorViewportGeometry.scaledPanOffset(
+                    panOffset, from: oldZoom, to: newZoom
+                )
+                panOffset = EditorViewportGeometry.clampedPanOffset(
+                    scaled, baseDrawSize: baseDrawSize,
+                    zoom: newZoom, viewport: geo.size
+                )
+            }
+            .onChange(of: geo.size) { _, newViewport in
+                panOffset = EditorViewportGeometry.clampedPanOffset(
+                    panOffset, baseDrawSize: baseDrawSize,
+                    zoom: zoomFactor, viewport: newViewport
+                )
+            }
+            .onChange(of: pixel) { _, _ in
+                panOffset = EditorViewportGeometry.clampedPanOffset(
+                    panOffset, baseDrawSize: baseDrawSize,
+                    zoom: zoomFactor, viewport: geo.size
+                )
+            }
             .clipped()
         }
         .onAppear { installKeyMonitor() }
@@ -426,7 +474,7 @@ struct EditorCanvasView: View {
     // MARK: Gesture
 
     private func dragGesture(fitScale: CGFloat, offset: CGPoint, pixel: CGSize,
-                             viewport: CGSize, drawSize: CGSize) -> some Gesture {
+                             viewport: CGSize, baseDrawSize: CGSize) -> some Gesture {
         DragGesture(minimumDistance: 0)
             .onChanged { value in
                 let p = pixelPoint(value.location, fitScale: fitScale, offset: offset, pixel: pixel)
@@ -549,10 +597,14 @@ struct EditorCanvasView: View {
                 case .panning(let last):
                     // Clamp so the image can't be dragged past its overflow
                     // (and stays centered when it fits — no free-floating).
-                    let maxX = max(0, (drawSize.width - viewport.width) / 2)
-                    let maxY = max(0, (drawSize.height - viewport.height) / 2)
-                    panOffset.width = min(maxX, max(-maxX, panOffset.width + value.location.x - last.x))
-                    panOffset.height = min(maxY, max(-maxY, panOffset.height + value.location.y - last.y))
+                    let proposed = CGSize(
+                        width: panOffset.width + value.location.x - last.x,
+                        height: panOffset.height + value.location.y - last.y
+                    )
+                    panOffset = EditorViewportGeometry.clampedPanOffset(
+                        proposed, baseDrawSize: baseDrawSize,
+                        zoom: zoomFactor, viewport: viewport
+                    )
                     dragMode = .panning(last: value.location)
 
                 case .ignore, nil:
@@ -734,13 +786,30 @@ struct EditorCanvasView: View {
         }
     }
 
-    private func magnificationGesture() -> some Gesture {
+    private func magnificationGesture(baseDrawSize: CGSize,
+                                      viewport: CGSize) -> some Gesture {
         MagnificationGesture()
             .onChanged { magnification in
-                if magnificationStart == nil { magnificationStart = zoomFactor }
-                zoomFactor = clampedZoom((magnificationStart ?? zoomFactor) * magnification)
+                if magnificationStart == nil {
+                    magnificationStart = zoomFactor
+                    magnificationStartPan = panOffset
+                }
+                let startZoom = magnificationStart ?? zoomFactor
+                let newZoom = clampedZoom(startZoom * magnification)
+                let scaled = EditorViewportGeometry.scaledPanOffset(
+                    magnificationStartPan ?? panOffset,
+                    from: startZoom, to: newZoom
+                )
+                zoomFactor = newZoom
+                panOffset = EditorViewportGeometry.clampedPanOffset(
+                    scaled, baseDrawSize: baseDrawSize,
+                    zoom: newZoom, viewport: viewport
+                )
             }
-            .onEnded { _ in magnificationStart = nil }
+            .onEnded { _ in
+                magnificationStart = nil
+                magnificationStartPan = nil
+            }
     }
 
     private func clampedZoom(_ value: CGFloat) -> CGFloat {
