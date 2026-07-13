@@ -229,36 +229,33 @@ struct EditorView: View {
     }
 
     private var blurStylePicker: some View {
-        Picker("Blur", selection: blurStyleBinding) {
-            segmentLabel("Pixelate", systemImage: "square.grid.3x3.fill")
-                .tag(BlurStyle.pixelate)
-            segmentLabel("Blur", systemImage: "drop.fill")
-                .tag(BlurStyle.gaussian)
-        }
-        .pickerStyle(.segmented)
-        .labelsHidden()
-        .frame(width: 220)
+        IconSegmentedPicker(
+            segments: [
+                .init("Pixelate", systemImage: "square.grid.3x3.fill",
+                      value: BlurStyle.pixelate),
+                .init("Blur", systemImage: "drop.fill",
+                      value: BlurStyle.gaussian)
+            ],
+            selection: blurStyleBinding
+        )
+        .fixedSize()
+        .accessibilityLabel("Blur")
         .hoverTip("Blur Style")
     }
 
     private var drawingModePicker: some View {
-        Picker("Drawing Instrument", selection: drawingModeBinding) {
-            segmentLabel("Pen", systemImage: "pencil.tip")
-                .tag(DrawingMode.pen)
-            segmentLabel("Marker", systemImage: "highlighter")
-                .tag(DrawingMode.marker)
-        }
-        .pickerStyle(.segmented)
-        .labelsHidden()
-        .frame(width: 180)
+        IconSegmentedPicker(
+            segments: [
+                .init("Pen", systemImage: "pencil.tip",
+                      value: DrawingMode.pen),
+                .init("Marker", systemImage: "highlighter",
+                      value: DrawingMode.marker)
+            ],
+            selection: drawingModeBinding
+        )
+        .fixedSize()
+        .accessibilityLabel("Drawing Instrument")
         .hoverTip("Drawing Instrument")
-    }
-
-    /// A single `Text` value with an inline SF Symbol survives SwiftUI's
-    /// native NSSegmentedControl bridge, unlike a composite `Label` view.
-    private func segmentLabel(_ title: LocalizedStringKey,
-                              systemImage: String) -> Text {
-        Text(Image(systemName: systemImage)) + Text(verbatim: " ") + Text(title)
     }
 
     private var fillSlider: some View {
