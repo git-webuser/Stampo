@@ -3,16 +3,17 @@ import SwiftUI
 
 /// Active tool in the editor toolbar.
 enum EditorTool: Equatable, CaseIterable {
-    case select, arrow, rect, oval, text, blur, step, ocr, crop
+    case select, line, arrow, rect, oval, text, blur, step, ocr, crop
 
     /// Drawing tools shown in the toolbar picker. `.ocr` and `.crop` are
     /// transient marquee modes driven by their own buttons in the actions
     /// group, not persistent drawing tools, so they're excluded here.
-    static let pickerCases: [EditorTool] = [.select, .arrow, .rect, .oval, .text, .blur, .step]
+    static let pickerCases: [EditorTool] = [.select, .line, .arrow, .rect, .oval, .text, .blur, .step]
 
     var systemImage: String {
         switch self {
         case .select: return "cursorarrow"
+        case .line:   return "line.diagonal"
         case .arrow:  return "arrow.up.right"
         case .rect:   return "rectangle"
         case .oval:   return "oval"
@@ -27,6 +28,7 @@ enum EditorTool: Equatable, CaseIterable {
     var labelKey: String {
         switch self {
         case .select: return "Select"
+        case .line:   return "Line"
         case .arrow:  return "Arrow"
         case .rect:   return "Rectangle"
         case .oval:   return "Oval"
@@ -55,6 +57,7 @@ struct ToolStyle {
     /// Intensity detent for new blur annotations (BlurIntensity.range).
     var blurLevel: Int = BlurIntensity.defaultLevel
     var arrowStyle: ArrowStyle = .filled
+    var lineStyle: LineStyle = .solid
     /// Fill opacity (0…1) for new rect/oval; 0 is outline-only.
     var fillOpacity: CGFloat = 0
     /// nil = image-relative automatic size at placement.
@@ -351,7 +354,7 @@ struct EditorCanvasView: View {
         }
 
         // Dashed outline for area-like annotations (incl. text bounds).
-        if a.kind != .arrow {
+        if a.kind != .line && a.kind != .arrow {
             let r = a.rect
             let viewRect = CGRect(origin: toView(r.origin),
                                   size: CGSize(width: r.width * fitScale, height: r.height * fitScale))
@@ -426,6 +429,7 @@ struct EditorCanvasView: View {
                     annotation.blurStyle = style.blurStyle
                     annotation.blurLevel = style.blurLevel
                     annotation.arrowStyle = style.arrowStyle
+                    annotation.lineStyle = style.lineStyle
                     annotation.fillOpacity = style.fillOpacity
                     annotation.end = constrainedEndpoint(p, from: startPixel, kind: kind)
                     document.annotations.append(annotation)
@@ -444,7 +448,8 @@ struct EditorCanvasView: View {
 
                 case .resizing(let id, let handle):
                     update(id) { annotation in
-                        if isShiftHeld, annotation.kind == .arrow {
+                        if isShiftHeld,
+                           annotation.kind == .line || annotation.kind == .arrow {
                             switch handle {
                             case .start:
                                 annotation.start = Annotation.snappedArrowEnd(from: annotation.end, to: p)
@@ -561,7 +566,7 @@ struct EditorCanvasView: View {
                 return .moving(selected.id, last: p)
             }
             return .undecided(pixelPoint: p)
-        case .arrow, .rect, .oval, .blur, .step:
+        case .line, .arrow, .rect, .oval, .blur, .step:
             // Dragging the selected annotation's body moves it even with a
             // shape tool active; empty space starts a new shape on drag.
             if let selected = document.selectedAnnotation,
@@ -619,6 +624,7 @@ struct EditorCanvasView: View {
 
     private func shapeKind(for tool: EditorTool) -> AnnotationKind? {
         switch tool {
+        case .line:  return .line
         case .arrow: return .arrow
         case .rect:  return .rect
         case .oval:  return .oval
@@ -646,7 +652,7 @@ struct EditorCanvasView: View {
                                      kind: AnnotationKind) -> CGPoint {
         guard isShiftHeld else { return point }
         switch kind {
-        case .arrow:
+        case .line, .arrow:
             return Annotation.snappedArrowEnd(from: start, to: point)
         case .rect, .oval:
             return Annotation.aspectLockedEnd(from: start, to: point)
@@ -708,8 +714,6 @@ struct EditorCanvasView: View {
                     self.tool = .select
                 } else if self.document.selectedID != nil {
                     self.document.selectedID = nil
-                } else {
-                    NSApp.keyWindow?.performClose(nil)
                 }
                 return nil
             }

@@ -36,6 +36,13 @@ import Testing
         #expect(!a.hitTest(CGPoint(x: 50, y: 30), tolerance: 4))
     }
 
+    @Test func lineHitsNearSegmentAndHasEndpointHandles() {
+        let line = make(.line, start: CGPoint(x: 0, y: 0), end: CGPoint(x: 100, y: 0))
+        #expect(line.hitTest(CGPoint(x: 50, y: 5), tolerance: 4))
+        #expect(!line.hitTest(CGPoint(x: 50, y: 30), tolerance: 4))
+        #expect(line.handles.map(\.0) == [.start, .end])
+    }
+
     @Test func rectHitsBorderNotInterior() {
         let a = make(.rect, start: CGPoint(x: 10, y: 10), end: CGPoint(x: 110, y: 90))
         #expect(a.hitTest(CGPoint(x: 60, y: 11), tolerance: 4))   // top edge
@@ -157,6 +164,8 @@ import Testing
     // MARK: degenerate
 
     @Test func degenerateDetection() {
+        #expect(make(.line, start: .zero, end: CGPoint(x: 2, y: 2)).isDegenerate)
+        #expect(!make(.line, start: .zero, end: CGPoint(x: 40, y: 0)).isDegenerate)
         #expect(make(.arrow, start: .zero, end: CGPoint(x: 2, y: 2)).isDegenerate)
         #expect(!make(.arrow, start: .zero, end: CGPoint(x: 40, y: 0)).isDegenerate)
         #expect(make(.rect, start: .zero, end: CGPoint(x: 3, y: 100)).isDegenerate)

@@ -59,6 +59,24 @@ enum TestImages {
         #expect(onShaft)
     }
 
+    @Test(arguments: LineStyle.allCases)
+    func everyLineStyleDrawsPixels(lineStyle: LineStyle) {
+        let base = TestImages.make(width: 120, height: 20)
+        var line = Annotation(kind: .line, start: CGPoint(x: 4, y: 10),
+                              end: CGPoint(x: 116, y: 10), color: .black, lineWidth: 2)
+        line.lineStyle = lineStyle
+        let rep = AnnotationRenderer.renderBitmap(base: base, annotations: [line])!
+        let darkPixels = (6...114).filter { x in
+            (rep.colorAt(x: x, y: 10)?.brightnessComponent ?? 1) < 0.5
+        }
+        #expect(!darkPixels.isEmpty)
+        if lineStyle == .solid {
+            #expect(darkPixels.count > 100)
+        } else {
+            #expect(darkPixels.count < 90)
+        }
+    }
+
     @Test func stepFontIsProportionalAcrossDigitCounts() {
         let d: CGFloat = 40
         let one = AnnotationRenderer.stepFontSize(label: "1", diameter: d)

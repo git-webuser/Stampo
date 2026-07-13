@@ -151,6 +151,10 @@ struct EditorView: View {
                 colorSwatches
                 settingSlider("Marker Size", systemImage: "circle.circle",
                               value: stepSizeBinding, range: 24...72, step: 8)
+            case .line:
+                colorSwatches
+                lineStylePicker
+                thicknessSlider
             case .rect, .oval:
                 colorSwatches
                 thicknessSlider
@@ -170,6 +174,7 @@ struct EditorView: View {
         if let selected = document.selectedAnnotation { return selected.kind }
         switch tool {
         case .select, .ocr, .crop: return nil
+        case .line:   return .line
         case .arrow:  return .arrow
         case .rect:   return .rect
         case .oval:   return .oval
@@ -271,6 +276,17 @@ struct EditorView: View {
         .labelsHidden()
         .frame(width: 108)
         .hoverTip("Arrow Style")
+    }
+
+    private var lineStylePicker: some View {
+        Picker("Line Style", selection: lineStyleBinding) {
+            Text(verbatim: "━").tag(LineStyle.solid)
+            Text(verbatim: "┅").tag(LineStyle.dashed)
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .frame(width: 76)
+        .hoverTip("Line Style")
     }
 
     private var thicknessSlider: some View {
@@ -487,6 +503,20 @@ struct EditorView: View {
             set: { newValue in
                 style.arrowStyle = newValue
                 applyToSelection { if $0.kind == .arrow { $0.arrowStyle = newValue } }
+            }
+        )
+    }
+
+    private var lineStyleBinding: Binding<LineStyle> {
+        Binding(
+            get: {
+                document.selectedAnnotation?.kind == .line
+                    ? (document.selectedAnnotation?.lineStyle ?? style.lineStyle)
+                    : style.lineStyle
+            },
+            set: { newValue in
+                style.lineStyle = newValue
+                applyToSelection { if $0.kind == .line { $0.lineStyle = newValue } }
             }
         )
     }

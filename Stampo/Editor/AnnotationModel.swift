@@ -4,12 +4,19 @@ import Observation
 // MARK: - Annotation primitives
 
 enum AnnotationKind: Equatable {
+    case line
     case arrow
     case rect
     case oval
     case text
     case blur
     case step
+}
+
+/// Visual variant of a straight `.line` annotation.
+enum LineStyle: String, Equatable, CaseIterable {
+    case solid
+    case dashed
 }
 
 enum BlurStyle: String, Equatable, CaseIterable {
@@ -97,10 +104,11 @@ struct AnnotationColor: Equatable {
 struct Annotation: Identifiable, Equatable {
     let id: UUID
     var kind: AnnotationKind
-    /// Anchor point. For .arrow this is the tail; for shapes a drag corner;
+    /// Anchor point. For .line/.arrow this is the first endpoint; for shapes a drag corner;
     /// for .text the top-left of the text box; for .step its center.
     var start: CGPoint
-    /// Second point. For .arrow the tip; for shapes the opposite corner;
+    /// Second point. For .line it is the second endpoint, for .arrow the tip;
+    /// for shapes the opposite corner;
     /// for .text the bottom-right of the measured text bounds. Step keeps it
     /// equal to `start`, since its bounds come from `stepDiameter`.
     var end: CGPoint
@@ -122,6 +130,8 @@ struct Annotation: Identifiable, Equatable {
     var fillOpacity: CGFloat = 0
     /// Visual variant for `.arrow`.
     var arrowStyle: ArrowStyle = .filled
+    /// Visual variant for `.line`.
+    var lineStyle: LineStyle = .solid
     /// Label rendered inside a `.step` marker. Auto-assigned as "1", "2", …
     /// on placement, but editable to arbitrary text (e.g. "1.1", "4.12").
     var stepLabel: String = "1"
@@ -155,7 +165,7 @@ struct Annotation: Identifiable, Equatable {
     /// True when the annotation is too small to be meaningful (accidental click).
     var isDegenerate: Bool {
         switch kind {
-        case .arrow:
+        case .line, .arrow:
             return hypot(end.x - start.x, end.y - start.y) < 4
         case .rect, .oval, .blur:
             return rect.width < 4 || rect.height < 4
@@ -170,7 +180,7 @@ struct Annotation: Identifiable, Equatable {
 
     func hitTest(_ p: CGPoint, tolerance: CGFloat) -> Bool {
         switch kind {
-        case .arrow:
+        case .line, .arrow:
             return Self.distance(from: p, toSegment: start, end) <= tolerance + lineWidth / 2
         case .rect:
             // On the stroked border (inflate/deflate by tolerance).
@@ -209,14 +219,14 @@ struct Annotation: Identifiable, Equatable {
     // MARK: Handles
 
     enum Handle: CaseIterable, Equatable {
-        case start, end                                  // arrow endpoints
+        case start, end                                  // line/arrow endpoints
         case topLeft, topRight, bottomLeft, bottomRight  // shape corners
     }
 
     /// Draggable handles for the current kind, with their positions.
     var handles: [(Handle, CGPoint)] {
         switch kind {
-        case .arrow:
+        case .line, .arrow:
             return [(.start, start), (.end, end)]
         case .rect, .oval, .blur:
             let r = rect

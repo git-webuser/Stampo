@@ -114,6 +114,7 @@ enum AnnotationRenderer {
         for annotation in annotations
             where annotation.id != skippedID && annotation.kind != .blur {
             switch annotation.kind {
+            case .line:  drawLine(annotation, ctx: ctx)
             case .arrow: drawArrow(annotation, ctx: ctx)
             case .rect:  drawShape(annotation, isOval: false, ctx: ctx)
             case .oval:  drawShape(annotation, isOval: true, ctx: ctx)
@@ -135,6 +136,21 @@ enum AnnotationRenderer {
         ctx.interpolationQuality = .high
         ctx.draw(image, in: CGRect(x: rect.minX, y: 0, width: rect.width, height: rect.height))
         ctx.restoreGState()
+    }
+
+    private static func drawLine(_ a: Annotation, ctx: CGContext) {
+        ctx.setStrokeColor(a.color.cgColor)
+        ctx.setLineWidth(a.lineWidth)
+        ctx.setLineCap(.round)
+        ctx.setLineJoin(.round)
+        if a.lineStyle == .dashed {
+            let dash = max(6, a.lineWidth * 2.4)
+            ctx.setLineDash(phase: 0, lengths: [dash, dash * 0.8])
+        }
+        ctx.move(to: a.start)
+        ctx.addLine(to: a.end)
+        ctx.strokePath()
+        ctx.setLineDash(phase: 0, lengths: [])
     }
 
     private static func drawArrow(_ a: Annotation, ctx: CGContext) {
