@@ -825,6 +825,65 @@ struct DocumentSnapshot: Equatable {
         return duplicateID
     }
 
+    // MARK: Z-order (array order is draw order; blur is a separate bottom layer)
+
+    /// Index of the nearest annotation in the same render group as `idx`
+    /// (blur always renders beneath non-blur, so the groups never interleave
+    /// visually) in the given direction, or nil at that group's edge. Skipping
+    /// the other group keeps every successful reorder visible on canvas.
+    private func adjacentSameGroupIndex(from idx: Int, forward: Bool) -> Int? {
+        let isBlur = annotations[idx].kind == .blur
+        let neighbors = forward
+            ? Array(annotations.indices.suffix(from: idx + 1))
+            : annotations.indices.prefix(upTo: idx).reversed().map { $0 }
+        return neighbors.first { (annotations[$0].kind == .blur) == isBlur }
+    }
+
+    /// Swaps the selection with its next same-group neighbor above.
+    /// One undoable step; a no-op at the top never touches history.
+    func bringSelectedForward() {
+        reorderSelected { idx in
+            guard let target = adjacentSameGroupIndex(from: idx, forward: true) else { return }
+            annotations.swapAt(idx, target)
+        }
+    }
+
+    /// Swaps the selection with its next same-group neighbor below.
+    func sendSelectedBackward() {
+        reorderSelected { idx in
+            guard let target = adjacentSameGroupIndex(from: idx, forward: false) else { return }
+            annotations.swapAt(idx, target)
+        }
+    }
+
+    /// Moves the selection above every other annotation (of any group — the
+    /// renderer's blur partition keeps blur beneath regardless).
+    func bringSelectedToFront() {
+        reorderSelected { idx in
+            guard idx != annotations.indices.last else { return }
+            annotations.append(annotations.remove(at: idx))
+        }
+    }
+
+    /// Moves the selection beneath every other annotation.
+    func sendSelectedToBack() {
+        reorderSelected { idx in
+            guard idx != 0 else { return }
+            annotations.insert(annotations.remove(at: idx), at: 0)
+        }
+    }
+
+    /// Runs one reorder mutation as a single undo step. `commitChange`'s
+    /// snapshot-equality guard drops boundary no-ops from history.
+    private func reorderSelected(_ mutate: (Int) -> Void) {
+        guard let selectedID,
+              let idx = annotations.firstIndex(where: { $0.id == selectedID })
+        else { return }
+        beginChange()
+        mutate(idx)
+        commitChange()
+    }
+
     /// Moves the selected annotation by an exact image-pixel amount and
     /// records that keyboard nudge as one undoable edit.
     func nudgeSelected(by delta: CGPoint) {

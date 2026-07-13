@@ -500,4 +500,86 @@ import Testing
         doc.annotations = [custom, numbered]
         #expect(doc.nextStepLabel == "3")
     }
+
+    // MARK: Z-order
+
+    @Test func bringForwardSwapsAdjacentAndUndoRestores() {
+        let doc = makeDocument()
+        let a = annotation(), b = annotation(30), c = annotation(60)
+        doc.annotations = [a, b, c]
+        doc.selectedID = b.id
+
+        doc.bringSelectedForward()
+        #expect(doc.annotations.map(\.id) == [a.id, c.id, b.id])
+        #expect(doc.undoStack.count == 1)
+
+        doc.undo()
+        #expect(doc.annotations.map(\.id) == [a.id, b.id, c.id])
+    }
+
+    @Test func sendBackwardSwapsAdjacent() {
+        let doc = makeDocument()
+        let a = annotation(), b = annotation(30)
+        doc.annotations = [a, b]
+        doc.selectedID = b.id
+
+        doc.sendSelectedBackward()
+        #expect(doc.annotations.map(\.id) == [b.id, a.id])
+        #expect(doc.undoStack.count == 1)
+    }
+
+    @Test func reorderAtBoundaryIsNoOp() {
+        let doc = makeDocument()
+        let a = annotation(), b = annotation(30)
+        doc.annotations = [a, b]
+
+        doc.selectedID = b.id
+        doc.bringSelectedForward()          // already topmost
+        #expect(!doc.canUndo)
+        #expect(doc.annotations.map(\.id) == [a.id, b.id])
+
+        doc.selectedID = a.id
+        doc.sendSelectedBackward()          // already bottom
+        #expect(!doc.canUndo)
+        #expect(doc.annotations.map(\.id) == [a.id, b.id])
+    }
+
+    @Test func reorderSkipsOtherRenderGroup() {
+        let doc = makeDocument()
+        let a = annotation()
+        var blur = annotation(30)
+        blur.kind = .blur
+        let b = annotation(60)
+        doc.annotations = [a, blur, b]
+
+        // Forward from a skips the blur (separate bottom render layer) and
+        // swaps with b, the next annotation in the same visual group.
+        doc.selectedID = a.id
+        doc.bringSelectedForward()
+        #expect(doc.annotations.map(\.id) == [b.id, blur.id, a.id])
+
+        // A lone blur has no same-group neighbor: true no-op.
+        doc.selectedID = blur.id
+        doc.bringSelectedForward()
+        #expect(doc.annotations.map(\.id) == [b.id, blur.id, a.id])
+        #expect(doc.undoStack.count == 1)
+    }
+
+    @Test func toFrontAndToBackAreSingleUndoSteps() {
+        let doc = makeDocument()
+        let a = annotation(), b = annotation(30), c = annotation(60)
+        doc.annotations = [a, b, c]
+
+        doc.selectedID = a.id
+        doc.bringSelectedToFront()
+        #expect(doc.annotations.map(\.id) == [b.id, c.id, a.id])
+        #expect(doc.undoStack.count == 1)
+
+        doc.sendSelectedToBack()
+        #expect(doc.annotations.map(\.id) == [a.id, b.id, c.id])
+        #expect(doc.undoStack.count == 2)
+
+        doc.sendSelectedToBack()            // already at the back: no-op
+        #expect(doc.undoStack.count == 2)
+    }
 }

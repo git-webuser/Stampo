@@ -1003,6 +1003,25 @@ struct EditorCanvasView: View {
                 return nil
             }
 
+            // Z-order of the selection: ⌘[ backward, ⌘] forward, and the
+            // ⇧⌘ variants jump straight to back/front (design-app convention).
+            if event.type == .keyDown, !fieldHasFocus,
+               self.document.selectedID != nil,
+               event.keyCode == 33 || event.keyCode == 30 { // [ , ]
+                if commandModifiers == .command {
+                    event.keyCode == 30
+                        ? self.document.bringSelectedForward()
+                        : self.document.sendSelectedBackward()
+                    return nil
+                }
+                if commandModifiers == [.command, .shift] {
+                    event.keyCode == 30
+                        ? self.document.bringSelectedToFront()
+                        : self.document.sendSelectedToBack()
+                    return nil
+                }
+            }
+
             // Single-letter tool shortcuts are active only when typing cannot
             // be in progress. Requiring no modifiers leaves system/menu key
             // combinations untouched.
