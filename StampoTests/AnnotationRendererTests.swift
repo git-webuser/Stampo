@@ -59,6 +59,28 @@ enum TestImages {
         #expect(onShaft)
     }
 
+    @Test(arguments: ArrowHeadPlacement.allCases, ArrowStyle.allCases)
+    func arrowHeadsRenderAtConfiguredEndpoints(placement: ArrowHeadPlacement,
+                                               style: ArrowStyle) {
+        let base = TestImages.make(width: 120, height: 40)
+        var arrow = Annotation(kind: .arrow, start: CGPoint(x: 20, y: 20),
+                               end: CGPoint(x: 100, y: 20), color: .black, lineWidth: 4)
+        arrow.arrowHeadPlacement = placement
+        arrow.arrowStyle = style
+        let rep = AnnotationRenderer.renderBitmap(base: base, annotations: [arrow])!
+
+        func hasOffAxisInk(xRange: ClosedRange<Int>) -> Bool {
+            xRange.contains { x in
+                (12...15).contains { y in
+                    (rep.colorAt(x: x, y: y)?.brightnessComponent ?? 1) < 0.7
+                }
+            }
+        }
+
+        #expect(hasOffAxisInk(xRange: 22...35) == placement.includesStart)
+        #expect(hasOffAxisInk(xRange: 85...98) == placement.includesEnd)
+    }
+
     @Test(arguments: LineStyle.allCases)
     func everyLineStyleDrawsPixels(lineStyle: LineStyle) {
         let base = TestImages.make(width: 120, height: 20)

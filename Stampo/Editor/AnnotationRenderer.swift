@@ -159,12 +159,24 @@ enum AnnotationRenderer {
         // annotation's own line width.
         let shaftWidth = a.arrowStyle == .bold ? a.lineWidth * 1.8 : a.lineWidth
         let headWidth = a.arrowStyle == .bold ? a.lineWidth * 1.8 : a.lineWidth
-        let (b1, b2) = Annotation.arrowheadBarbs(from: a.start, tip: a.end, lineWidth: headWidth)
         let angle = atan2(a.end.y - a.start.y, a.end.x - a.start.x)
         let headLength = max(12, headWidth * 4)
-        // The filled head overlaps the shaft, so pull the shaft back under it.
-        let shaftEnd = CGPoint(x: a.end.x - headLength * 0.6 * cos(angle),
-                               y: a.end.y - headLength * 0.6 * sin(angle))
+        let overlap = headLength * 0.6
+        let shaftLength = hypot(a.end.x - a.start.x, a.end.y - a.start.y)
+        let headCount = (a.arrowHeadPlacement.includesStart ? 1 : 0)
+            + (a.arrowHeadPlacement.includesEnd ? 1 : 0)
+        let inset = min(overlap, headCount > 0 ? shaftLength / CGFloat(headCount) : 0)
+        // Pull each shaft endpoint under its filled head. With two heads this
+        // keeps the dashed/solid shaft visually centered between them. The
+        // inset is capped so heads on a very short arrow never cross the shaft.
+        let shaftStart = a.arrowHeadPlacement.includesStart
+            ? CGPoint(x: a.start.x + inset * cos(angle),
+                      y: a.start.y + inset * sin(angle))
+            : a.start
+        let shaftEnd = a.arrowHeadPlacement.includesEnd
+            ? CGPoint(x: a.end.x - inset * cos(angle),
+                      y: a.end.y - inset * sin(angle))
+            : a.end
 
         ctx.setStrokeColor(a.color.cgColor)
         ctx.setFillColor(a.color.cgColor)
@@ -177,13 +189,24 @@ enum AnnotationRenderer {
             let dash = max(6, shaftWidth * 2.4)
             ctx.setLineDash(phase: 0, lengths: [dash, dash * 0.8])
         }
-        ctx.move(to: a.start)
+        ctx.move(to: shaftStart)
         ctx.addLine(to: shaftEnd)
         ctx.strokePath()
         ctx.setLineDash(phase: 0, lengths: [])
 
-        // Filled triangle head.
-        ctx.move(to: a.end)
+        // Filled triangle heads point outwards at their respective endpoints.
+        if a.arrowHeadPlacement.includesStart {
+            drawArrowhead(from: a.end, tip: a.start, lineWidth: headWidth, ctx: ctx)
+        }
+        if a.arrowHeadPlacement.includesEnd {
+            drawArrowhead(from: a.start, tip: a.end, lineWidth: headWidth, ctx: ctx)
+        }
+    }
+
+    private static func drawArrowhead(from: CGPoint, tip: CGPoint,
+                                      lineWidth: CGFloat, ctx: CGContext) {
+        let (b1, b2) = Annotation.arrowheadBarbs(from: from, tip: tip, lineWidth: lineWidth)
+        ctx.move(to: tip)
         ctx.addLine(to: b1)
         ctx.addLine(to: b2)
         ctx.closePath()

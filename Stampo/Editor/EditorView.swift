@@ -104,7 +104,7 @@ struct EditorView: View {
                         .fill(tool == t ? Color.accentColor.opacity(0.22) : .clear)
                 )
                 .foregroundStyle(tool == t ? Color.accentColor : Color.primary)
-                .hoverTip(t.labelKey)
+                .hoverTip(t.labelKey, shortcut: t.shortcut?.label)
             }
         }
     }
@@ -162,6 +162,7 @@ struct EditorView: View {
             case .arrow:
                 colorSwatches
                 arrowStylePicker
+                arrowHeadPlacementPicker
                 thicknessSlider
             default: // select tool with nothing selected
                 colorSwatches
@@ -234,11 +235,14 @@ struct EditorView: View {
 
     private var textControls: some View {
         HStack(spacing: 4) {
-            formatToggle("Bold", systemImage: "bold", binding: boldBinding)
-            formatToggle("Italic", systemImage: "italic", binding: italicBinding)
-            formatToggle("Underline", systemImage: "underline", binding: underlineBinding)
-            formatToggle("Strikethrough", systemImage: "strikethrough", binding: strikethroughBinding)
-            formatToggle("Text Shadow", systemImage: "shadow", binding: textShadowBinding)
+            formatToggle("Bold", systemImage: "bold", shortcut: "⌘B", binding: boldBinding)
+            formatToggle("Italic", systemImage: "italic", shortcut: "⌘I", binding: italicBinding)
+            formatToggle("Underline", systemImage: "underline", shortcut: "⌘U",
+                         binding: underlineBinding)
+            formatToggle("Strikethrough", systemImage: "strikethrough", shortcut: "⇧⌘X",
+                         binding: strikethroughBinding)
+            formatToggle("Text Shadow", systemImage: "shadow", shortcut: "⇧⌘H",
+                         binding: textShadowBinding)
             Divider().frame(height: 18)
             Picker("Text Background", selection: textBackgroundBinding) {
                 Image(systemName: "square.slash").tag(TextBackground.none)
@@ -252,7 +256,7 @@ struct EditorView: View {
         }
     }
 
-    private func formatToggle(_ label: String, systemImage: String,
+    private func formatToggle(_ label: String, systemImage: String, shortcut: String,
                               binding: Binding<Bool>) -> some View {
         Button { binding.wrappedValue.toggle() } label: {
             Image(systemName: systemImage).frame(width: 24, height: 22)
@@ -263,7 +267,7 @@ struct EditorView: View {
                 .fill(binding.wrappedValue ? Color.accentColor.opacity(0.22) : .clear)
         )
         .foregroundStyle(binding.wrappedValue ? Color.accentColor : Color.primary)
-        .hoverTip(label)
+        .hoverTip(label, shortcut: shortcut)
     }
 
     private var arrowStylePicker: some View {
@@ -276,6 +280,18 @@ struct EditorView: View {
         .labelsHidden()
         .frame(width: 108)
         .hoverTip("Arrow Style")
+    }
+
+    private var arrowHeadPlacementPicker: some View {
+        Picker("Arrow Heads", selection: arrowHeadPlacementBinding) {
+            Text(verbatim: "←").tag(ArrowHeadPlacement.start)
+            Text(verbatim: "→").tag(ArrowHeadPlacement.end)
+            Text(verbatim: "↔").tag(ArrowHeadPlacement.both)
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .frame(width: 108)
+        .hoverTip("Arrow Heads")
     }
 
     private var lineStylePicker: some View {
@@ -503,6 +519,23 @@ struct EditorView: View {
             set: { newValue in
                 style.arrowStyle = newValue
                 applyToSelection { if $0.kind == .arrow { $0.arrowStyle = newValue } }
+            }
+        )
+    }
+
+    private var arrowHeadPlacementBinding: Binding<ArrowHeadPlacement> {
+        Binding(
+            get: {
+                document.selectedAnnotation?.kind == .arrow
+                    ? (document.selectedAnnotation?.arrowHeadPlacement
+                       ?? style.arrowHeadPlacement)
+                    : style.arrowHeadPlacement
+            },
+            set: { newValue in
+                style.arrowHeadPlacement = newValue
+                applyToSelection {
+                    if $0.kind == .arrow { $0.arrowHeadPlacement = newValue }
+                }
             }
         )
     }

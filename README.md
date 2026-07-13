@@ -60,7 +60,7 @@ Select an area of the screen and Stampo recognizes the text in it (English and R
 
 ## Annotation Editor
 
-Click the post-capture thumbnail (or right-click a screenshot in the tray → **Edit**) to open the built-in editor: lines, arrows, rectangles, ovals, numbered steps, text labels, and blur/pixelate regions, with full undo/redo (`⌘Z` / `⇧⌘Z`). The second toolbar row shows the settings for the active tool — colors, solid/dashed line styles, three arrow styles (solid, dashed, bold), text formatting (bold, italic, underline, strikethrough, shadow, and a light/dark/none background plate), and sliders for line thickness, text size, marker size, fill opacity (0–100%), and blur/pixelate intensity. On narrow windows the toolbar buttons collapse from label to icon so nothing wraps.
+Click the post-capture thumbnail (or right-click a screenshot in the tray → **Edit**) to open the built-in editor: lines, arrows, rectangles, ovals, numbered steps, text labels, and blur/pixelate regions, with full undo/redo (`⌘Z` / `⇧⌘Z`). The second toolbar row shows the settings for the active tool — colors, solid/dashed line styles, three arrow styles (solid, dashed, bold), arrowheads at the start, end, or both endpoints, text formatting (bold, italic, underline, strikethrough, shadow, and a light/dark/none background plate), and sliders for line thickness, text size, marker size, fill opacity (0–100%), and blur/pixelate intensity. On narrow windows the toolbar buttons collapse from label to icon so nothing wraps.
 
 - **Save** (`⌘S`) always writes a **new file** to your save folder — the original screenshot is never modified — and the result appears in the tray.
 - **Copy** (`⌘C`) puts the annotated image on the clipboard at the original pixel resolution.
@@ -70,6 +70,9 @@ Click the post-capture thumbnail (or right-click a screenshot in the tray → **
 - Hover any toolbar control for a tooltip describing it.
 - Double-click a text label or step marker to edit it; inside a text label, **Return** commits and **⇧Return** starts a new line. New step markers auto-number from the highest numeric label (labels can be any text, e.g. `1.1` or `4.12`).
 - Blur/pixelate always sits beneath the other annotations, so arrows, text, and shapes stay crisp on top of a redacted region.
+- Press **⌘D** to duplicate the selected annotation with a **40 × 40 px** offset, or hold **Option** while dragging any annotation to duplicate and move it in one gesture.
+- Switch tools from the keyboard: **V** Select, **L** Line, **A** Arrow, **R** Rectangle, **O** Oval, **T** Text, **B** Blur, and **S** Step. Tool shortcuts pause while editing text or typing in a field.
+- Format the selected or inline-edited text with **⌘B** Bold, **⌘I** Italic, **⌘U** Underline, **⇧⌘X** Strikethrough, and **⇧⌘H** Shadow. With no selection, these shortcuts configure the next text label.
 - Press **Delete** / **Backspace** to remove the selected annotation. **Esc** cancels the active mode or returns the active tool to the cursor; use **⌘W** to close the editor.
 - Hold **Shift** to snap lines and arrows to 45° or draw square/circular shapes; use arrow keys to nudge the selected annotation by 1 px (`⇧`: 10 px, `⌥⇧`: 50 px).
 - Pinch to zoom, and pan a zoomed image by dragging an empty area (or holding **Space** while dragging); use `⌘−`, `⌘+`, or `⌘0` to zoom out, zoom in, or fit the image.

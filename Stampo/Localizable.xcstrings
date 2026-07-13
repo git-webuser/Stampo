@@ -251,6 +251,23 @@
         }
       }
     },
+    "Arrow Heads" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Arrow Heads"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Наконечники стрелки"
+          }
+        }
+      }
+    },
     "Arrow key movement" : {
       "comment" : "Row label for arrow-key cursor nudging",
       "extractionState" : "stale",

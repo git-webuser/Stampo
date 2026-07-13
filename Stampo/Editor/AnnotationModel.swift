@@ -19,6 +19,16 @@ enum LineStyle: String, Equatable, CaseIterable {
     case dashed
 }
 
+/// Which endpoint of an `.arrow` receives a filled arrowhead.
+enum ArrowHeadPlacement: String, Equatable, CaseIterable {
+    case start
+    case end
+    case both
+
+    var includesStart: Bool { self == .start || self == .both }
+    var includesEnd: Bool { self == .end || self == .both }
+}
+
 enum BlurStyle: String, Equatable, CaseIterable {
     case gaussian
     case pixelate
@@ -36,6 +46,46 @@ enum TextBackground: String, Equatable, CaseIterable {
     case none
     case dark
     case light
+}
+
+/// Whole-annotation text traits supported by both the context bar and local
+/// editor keyboard shortcuts. Text annotations intentionally don't contain
+/// attributed ranges, so each trait applies to the complete label.
+enum TextStyleFlag: Equatable, CaseIterable {
+    case bold
+    case italic
+    case underline
+    case strikethrough
+    case shadow
+
+    var annotationPath: WritableKeyPath<Annotation, Bool> {
+        switch self {
+        case .bold:          return \.bold
+        case .italic:        return \.italic
+        case .underline:     return \.underline
+        case .strikethrough: return \.strikethrough
+        case .shadow:        return \.textShadow
+        }
+    }
+
+    var shortcut: (keyCode: UInt16, modifiers: NSEvent.ModifierFlags, label: String) {
+        switch self {
+        case .bold:          return (11, .command, "⌘B")
+        case .italic:        return (34, .command, "⌘I")
+        case .underline:     return (32, .command, "⌘U")
+        case .strikethrough: return (7, [.command, .shift], "⇧⌘X")
+        case .shadow:        return (4, [.command, .shift], "⇧⌘H")
+        }
+    }
+
+    static func shortcut(keyCode: UInt16,
+                         modifiers: NSEvent.ModifierFlags) -> TextStyleFlag? {
+        let exactModifiers = modifiers
+            .intersection([.command, .control, .option, .shift])
+        return allCases.first {
+            $0.shortcut.keyCode == keyCode && $0.shortcut.modifiers == exactModifiers
+        }
+    }
 }
 
 /// Detented intensity scale shared by the toolbar slider and the renderer.
@@ -102,7 +152,7 @@ struct AnnotationColor: Equatable {
 /// from screen points through one fitScale factor, and export at native
 /// pixel size needs no conversion at all.
 struct Annotation: Identifiable, Equatable {
-    let id: UUID
+    private(set) var id: UUID
     var kind: AnnotationKind
     /// Anchor point. For .line/.arrow this is the first endpoint; for shapes a drag corner;
     /// for .text the top-left of the text box; for .step its center.
@@ -130,6 +180,8 @@ struct Annotation: Identifiable, Equatable {
     var fillOpacity: CGFloat = 0
     /// Visual variant for `.arrow`.
     var arrowStyle: ArrowStyle = .filled
+    /// Endpoint(s) that receive a filled arrowhead.
+    var arrowHeadPlacement: ArrowHeadPlacement = .end
     /// Visual variant for `.line`.
     var lineStyle: LineStyle = .solid
     /// Label rendered inside a `.step` marker. Auto-assigned as "1", "2", …
@@ -246,6 +298,15 @@ struct Annotation: Identifiable, Equatable {
     mutating func move(by delta: CGPoint) {
         start.x += delta.x; start.y += delta.y
         end.x += delta.x; end.y += delta.y
+    }
+
+    /// Value-copy for duplication: every visual/geometry property is retained,
+    /// while identity is replaced so SwiftUI and the undo model see a new item.
+    func duplicated(offset: CGPoint = .zero) -> Annotation {
+        var copy = self
+        copy.id = UUID()
+        copy.move(by: offset)
+        return copy
     }
 
     /// Drags one handle to a new position. Corner handles re-anchor
@@ -581,6 +642,31 @@ struct DocumentSnapshot: Equatable {
         commitChange()
     }
 
+    /// Appends an exact duplicate above all existing annotations as part of an
+    /// already-open change (used by Option-drag so creation + movement share
+    /// one undo step). Returns the new annotation's identity.
+    @discardableResult
+    func appendDuplicate(of id: UUID, offset: CGPoint = .zero) -> UUID? {
+        guard let source = annotations.first(where: { $0.id == id }) else { return nil }
+        let copy = source.duplicated(offset: offset)
+        annotations.append(copy)
+        selectedID = copy.id
+        return copy.id
+    }
+
+    /// Duplicates the current selection as one complete undoable command.
+    @discardableResult
+    func duplicateSelected(offset: CGPoint = CGPoint(x: 40, y: 40)) -> UUID? {
+        guard let selectedID else { return nil }
+        beginChange()
+        guard let duplicateID = appendDuplicate(of: selectedID, offset: offset) else {
+            discardChange()
+            return nil
+        }
+        commitChange()
+        return duplicateID
+    }
+
     /// Moves the selected annotation by an exact image-pixel amount and
     /// records that keyboard nudge as one undoable edit.
     func nudgeSelected(by delta: CGPoint) {
@@ -588,6 +674,27 @@ struct DocumentSnapshot: Equatable {
         beginChange()
         updateSelected { $0.move(by: delta) }
         commitChange()
+    }
+
+    /// Toggles one whole-label text trait and keeps its export bounds fitted.
+    /// Inline editing already owns a pending snapshot, so callers can opt out
+    /// of opening a nested undo command and let the edit commit everything.
+    @discardableResult
+    func toggleTextStyle(_ flag: TextStyleFlag, annotationID: UUID? = nil,
+                         undoable: Bool = true) -> Bool? {
+        guard let id = annotationID ?? selectedID,
+              let idx = annotations.firstIndex(where: { $0.id == id }),
+              annotations[idx].kind == .text
+        else { return nil }
+
+        if undoable { beginChange() }
+        annotations[idx][keyPath: flag.annotationPath].toggle()
+        let size = AnnotationRenderer.measureText(annotations[idx])
+        annotations[idx].end = CGPoint(x: annotations[idx].start.x + size.width,
+                                       y: annotations[idx].start.y + size.height)
+        let newValue = annotations[idx][keyPath: flag.annotationPath]
+        if undoable { commitChange() }
+        return newValue
     }
 
     /// Completes an inline text edit. An empty new label disappears without

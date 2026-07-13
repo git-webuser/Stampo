@@ -31,8 +31,9 @@ private final class PassthroughTooltipView: NSView {
 extension View {
     /// Attaches a hover tooltip (and matching accessibility label) resolved
     /// from `key` in the app's string catalog via the current in-app language.
-    func hoverTip(_ key: String) -> some View {
-        let text = LocaleManager.shared.string(key)
+    func hoverTip(_ key: String, shortcut: String? = nil) -> some View {
+        let localized = LocaleManager.shared.string(key)
+        let text = shortcut.map { "\(localized) (\($0))" } ?? localized
         return overlay(TooltipCarrier(text: text).allowsHitTesting(false))
             .accessibilityLabel(Text(verbatim: text))
     }

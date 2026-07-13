@@ -10,6 +10,26 @@ enum EditorTool: Equatable, CaseIterable {
     /// group, not persistent drawing tools, so they're excluded here.
     static let pickerCases: [EditorTool] = [.select, .line, .arrow, .rect, .oval, .text, .blur, .step]
 
+    /// Layout-independent physical-key shortcuts used while the editor window
+    /// is active. OCR and crop stay transient action modes without shortcuts.
+    var shortcut: (keyCode: UInt16, label: String)? {
+        switch self {
+        case .select: return (9, "V")
+        case .line:   return (37, "L")
+        case .arrow:  return (0, "A")
+        case .rect:   return (15, "R")
+        case .oval:   return (31, "O")
+        case .text:   return (17, "T")
+        case .blur:   return (11, "B")
+        case .step:   return (1, "S")
+        case .ocr, .crop: return nil
+        }
+    }
+
+    static func tool(forShortcutKeyCode keyCode: UInt16) -> EditorTool? {
+        pickerCases.first { $0.shortcut?.keyCode == keyCode }
+    }
+
     var systemImage: String {
         switch self {
         case .select: return "cursorarrow"
@@ -57,6 +77,7 @@ struct ToolStyle {
     /// Intensity detent for new blur annotations (BlurIntensity.range).
     var blurLevel: Int = BlurIntensity.defaultLevel
     var arrowStyle: ArrowStyle = .filled
+    var arrowHeadPlacement: ArrowHeadPlacement = .end
     var lineStyle: LineStyle = .solid
     /// Fill opacity (0…1) for new rect/oval; 0 is outline-only.
     var fillOpacity: CGFloat = 0
@@ -70,6 +91,27 @@ struct ToolStyle {
     var textBackground: TextBackground = .none
     /// Diameter of new step markers in image pixels.
     var stepDiameter: CGFloat = 40
+
+    subscript(textStyle flag: TextStyleFlag) -> Bool {
+        get {
+            switch flag {
+            case .bold:          return bold
+            case .italic:        return italic
+            case .underline:     return underline
+            case .strikethrough: return strikethrough
+            case .shadow:        return textShadow
+            }
+        }
+        set {
+            switch flag {
+            case .bold:          bold = newValue
+            case .italic:        italic = newValue
+            case .underline:     underline = newValue
+            case .strikethrough: strikethrough = newValue
+            case .shadow:        textShadow = newValue
+            }
+        }
+    }
 }
 
 // MARK: - EditorCanvasView
@@ -104,6 +146,7 @@ struct EditorCanvasView: View {
 
     private enum DragMode {
         case undecided(pixelPoint: CGPoint)
+        case duplicatePending(sourceID: UUID, start: CGPoint)
         case creating(UUID)
         case moving(UUID, last: CGPoint)
         case resizing(UUID, Annotation.Handle)
@@ -414,6 +457,20 @@ struct EditorCanvasView: View {
                 }
 
                 switch dragMode {
+                case .duplicatePending(let sourceID, let start):
+                    let viewDistance = hypot(value.translation.width, value.translation.height)
+                    guard viewDistance >= 3 else { break }
+                    document.beginChange()
+                    let offset = CGPoint(x: p.x - start.x, y: p.y - start.y)
+                    guard let duplicateID = document.appendDuplicate(
+                        of: sourceID, offset: offset
+                    ) else {
+                        document.discardChange()
+                        dragMode = .ignore
+                        break
+                    }
+                    dragMode = .moving(duplicateID, last: p)
+
                 case .undecided(let startPixel):
                     let viewDistance = hypot(value.translation.width, value.translation.height)
                     guard viewDistance >= 3 else { break }
@@ -429,6 +486,7 @@ struct EditorCanvasView: View {
                     annotation.blurStyle = style.blurStyle
                     annotation.blurLevel = style.blurLevel
                     annotation.arrowStyle = style.arrowStyle
+                    annotation.arrowHeadPlacement = style.arrowHeadPlacement
                     annotation.lineStyle = style.lineStyle
                     annotation.fillOpacity = style.fillOpacity
                     annotation.end = constrainedEndpoint(p, from: startPixel, kind: kind)
@@ -522,7 +580,8 @@ struct EditorCanvasView: View {
                     let rect = CGRect(x: min(start.x, p.x), y: min(start.y, p.y),
                                       width: abs(p.x - start.x), height: abs(p.y - start.y))
                     if rect.width >= 4, rect.height >= 4 { onRecognizeRegion(rect) }
-                case .cropCreating, .cropMoving, .cropResizing, .panning, .ignore, nil:
+                case .duplicatePending, .cropCreating, .cropMoving, .cropResizing,
+                     .panning, .ignore, nil:
                     break
                 }
             }
@@ -539,6 +598,16 @@ struct EditorCanvasView: View {
            let handle = selected.handle(at: p, tolerance: grabPx) {
             document.beginChange()
             return .resizing(selected.id, handle)
+        }
+
+        // Option-drag duplicates any annotation body under the cursor, even
+        // while a regular drawing tool is active. OCR and crop keep exclusive
+        // ownership of their gestures. Creation is deferred until movement
+        // crosses the standard 3 pt drag threshold, so Option-click only selects.
+        if tool != .ocr, tool != .crop, isOptionHeld,
+           let hit = document.annotation(at: p, tolerance: tolerancePx) {
+            document.selectedID = hit.id
+            return .duplicatePending(sourceID: hit.id, start: p)
         }
 
         switch tool {
@@ -648,6 +717,10 @@ struct EditorCanvasView: View {
         NSEvent.modifierFlags.contains(.shift)
     }
 
+    private var isOptionHeld: Bool {
+        NSEvent.modifierFlags.contains(.option)
+    }
+
     private func constrainedEndpoint(_ point: CGPoint, from start: CGPoint,
                                      kind: AnnotationKind) -> CGPoint {
         guard isShiftHeld else { return point }
@@ -676,15 +749,80 @@ struct EditorCanvasView: View {
 
     // MARK: Keyboard input
 
+    private func activateTool(_ newTool: EditorTool) {
+        tool = newTool
+        cropRect = nil
+        if newTool != .select { document.selectedID = nil }
+        if newTool == .blur {
+            document.prepareBlurSource(style: style.blurStyle,
+                                       level: style.blurLevel)
+        }
+    }
+
+    private func toggleTextStyle(_ flag: TextStyleFlag) {
+        let editingTextID = editingTextID.flatMap { id in
+            document.annotations.first(where: { $0.id == id && $0.kind == .text })?.id
+        }
+        let selectedTextID = document.selectedAnnotation?.kind == .text
+            ? document.selectedID : nil
+
+        if let targetID = editingTextID ?? selectedTextID,
+           let newValue = document.toggleTextStyle(
+               flag, annotationID: targetID, undoable: editingTextID == nil
+           ) {
+            style[textStyle: flag] = newValue
+        } else if document.selectedID == nil {
+            style[textStyle: flag].toggle()
+        }
+    }
+
     private func installKeyMonitor() {
         guard keyMonitor == nil else { return }
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp]) { event in
-            guard EditorWindowController.shared.isKeyWindow,
-                  self.editingTextID == nil
-            else { return event }
+            guard EditorWindowController.shared.isKeyWindow else { return event }
+
+            let commandModifiers = event.modifierFlags
+                .intersection([.command, .control, .option, .shift])
+            let fieldHasFocus = NSApp.keyWindow?.firstResponder is NSText
+            let isEditingText = self.editingTextID.flatMap { id in
+                self.document.annotations.first(where: { $0.id == id })?.kind
+            } == .text
+
+            // Formatting applies to the whole selected/edited text annotation,
+            // or configures the next label when nothing is selected. Handle it
+            // before the inline-edit guard so typing can continue uninterrupted.
+            if event.type == .keyDown,
+               let textStyle = TextStyleFlag.shortcut(
+                   keyCode: event.keyCode, modifiers: commandModifiers
+               ), isEditingText || (!fieldHasFocus
+                    && (self.document.selectedAnnotation?.kind == .text
+                        || self.document.selectedID == nil)) {
+                self.toggleTextStyle(textStyle)
+                return nil
+            }
+
+            guard self.editingTextID == nil else { return event }
 
             if event.keyCode == 49 { // Space
                 self.isSpaceHeld = event.type == .keyDown
+                return nil
+            }
+
+            // Duplicate the current annotation. Exact modifiers avoid stealing
+            // other Command+D variants; no selection leaves the event untouched.
+            if event.type == .keyDown, event.keyCode == 2, // D
+               commandModifiers == .command,
+               self.document.duplicateSelected() != nil {
+                return nil
+            }
+
+            // Single-letter tool shortcuts are active only when typing cannot
+            // be in progress. Requiring no modifiers leaves system/menu key
+            // combinations untouched.
+            if event.type == .keyDown, !fieldHasFocus,
+               commandModifiers.isEmpty,
+               let shortcutTool = EditorTool.tool(forShortcutKeyCode: event.keyCode) {
+                self.activateTool(shortcutTool)
                 return nil
             }
 
@@ -692,7 +830,6 @@ struct EditorCanvasView: View {
             // generic Esc so it doesn't just drop the tool. Skip while a text
             // field (the dimension inputs) has focus, so Return commits the
             // typed value instead of the whole crop.
-            let fieldHasFocus = NSApp.keyWindow?.firstResponder is NSText
             if event.type == .keyDown, self.tool == .crop, !fieldHasFocus {
                 switch event.keyCode {
                 case 36, 76: self.onCropApply();  return nil   // Return, keypad Enter

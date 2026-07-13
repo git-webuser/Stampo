@@ -1,3 +1,4 @@
+import AppKit
 import CoreGraphics
 import Foundation
 import Testing
@@ -158,6 +159,154 @@ import Testing
         #expect(doc.annotations[0].start == CGPoint(x: 10, y: -1))
         doc.undo()
         #expect(doc.annotations[0].start == .zero)
+    }
+
+    @Test func duplicateSelectedCascadesAndRoundTripsThroughHistory() {
+        let doc = makeDocument()
+        let source = annotation()
+        doc.annotations = [source]
+        doc.selectedID = source.id
+
+        let firstID = doc.duplicateSelected()
+        #expect(doc.annotations.count == 2)
+        #expect(firstID != source.id)
+        #expect(doc.selectedID == firstID)
+        #expect(doc.annotations.last?.start == CGPoint(x: 40, y: 40))
+
+        let secondID = doc.duplicateSelected()
+        #expect(doc.annotations.count == 3)
+        #expect(doc.selectedID == secondID)
+        #expect(doc.annotations.last?.start == CGPoint(x: 80, y: 80))
+
+        doc.undo()
+        #expect(doc.annotations.count == 2)
+        doc.redo()
+        #expect(doc.annotations.count == 3)
+        #expect(doc.annotations.last?.id == secondID)
+    }
+
+    @Test func everyAnnotationKindCanBeDuplicated() {
+        let kinds: [AnnotationKind] = [.line, .arrow, .rect, .oval, .text, .blur, .step]
+        for kind in kinds {
+            let doc = makeDocument()
+            var source = Annotation(kind: kind, start: CGPoint(x: 1, y: 2),
+                                    end: CGPoint(x: 5, y: 6), color: .red, lineWidth: 4)
+            if kind == .text { source.text = "Text" }
+            doc.annotations = [source]
+            doc.selectedID = source.id
+            #expect(doc.duplicateSelected() != nil)
+            #expect(doc.annotations.last?.kind == kind)
+        }
+    }
+
+    @Test func editorToolShortcutsCoverEveryPickerTool() {
+        let expected: [(UInt16, EditorTool, String)] = [
+            (9, .select, "V"), (37, .line, "L"), (0, .arrow, "A"),
+            (15, .rect, "R"), (31, .oval, "O"), (17, .text, "T"),
+            (11, .blur, "B"), (1, .step, "S")
+        ]
+
+        #expect(expected.count == EditorTool.pickerCases.count)
+        for (keyCode, tool, label) in expected {
+            #expect(EditorTool.tool(forShortcutKeyCode: keyCode) == tool)
+            #expect(tool.shortcut?.label == label)
+        }
+        #expect(EditorTool.tool(forShortcutKeyCode: 7) == nil)
+        #expect(EditorTool.ocr.shortcut == nil)
+        #expect(EditorTool.crop.shortcut == nil)
+    }
+
+    @Test func textStyleShortcutsUseExpectedExactModifiers() {
+        let expected: [(TextStyleFlag, UInt16, NSEvent.ModifierFlags, String)] = [
+            (.bold, 11, .command, "⌘B"),
+            (.italic, 34, .command, "⌘I"),
+            (.underline, 32, .command, "⌘U"),
+            (.strikethrough, 7, [.command, .shift], "⇧⌘X"),
+            (.shadow, 4, [.command, .shift], "⇧⌘H")
+        ]
+
+        for (flag, keyCode, modifiers, label) in expected {
+            #expect(TextStyleFlag.shortcut(keyCode: keyCode, modifiers: modifiers) == flag)
+            #expect(flag.shortcut.label == label)
+        }
+        #expect(TextStyleFlag.shortcut(keyCode: 4, modifiers: .command) == nil)
+        #expect(TextStyleFlag.shortcut(keyCode: 1, modifiers: .command) == nil)
+    }
+
+    @Test func togglingSelectedTextStyleIsUndoableAndRefitsBounds() {
+        let doc = makeDocument()
+        var text = Annotation(kind: .text, start: CGPoint(x: 2, y: 3),
+                              end: CGPoint(x: 4, y: 5), color: .red, lineWidth: 4)
+        text.text = "Shortcut"
+        text.fontSize = 24
+        doc.annotations = [text]
+        doc.selectedID = text.id
+
+        let enabled = doc.toggleTextStyle(.bold)
+        #expect(enabled == true)
+        #expect(doc.selectedAnnotation?.bold == true)
+        #expect((doc.selectedAnnotation?.end.x ?? 0) > text.end.x)
+        #expect(doc.undoStack.count == 1)
+
+        doc.undo()
+        #expect(doc.selectedAnnotation?.bold == false)
+        #expect(doc.selectedAnnotation?.end == text.end)
+        doc.redo()
+        #expect(doc.selectedAnnotation?.bold == true)
+    }
+
+    @Test func inlineTextStyleJoinsTheOpenEditUndoStep() {
+        let doc = makeDocument()
+        var text = Annotation(kind: .text, start: .zero, end: CGPoint(x: 20, y: 20),
+                              color: .red, lineWidth: 4)
+        text.text = "Before"
+        doc.annotations = [text]
+        doc.selectedID = text.id
+
+        doc.beginChange()
+        doc.updateSelected { $0.text = "After" }
+        #expect(doc.toggleTextStyle(.italic, annotationID: text.id, undoable: false) == true)
+        doc.finishTextEditing(text.id)
+        #expect(doc.undoStack.count == 1)
+
+        doc.undo()
+        #expect(doc.selectedAnnotation?.text == "Before")
+        #expect(doc.selectedAnnotation?.italic == false)
+    }
+
+    @Test func duplicateAndMoveCanShareOneUndoStep() {
+        let doc = makeDocument()
+        let source = annotation()
+        doc.annotations = [source]
+        doc.selectedID = source.id
+
+        doc.beginChange()
+        let copyID = doc.appendDuplicate(of: source.id)
+        doc.updateSelected { $0.move(by: CGPoint(x: 30, y: 5)) }
+        doc.commitChange()
+
+        #expect(doc.annotations.count == 2)
+        #expect(doc.selectedID == copyID)
+        #expect(doc.annotations.last?.start == CGPoint(x: 30, y: 5))
+        #expect(doc.undoStack.count == 1)
+        doc.undo()
+        #expect(doc.annotations == [source])
+    }
+
+    @Test func arrowHeadPlacementChangeIsUndoable() {
+        let doc = makeDocument()
+        var arrow = Annotation(kind: .arrow, start: .zero, end: CGPoint(x: 40, y: 0),
+                               color: .red, lineWidth: 4)
+        arrow.arrowHeadPlacement = .end
+        doc.annotations = [arrow]
+        doc.selectedID = arrow.id
+
+        doc.beginChange()
+        doc.updateSelected { $0.arrowHeadPlacement = .both }
+        doc.commitChange()
+        #expect(doc.selectedAnnotation?.arrowHeadPlacement == .both)
+        doc.undo()
+        #expect(doc.selectedAnnotation?.arrowHeadPlacement == .end)
     }
 
     @Test func hitTestPrefersNonBlurOverBlur() {

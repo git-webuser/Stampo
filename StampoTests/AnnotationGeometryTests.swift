@@ -117,6 +117,48 @@ import Testing
         #expect(a.end == CGPoint(x: 35, y: 27))
     }
 
+    @Test func duplicateGetsNewIdentityAndPreservesEveryProperty() {
+        var source = make(.arrow, start: CGPoint(x: 10, y: 20),
+                          end: CGPoint(x: 50, y: 70), lineWidth: 12)
+        source.color = .blue
+        source.text = "copy"
+        source.fontSize = 42
+        source.bold = true
+        source.italic = true
+        source.underline = true
+        source.strikethrough = true
+        source.textShadow = true
+        source.textBackground = .dark
+        source.blurStyle = .gaussian
+        source.blurLevel = 5
+        source.fillOpacity = 0.35
+        source.arrowStyle = .bold
+        source.arrowHeadPlacement = .both
+        source.lineStyle = .dashed
+        source.stepLabel = "7"
+        source.stepDiameter = 64
+
+        let copy = source.duplicated(offset: CGPoint(x: 12, y: -4))
+        #expect(copy.id != source.id)
+        #expect(copy.kind == source.kind)
+        #expect(copy.start == CGPoint(x: 22, y: 16))
+        #expect(copy.end == CGPoint(x: 62, y: 66))
+        #expect(copy.color == source.color)
+        #expect(copy.lineWidth == source.lineWidth)
+        #expect(copy.text == source.text && copy.fontSize == source.fontSize)
+        #expect(copy.bold == source.bold && copy.italic == source.italic)
+        #expect(copy.underline == source.underline)
+        #expect(copy.strikethrough == source.strikethrough)
+        #expect(copy.textShadow == source.textShadow)
+        #expect(copy.textBackground == source.textBackground)
+        #expect(copy.blurStyle == source.blurStyle && copy.blurLevel == source.blurLevel)
+        #expect(copy.fillOpacity == source.fillOpacity)
+        #expect(copy.arrowStyle == source.arrowStyle)
+        #expect(copy.arrowHeadPlacement == source.arrowHeadPlacement)
+        #expect(copy.lineStyle == source.lineStyle)
+        #expect(copy.stepLabel == source.stepLabel && copy.stepDiameter == source.stepDiameter)
+    }
+
     @Test func cornerHandleKeepsOppositeCornerFixed() {
         var a = make(.rect, start: CGPoint(x: 10, y: 10), end: CGPoint(x: 50, y: 40))
         a.apply(handle: .topLeft, to: CGPoint(x: 0, y: 0))
