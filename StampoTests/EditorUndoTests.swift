@@ -186,7 +186,9 @@ import Testing
     }
 
     @Test func everyAnnotationKindCanBeDuplicated() {
-        let kinds: [AnnotationKind] = [.line, .arrow, .rect, .oval, .text, .blur, .step]
+        let kinds: [AnnotationKind] = [
+            .line, .arrow, .rect, .oval, .text, .freehand, .blur, .step
+        ]
         for kind in kinds {
             let doc = makeDocument()
             var source = Annotation(kind: kind, start: CGPoint(x: 1, y: 2),
@@ -203,6 +205,7 @@ import Testing
         let expected: [(UInt16, EditorTool, String)] = [
             (9, .select, "V"), (37, .line, "L"), (0, .arrow, "A"),
             (15, .rect, "R"), (31, .oval, "O"), (17, .text, "T"),
+            (35, .drawing, "P"),
             (11, .blur, "B"), (1, .step, "S")
         ]
 
@@ -214,6 +217,48 @@ import Testing
         #expect(EditorTool.tool(forShortcutKeyCode: 7) == nil)
         #expect(EditorTool.ocr.shortcut == nil)
         #expect(EditorTool.crop.shortcut == nil)
+    }
+
+    @Test func oneEraserGestureIsOneUndoStepAndIgnoresOtherKinds() {
+        let doc = makeDocument()
+        var pen = Annotation(kind: .freehand, start: .zero,
+                             end: CGPoint(x: 100, y: 0), color: .red, lineWidth: 4)
+        pen.freehandPoints = stride(from: CGFloat(0), through: 100, by: 10)
+            .map { CGPoint(x: $0, y: 20) }
+        var marker = pen.duplicated(offset: CGPoint(x: 0, y: 20))
+        marker.freehandStyle = .marker
+        let arrow = Annotation(kind: .arrow, start: CGPoint(x: 0, y: 30),
+                               end: CGPoint(x: 100, y: 30), color: .blue, lineWidth: 4)
+        let original = [pen, marker, arrow]
+        doc.annotations = original
+
+        doc.beginChange()
+        #expect(doc.eraseFreehand(from: CGPoint(x: 50, y: 0),
+                                  to: CGPoint(x: 50, y: 50), diameter: 12))
+        doc.commitChange()
+        #expect(doc.undoStack.count == 1)
+        #expect(doc.annotations.filter { $0.kind == .freehand }.count == 4)
+        #expect(doc.annotations.contains { $0 == arrow })
+
+        doc.undo()
+        #expect(doc.annotations == original)
+        doc.redo()
+        #expect(doc.annotations.filter { $0.kind == .freehand }.count == 4)
+    }
+
+    @Test func rotateTransformsEveryFreehandPoint() {
+        let doc = makeDocument()
+        var stroke = Annotation(kind: .freehand, start: CGPoint(x: 1, y: 2),
+                                end: CGPoint(x: 6, y: 2), color: .red, lineWidth: 2)
+        stroke.freehandPoints = [stroke.start, stroke.end]
+        doc.annotations = [stroke]
+
+        doc.rotate(clockwise: true)
+        #expect(doc.annotations[0].freehandPoints == [
+            CGPoint(x: 6, y: 1), CGPoint(x: 6, y: 6)
+        ])
+        doc.undo()
+        #expect(doc.annotations == [stroke])
     }
 
     @Test func zoomScalesAndClampsPanInTheSameUpdate() {

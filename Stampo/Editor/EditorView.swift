@@ -147,6 +147,21 @@ struct EditorView: View {
                               ticks: false, format: { "\(Int($0))pt" })
                 Divider().frame(height: 18)
                 textControls
+            case .freehand:
+                drawingModePicker
+                if effectiveDrawingMode == .eraser {
+                    settingSlider("Eraser Size", systemImage: "eraser",
+                                  value: eraserDiameterBinding,
+                                  range: 8...80, step: 4)
+                } else {
+                    colorSwatches
+                    let range: ClosedRange<CGFloat> = effectiveDrawingMode == .marker
+                        ? 8...64 : 2...32
+                    settingSlider("Brush Size", systemImage: "lineweight",
+                                  value: drawingWidthBinding,
+                                  range: range,
+                                  step: effectiveDrawingMode == .marker ? 4 : 2)
+                }
             case .step:
                 colorSwatches
                 settingSlider("Marker Size", systemImage: "circle.circle",
@@ -180,6 +195,7 @@ struct EditorView: View {
         case .rect:   return .rect
         case .oval:   return .oval
         case .text:   return .text
+        case .drawing:return .freehand
         case .blur:   return .blur
         case .step:   return .step
         }
@@ -223,6 +239,18 @@ struct EditorView: View {
         .labelsHidden()
         .frame(width: 130)
         .hoverTip("Blur Style")
+    }
+
+    private var drawingModePicker: some View {
+        Picker("Drawing Instrument", selection: drawingModeBinding) {
+            Text("Pen").tag(DrawingMode.pen)
+            Text("Marker").tag(DrawingMode.marker)
+            Text("Eraser").tag(DrawingMode.eraser)
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .frame(width: 190)
+        .hoverTip("Drawing Instrument")
     }
 
     private var fillSlider: some View {
@@ -356,6 +384,56 @@ struct EditorView: View {
                 style.lineWidth = newValue
                 document.updateSelected { $0.lineWidth = newValue }
             }
+        )
+    }
+
+    private var effectiveDrawingMode: DrawingMode {
+        if let selected = document.selectedAnnotation, selected.kind == .freehand {
+            return DrawingMode(selected.freehandStyle)
+        }
+        return style.drawingMode
+    }
+
+    private var drawingModeBinding: Binding<DrawingMode> {
+        Binding(
+            get: { effectiveDrawingMode },
+            set: { newValue in
+                style.drawingMode = newValue
+                tool = .drawing
+                cropRect = nil
+                // Pen, Marker and Eraser choose the next drawing gesture.
+                // Switching instruments must not mutate a previously selected
+                // stroke or register an unexpected undo operation.
+                document.selectedID = nil
+            }
+        )
+    }
+
+    private var drawingWidthBinding: Binding<CGFloat> {
+        Binding(
+            get: {
+                if let selected = document.selectedAnnotation, selected.kind == .freehand {
+                    return selected.lineWidth
+                }
+                return style.width(for: effectiveDrawingMode)
+            },
+            set: { newValue in
+                switch effectiveDrawingMode {
+                case .pen:    style.penWidth = newValue
+                case .marker: style.markerWidth = newValue
+                case .eraser: style.eraserDiameter = newValue
+                }
+                document.updateSelected {
+                    if $0.kind == .freehand { $0.lineWidth = newValue }
+                }
+            }
+        )
+    }
+
+    private var eraserDiameterBinding: Binding<CGFloat> {
+        Binding(
+            get: { style.eraserDiameter },
+            set: { style.eraserDiameter = $0 }
         )
     }
 

@@ -4139,6 +4139,55 @@
         }
       }
     },
+    "Drawing" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Drawing" } },
+        "ru" : { "stringUnit" : { "state" : "translated", "value" : "Рисование" } }
+      }
+    },
+    "Drawing Instrument" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Drawing Instrument" } },
+        "ru" : { "stringUnit" : { "state" : "translated", "value" : "Инструмент рисования" } }
+      }
+    },
+    "Pen" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Pen" } },
+        "ru" : { "stringUnit" : { "state" : "translated", "value" : "Ручка" } }
+      }
+    },
+    "Marker" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Marker" } },
+        "ru" : { "stringUnit" : { "state" : "translated", "value" : "Маркер" } }
+      }
+    },
+    "Eraser" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Eraser" } },
+        "ru" : { "stringUnit" : { "state" : "translated", "value" : "Ластик" } }
+      }
+    },
+    "Brush Size" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Brush Size" } },
+        "ru" : { "stringUnit" : { "state" : "translated", "value" : "Размер кисти" } }
+      }
+    },
+    "Eraser Size" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Eraser Size" } },
+        "ru" : { "stringUnit" : { "state" : "translated", "value" : "Размер ластика" } }
+      }
+    },
     "Русский" : {
 
     }

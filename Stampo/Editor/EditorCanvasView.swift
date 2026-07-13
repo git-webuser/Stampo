@@ -3,12 +3,14 @@ import SwiftUI
 
 /// Active tool in the editor toolbar.
 enum EditorTool: Equatable, CaseIterable {
-    case select, line, arrow, rect, oval, text, blur, step, ocr, crop
+    case select, line, arrow, rect, oval, text, drawing, blur, step, ocr, crop
 
     /// Drawing tools shown in the toolbar picker. `.ocr` and `.crop` are
     /// transient marquee modes driven by their own buttons in the actions
     /// group, not persistent drawing tools, so they're excluded here.
-    static let pickerCases: [EditorTool] = [.select, .line, .arrow, .rect, .oval, .text, .blur, .step]
+    static let pickerCases: [EditorTool] = [
+        .select, .line, .arrow, .rect, .oval, .text, .drawing, .blur, .step
+    ]
 
     /// Layout-independent physical-key shortcuts used while the editor window
     /// is active. OCR and crop stay transient action modes without shortcuts.
@@ -20,6 +22,7 @@ enum EditorTool: Equatable, CaseIterable {
         case .rect:   return (15, "R")
         case .oval:   return (31, "O")
         case .text:   return (17, "T")
+        case .drawing:return (35, "P")
         case .blur:   return (11, "B")
         case .step:   return (1, "S")
         case .ocr, .crop: return nil
@@ -38,6 +41,7 @@ enum EditorTool: Equatable, CaseIterable {
         case .rect:   return "rectangle"
         case .oval:   return "oval"
         case .text:   return "textformat"
+        case .drawing:return "pencil.tip"
         case .blur:   return "drop"
         case .step:   return "1.circle"
         case .ocr:    return "text.viewfinder"
@@ -53,6 +57,7 @@ enum EditorTool: Equatable, CaseIterable {
         case .rect:   return "Rectangle"
         case .oval:   return "Oval"
         case .text:   return "Text"
+        case .drawing:return "Drawing"
         case .blur:   return "Blur"
         case .step:   return "Step"
         case .ocr:    return "Recognize Text"
@@ -111,6 +116,18 @@ struct ToolStyle {
     var textBackground: TextBackground = .none
     /// Diameter of new step markers in image pixels.
     var stepDiameter: CGFloat = 40
+    var drawingMode: DrawingMode = .pen
+    var penWidth: CGFloat = 6
+    var markerWidth: CGFloat = 24
+    var eraserDiameter: CGFloat = 32
+
+    func width(for mode: DrawingMode) -> CGFloat {
+        switch mode {
+        case .pen:    return penWidth
+        case .marker: return markerWidth
+        case .eraser: return eraserDiameter
+        }
+    }
 
     subscript(textStyle flag: TextStyleFlag) -> Bool {
         get {
@@ -164,11 +181,14 @@ struct EditorCanvasView: View {
     /// Last committed click, for timing-based double-click detection (the
     /// gesture layer doesn't surface a reliable OS click count).
     @State private var lastClick: (id: UUID?, time: Date, point: CGPoint)?
+    @State private var drawingCursorLocation: CGPoint?
 
     private enum DragMode {
         case undecided(pixelPoint: CGPoint)
         case duplicatePending(sourceID: UUID, start: CGPoint)
         case creating(UUID)
+        case drawing(UUID)
+        case erasing(last: CGPoint)
         case moving(UUID, last: CGPoint)
         case resizing(UUID, Annotation.Handle)
         case panning(last: CGPoint)
@@ -214,6 +234,13 @@ struct EditorCanvasView: View {
                         textOverlay(for: annotation, fitScale: fitScale, offset: offset)
                     }
                 }
+
+                if tool == .drawing, style.drawingMode != .pen,
+                   let location = drawingCursorLocation,
+                   CGRect(origin: offset, size: drawSize).contains(location) {
+                    drawingCursor(at: location, diameter: style.width(for: style.drawingMode)
+                                  * fitScale)
+                }
             }
             .gesture(dragGesture(fitScale: fitScale, offset: offset, pixel: pixel,
                                  viewport: geo.size, baseDrawSize: baseDrawSize))
@@ -242,6 +269,12 @@ struct EditorCanvasView: View {
                     panOffset, baseDrawSize: baseDrawSize,
                     zoom: zoomFactor, viewport: geo.size
                 )
+            }
+            .onContinuousHover { phase in
+                switch phase {
+                case .active(let location): drawingCursorLocation = location
+                case .ended: drawingCursorLocation = nil
+                }
             }
             .clipped()
         }
@@ -445,7 +478,9 @@ struct EditorCanvasView: View {
         }
 
         // Dashed outline for area-like annotations (incl. text bounds).
-        if a.kind != .line && a.kind != .arrow {
+        // Freehand paths use endpoint markers like lines, avoiding a bounding
+        // box that visually suggests the curve itself is rectangular.
+        if a.kind != .line && a.kind != .arrow && a.kind != .freehand {
             let r = a.rect
             let viewRect = CGRect(origin: toView(r.origin),
                                   size: CGSize(width: r.width * fitScale, height: r.height * fitScale))
@@ -462,7 +497,15 @@ struct EditorCanvasView: View {
                            style: StrokeStyle(lineWidth: 1, dash: [4, 3], dashPhase: 3.5))
         }
 
-        for (_, position) in a.handles {
+        var selectionPoints = a.handles.map(\.1)
+        if a.kind == .freehand, let first = a.freehandPoints.first {
+            selectionPoints = [first]
+            if let last = a.freehandPoints.last, last != first {
+                selectionPoints.append(last)
+            }
+        }
+
+        for position in selectionPoints {
             let c = toView(position)
             let handleRect = CGRect(x: c.x - 4.5, y: c.y - 4.5, width: 9, height: 9)
             let circle = Path(ellipseIn: handleRect)
@@ -471,12 +514,27 @@ struct EditorCanvasView: View {
         }
     }
 
+    private func drawingCursor(at location: CGPoint, diameter: CGFloat) -> some View {
+        Circle()
+            .stroke(Color.white.opacity(0.95), lineWidth: 2)
+            .overlay(Circle().stroke(Color.black.opacity(0.7), lineWidth: 1))
+            .frame(width: max(2, diameter), height: max(2, diameter))
+            .position(location)
+            .allowsHitTesting(false)
+    }
+
     // MARK: Gesture
 
     private func dragGesture(fitScale: CGFloat, offset: CGPoint, pixel: CGSize,
                              viewport: CGSize, baseDrawSize: CGSize) -> some Gesture {
         DragGesture(minimumDistance: 0)
             .onChanged { value in
+                // Continuous-hover events pause while the mouse button is
+                // down, so keep the brush/eraser indicator attached to the
+                // pointer from the drag stream itself.
+                if tool == .drawing {
+                    drawingCursorLocation = value.location
+                }
                 let p = pixelPoint(value.location, fitScale: fitScale, offset: offset, pixel: pixel)
 
                 if dragMode == nil {
@@ -518,6 +576,18 @@ struct EditorCanvasView: View {
                         break
                     }
                     dragMode = .moving(duplicateID, last: p)
+
+                case .drawing(let id):
+                    let sampleDistance = max(0.5, 1 / fitScale)
+                    update(id) {
+                        $0.appendFreehandPoint(p, minimumDistance: sampleDistance)
+                    }
+
+                case .erasing(let last):
+                    document.eraseFreehand(
+                        from: last, to: p, diameter: style.eraserDiameter
+                    )
+                    dragMode = .erasing(last: p)
 
                 case .undecided(let startPixel):
                     let viewDistance = hypot(value.translation.width, value.translation.height)
@@ -613,6 +683,9 @@ struct EditorCanvasView: View {
             }
             .onEnded { value in
                 defer { dragMode = nil }
+                if tool == .drawing {
+                    drawingCursorLocation = value.location
+                }
                 let p = pixelPoint(value.location, fitScale: fitScale, offset: offset, pixel: pixel)
 
                 switch dragMode {
@@ -626,6 +699,23 @@ struct EditorCanvasView: View {
                     } else {
                         document.commitChange()
                     }
+                case .drawing(let id):
+                    update(id) { $0.appendFreehandPoint(p, minimumDistance: 0.01) }
+                    if let annotation = document.annotations.first(where: { $0.id == id }),
+                       annotation.isDegenerate {
+                        document.annotations.removeAll { $0.id == id }
+                        document.selectedID = nil
+                        document.discardChange()
+                    } else {
+                        // Finishing a stroke leaves Drawing ready for the next
+                        // stroke. Keeping the old one selected makes changing
+                        // Pen/Marker look like a tool switch while silently
+                        // restyling the annotation that was just created.
+                        document.selectedID = nil
+                        document.commitChange()
+                    }
+                case .erasing:
+                    document.commitChange()
                 case .moving, .resizing:
                     document.commitChange()
                 case .ocrSelecting(let start, _):
@@ -687,6 +777,25 @@ struct EditorCanvasView: View {
                 return .moving(selected.id, last: p)
             }
             return .undecided(pixelPoint: p)
+        case .drawing:
+            document.selectedID = nil
+            document.beginChange()
+            if style.drawingMode == .eraser {
+                document.eraseFreehand(from: p, to: p, diameter: style.eraserDiameter)
+                return .erasing(last: p)
+            }
+            guard let freehandStyle = style.drawingMode.freehandStyle else {
+                document.discardChange()
+                return .ignore
+            }
+            let width = style.width(for: style.drawingMode)
+            var annotation = Annotation(kind: .freehand, start: p, end: p,
+                                        color: style.color, lineWidth: width)
+            annotation.freehandStyle = freehandStyle
+            annotation.appendFreehandPoint(p, minimumDistance: 0)
+            document.annotations.append(annotation)
+            document.selectedID = annotation.id
+            return .drawing(annotation.id)
         case .line, .arrow, .rect, .oval, .blur, .step:
             // Dragging the selected annotation's body moves it even with a
             // shape tool active; empty space starts a new shape on drag.
@@ -750,7 +859,7 @@ struct EditorCanvasView: View {
         case .rect:  return .rect
         case .oval:  return .oval
         case .blur:  return .blur
-        case .select, .text, .step, .ocr, .crop: return nil
+        case .select, .text, .drawing, .step, .ocr, .crop: return nil
         }
     }
 
@@ -781,7 +890,7 @@ struct EditorCanvasView: View {
             return Annotation.snappedArrowEnd(from: start, to: point)
         case .rect, .oval:
             return Annotation.aspectLockedEnd(from: start, to: point)
-        case .text, .blur, .step:
+        case .text, .freehand, .blur, .step:
             return point
         }
     }

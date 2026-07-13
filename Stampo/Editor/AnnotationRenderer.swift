@@ -119,6 +119,7 @@ enum AnnotationRenderer {
             case .rect:  drawShape(annotation, isOval: false, ctx: ctx)
             case .oval:  drawShape(annotation, isOval: true, ctx: ctx)
             case .text:  drawText(annotation, ctx: ctx)
+            case .freehand: drawFreehand(annotation, ctx: ctx)
             case .step:  drawStep(annotation, ctx: ctx)
             case .blur:  break  // handled in the first pass
             }
@@ -151,6 +152,45 @@ enum AnnotationRenderer {
         ctx.addLine(to: a.end)
         ctx.strokePath()
         ctx.setLineDash(phase: 0, lengths: [])
+    }
+
+    /// Smooth midpoint-quadratic path shared by pen and marker. Rendering is
+    /// kept in this common export routine so the live preview and saved bitmap
+    /// are pixel-for-pixel consistent.
+    private static func drawFreehand(_ a: Annotation, ctx: CGContext) {
+        guard let first = a.freehandPoints.first else { return }
+        let color = a.color.multipliedAlpha(a.freehandStyle.opacity)
+
+        ctx.saveGState()
+        ctx.setStrokeColor(color.cgColor)
+        ctx.setFillColor(color.cgColor)
+        ctx.setLineWidth(a.lineWidth)
+        ctx.setLineCap(.round)
+        ctx.setLineJoin(.round)
+
+        if a.freehandPoints.count == 1 {
+            let radius = a.lineWidth / 2
+            ctx.fillEllipse(in: CGRect(x: first.x - radius, y: first.y - radius,
+                                       width: a.lineWidth, height: a.lineWidth))
+            ctx.restoreGState()
+            return
+        }
+
+        ctx.move(to: first)
+        if a.freehandPoints.count == 2 {
+            ctx.addLine(to: a.freehandPoints[1])
+        } else {
+            for index in 1..<(a.freehandPoints.count - 1) {
+                let control = a.freehandPoints[index]
+                let next = a.freehandPoints[index + 1]
+                let midpoint = CGPoint(x: (control.x + next.x) / 2,
+                                       y: (control.y + next.y) / 2)
+                ctx.addQuadCurve(to: midpoint, control: control)
+            }
+            if let last = a.freehandPoints.last { ctx.addLine(to: last) }
+        }
+        ctx.strokePath()
+        ctx.restoreGState()
     }
 
     private static func drawArrow(_ a: Annotation, ctx: CGContext) {

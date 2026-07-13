@@ -45,6 +45,25 @@ enum TestImages {
         #expect((mid?.brightnessComponent ?? 1.0) < 0.5)
     }
 
+    @Test func penAndTranslucentMarkerRenderWithDifferentOpacity() {
+        let base = TestImages.make(width: 48, height: 48)
+        var pen = Annotation(kind: .freehand, start: CGPoint(x: 4, y: 12),
+                             end: CGPoint(x: 44, y: 12), color: .black, lineWidth: 6)
+        pen.freehandPoints = [pen.start, pen.end]
+        pen.freehandStyle = .pen
+        var marker = Annotation(kind: .freehand, start: CGPoint(x: 4, y: 34),
+                                end: CGPoint(x: 44, y: 34), color: .black, lineWidth: 12)
+        marker.freehandPoints = [marker.start, marker.end]
+        marker.freehandStyle = .marker
+
+        let rep = AnnotationRenderer.renderBitmap(base: base, annotations: [pen, marker])!
+        let penBrightness = rep.colorAt(x: 24, y: 12)?.brightnessComponent ?? 1
+        let markerBrightness = rep.colorAt(x: 24, y: 34)?.brightnessComponent ?? 1
+        #expect(penBrightness < 0.2)
+        #expect(markerBrightness > penBrightness)
+        #expect(markerBrightness < 0.9)
+    }
+
     @Test(arguments: ArrowStyle.allCases)
     func everyArrowStyleDrawsPixels(arrowStyle: ArrowStyle) {
         let base = TestImages.make(width: 60, height: 20)  // all white

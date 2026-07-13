@@ -9,6 +9,7 @@ enum AnnotationKind: Equatable {
     case rect
     case oval
     case text
+    case freehand
     case blur
     case step
 }
@@ -32,6 +33,41 @@ enum ArrowHeadPlacement: String, Equatable, CaseIterable {
 enum BlurStyle: String, Equatable, CaseIterable {
     case gaussian
     case pixelate
+}
+
+/// Persisted visual style of a freehand annotation. New drawing instruments
+/// (pencil, brush, calligraphy pen) extend this enum without adding toolbar
+/// buttons or changing the gesture model.
+enum FreehandStyle: String, Equatable, CaseIterable {
+    case pen
+    case marker
+
+    var opacity: CGFloat {
+        switch self {
+        case .pen:    return 1
+        case .marker: return 0.35
+        }
+    }
+}
+
+/// Active mode of the shared Drawing tool. Eraser is an operation over stored
+/// freehand strokes, not a drawable annotation style of its own.
+enum DrawingMode: String, Equatable, CaseIterable {
+    case pen
+    case marker
+    case eraser
+
+    var freehandStyle: FreehandStyle? {
+        switch self {
+        case .pen:    return .pen
+        case .marker: return .marker
+        case .eraser: return nil
+        }
+    }
+
+    init(_ style: FreehandStyle) {
+        self = style == .pen ? .pen : .marker
+    }
 }
 
 /// Visual variant of an `.arrow`. `filled` is the default.
@@ -189,6 +225,10 @@ struct Annotation: Identifiable, Equatable {
     var stepLabel: String = "1"
     /// Diameter of a `.step` marker in image pixels.
     var stepDiameter: CGFloat = 40
+    /// Native image-pixel samples of a `.freehand` annotation.
+    var freehandPoints: [CGPoint] = []
+    /// Rendering strategy for a `.freehand` annotation.
+    var freehandStyle: FreehandStyle = .pen
 
     init(id: UUID = UUID(), kind: AnnotationKind, start: CGPoint, end: CGPoint,
          color: AnnotationColor, lineWidth: CGFloat) {
@@ -208,6 +248,18 @@ struct Annotation: Identifiable, Equatable {
                           y: start.y - stepDiameter / 2,
                           width: stepDiameter, height: stepDiameter)
         }
+        if kind == .freehand, let first = freehandPoints.first {
+            var minX = first.x, maxX = first.x
+            var minY = first.y, maxY = first.y
+            for point in freehandPoints.dropFirst() {
+                minX = min(minX, point.x); maxX = max(maxX, point.x)
+                minY = min(minY, point.y); maxY = max(maxY, point.y)
+            }
+            let radius = lineWidth / 2
+            return CGRect(x: minX - radius, y: minY - radius,
+                          width: maxX - minX + lineWidth,
+                          height: maxY - minY + lineWidth)
+        }
         return CGRect(x: min(start.x, end.x),
                       y: min(start.y, end.y),
                       width: abs(end.x - start.x),
@@ -223,6 +275,8 @@ struct Annotation: Identifiable, Equatable {
             return rect.width < 4 || rect.height < 4
         case .text:
             return text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        case .freehand:
+            return freehandPoints.isEmpty
         case .step:
             return stepDiameter <= 0
         }
@@ -254,6 +308,15 @@ struct Annotation: Identifiable, Equatable {
             return abs(d - 1.0) <= tol
         case .text, .blur:
             return rect.insetBy(dx: -tolerance, dy: -tolerance).contains(p)
+        case .freehand:
+            guard let first = freehandPoints.first else { return false }
+            let distance = tolerance + lineWidth / 2
+            if freehandPoints.count == 1 {
+                return hypot(p.x - first.x, p.y - first.y) <= distance
+            }
+            return zip(freehandPoints, freehandPoints.dropFirst()).contains { a, b in
+                Self.distance(from: p, toSegment: a, b) <= distance
+            }
         case .step:
             return hypot(p.x - start.x, p.y - start.y) <= stepDiameter / 2 + tolerance
         }
@@ -286,7 +349,7 @@ struct Annotation: Identifiable, Equatable {
                     (.topRight, CGPoint(x: r.maxX, y: r.minY)),
                     (.bottomLeft, CGPoint(x: r.minX, y: r.maxY)),
                     (.bottomRight, CGPoint(x: r.maxX, y: r.maxY))]
-        case .text, .step:
+        case .text, .freehand, .step:
             return [] // move-only; double-click edits
         }
     }
@@ -298,6 +361,78 @@ struct Annotation: Identifiable, Equatable {
     mutating func move(by delta: CGPoint) {
         start.x += delta.x; start.y += delta.y
         end.x += delta.x; end.y += delta.y
+        if kind == .freehand {
+            freehandPoints = freehandPoints.map {
+                CGPoint(x: $0.x + delta.x, y: $0.y + delta.y)
+            }
+        }
+    }
+
+    /// Adds a native-pixel point when it is far enough from the previous
+    /// sample. The threshold is supplied by the view in screen-point terms,
+    /// converted through the current zoom, to keep paths smooth but compact.
+    @discardableResult
+    mutating func appendFreehandPoint(_ point: CGPoint,
+                                      minimumDistance: CGFloat) -> Bool {
+        guard kind == .freehand else { return false }
+        if let last = freehandPoints.last,
+           hypot(point.x - last.x, point.y - last.y) < minimumDistance {
+            return false
+        }
+        freehandPoints.append(point)
+        start = freehandPoints.first ?? point
+        end = point
+        return true
+    }
+
+    /// Returns this stroke after removing the visible portion touched by one
+    /// segment of an eraser gesture. A cut can yield multiple independently
+    /// movable fragments; the first retains identity, later fragments get new
+    /// UUIDs. Non-freehand annotations pass through unchanged.
+    func erasingFreehand(from eraserStart: CGPoint, to eraserEnd: CGPoint,
+                         radius: CGFloat) -> (fragments: [Annotation], changed: Bool) {
+        guard kind == .freehand, !freehandPoints.isEmpty else { return ([self], false) }
+
+        // Densify before classifying so a fast stroke with two distant samples
+        // cannot tunnel across a narrow eraser path without being cut.
+        let interval = max(0.75, min(max(radius, 1), max(lineWidth, 1)) / 2)
+        var samples: [CGPoint] = [freehandPoints[0]]
+        for (a, b) in zip(freehandPoints, freehandPoints.dropFirst()) {
+            let length = hypot(b.x - a.x, b.y - a.y)
+            let steps = max(1, Int(ceil(length / interval)))
+            for step in 1...steps {
+                let t = CGFloat(step) / CGFloat(steps)
+                samples.append(CGPoint(x: a.x + (b.x - a.x) * t,
+                                       y: a.y + (b.y - a.y) * t))
+            }
+        }
+
+        let visibleRadius = max(0, radius) + lineWidth / 2
+        let erased = samples.map {
+            Self.distance(from: $0, toSegment: eraserStart, eraserEnd) <= visibleRadius
+        }
+        guard erased.contains(true) else { return ([self], false) }
+
+        var runs: [[CGPoint]] = []
+        var current: [CGPoint] = []
+        for (point, isErased) in zip(samples, erased) {
+            if isErased {
+                if !current.isEmpty { runs.append(current); current = [] }
+            } else {
+                current.append(point)
+            }
+        }
+        if !current.isEmpty { runs.append(current) }
+
+        let fragments = runs.enumerated().map { index, points in
+            var fragment = self
+            if index > 0 { fragment.id = UUID() }
+            fragment.freehandPoints = points
+            fragment.start = points.first ?? start
+            fragment.end = points.last ?? end
+            return fragment
+        }
+        return (fragments, true)
     }
 
     /// Value-copy for duplication: every visual/geometry property is retained,
@@ -507,6 +642,11 @@ struct DocumentSnapshot: Equatable {
             var a = a
             a.start = rotatePoint(a.start, in: size, clockwise: clockwise)
             a.end = rotatePoint(a.end, in: size, clockwise: clockwise)
+            if a.kind == .freehand {
+                a.freehandPoints = a.freehandPoints.map {
+                    rotatePoint($0, in: size, clockwise: clockwise)
+                }
+            }
             return a
         }
     }
@@ -577,6 +717,26 @@ struct DocumentSnapshot: Equatable {
               let idx = annotations.firstIndex(where: { $0.id == selectedID })
         else { return }
         mutate(&annotations[idx])
+    }
+
+    /// Applies one eraser movement to every freehand style while preserving
+    /// all other annotation kinds and their stacking order. The caller owns
+    /// begin/commit so a complete drag becomes one undo step.
+    @discardableResult
+    func eraseFreehand(from start: CGPoint, to end: CGPoint,
+                       diameter: CGFloat) -> Bool {
+        var didChange = false
+        annotations = annotations.flatMap { annotation in
+            let result = annotation.erasingFreehand(
+                from: start, to: end, radius: max(0, diameter) / 2
+            )
+            didChange = didChange || result.changed
+            return result.fragments
+        }
+        if let selectedID, !annotations.contains(where: { $0.id == selectedID }) {
+            self.selectedID = nil
+        }
+        return didChange
     }
 
     // MARK: Undo / redo (snapshot stack of value types)

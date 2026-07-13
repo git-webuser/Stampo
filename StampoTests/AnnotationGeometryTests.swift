@@ -86,6 +86,64 @@ import Testing
         #expect(step.start == CGPoint(x: 60, y: 35))
     }
 
+    @Test func freehandBoundsHitTestingSamplingAndMove() {
+        var stroke = make(.freehand, start: .zero, end: .zero, lineWidth: 4)
+        let addedFirstPoint = stroke.appendFreehandPoint(
+            CGPoint(x: 10, y: 10),
+            minimumDistance: 1
+        )
+        let ignoredNearbyPoint = stroke.appendFreehandPoint(
+            CGPoint(x: 10.2, y: 10.2),
+            minimumDistance: 1
+        )
+        let addedSecondPoint = stroke.appendFreehandPoint(
+            CGPoint(x: 20, y: 20),
+            minimumDistance: 1
+        )
+
+        #expect(addedFirstPoint)
+        #expect(!ignoredNearbyPoint)
+        #expect(addedSecondPoint)
+        #expect(stroke.rect == CGRect(x: 8, y: 8, width: 14, height: 14))
+        #expect(stroke.hitTest(CGPoint(x: 15, y: 16), tolerance: 1))
+        #expect(!stroke.hitTest(CGPoint(x: 15, y: 30), tolerance: 1))
+        #expect(stroke.handles.isEmpty)
+
+        stroke.move(by: CGPoint(x: 5, y: -3))
+        #expect(stroke.freehandPoints == [CGPoint(x: 15, y: 7), CGPoint(x: 25, y: 17)])
+    }
+
+    @Test func freehandEraserCutsAStrokeIntoFragments() {
+        var stroke = make(.freehand, start: .zero, end: .zero, lineWidth: 4)
+        stroke.freehandStyle = .marker
+        for x in stride(from: CGFloat(0), through: 100, by: 10) {
+            stroke.appendFreehandPoint(CGPoint(x: x, y: 50), minimumDistance: 0)
+        }
+
+        let result = stroke.erasingFreehand(
+            from: CGPoint(x: 50, y: 30), to: CGPoint(x: 50, y: 70), radius: 6
+        )
+        #expect(result.changed)
+        #expect(result.fragments.count == 2)
+        #expect(result.fragments[0].id == stroke.id)
+        #expect(result.fragments[1].id != stroke.id)
+        #expect(result.fragments.allSatisfy { $0.freehandStyle == .marker })
+        #expect(result.fragments.allSatisfy {
+            !$0.hitTest(CGPoint(x: 50, y: 50), tolerance: 0)
+        })
+    }
+
+    @Test func freehandEraserNoOpPreservesIdentityAndGeometry() {
+        var stroke = make(.freehand, start: .zero, end: .zero)
+        stroke.appendFreehandPoint(CGPoint(x: 5, y: 5), minimumDistance: 0)
+        stroke.appendFreehandPoint(CGPoint(x: 20, y: 5), minimumDistance: 0)
+        let result = stroke.erasingFreehand(
+            from: CGPoint(x: 50, y: 50), to: CGPoint(x: 60, y: 60), radius: 4
+        )
+        #expect(!result.changed)
+        #expect(result.fragments == [stroke])
+    }
+
     // MARK: handles
 
     @Test func arrowHasEndpointHandles() {
@@ -118,7 +176,7 @@ import Testing
     }
 
     @Test func duplicateGetsNewIdentityAndPreservesEveryProperty() {
-        var source = make(.arrow, start: CGPoint(x: 10, y: 20),
+        var source = make(.freehand, start: CGPoint(x: 10, y: 20),
                           end: CGPoint(x: 50, y: 70), lineWidth: 12)
         source.color = .blue
         source.text = "copy"
@@ -137,6 +195,8 @@ import Testing
         source.lineStyle = .dashed
         source.stepLabel = "7"
         source.stepDiameter = 64
+        source.freehandStyle = .marker
+        source.freehandPoints = [CGPoint(x: 10, y: 20), CGPoint(x: 25, y: 40)]
 
         let copy = source.duplicated(offset: CGPoint(x: 12, y: -4))
         #expect(copy.id != source.id)
@@ -157,6 +217,8 @@ import Testing
         #expect(copy.arrowHeadPlacement == source.arrowHeadPlacement)
         #expect(copy.lineStyle == source.lineStyle)
         #expect(copy.stepLabel == source.stepLabel && copy.stepDiameter == source.stepDiameter)
+        #expect(copy.freehandStyle == source.freehandStyle)
+        #expect(copy.freehandPoints == [CGPoint(x: 22, y: 16), CGPoint(x: 37, y: 36)])
     }
 
     @Test func cornerHandleKeepsOppositeCornerFixed() {
@@ -216,5 +278,9 @@ import Testing
         #expect(text.isDegenerate)
         text.text = "label"
         #expect(!text.isDegenerate)
+        var freehand = make(.freehand, start: .zero, end: .zero)
+        #expect(freehand.isDegenerate)
+        freehand.appendFreehandPoint(.zero, minimumDistance: 0)
+        #expect(!freehand.isDegenerate)
     }
 }
