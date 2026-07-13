@@ -474,6 +474,23 @@
         }
       }
     },
+    "Brush Size" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Brush Size"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Размер кисти"
+          }
+        }
+      }
+    },
     "Cancel" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1236,6 +1253,40 @@
         }
       }
     },
+    "Drawing" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Drawing"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Рисование"
+          }
+        }
+      }
+    },
+    "Drawing Instrument" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Drawing Instrument"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Инструмент рисования"
+          }
+        }
+      }
+    },
     "Edit" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1306,6 +1357,40 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Весь экран"
+          }
+        }
+      }
+    },
+    "Eraser" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eraser"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ластик"
+          }
+        }
+      }
+    },
+    "Eraser Size" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eraser Size"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Размер ластика"
           }
         }
       }
@@ -1800,6 +1885,23 @@
         }
       }
     },
+    "Loupe Source" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Loupe Source"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Источник лупы"
+          }
+        }
+      }
+    },
     "macOS couldn't capture the screen. This usually means Screen Recording permission is missing or was revoked." : {
       "extractionState" : "stale",
       "localizations" : {
@@ -1813,6 +1915,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "macOS не смогла сделать скриншот. Обычно это означает, что разрешение «Запись экрана» отсутствует или было отозвано."
+          }
+        }
+      }
+    },
+    "Marker" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Marker"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Маркер"
           }
         }
       }
@@ -2343,6 +2462,23 @@
         }
       }
     },
+    "Original" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Original"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Оригинал"
+          }
+        }
+      }
+    },
     "Oval" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2391,6 +2527,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Вставьте в отчёт об ошибке, чтобы помочь в диагностике проблемы"
+          }
+        }
+      }
+    },
+    "Pen" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pen"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ручка"
           }
         }
       }
@@ -2674,6 +2827,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Красный"
+          }
+        }
+      }
+    },
+    "Redacted" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Redacted"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "С маскировкой"
           }
         }
       }
@@ -4137,55 +4307,6 @@
             "value" : "Подогнать по размеру"
           }
         }
-      }
-    },
-    "Drawing" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Drawing" } },
-        "ru" : { "stringUnit" : { "state" : "translated", "value" : "Рисование" } }
-      }
-    },
-    "Drawing Instrument" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Drawing Instrument" } },
-        "ru" : { "stringUnit" : { "state" : "translated", "value" : "Инструмент рисования" } }
-      }
-    },
-    "Pen" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Pen" } },
-        "ru" : { "stringUnit" : { "state" : "translated", "value" : "Ручка" } }
-      }
-    },
-    "Marker" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Marker" } },
-        "ru" : { "stringUnit" : { "state" : "translated", "value" : "Маркер" } }
-      }
-    },
-    "Eraser" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Eraser" } },
-        "ru" : { "stringUnit" : { "state" : "translated", "value" : "Ластик" } }
-      }
-    },
-    "Brush Size" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Brush Size" } },
-        "ru" : { "stringUnit" : { "state" : "translated", "value" : "Размер кисти" } }
-      }
-    },
-    "Eraser Size" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Eraser Size" } },
-        "ru" : { "stringUnit" : { "state" : "translated", "value" : "Размер ластика" } }
       }
     },
     "Русский" : {
