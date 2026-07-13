@@ -230,24 +230,35 @@ struct EditorView: View {
 
     private var blurStylePicker: some View {
         Picker("Blur", selection: blurStyleBinding) {
-            Text("Pixelate").tag(BlurStyle.pixelate)
-            Text("Blur").tag(BlurStyle.gaussian)
+            segmentLabel("Pixelate", systemImage: "square.grid.3x3.fill")
+                .tag(BlurStyle.pixelate)
+            segmentLabel("Blur", systemImage: "drop.fill")
+                .tag(BlurStyle.gaussian)
         }
         .pickerStyle(.segmented)
         .labelsHidden()
-        .frame(width: 130)
+        .frame(width: 220)
         .hoverTip("Blur Style")
     }
 
     private var drawingModePicker: some View {
         Picker("Drawing Instrument", selection: drawingModeBinding) {
-            Text("Pen").tag(DrawingMode.pen)
-            Text("Marker").tag(DrawingMode.marker)
+            segmentLabel("Pen", systemImage: "pencil.tip")
+                .tag(DrawingMode.pen)
+            segmentLabel("Marker", systemImage: "highlighter")
+                .tag(DrawingMode.marker)
         }
         .pickerStyle(.segmented)
         .labelsHidden()
-        .frame(width: 130)
+        .frame(width: 180)
         .hoverTip("Drawing Instrument")
+    }
+
+    /// A single `Text` value with an inline SF Symbol survives SwiftUI's
+    /// native NSSegmentedControl bridge, unlike a composite `Label` view.
+    private func segmentLabel(_ title: LocalizedStringKey,
+                              systemImage: String) -> Text {
+        Text(Image(systemName: systemImage)) + Text(verbatim: " ") + Text(title)
     }
 
     private var fillSlider: some View {
