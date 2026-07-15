@@ -25,4 +25,12 @@ import Testing
 
         #expect(try CodeRecognition.payload(in: url) == payload)
     }
+
+    @Test @MainActor func hudPayloadPreviewIsSingleLineAndBounded() {
+        #expect(TextCaptureHUD.payloadPreview("WIFI:S:Home;\nT:WPA;\nP:secret;;")
+                == "WIFI:S:Home; T:WPA; P:secret;;")
+        #expect(TextCaptureHUD.payloadPreview("  spaced\t\tout  ") == "spaced out")
+        let long = String(repeating: "a", count: 1000)
+        #expect(TextCaptureHUD.payloadPreview(long).count == 256)
+    }
 }

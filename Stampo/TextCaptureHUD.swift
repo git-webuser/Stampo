@@ -10,12 +10,21 @@ final class TextCaptureHUD {
     enum Outcome {
         case copied
         case noTextFound
-        case codeCopied
+        /// Carries the scanned payload so the toast can preview what actually
+        /// landed on the clipboard — unlike OCR, the user never saw this text.
+        case codeCopied(payload: String)
         case noCodeFound
     }
 
     private var panel: NSPanel?
     private var hideWorkItem: DispatchWorkItem?
+
+    /// Collapses multiline payloads (vCard, Wi-Fi) to one displayable line and
+    /// caps the length — the visible toast only ever fits ~40 characters, so
+    /// measuring a multi-kilobyte payload would be wasted work.
+    static func payloadPreview(_ payload: String) -> String {
+        String(payload.split(whereSeparator: \.isWhitespace).joined(separator: " ").prefix(256))
+    }
 
     deinit {
         hideWorkItem?.cancel()
@@ -98,15 +107,29 @@ private struct TextCaptureHUDView: View {
             switch outcome {
             case .copied:
                 statusRow(title: "Copied", systemName: "checkmark.circle", iconOpacity: 0.8)
+                    .fixedSize()
             case .noTextFound:
                 statusRow(title: "No text found", systemName: "text.viewfinder", iconOpacity: 0.6)
-            case .codeCopied:
-                statusRow(title: "Code Copied", systemName: "checkmark.circle", iconOpacity: 0.8)
+                    .fixedSize()
+            case .codeCopied(let payload):
+                VStack(spacing: 3) {
+                    statusRow(title: "Code Copied", systemName: "checkmark.circle", iconOpacity: 0.8)
+                        .fixedSize()
+                    // Secondary preview of the clipboard contents. Verbatim keeps
+                    // URL-shaped payloads inert; middle truncation preserves the
+                    // scheme+host and tail of long URLs.
+                    Text(verbatim: TextCaptureHUD.payloadPreview(payload))
+                        .font(.system(size: 12, design: .monospaced))
+                        .foregroundStyle(.white.opacity(0.55))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .frame(maxWidth: 280)
+                }
             case .noCodeFound:
                 statusRow(title: "No code found", systemName: "qrcode.viewfinder", iconOpacity: 0.6)
+                    .fixedSize()
             }
         }
-        .fixedSize()
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
         .background(

@@ -21,7 +21,14 @@ final class EditorWindowController: NSObject, NSWindowDelegate {
     private var document: EditorDocument?
     private let store = ScreenshotFileStore()
 
+    /// Toast for OCR/scan outcomes, shared with the notch capture flows so the
+    /// editor and hotkey paths confirm results identically. Owned here because
+    /// the panel must outlive EditorView's value-type updates.
+    let captureHUD = TextCaptureHUD()
+
     var isKeyWindow: Bool { window?.isKeyWindow == true }
+    /// Screen hosting the editor window; the HUD is centered on it.
+    var screen: NSScreen? { window?.screen }
 
     // MARK: Open
 

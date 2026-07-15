@@ -2184,23 +2184,6 @@
         }
       }
     },
-    "No Text Found" : {
-      "comment" : "Editor feedback shown when text recognition finds nothing.",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "No Text Found"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Текст не найден"
-          }
-        }
-      }
-    },
     "None" : {
       "comment" : "Recorder placeholder when no shortcut is set",
       "localizations" : {
@@ -3817,23 +3800,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Фон текста"
-          }
-        }
-      }
-    },
-    "Text Copied" : {
-      "comment" : "Editor feedback shown after recognized text is copied to the clipboard.",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Text Copied"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Текст скопирован"
           }
         }
       }

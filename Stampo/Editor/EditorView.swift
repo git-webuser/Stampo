@@ -20,27 +20,18 @@ struct EditorView: View {
     @State private var feedback: FeedbackKind?
     @State private var feedbackTask: DispatchWorkItem?
 
+    /// Inline toolbar confirmation for whole-image actions (save/copy). OCR
+    /// and Scan Code outcomes go through the shared TextCaptureHUD instead,
+    /// matching the notch capture flows.
     enum FeedbackKind {
-        case saved, copied, textCopied, noText, codeCopied, noCode
+        case saved, copied
 
         var message: LocalizedStringKey {
             switch self {
-            case .saved:      return "Saved"
-            case .copied:     return "Copied"
-            case .textCopied: return "Text Copied"
-            case .noText:     return "No Text Found"
-            case .codeCopied: return "Code Copied"
-            case .noCode:     return "No code found"
+            case .saved:  return "Saved"
+            case .copied: return "Copied"
             }
         }
-
-        var isWarning: Bool {
-            switch self {
-            case .noText, .noCode: return true
-            default:               return false
-            }
-        }
-
     }
 
     var body: some View {
@@ -763,12 +754,11 @@ struct EditorView: View {
     @ViewBuilder private var feedbackLabel: some View {
         if let feedback {
             HStack(spacing: 4) {
-                Image(systemName: feedback.isWarning
-                      ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
+                Image(systemName: "checkmark.circle.fill")
                 Text(feedback.message)
             }
             .font(.system(size: 12, weight: .medium))
-            .foregroundStyle(feedback.isWarning ? Color.orange : Color.green)
+            .foregroundStyle(Color.green)
             .transition(.opacity)
         }
     }
@@ -973,11 +963,12 @@ struct EditorView: View {
 
     /// OCRs just the marquee region the user dragged and copies the recognized
     /// text to the clipboard. Runs off the main thread so a large crop doesn't
-    /// stall the UI; feedback reports success or "no text found". Leaving OCR
-    /// mode after a scan matches the "select once, then copy" flow.
+    /// stall the UI; the shared capture HUD reports success or "no text found",
+    /// same as the notch Capture Text flow. Leaving OCR mode after a scan
+    /// matches the "select once, then copy" flow.
     private func recognizeRegion(_ pixelRect: CGRect) {
         tool = .select
-        guard let cropped = croppedBaseImage(pixelRect) else { showFeedback(.noText); return }
+        guard let cropped = croppedBaseImage(pixelRect) else { showCaptureHUD(.noTextFound); return }
         DispatchQueue.global(qos: .userInitiated).async {
             let request = TextRecognition.makeRequest()
             let handler = VNImageRequestHandler(cgImage: cropped, options: [:])
@@ -992,30 +983,38 @@ struct EditorView: View {
             }
             DispatchQueue.main.async {
                 let trimmed = recognized.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !trimmed.isEmpty else { showFeedback(.noText); return }
+                guard !trimmed.isEmpty else { showCaptureHUD(.noTextFound); return }
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(recognized, forType: .string)
-                showFeedback(.textCopied)
+                showCaptureHUD(.copied)
             }
         }
     }
 
     /// Detects a QR/barcode payload in the selected image region, copies it as
-    /// inert plain text, and briefly confirms the copy in the toolbar.
+    /// inert plain text, and confirms via the shared capture HUD with a
+    /// truncated payload preview.
     private func scanCodeRegion(_ pixelRect: CGRect) {
         tool = .select
-        guard let cropped = croppedBaseImage(pixelRect) else { showFeedback(.noCode); return }
+        guard let cropped = croppedBaseImage(pixelRect) else { showCaptureHUD(.noCodeFound); return }
         DispatchQueue.global(qos: .userInitiated).async {
             let payload = (try? CodeRecognition.payload(in: cropped)) ?? ""
             DispatchQueue.main.async {
                 let trimmed = payload.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !trimmed.isEmpty else { showFeedback(.noCode); return }
+                guard !trimmed.isEmpty else { showCaptureHUD(.noCodeFound); return }
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(payload, forType: .string)
                 NotificationCenter.default.post(name: .editorDidScanCode, object: payload)
-                showFeedback(.codeCopied)
+                showCaptureHUD(.codeCopied(payload: payload))
             }
         }
+    }
+
+    /// Routes recognition outcomes through the same toast the notch flows use,
+    /// on the screen hosting the editor window.
+    private func showCaptureHUD(_ outcome: TextCaptureHUD.Outcome) {
+        let controller = EditorWindowController.shared
+        controller.captureHUD.show(outcome, on: controller.screen)
     }
 
     /// Crops the base image to an image-pixel rect (top-left origin, matching

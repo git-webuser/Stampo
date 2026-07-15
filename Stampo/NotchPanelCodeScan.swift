@@ -80,7 +80,7 @@ final class CodeCaptureCoordinator {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(payload, forType: .string)
                     self.addText(payload)
-                    self.hud.show(.codeCopied, on: resultScreen)
+                    self.hud.show(.codeCopied(payload: payload), on: resultScreen)
                 case .some:
                     // Detection completed successfully, but the selection did
                     // not contain a barcode with a text payload.
