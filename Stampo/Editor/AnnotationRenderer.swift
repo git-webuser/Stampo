@@ -352,25 +352,31 @@ enum AnnotationRenderer {
     /// so a single digit doesn't balloon. Fitting by measured width *and*
     /// height keeps "1" and "10" visually proportional (fixes the old
     /// digit-count shrink where two digits went tiny).
-    static func stepFontSize(label: String, diameter: CGFloat) -> CGFloat {
+    static func stepFontSize(label: String, diameter: CGFloat,
+                             fontPreset: AnnotationFontPreset = .system) -> CGFloat {
         let text = label.isEmpty ? "0" : label
         let usable = diameter * 0.66
         let cap = max(12, diameter * 0.56)            // single-digit ceiling
         let reference: CGFloat = 100
-        let refFont = NSFont.systemFont(ofSize: reference, weight: .bold)
+        let refFont = fontPreset.nsFont(ofSize: reference, bold: true)
         let measured = (text as NSString).size(withAttributes: [.font: refFont])
         guard measured.width > 0, measured.height > 0 else { return cap }
         let scale = min(usable / measured.width, usable / measured.height)
         return min(cap, reference * scale)
     }
 
+    static func stepFont(for a: Annotation) -> NSFont {
+        let size = stepFontSize(label: a.stepLabel, diameter: a.stepDiameter,
+                                fontPreset: a.fontPreset)
+        return a.fontPreset.nsFont(ofSize: size, bold: true)
+    }
+
     private static func drawStep(_ a: Annotation, ctx: CGContext) {
         ctx.setFillColor(a.color.cgColor)
         ctx.fillEllipse(in: a.rect)
 
-        let fontSize = stepFontSize(label: a.stepLabel, diameter: a.stepDiameter)
         let attributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: fontSize, weight: .bold),
+            .font: stepFont(for: a),
             .foregroundColor: a.color.contrastingTextColor,
         ]
         let string = NSAttributedString(string: a.stepLabel, attributes: attributes)
@@ -389,10 +395,7 @@ enum AnnotationRenderer {
 
     /// Base font honoring the bold/italic flags.
     static func textFont(for a: Annotation) -> NSFont {
-        let font = NSFont.systemFont(ofSize: a.fontSize, weight: a.bold ? .bold : .regular)
-        return a.italic
-            ? NSFontManager.shared.convert(font, toHaveTrait: .italicFontMask)
-            : font
+        a.fontPreset.nsFont(ofSize: a.fontSize, bold: a.bold, italic: a.italic)
     }
 
     static func textAttributes(for a: Annotation) -> [NSAttributedString.Key: Any] {

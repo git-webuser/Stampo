@@ -218,6 +218,7 @@ import Testing
         #expect(EditorTool.tool(forShortcutKeyCode: 7) == nil)
         #expect(EditorTool.ocr.shortcut == nil)
         #expect(EditorTool.crop.shortcut == nil)
+        #expect(EditorTool.step.labelKey == "Numbering")
     }
 
     @Test func oneEraserGestureIsOneUndoStepAndIgnoresOtherKinds() {

@@ -64,7 +64,7 @@ enum EditorTool: Equatable, CaseIterable {
         case .drawing:return "Drawing"
         case .eraser: return "Eraser"
         case .blur:   return "Blur"
-        case .step:   return "Step"
+        case .step:   return "Numbering"
         case .loupe:  return "Loupe"
         case .ocr:    return "Recognize Text"
         case .crop:   return "Crop"
@@ -114,6 +114,7 @@ struct ToolStyle {
     var fillOpacity: CGFloat = 0
     /// nil = image-relative automatic size at placement.
     var fontSize: CGFloat?
+    var fontPreset: AnnotationFontPreset = .system
     var bold = false
     var italic = false
     var underline = false
@@ -1133,6 +1134,7 @@ struct EditorCanvasView: View {
         var annotation = Annotation(kind: .text, start: p, end: p,
                                     color: style.color, lineWidth: style.lineWidth)
         annotation.fontSize = style.fontSize ?? document.autoFontSize
+        annotation.fontPreset = style.fontPreset
         annotation.bold = style.bold
         annotation.italic = style.italic
         annotation.underline = style.underline
@@ -1150,6 +1152,7 @@ struct EditorCanvasView: View {
                                     color: style.color, lineWidth: style.lineWidth)
         annotation.stepLabel = document.nextStepLabel
         annotation.stepDiameter = style.stepDiameter
+        annotation.fontPreset = style.fontPreset
         document.annotations.append(annotation)
         document.selectedID = annotation.id
         document.commitChange()
@@ -1233,12 +1236,13 @@ struct EditorCanvasView: View {
             set: { newValue in update(annotation.id) { $0.stepLabel = newValue } }
         )
 
-        let fontSize = AnnotationRenderer.stepFontSize(
-            label: annotation.stepLabel, diameter: annotation.stepDiameter) * fitScale
+        let baseFont = AnnotationRenderer.stepFont(for: annotation)
+        let scaledFont = NSFont(descriptor: baseFont.fontDescriptor,
+                                size: baseFont.pointSize * fitScale) ?? baseFont
         return TextField("", text: binding)
             .textFieldStyle(.plain)
             .multilineTextAlignment(.center)
-            .font(.system(size: fontSize, weight: .bold))
+            .font(Font(scaledFont))
             .foregroundStyle(Color(nsColor: annotation.color.contrastingTextColor))
             .frame(width: max(diameter, 32), height: diameter)
             .background(Circle().fill(Color(nsColor: annotation.color.nsColor)))

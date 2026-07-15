@@ -237,6 +237,29 @@ enum TestImages {
         #expect(AnnotationRenderer.stepFontSize(label: "1", diameter: 80) > one)
     }
 
+    @Test func fontPresetsAreInstalledAndCoverLatinAndCyrillic() {
+        #expect(AnnotationFontPreset.allCases.count == 6)
+        let required = CharacterSet(charactersIn: "AaБбЯяЁё0123")
+        for preset in AnnotationFontPreset.allCases {
+            let font = preset.nsFont(ofSize: 18)
+            #expect(font.coveredCharacterSet.isSuperset(of: required),
+                    "\(preset.displayName) must support Latin and Cyrillic")
+        }
+    }
+
+    @Test func rendererUsesAnnotationFontForTextAndNumbering() {
+        var text = Annotation(kind: .text, start: .zero, end: .zero,
+                              color: .red, lineWidth: 4)
+        text.fontSize = 24
+        text.fontPreset = .georgia
+        #expect(AnnotationRenderer.textFont(for: text).familyName == "Georgia")
+
+        var numbering = Annotation(kind: .step, start: .zero, end: .zero,
+                                   color: .red, lineWidth: 4)
+        numbering.fontPreset = .courierNew
+        #expect(AnnotationRenderer.stepFont(for: numbering).familyName == "Courier New")
+    }
+
     @Test func measureTextGrowsWithContent() {
         var a = Annotation(kind: .text, start: .zero, end: .zero, color: .red, lineWidth: 4)
         a.fontSize = 24

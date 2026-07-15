@@ -146,6 +146,7 @@ struct EditorView: View {
                               step: 1)
             case .text:
                 colorSwatches
+                fontPicker
                 settingSlider("Text Size", systemImage: "textformat.size",
                               value: fontSizeBinding, range: 16...96, step: 2,
                               ticks: false, format: { "\(Int($0))pt" })
@@ -162,6 +163,7 @@ struct EditorView: View {
                               step: effectiveDrawingMode == .marker ? 4 : 2)
             case .step:
                 colorSwatches
+                fontPicker
                 settingSlider("Marker Size", systemImage: "circle.circle",
                               value: stepSizeBinding, range: 24...72, step: 8)
             case .loupe:
@@ -297,6 +299,22 @@ struct EditorView: View {
     }
 
     // MARK: Text formatting controls
+
+    /// Compact menu whose rows are rendered with the font they select. The
+    /// mixed-script sample also makes Latin/Cyrillic coverage visible.
+    private var fontPicker: some View {
+        Picker("Font", selection: fontPresetBinding) {
+            ForEach(AnnotationFontPreset.allCases) { preset in
+                Text(verbatim: "\(preset.displayName)  ·  Aa Бб 12")
+                    .font(Font(preset.nsFont(ofSize: 13)))
+                    .tag(preset)
+            }
+        }
+        .pickerStyle(.menu)
+        .labelsHidden()
+        .frame(width: 142)
+        .hoverTip("Font")
+    }
 
     private var textControls: some View {
         HStack(spacing: 4) {
@@ -523,6 +541,26 @@ struct EditorView: View {
                     guard $0.kind == .text else { return }
                     $0.fontSize = newValue
                     resizeTextBounds(&$0)
+                }
+            }
+        )
+    }
+
+    private var fontPresetBinding: Binding<AnnotationFontPreset> {
+        Binding(
+            get: {
+                if let selected = document.selectedAnnotation,
+                   selected.kind == .text || selected.kind == .step {
+                    return selected.fontPreset
+                }
+                return style.fontPreset
+            },
+            set: { newValue in
+                style.fontPreset = newValue
+                applyToSelection {
+                    guard $0.kind == .text || $0.kind == .step else { return }
+                    $0.fontPreset = newValue
+                    if $0.kind == .text { resizeTextBounds(&$0) }
                 }
             }
         )

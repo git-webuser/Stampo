@@ -83,6 +83,75 @@ enum TextBackground: String, Equatable, CaseIterable {
     case light
 }
 
+/// Curated fonts available to text and numbering annotations. The list is
+/// deliberately short enough for a useful menu, while covering neutral,
+/// rounded, geometric, book, classic, and monospaced styles. Every named
+/// family ships with macOS and includes both Latin and Cyrillic glyphs.
+enum AnnotationFontPreset: String, Equatable, CaseIterable, Identifiable {
+    case system
+    case rounded
+    case avenirNext
+    case georgia
+    case timesNewRoman
+    case courierNew
+
+    var id: Self { self }
+
+    var displayName: String {
+        switch self {
+        case .system:         return "SF Pro"
+        case .rounded:        return "SF Rounded"
+        case .avenirNext:     return "Avenir Next"
+        case .georgia:        return "Georgia"
+        case .timesNewRoman:  return "Times New Roman"
+        case .courierNew:     return "Courier New"
+        }
+    }
+
+    private var postScriptName: String? {
+        switch self {
+        case .system, .rounded: return nil
+        case .avenirNext:       return "AvenirNext-Regular"
+        case .georgia:          return "Georgia"
+        case .timesNewRoman:    return "TimesNewRomanPSMT"
+        case .courierNew:       return "CourierNewPSMT"
+        }
+    }
+
+    /// AppKit font used by the shared preview/export renderer. Trait
+    /// conversion keeps the existing bold and italic controls working for
+    /// every preset; the system font is the safe fallback on an unusual host.
+    func nsFont(ofSize size: CGFloat, bold: Bool = false,
+                italic: Bool = false) -> NSFont {
+        let weight: NSFont.Weight = bold ? .bold : .regular
+        var font: NSFont
+
+        switch self {
+        case .system:
+            font = NSFont.systemFont(ofSize: size, weight: weight)
+        case .rounded:
+            let system = NSFont.systemFont(ofSize: size, weight: weight)
+            if let descriptor = system.fontDescriptor.withDesign(.rounded),
+               let rounded = NSFont(descriptor: descriptor, size: size) {
+                font = rounded
+            } else {
+                font = system
+            }
+        default:
+            font = postScriptName.flatMap { NSFont(name: $0, size: size) }
+                ?? NSFont.systemFont(ofSize: size)
+            if bold {
+                font = NSFontManager.shared.convert(font, toHaveTrait: .boldFontMask)
+            }
+        }
+
+        if italic {
+            font = NSFontManager.shared.convert(font, toHaveTrait: .italicFontMask)
+        }
+        return font
+    }
+}
+
 /// Whole-annotation text traits supported by both the context bar and local
 /// editor keyboard shortcuts. Text annotations intentionally don't contain
 /// attributed ranges, so each trait applies to the complete label.
@@ -201,6 +270,8 @@ struct Annotation: Identifiable, Equatable {
     var lineWidth: CGFloat
     var text: String = ""
     var fontSize: CGFloat = 28
+    /// Font shared by text labels and numbering marker labels.
+    var fontPreset: AnnotationFontPreset = .system
     // Text formatting.
     var bold: Bool = false
     var italic: Bool = false
