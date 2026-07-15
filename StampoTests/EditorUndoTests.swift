@@ -217,6 +217,9 @@ import Testing
         }
         #expect(EditorTool.tool(forShortcutKeyCode: 7) == nil)
         #expect(EditorTool.ocr.shortcut == nil)
+        #expect(EditorTool.scanCode.shortcut == nil)
+        #expect(EditorTool.scanCode.systemImage == "qrcode.viewfinder")
+        #expect(EditorTool.scanCode.labelKey == "Scan Code")
         #expect(EditorTool.crop.shortcut == nil)
         #expect(EditorTool.step.labelKey == "Numbering")
     }

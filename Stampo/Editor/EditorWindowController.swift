@@ -6,6 +6,9 @@ extension Notification.Name {
     /// Posted by the editor after saving an edited image; object is the URL.
     /// NotchPanelController observes it to add the file to the tray.
     static let editorDidSaveImage = Notification.Name("editorDidSaveImage")
+    /// Posted after Scan Code succeeds in the editor; object is the inert
+    /// string payload that should be added to the tray as a text entity.
+    static let editorDidScanCode = Notification.Name("editorDidScanCode")
 }
 
 /// One shared editor window, one document at a time. Pattern:

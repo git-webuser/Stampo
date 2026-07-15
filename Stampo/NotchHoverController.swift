@@ -298,6 +298,9 @@ final class NotchHoverController: NSObject {
         case 6:
             // Capture text (OCR) — area selection, recognized text → clipboard
             triggerCaptureText(on: screen)
+        case 7:
+            // Scan code — area selection, barcode payload → clipboard + tray
+            triggerScanCode(on: screen)
         default:
             break
         }
@@ -335,6 +338,16 @@ final class NotchHoverController: NSObject {
             panel.captureText()
         } else {
             panel.captureText(on: screen)
+        }
+    }
+
+    private func triggerScanCode(on screen: NSScreen) {
+        // Match Capture Text: pass the active screen explicitly whenever the
+        // panel's Space binding cannot be trusted.
+        if panel.isVisible && !panel.needsSpaceRebind {
+            panel.scanCode()
+        } else {
+            panel.scanCode(on: screen)
         }
     }
 

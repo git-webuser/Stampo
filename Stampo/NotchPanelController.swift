@@ -108,6 +108,7 @@ private struct NotchPanelRootView: View {
     let onToggleTray: () -> Void
     let onPickColor: () -> Void
     let onCaptureText: () -> Void
+    let onScanCode: () -> Void
     let onModeDelayChanged: () -> Void
     let onBack: () -> Void
     let onHidePanel: () -> Void
@@ -184,6 +185,7 @@ private struct NotchPanelRootView: View {
                 onToggleTray: onToggleTray,
                 onPickColor: onPickColor,
                 onCaptureText: onCaptureText,
+                onScanCode: onScanCode,
                 onModeDelayChanged: onModeDelayChanged
             )
             .opacity(max(0.0, min(1.0, (0.6 - p) / 0.6)) * (1.0 - rootState.countdownVisible))
@@ -354,6 +356,7 @@ final class NotchPanelController: NSObject {
     let screenshot = ScreenshotService()
     let colorPicker = ColorPickingCoordinator()
     let textCapture = TextCaptureCoordinator()
+    let codeCapture = CodeCaptureCoordinator()
 
     enum CaptureTarget {
         case screen
@@ -409,6 +412,7 @@ final class NotchPanelController: NSObject {
             NotificationCenter.default.post(name: .mascotCursorMoved, object: NSValue(point: point))
         }
         textCapture.addText = { [weak self] text in self?.trayModel.add(text: text) }
+        codeCapture.addText = { [weak self] text in self?.trayModel.add(text: text) }
         screenshot.onCaptured = { [weak self] url in
             self?.trayModel.add(screenshotURL: url)
             // Clear preSelection so the next capture attempt isn't blocked.
@@ -506,8 +510,15 @@ final class NotchPanelController: NSObject {
             guard let url = note.object as? URL else { return }
             self?.trayModel.add(screenshotURL: url)
         }
+        let t9 = NotificationCenter.default.addObserver(
+            forName: .editorDidScanCode,
+            object: nil, queue: .main
+        ) { [weak self] note in
+            guard let payload = note.object as? String else { return }
+            self?.trayModel.add(text: payload)
+        }
 
-        notificationObservers = [t1, t2, t3, t4, t5, t6, t7, t8]
+        notificationObservers = [t1, t2, t3, t4, t5, t6, t7, t8, t9]
     }
 
     deinit {
@@ -632,6 +643,7 @@ final class NotchPanelController: NSObject {
         windowPickerOverlay.cancel()
         colorPicker.cancel()
         textCapture.cancel()
+        codeCapture.cancel()
         screenshot.cancelCurrentCapture()
 
         activeCountdown?.timer?.invalidate()
@@ -1079,6 +1091,7 @@ final class NotchPanelController: NSObject {
             onToggleTray: { [weak self] in self?.switchToTray() },
             onPickColor: { [weak self] in self?.pickColor() },
             onCaptureText: { [weak self] in self?.captureText() },
+            onScanCode: { [weak self] in self?.scanCode() },
             onModeDelayChanged: { [weak self] in self?.updateWidthForNoNotchIfNeeded() },
             onBack: { [weak self] in self?.switchToMain() },
             onHidePanel: { [weak self] in self?.hideAnimated(reason: .closeButton) },

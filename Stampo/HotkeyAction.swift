@@ -10,6 +10,7 @@ enum HotkeyAction: UInt32, CaseIterable {
     case window      = 4
     case color       = 5
     case ocr         = 6
+    case scanCode    = 7
 
     /// Localization key for the row label.
     var labelKey: String {
@@ -20,6 +21,7 @@ enum HotkeyAction: UInt32, CaseIterable {
         case .window:      return "Window Screenshot"
         case .color:       return "Pick Color"
         case .ocr:         return "Capture Text"
+        case .scanCode:    return "Scan Code"
         }
     }
 
@@ -32,6 +34,7 @@ enum HotkeyAction: UInt32, CaseIterable {
         case .window:      return "macwindow"
         case .color:       return "eyedropper"
         case .ocr:         return "text.viewfinder"
+        case .scanCode:    return "qrcode.viewfinder"
         }
     }
 
@@ -46,6 +49,7 @@ enum HotkeyAction: UInt32, CaseIterable {
         case .window:      key = kVK_ANSI_G
         case .color:       key = kVK_ANSI_C
         case .ocr:         key = kVK_ANSI_T
+        case .scanCode:    key = kVK_ANSI_S
         }
         return HotkeyCombo(keyCode: UInt16(key), carbonModifiers: mods)
     }
@@ -53,8 +57,8 @@ enum HotkeyAction: UInt32, CaseIterable {
     private var storageKey: String { "hotkey.combo.\(rawValue)" }
 
     /// Legacy enable/disable key used before combos were customizable.
-    /// `.ocr` was added after the combo migration, so its key never existed —
-    /// `migrateIfNeeded` reads nil and treats the action as enabled.
+    /// Actions added after the combo migration have no legacy key;
+    /// `migrateIfNeeded` reads nil and treats them as enabled.
     private var legacyEnabledKey: String {
         switch self {
         case .togglePanel: return "hotkeyPanelEnabled"
@@ -63,6 +67,7 @@ enum HotkeyAction: UInt32, CaseIterable {
         case .window:      return "hotkeyWindowEnabled"
         case .color:       return "hotkeyColorEnabled"
         case .ocr:         return "hotkeyOcrEnabled"
+        case .scanCode:    return "hotkeyScanCodeEnabled"
         }
     }
 

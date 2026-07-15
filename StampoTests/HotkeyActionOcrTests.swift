@@ -19,6 +19,19 @@ import Testing
         #expect(result != .noStrongModifier)
     }
 
+    @Test func scanCodeDefaultComboIsCtrlOptCmdS() {
+        let combo = HotkeyAction.scanCode.defaultCombo
+        #expect(combo.keyCode == UInt16(kVK_ANSI_S))
+        #expect(combo.carbonModifiers == UInt32(controlKey | optionKey | cmdKey))
+        #expect(combo.displayString == "⌃⌥⌘S")
+    }
+
+    @Test func scanCodeDefaultComboIsNotSystemReserved() {
+        let result = HotkeyValidator.validate(HotkeyAction.scanCode.defaultCombo, for: .scanCode)
+        #expect(result != .systemReserved)
+        #expect(result != .noStrongModifier)
+    }
+
     @Test func defaultCombosAreUniqueAcrossActions() {
         let combos = HotkeyAction.allCases.map(\.defaultCombo)
         #expect(Set(combos).count == combos.count)
@@ -28,10 +41,16 @@ import Testing
         let ids = HotkeyAction.allCases.map(\.rawValue)
         #expect(Set(ids).count == ids.count)
         #expect(HotkeyAction.ocr.rawValue == 6)
+        #expect(HotkeyAction.scanCode.rawValue == 7)
     }
 
     @Test func ocrRowMetadataIsFilledIn() {
         #expect(HotkeyAction.ocr.labelKey == "Capture Text")
         #expect(HotkeyAction.ocr.icon == "text.viewfinder")
+    }
+
+    @Test func scanCodeRowMetadataIsFilledIn() {
+        #expect(HotkeyAction.scanCode.labelKey == "Scan Code")
+        #expect(HotkeyAction.scanCode.icon == "qrcode.viewfinder")
     }
 }

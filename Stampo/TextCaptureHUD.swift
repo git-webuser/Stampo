@@ -3,13 +3,16 @@ import SwiftUI
 
 // MARK: - TextCaptureHUD
 
-/// Transient toast confirming the outcome of a text-capture session:
-/// "Copied ✓" when recognized text landed on the clipboard, or
-/// "No text found" when the selection contained no readable text.
+/// Transient toast confirming the outcome of a text/code-capture session.
 /// Deliberately separate from ColorPickerHUD — that one is a live
 /// cursor-following preview; this is a fire-and-forget confirmation.
 final class TextCaptureHUD {
-    enum Outcome { case copied, noTextFound }
+    enum Outcome {
+        case copied
+        case noTextFound
+        case codeCopied
+        case noCodeFound
+    }
 
     private var panel: NSPanel?
     private var hideWorkItem: DispatchWorkItem?
@@ -91,22 +94,16 @@ private struct TextCaptureHUDView: View {
     let outcome: TextCaptureHUD.Outcome
 
     var body: some View {
-        HStack(spacing: 7) {
+        Group {
             switch outcome {
             case .copied:
-                Text("Copied")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.9))
-                Image(systemName: "checkmark.circle")
-                    .font(.system(size: 17, weight: .regular))
-                    .foregroundStyle(.white.opacity(0.8))
+                statusRow(title: "Copied", systemName: "checkmark.circle", iconOpacity: 0.8)
             case .noTextFound:
-                Text("No text found")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.9))
-                Image(systemName: "text.viewfinder")
-                    .font(.system(size: 17, weight: .regular))
-                    .foregroundStyle(.white.opacity(0.6))
+                statusRow(title: "No text found", systemName: "text.viewfinder", iconOpacity: 0.6)
+            case .codeCopied:
+                statusRow(title: "Code Copied", systemName: "checkmark.circle", iconOpacity: 0.8)
+            case .noCodeFound:
+                statusRow(title: "No code found", systemName: "qrcode.viewfinder", iconOpacity: 0.6)
             }
         }
         .fixedSize()
@@ -121,5 +118,16 @@ private struct TextCaptureHUDView: View {
                 )
         )
         .padding(12)
+    }
+
+    private func statusRow(title: LocalizedStringKey, systemName: String, iconOpacity: Double) -> some View {
+        HStack(spacing: 7) {
+            Text(title)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.9))
+            Image(systemName: systemName)
+                .font(.system(size: 17, weight: .regular))
+                .foregroundStyle(.white.opacity(iconOpacity))
+        }
     }
 }

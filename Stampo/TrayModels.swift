@@ -28,7 +28,7 @@ struct TrayScreenshot: Identifiable, Equatable {
     let url: URL
 }
 
-/// A snippet of OCR-recognized text captured via Capture Text.
+/// A plain-text entity captured via OCR or Scan Code.
 struct TrayText: Identifiable, Equatable {
     let id = UUID()
     let text: String

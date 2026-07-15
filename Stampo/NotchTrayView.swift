@@ -394,7 +394,7 @@ private struct TrayColorCell: View {
 
 // MARK: - Tray Text Cell
 
-/// OCR snippet captured via Capture Text. Tap copies the full text to the
+/// Plain text captured via OCR or Scan Code. Tap copies the full value to the
 /// clipboard (mirrors TrayColorCell); the context menu offers Copy / Remove.
 private struct TrayTextCell: View {
     let item: TrayText
@@ -430,7 +430,8 @@ private struct TrayTextCell: View {
                 )
 
             // Miniature of the recognized text — enough to tell snippets apart.
-            Text(item.text)
+            // Verbatim text keeps URL-shaped code payloads inert in the tray.
+            Text(verbatim: item.text)
                 .font(.system(size: 5, weight: .regular))
                 .foregroundStyle(.white.opacity(0.75))
                 .lineLimit(5)

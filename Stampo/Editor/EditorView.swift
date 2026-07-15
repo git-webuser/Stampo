@@ -21,7 +21,7 @@ struct EditorView: View {
     @State private var feedbackTask: DispatchWorkItem?
 
     enum FeedbackKind {
-        case saved, copied, textCopied, noText
+        case saved, copied, textCopied, noText, codeCopied, noCode
 
         var message: LocalizedStringKey {
             switch self {
@@ -29,10 +29,18 @@ struct EditorView: View {
             case .copied:     return "Copied"
             case .textCopied: return "Text Copied"
             case .noText:     return "No Text Found"
+            case .codeCopied: return "Code Copied"
+            case .noCode:     return "No code found"
             }
         }
 
-        var isWarning: Bool { self == .noText }
+        var isWarning: Bool {
+            switch self {
+            case .noText, .noCode: return true
+            default:               return false
+            }
+        }
+
     }
 
     var body: some View {
@@ -49,6 +57,7 @@ struct EditorView: View {
                 zoomFactor: $zoomFactor,
                 panOffset: $panOffset,
                 onRecognizeRegion: { recognizeRegion($0) },
+                onScanCodeRegion: { scanCodeRegion($0) },
                 cropRect: $cropRect,
                 onCropApply: applyCrop,
                 onCropCancel: cancelCrop
@@ -117,6 +126,10 @@ struct EditorView: View {
         HStack(spacing: 12) {
             if tool == .ocr, document.selectedAnnotation == nil {
                 Label("Drag to select an area to recognize", systemImage: "text.viewfinder")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+            } else if tool == .scanCode, document.selectedAnnotation == nil {
+                Label("Drag to select an area to scan", systemImage: "qrcode.viewfinder")
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
             } else if tool == .crop {
@@ -198,7 +211,7 @@ struct EditorView: View {
     private var contextKind: AnnotationKind? {
         if let selected = document.selectedAnnotation { return selected.kind }
         switch tool {
-        case .select, .eraser, .ocr, .crop: return nil
+        case .select, .eraser, .ocr, .scanCode, .crop: return nil
         case .line:   return .line
         case .arrow:  return .arrow
         case .rect:   return .rect
@@ -905,6 +918,16 @@ struct EditorView: View {
             .hoverTip("Recognize Text")
 
             Button {
+                tool = (tool == .scanCode) ? .select : .scanCode
+                document.selectedID = nil
+            } label: {
+                Image(systemName: "qrcode.viewfinder")
+                    .foregroundStyle(tool == .scanCode ? Color.accentColor : Color.primary)
+            }
+            .disabled(textEditingActive)
+            .hoverTip("Scan Code")
+
+            Button {
                 copyToClipboard()
             } label: {
                 collapsibleLabel("Copy", systemImage: "doc.on.doc")
@@ -973,6 +996,24 @@ struct EditorView: View {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(recognized, forType: .string)
                 showFeedback(.textCopied)
+            }
+        }
+    }
+
+    /// Detects a QR/barcode payload in the selected image region, copies it as
+    /// inert plain text, and briefly confirms the copy in the toolbar.
+    private func scanCodeRegion(_ pixelRect: CGRect) {
+        tool = .select
+        guard let cropped = croppedBaseImage(pixelRect) else { showFeedback(.noCode); return }
+        DispatchQueue.global(qos: .userInitiated).async {
+            let payload = (try? CodeRecognition.payload(in: cropped)) ?? ""
+            DispatchQueue.main.async {
+                let trimmed = payload.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty else { showFeedback(.noCode); return }
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(payload, forType: .string)
+                NotificationCenter.default.post(name: .editorDidScanCode, object: payload)
+                showFeedback(.codeCopied)
             }
         }
     }
