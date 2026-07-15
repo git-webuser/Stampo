@@ -21,9 +21,9 @@ final class EditorWindowController: NSObject, NSWindowDelegate {
     private var document: EditorDocument?
     private let store = ScreenshotFileStore()
 
-    /// Toast for OCR/scan outcomes, shared with the notch capture flows so the
-    /// editor and hotkey paths confirm results identically. Owned here because
-    /// the panel must outlive EditorView's value-type updates.
+    /// Toast for editor action and OCR/scan outcomes, shared with the notch
+    /// capture flows so the editor and hotkey paths confirm results identically.
+    /// Owned here because the panel must outlive EditorView's value-type updates.
     let captureHUD = TextCaptureHUD()
 
     var isKeyWindow: Bool { window?.isKeyWindow == true }
@@ -61,6 +61,7 @@ final class EditorWindowController: NSObject, NSWindowDelegate {
 
         if let window {
             window.contentViewController = NSHostingController(rootView: root)
+            window.contentMinSize = EditorView.minimumContentSize
             window.title = url.lastPathComponent
             window.makeKeyAndOrderFront(nil)
         } else {
@@ -69,6 +70,7 @@ final class EditorWindowController: NSObject, NSWindowDelegate {
             window.styleMask = [.titled, .closable, .resizable, .miniaturizable]
             window.title = url.lastPathComponent
             window.isReleasedWhenClosed = false
+            window.contentMinSize = EditorView.minimumContentSize
             window.setContentSize(Self.initialContentSize(for: image))
             window.setFrameAutosaveName("EditorWindow")
             window.delegate = self
@@ -182,6 +184,8 @@ final class EditorWindowController: NSObject, NSWindowDelegate {
         let scale = min(1, min(maxW / w, maxH / h))
         w *= scale
         h *= scale
-        return NSSize(width: max(560, w), height: max(360, h + toolbarAllowance))
+        return NSSize(width: max(EditorView.minimumContentSize.width, w),
+                      height: max(EditorView.minimumContentSize.height,
+                                  h + toolbarAllowance))
     }
 }

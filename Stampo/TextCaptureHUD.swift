@@ -3,12 +3,13 @@ import SwiftUI
 
 // MARK: - TextCaptureHUD
 
-/// Transient toast confirming the outcome of a text/code-capture session.
+/// Transient toast confirming the outcome of a capture or editor action.
 /// Deliberately separate from ColorPickerHUD — that one is a live
 /// cursor-following preview; this is a fire-and-forget confirmation.
 final class TextCaptureHUD {
     enum Outcome {
         case copied
+        case saved
         case noTextFound
         /// Carries the scanned payload so the toast can preview what actually
         /// landed on the clipboard — unlike OCR, the user never saw this text.
@@ -107,6 +108,9 @@ private struct TextCaptureHUDView: View {
             switch outcome {
             case .copied:
                 statusRow(title: "Copied", systemName: "checkmark.circle", iconOpacity: 0.8)
+                    .fixedSize()
+            case .saved:
+                statusRow(title: "Saved", systemName: "checkmark.circle", iconOpacity: 0.8)
                     .fixedSize()
             case .noTextFound:
                 statusRow(title: "No text found", systemName: "text.viewfinder", iconOpacity: 0.6)

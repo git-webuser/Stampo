@@ -6,6 +6,10 @@ import Vision
 /// the annotation canvas. Standard-window styling (accent color), not the
 /// dark notch-panel look.
 struct EditorView: View {
+    /// Keeps every fixed toolbar control visible while allowing Copy/Save
+    /// labels to use their compact icon-only variants.
+    static let minimumContentSize = CGSize(width: 840, height: 360)
+
     var document: EditorDocument
     /// Wired by EditorWindowController in the save/copy commit; nil disables Save.
     var saveHandler: ((EditorDocument) -> Bool)?
@@ -17,22 +21,6 @@ struct EditorView: View {
     @State private var panOffset: CGSize = .zero
     /// Pending crop rectangle (image-pixel space) while the crop tool is active.
     @State private var cropRect: CGRect?
-    @State private var feedback: FeedbackKind?
-    @State private var feedbackTask: DispatchWorkItem?
-
-    /// Inline toolbar confirmation for whole-image actions (save/copy). OCR
-    /// and Scan Code outcomes go through the shared TextCaptureHUD instead,
-    /// matching the notch capture flows.
-    enum FeedbackKind {
-        case saved, copied
-
-        var message: LocalizedStringKey {
-            switch self {
-            case .saved:  return "Saved"
-            case .copied: return "Copied"
-            }
-        }
-    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -55,7 +43,8 @@ struct EditorView: View {
             )
             .background(Color(nsColor: .underPageBackgroundColor))
         }
-        .frame(minWidth: 680, minHeight: 360)
+        .frame(minWidth: Self.minimumContentSize.width,
+               minHeight: Self.minimumContentSize.height)
     }
 
     private var textEditingActive: Bool { editingTextID != nil }
@@ -73,7 +62,6 @@ struct EditorView: View {
             Divider().frame(height: 20)
             cropButton
             Spacer(minLength: 8)
-            feedbackLabel
             undoRedoButtons
             Divider().frame(height: 20)
             actionButtons
@@ -751,18 +739,6 @@ struct EditorView: View {
         document.commitChange()
     }
 
-    @ViewBuilder private var feedbackLabel: some View {
-        if let feedback {
-            HStack(spacing: 4) {
-                Image(systemName: "checkmark.circle.fill")
-                Text(feedback.message)
-            }
-            .font(.system(size: 12, weight: .medium))
-            .foregroundStyle(Color.green)
-            .transition(.opacity)
-        }
-    }
-
     private var undoRedoButtons: some View {
         HStack(spacing: 2) {
             Button { document.undo() } label: {
@@ -927,7 +903,7 @@ struct EditorView: View {
             .hoverTip("Copy")
 
             Button {
-                if let saveHandler, saveHandler(document) { showFeedback(.saved) }
+                if let saveHandler, saveHandler(document) { showCaptureHUD(.saved) }
             } label: {
                 collapsibleLabel("Save", systemImage: "square.and.arrow.down")
             }
@@ -958,7 +934,7 @@ struct EditorView: View {
         image.addRepresentation(rep)
         NSPasteboard.general.clearContents()
         NSPasteboard.general.writeObjects([image])
-        showFeedback(.copied)
+        showCaptureHUD(.copied)
     }
 
     /// OCRs just the marquee region the user dragged and copies the recognized
@@ -1104,15 +1080,5 @@ struct EditorView: View {
     private func fitZoom() {
         zoomFactor = 1
         panOffset = .zero
-    }
-
-    private func showFeedback(_ kind: FeedbackKind) {
-        feedbackTask?.cancel()
-        withAnimation(.easeIn(duration: 0.12)) { feedback = kind }
-        let work = DispatchWorkItem {
-            withAnimation(.easeOut(duration: 0.25)) { feedback = nil }
-        }
-        feedbackTask = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.6, execute: work)
     }
 }
