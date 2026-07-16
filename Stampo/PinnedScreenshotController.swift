@@ -121,7 +121,7 @@ final class PinnedScreenshotController {
     private var cascadeIndex = 0
     /// Carbon keeps firing hot-key events while the combo is held; without a
     /// guard, holding ⌃⌥⌘P machine-guns identical pins of the last capture.
-    private var lastHotkeyPin: (url: URL, at: Date)?
+    private var lastHotkeyPin: (url: URL, at: TimeInterval)?
 
     var count: Int { pins.count }
 
@@ -197,7 +197,11 @@ final class PinnedScreenshotController {
 
     /// Hotkey entry point: pins the most recent capture, or shows a toast when
     /// there is nothing to pin — a silent global hotkey reads as broken.
-    func pinLastCapture(url: URL?, on screen: NSScreen?) {
+    func pinLastCapture(
+        url: URL?,
+        on screen: NSScreen?,
+        eventTime: TimeInterval = ProcessInfo.processInfo.systemUptime
+    ) {
         guard let url, FileManager.default.fileExists(atPath: url.path) else {
             feedbackHUD.show(.noScreenshotToPin, on: screen)
             return
@@ -205,10 +209,13 @@ final class PinnedScreenshotController {
         // Debounce key-repeat; a deliberate second pin of the same capture
         // still works after a moment (or immediately via the context menus).
         if let last = lastHotkeyPin, last.url == url,
-           Date().timeIntervalSince(last.at) < 0.8 {
+           eventTime - last.at < 0.8 {
+            // Repeat events keep moving the quiet-period boundary forward, so
+            // holding the shortcut never leaks one pin every 0.8 seconds.
+            lastHotkeyPin = (url, eventTime)
             return
         }
-        lastHotkeyPin = (url, Date())
+        lastHotkeyPin = (url, eventTime)
         pin(url: url, on: screen)
     }
 

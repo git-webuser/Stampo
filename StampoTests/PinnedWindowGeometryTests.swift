@@ -221,10 +221,10 @@ import Testing
         #expect(controller.windowFrames[0].origin == firstOrigin)
     }
 
-    @Test func hotkeyPinDebouncesKeyRepeatButAllowsOtherURLs() throws {
+    @Test func hotkeyPinDebouncesHeldShortcutButAllowsQuietRepeatAndOtherURLs() throws {
         // Carbon fires repeated hot-key events while ⌃⌥⌘P is held; back-to-back
-        // pinLastCapture calls with the same URL must collapse into one pin,
-        // while a different capture pins immediately.
+        // events must keep extending the debounce window so a long hold still
+        // creates one pin. A quiet pause or a different capture pins again.
         let controller = PinnedScreenshotController.shared
         controller.closeAll()
         defer { controller.closeAll() }
@@ -236,13 +236,16 @@ import Testing
             try? FileManager.default.removeItem(at: second)
         }
 
-        controller.pinLastCapture(url: first, on: nil)
-        controller.pinLastCapture(url: first, on: nil)
-        controller.pinLastCapture(url: first, on: nil)
+        controller.pinLastCapture(url: first, on: nil, eventTime: 100.0)
+        controller.pinLastCapture(url: first, on: nil, eventTime: 100.4)
+        controller.pinLastCapture(url: first, on: nil, eventTime: 100.9)
         #expect(controller.count == 1)
 
-        controller.pinLastCapture(url: second, on: nil)
+        controller.pinLastCapture(url: first, on: nil, eventTime: 101.8)
         #expect(controller.count == 2)
+
+        controller.pinLastCapture(url: second, on: nil, eventTime: 101.9)
+        #expect(controller.count == 3)
     }
 
     @Test func pinningAMissingFileStillCreatesAWindow() {
