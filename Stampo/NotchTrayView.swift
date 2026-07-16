@@ -615,6 +615,10 @@ private struct TrayScreenshotCell: View {
                 NSWorkspace.shared.open(shot.url, configuration: cfg)
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { onOpen() }
             }
+            Button("Pin to Screen") {
+                PinnedScreenshotController.shared.pin(url: shot.url)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { onOpen() }
+            }
             Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([shot.url]) }
             Button("Copy") {
                 NSPasteboard.general.writeImage(at: shot.url)

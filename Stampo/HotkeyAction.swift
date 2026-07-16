@@ -11,6 +11,7 @@ enum HotkeyAction: UInt32, CaseIterable {
     case color       = 5
     case ocr         = 6
     case scanCode    = 7
+    case pinLastCapture = 8
 
     /// Localization key for the row label.
     var labelKey: String {
@@ -22,6 +23,7 @@ enum HotkeyAction: UInt32, CaseIterable {
         case .color:       return "Pick Color"
         case .ocr:         return "Capture Text"
         case .scanCode:    return "Scan Code"
+        case .pinLastCapture: return "Pin Last Screenshot"
         }
     }
 
@@ -35,6 +37,7 @@ enum HotkeyAction: UInt32, CaseIterable {
         case .color:       return "eyedropper"
         case .ocr:         return "text.viewfinder"
         case .scanCode:    return "qrcode.viewfinder"
+        case .pinLastCapture: return "pin"
         }
     }
 
@@ -50,6 +53,7 @@ enum HotkeyAction: UInt32, CaseIterable {
         case .color:       key = kVK_ANSI_C
         case .ocr:         key = kVK_ANSI_T
         case .scanCode:    key = kVK_ANSI_S
+        case .pinLastCapture: key = kVK_ANSI_P
         }
         return HotkeyCombo(keyCode: UInt16(key), carbonModifiers: mods)
     }
@@ -68,6 +72,7 @@ enum HotkeyAction: UInt32, CaseIterable {
         case .color:       return "hotkeyColorEnabled"
         case .ocr:         return "hotkeyOcrEnabled"
         case .scanCode:    return "hotkeyScanCodeEnabled"
+        case .pinLastCapture: return "hotkeyPinLastCaptureEnabled"
         }
     }
 

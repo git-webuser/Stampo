@@ -361,6 +361,12 @@ struct ScreenshotThumbnailView: View {
             Button("Copy") {
                 NSPasteboard.general.writeImage(at: imageURL)
             }
+            // Distinct from the HUD's own pin badge, which merely keeps the
+            // HUD from auto-dismissing — this creates a floating pin window.
+            Button("Pin to Screen") {
+                PinnedScreenshotController.shared.pin(url: imageURL)
+                if !isPinned { onDismiss() }
+            }
             Button("Show in Finder") {
                 NSWorkspace.shared.activateFileViewerSelecting([imageURL])
             }

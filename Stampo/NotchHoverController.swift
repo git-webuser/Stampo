@@ -301,6 +301,10 @@ final class NotchHoverController: NSObject {
         case 7:
             // Scan code — area selection, barcode payload → clipboard + tray
             triggerScanCode(on: screen)
+        case 8:
+            // Pin last screenshot as a floating always-on-top window
+            PinnedScreenshotController.shared.pinLastCapture(
+                url: panel.screenshot.lastCaptureURL, on: screen)
         default:
             break
         }

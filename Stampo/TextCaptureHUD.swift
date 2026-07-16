@@ -15,6 +15,8 @@ final class TextCaptureHUD {
         /// landed on the clipboard — unlike OCR, the user never saw this text.
         case codeCopied(payload: String)
         case noCodeFound
+        /// "Pin last screenshot" hotkey fired with nothing captured yet.
+        case noScreenshotToPin
     }
 
     private var panel: NSPanel?
@@ -131,6 +133,9 @@ private struct TextCaptureHUDView: View {
                 }
             case .noCodeFound:
                 statusRow(title: "No code found", systemName: "qrcode.viewfinder", iconOpacity: 0.6)
+                    .fixedSize()
+            case .noScreenshotToPin:
+                statusRow(title: "No recent screenshot", systemName: "pin.slash", iconOpacity: 0.6)
                     .fixedSize()
             }
         }
