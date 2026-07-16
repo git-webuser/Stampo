@@ -90,6 +90,7 @@ Click the post-capture thumbnail (or right-click a screenshot in the tray → **
 | Window screenshot | `⌃⌥⌘G` |
 | Pick color | `⌃⌥⌘C` |
 | Capture text (OCR) | `⌃⌥⌘T` |
+| Pin last screenshot | `⌃⌥⌘P` |
 
 Every hotkey is fully customizable in **Settings → Hotkeys** — record a new combination, restore the default, or clear it to disable the action.
 
@@ -104,9 +105,15 @@ File names follow one of four presets, selectable in **Settings → Capture**: c
 The tray shows recent screenshots and color swatches.
 
 - **Click** a screenshot to open it.
-- **Right-click** for options: Edit, Open, Show in Finder, Copy, Move to Trash.
+- **Right-click** for options: Edit, Open, Pin to Screen, Show in Finder, Copy, Move to Trash.
 - **X button** (on hover) removes the item from the tray — the file is not deleted.
 - **Drag** a screenshot out of the tray to copy it anywhere.
+
+## Pin to Screen
+
+Keep a screenshot floating above all windows while you work — handy for copying data into another app or comparing against a reference. Right-click a screenshot in the tray or on the post-capture thumbnail → **Pin to Screen**, or press `⌃⌥⌘P` to pin the last capture.
+
+Pinned screenshots stay on top of everything, follow you across Spaces, and never steal focus. Drag a pin by its body to move it, resize it from the edges (proportions are kept), and close it with the **X** button, a **double-click**, or **Esc** while hovering it. Right-click a pin for Copy, Edit, Show in Finder, Unpin, or Close All Pins.
 
 ## Known Limitations
 

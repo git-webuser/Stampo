@@ -14,6 +14,7 @@ final class PinnedScreenshotPanel: NSPanel {
          frame: NSRect,
          imagePixelSize: CGSize,
          maxContentSize: CGSize,
+         maxPixelSize: CGFloat,
          onClose: @escaping () -> Void) {
         self.onClose = onClose
         super.init(
@@ -44,6 +45,7 @@ final class PinnedScreenshotPanel: NSPanel {
 
         let view = PinnedScreenshotView(
             imageURL: imageURL,
+            maxPixelSize: maxPixelSize,
             onClose: { [weak self] in self?.requestClose() },
             onHoverChanged: { [weak self] hovering in
                 hovering ? self?.installEsc() : self?.removeEsc()
@@ -104,6 +106,7 @@ final class PinnedHostingView: NSHostingView<PinnedScreenshotView> {
 
 struct PinnedScreenshotView: View {
     let imageURL: URL
+    let maxPixelSize: CGFloat
     let onClose: () -> Void
     let onHoverChanged: (Bool) -> Void
 
@@ -131,7 +134,9 @@ struct PinnedScreenshotView: View {
                 .stroke(Color.white.opacity(isHovered ? 0.35 : 0.15), lineWidth: 1)
         )
         .overlay(alignment: .topTrailing) {
-            TrayDeleteBadge(action: onClose, isPressed: $isCloseBadgePressed)
+            TrayDeleteBadge(accessibilityLabelOverride: "Close",
+                            action: onClose,
+                            isPressed: $isCloseBadgePressed)
                 .frame(width: 24, height: 24)
                 .padding(2)
                 .opacity(isHovered ? 1 : 0)
@@ -152,13 +157,16 @@ struct PinnedScreenshotView: View {
             }
             Divider()
             Button("Unpin") { onClose() }
+            if PinnedScreenshotController.shared.count > 1 {
+                Button("Close All Pins") { PinnedScreenshotController.shared.closeAll() }
+            }
         }
         .onHover { hovering in
             isHovered = hovering
             onHoverChanged(hovering)
         }
         .animation(.easeInOut(duration: 0.15), value: isHovered)
-        .task(id: imageURL) { loader.load(imageURL: imageURL, maxPixelSize: 2048) }
+        .task(id: imageURL) { loader.load(imageURL: imageURL, maxPixelSize: maxPixelSize) }
         .managedLocale()
         .accessibilityLabel("Pinned screenshot")
     }

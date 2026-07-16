@@ -291,6 +291,10 @@ struct NotchTrayView: View {
 struct TrayDeleteBadge: View {
     var systemName: String = "xmark.circle.fill"
     var isOn: Bool = false
+    /// Overrides the tray-specific default labels below — reusers outside the
+    /// tray (e.g. the pinned-screenshot close button) must not announce
+    /// "Remove from tray".
+    var accessibilityLabelOverride: LocalizedStringKey? = nil
     let action: () -> Void
     @Binding var isPressed: Bool
 
@@ -311,7 +315,8 @@ struct TrayDeleteBadge: View {
                     .onEnded   { _ in action() }
             )
             .accessibilityAddTraits(.isButton)
-            .accessibilityLabel(systemName == "xmark.circle.fill" ? "Remove from tray" : (isOn ? "Unpin" : "Pin"))
+            .accessibilityLabel(accessibilityLabelOverride
+                ?? (systemName == "xmark.circle.fill" ? "Remove from tray" : (isOn ? "Unpin" : "Pin")))
     }
 }
 

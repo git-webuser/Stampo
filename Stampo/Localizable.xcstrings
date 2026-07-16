@@ -2184,6 +2184,23 @@
         }
       }
     },
+    "Close All Pins" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Close All Pins"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Закрыть все пины"
+          }
+        }
+      }
+    },
     "No recent screenshot" : {
       "extractionState" : "manual",
       "localizations" : {

@@ -221,6 +221,30 @@ import Testing
         #expect(controller.windowFrames[0].origin == firstOrigin)
     }
 
+    @Test func hotkeyPinDebouncesKeyRepeatButAllowsOtherURLs() throws {
+        // Carbon fires repeated hot-key events while ⌃⌥⌘P is held; back-to-back
+        // pinLastCapture calls with the same URL must collapse into one pin,
+        // while a different capture pins immediately.
+        let controller = PinnedScreenshotController.shared
+        controller.closeAll()
+        defer { controller.closeAll() }
+
+        let first = try makeTemporaryImage()
+        let second = try makeTemporaryImage()
+        defer {
+            try? FileManager.default.removeItem(at: first)
+            try? FileManager.default.removeItem(at: second)
+        }
+
+        controller.pinLastCapture(url: first, on: nil)
+        controller.pinLastCapture(url: first, on: nil)
+        controller.pinLastCapture(url: first, on: nil)
+        #expect(controller.count == 1)
+
+        controller.pinLastCapture(url: second, on: nil)
+        #expect(controller.count == 2)
+    }
+
     @Test func pinningAMissingFileStillCreatesAWindow() {
         // pin(url:) itself does not gate on existence (the geometry falls back
         // to a default size); only the hotkey path checks the file. It must

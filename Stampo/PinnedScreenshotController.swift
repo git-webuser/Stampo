@@ -119,6 +119,9 @@ final class PinnedScreenshotController {
     /// Monotonic while any pin is alive — `pins.count` would reuse an index
     /// after "pin A, pin B, close A", landing the next pin exactly on top of B.
     private var cascadeIndex = 0
+    /// Carbon keeps firing hot-key events while the combo is held; without a
+    /// guard, holding ⌃⌥⌘P machine-guns identical pins of the last capture.
+    private var lastHotkeyPin: (url: URL, at: Date)?
 
     var count: Int { pins.count }
 
@@ -164,12 +167,19 @@ final class PinnedScreenshotController {
         let frame = PinnedWindowGeometry.clampedFrame(
             NSRect(origin: origin, size: size), to: vf)
 
+        // Decode enough pixels for the largest window this screen can host at
+        // its backing scale — a fixed cap would render large pins on Retina/4K
+        // softer than the original. (If the pin is later dragged to a denser
+        // screen it keeps this budget; acceptable for v1.)
+        let maxPixelSize = ceil(max(vf.width, vf.height) * target.backingScaleFactor)
+
         let id = UUID()
         let panel = PinnedScreenshotPanel(
             imageURL: url,
             frame: frame,
             imagePixelSize: pixels,
             maxContentSize: vf.size,
+            maxPixelSize: maxPixelSize,
             onClose: { [weak self] in self?.close(id: id) }
         )
         pins[id] = panel
@@ -192,6 +202,13 @@ final class PinnedScreenshotController {
             feedbackHUD.show(.noScreenshotToPin, on: screen)
             return
         }
+        // Debounce key-repeat; a deliberate second pin of the same capture
+        // still works after a moment (or immediately via the context menus).
+        if let last = lastHotkeyPin, last.url == url,
+           Date().timeIntervalSince(last.at) < 0.8 {
+            return
+        }
+        lastHotkeyPin = (url, Date())
         pin(url: url, on: screen)
     }
 
