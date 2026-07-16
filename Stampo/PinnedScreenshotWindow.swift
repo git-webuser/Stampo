@@ -38,11 +38,8 @@ final class PinnedScreenshotPanel: NSPanel {
         // Edge-resize keeps the image proportions; the floor and ceiling stop
         // a pin from becoming an unusable sliver or outgrowing the screen.
         contentAspectRatio = imagePixelSize
-        let ar = max(imagePixelSize.width, 1) / max(imagePixelSize.height, 1)
-        let minSide: CGFloat = 120
-        minSize = ar >= 1
-            ? NSSize(width: minSide * ar, height: minSide)
-            : NSSize(width: minSide, height: minSide / ar)
+        minSize = PinnedWindowGeometry.minWindowSize(
+            imagePixels: imagePixelSize, maxContentSize: maxContentSize)
         maxSize = maxContentSize
 
         let view = PinnedScreenshotView(

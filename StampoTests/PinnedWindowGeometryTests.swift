@@ -78,6 +78,30 @@ import Testing
         }
     }
 
+    // MARK: minWindowSize
+
+    @Test func normalImageMinSizeUsesTheResizeFloor() {
+        let s = PinnedWindowGeometry.minWindowSize(
+            imagePixels: CGSize(width: 1200, height: 900), maxContentSize: screen.size)
+        #expect(abs(min(s.width, s.height) - PinnedWindowGeometry.minResizeSide) < 0.5)
+        #expect(abs(s.width / s.height - 1200.0 / 900.0) < 0.01)
+    }
+
+    @Test func extremeAspectMinSizeNeverExceedsMaxContentSize() {
+        // 40:1 banner: an aspect-preserving 120 pt floor would demand a
+        // 4800 pt minimum width — the max ceiling must win so edge-resize
+        // never gets contradictory constraints.
+        let maxContent = CGSize(width: 1512, height: 950)
+        for pixels in [CGSize(width: 8000, height: 200),    // ultra-wide
+                       CGSize(width: 200, height: 8000)] {  // ultra-tall
+            let s = PinnedWindowGeometry.minWindowSize(
+                imagePixels: pixels, maxContentSize: maxContent)
+            #expect(s.width <= maxContent.width + 0.5)
+            #expect(s.height <= maxContent.height + 0.5)
+            #expect(abs(s.width / s.height - pixels.width / pixels.height) < 0.01)
+        }
+    }
+
     // MARK: clampedFrame
 
     @Test func oversizedFrameIsShrunkAndShiftedInside() {
@@ -159,6 +183,42 @@ import Testing
 
         controller.closeAll()
         #expect(controller.count == 0)
+    }
+
+    @Test func cascadeNeverReusesAnOccupiedSlot() throws {
+        // pin A, pin B, close A, pin C: with a pins.count-based cascade C
+        // would land exactly on top of B; the monotonic index must not.
+        let controller = PinnedScreenshotController.shared
+        controller.closeAll()
+        defer { controller.closeAll() }
+
+        let url = try makeTemporaryImage()
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let a = try #require(controller.pin(url: url))
+        controller.pin(url: url)
+        controller.close(id: a)
+        controller.pin(url: url)
+
+        let frames = controller.windowFrames
+        #expect(frames.count == 2)
+        #expect(frames[0].origin != frames[1].origin)
+    }
+
+    @Test func cascadeResetsOnceAllPinsAreClosed() throws {
+        let controller = PinnedScreenshotController.shared
+        controller.closeAll()
+        defer { controller.closeAll() }
+
+        let url = try makeTemporaryImage()
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        controller.pin(url: url)
+        let firstOrigin = controller.windowFrames[0].origin
+        controller.closeAll()
+
+        controller.pin(url: url)
+        #expect(controller.windowFrames[0].origin == firstOrigin)
     }
 
     @Test func pinningAMissingFileStillCreatesAWindow() {

@@ -62,6 +62,32 @@ enum PinnedWindowGeometry {
         return CGPoint(x: x, y: y)
     }
 
+    /// Shortest allowed side when the user resizes an existing pin (smaller
+    /// than `minSide` so a pin can be tucked away without closing it).
+    static let minResizeSide: CGFloat = 120
+
+    /// Minimum window size for edge-resize: `minResizeSide` on the short side
+    /// with the aspect preserved, but never exceeding `maxContentSize` — a
+    /// 40:1 banner would otherwise demand a minimum wider than the screen and
+    /// deadlock resize between the window's min and max constraints.
+    static func minWindowSize(imagePixels: CGSize, maxContentSize: CGSize) -> CGSize {
+        let ar = max(imagePixels.width, 1) / max(imagePixels.height, 1)
+        var s = ar >= 1
+            ? CGSize(width: minResizeSide * ar, height: minResizeSide)
+            : CGSize(width: minResizeSide, height: minResizeSide / ar)
+        if maxContentSize.width > 0, s.width > maxContentSize.width {
+            let k = maxContentSize.width / s.width
+            s.width *= k
+            s.height *= k
+        }
+        if maxContentSize.height > 0, s.height > maxContentSize.height {
+            let k = maxContentSize.height / s.height
+            s.width *= k
+            s.height *= k
+        }
+        return s
+    }
+
     /// Shrinks and shifts `frame` as needed so it lies inside `visibleFrame`.
     static func clampedFrame(_ frame: CGRect, to visibleFrame: CGRect) -> CGRect {
         var f = frame
@@ -90,8 +116,14 @@ final class PinnedScreenshotController {
     private var fileWatchers: [UUID: DispatchSourceFileSystemObject] = [:]
     private var workspaceObservers: [NSObjectProtocol] = []
     private let feedbackHUD = TextCaptureHUD()
+    /// Monotonic while any pin is alive — `pins.count` would reuse an index
+    /// after "pin A, pin B, close A", landing the next pin exactly on top of B.
+    private var cascadeIndex = 0
 
     var count: Int { pins.count }
+
+    /// Test hook: current frames of all live pins.
+    var windowFrames: [NSRect] { pins.values.map(\.frame) }
 
     private init() {
         // Pins are static windows that never morph or track the notch, so the
@@ -110,14 +142,25 @@ final class PinnedScreenshotController {
         }
     }
 
-    func pin(url: URL, on screen: NSScreen? = nil) {
-        guard let target = screen ?? NSScreen.main ?? NSScreen.screens.first else { return }
+    @discardableResult
+    func pin(url: URL, on screen: NSScreen? = nil) -> UUID? {
+        // When no screen is given (tray / thumbnail HUD context menus), use
+        // the screen under the mouse: for a nonactivating LSUIElement panel,
+        // NSScreen.main is the *other* app's key-window screen, which on a
+        // multi-monitor setup is often not where the user just clicked.
+        let mouse = NSEvent.mouseLocation
+        guard let target = screen
+            ?? NSScreen.screens.first(where: { NSMouseInRect(mouse, $0.frame, false) })
+            ?? NSScreen.main
+            ?? NSScreen.screens.first
+        else { return nil }
 
         let pixels = imagePixelSize(at: url)
         let vf = target.visibleFrame
         let size = PinnedWindowGeometry.initialSize(imagePixels: pixels, visibleFrame: vf)
         let origin = PinnedWindowGeometry.origin(size: size, visibleFrame: vf,
-                                                 cascadeIndex: pins.count)
+                                                 cascadeIndex: cascadeIndex)
+        cascadeIndex += 1
         let frame = PinnedWindowGeometry.clampedFrame(
             NSRect(origin: origin, size: size), to: vf)
 
@@ -139,6 +182,7 @@ final class PinnedScreenshotController {
             ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
             panel.animator().alphaValue = 1
         }
+        return id
     }
 
     /// Hotkey entry point: pins the most recent capture, or shows a toast when
@@ -156,6 +200,7 @@ final class PinnedScreenshotController {
         guard let panel = pins.removeValue(forKey: id) else { return }
         panel.prepareForClose()
         panel.orderOut(nil)
+        if pins.isEmpty { cascadeIndex = 0 }
     }
 
     func closeAll() {
