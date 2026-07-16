@@ -74,11 +74,28 @@ final class FirstLaunchWindowController: NSObject, NSWindowDelegate {
 // MARK: - View
 
 struct FirstLaunchView: View {
-    @State private var launchAtLogin          = AppSettings.launchAtLoginEnabled
-    @State private var screenRecordingGranted = CGPreflightScreenCaptureAccess()
-    @State private var inputMonitoringGranted = CGPreflightListenEventAccess()
+    private enum Step { case inputMonitoring, screenRecording, done }
 
-    private let timer = Timer.publish(every: 1.5, on: .main, in: .common).autoconnect()
+    @State private var launchAtLogin = AppSettings.launchAtLoginEnabled
+    @State private var step: Step
+    @State private var inputMonitoringGranted: Bool
+    @State private var screenRecordingGranted: Bool
+    /// Screen Recording only takes effect in a fresh process — but only matters
+    /// when it wasn't already active at launch. A returning user who already
+    /// granted it doesn't need a relaunch.
+    private let screenRecordingNeededGrant: Bool
+
+    private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+
+    init() {
+        let im = CGPreflightListenEventAccess()
+        let sr = CGPreflightScreenCaptureAccess()
+        _inputMonitoringGranted = State(initialValue: im)
+        _screenRecordingGranted = State(initialValue: sr)
+        screenRecordingNeededGrant = !sr
+        // Start at the first ungranted permission — one at a time, in order.
+        _step = State(initialValue: im ? (sr ? .done : .screenRecording) : .inputMonitoring)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -88,106 +105,40 @@ struct FirstLaunchView: View {
             notchTip
                 .padding(.bottom, 20)
 
-            Text("Required Permissions")
-                .font(.headline)
-                .padding(.bottom, 10)
-
-            permissionRow(
-                icon: "rectangle.dashed.badge.record",
-                title: "Screen Recording",
-                description: "Required for screenshots and color sampling",
-                granted: screenRecordingGranted,
-                settingsURL: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
-                preflight: {
-                    // Triggers TCC registration so Stampo appears in
-                    // System Settings → Screen & System Audio Recording.
-                    _ = CGRequestScreenCaptureAccess()
-                }
-            )
-            .padding(.bottom, 8)
-
-            permissionRow(
-                icon: "keyboard",
-                title: "Input Monitoring",
-                description: "Required for clicking the notch and global hotkeys",
-                granted: inputMonitoringGranted,
-                settingsURL: "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent",
-                preflight: {
-                    // Registers Stampo in System Settings → Input Monitoring so
-                    // the user finds it already listed — without this the entry
-                    // never appears and has to be added manually via "+".
-                    _ = CGRequestListenEventAccess()
-                }
-            )
-            .padding(.bottom, 20)
-
-            Toggle("Launch at Login", isOn: $launchAtLogin)
-                .onChange(of: launchAtLogin) { _, v in
-                    AppSettings.setLaunchAtLogin(v)
-                    launchAtLogin = AppSettings.launchAtLoginEnabled
-                }
-                .padding(.bottom, 24)
-
-            if !screenRecordingGranted || !inputMonitoringGranted {
-                Text("Without these permissions, capture, color picking, notch click, and hotkeys may not work.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: .infinity)
-                    .padding(.bottom, 8)
-            }
-
-            // Screen Recording only activates in a fresh process. Offer a
-            // one-click relaunch once it's granted so the user doesn't have to
-            // quit and reopen manually.
-            if screenRecordingGranted {
-                HStack(spacing: 8) {
-                    Image(systemName: "arrow.clockwise.circle")
-                        .foregroundStyle(.blue)
-                    Text("Screen Recording activates after a relaunch.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    Button("Relaunch Stampo") {
-                        FirstLaunchWindowController.relaunch()
+            switch step {
+            case .inputMonitoring:
+                stepCard(
+                    stepLabel: "Step 1 of 2",
+                    icon: "keyboard",
+                    title: "Keyboard access",
+                    description: "Lets you click the notch to open the panel and use global hotkeys. macOS lists this as Input Monitoring.",
+                    granted: inputMonitoringGranted,
+                    grant: {
+                        _ = CGRequestListenEventAccess()
+                        openSecuritySettings("Privacy_ListenEvent")
                     }
-                    .controlSize(.small)
-                }
-                .padding(10)
-                .background(RoundedRectangle(cornerRadius: 8).fill(Color.blue.opacity(0.08)))
-                .padding(.bottom, 16)
-            }
-
-            HStack {
-                Spacer()
-                Button("Get Started") {
-                    UserDefaults.standard.set(true, forKey: AppSettings.Keys.hasCompletedOnboarding)
-                    FirstLaunchWindowController.shared.close()
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .keyboardShortcut(.defaultAction)
+                )
+            case .screenRecording:
+                stepCard(
+                    stepLabel: "Step 2 of 2",
+                    icon: "rectangle.dashed.badge.record",
+                    title: "Screen recording",
+                    description: "Lets Stampo take screenshots and sample colors from the screen.",
+                    granted: screenRecordingGranted,
+                    grant: {
+                        _ = CGRequestScreenCaptureAccess()
+                        openSecuritySettings("Privacy_ScreenCapture")
+                    }
+                )
+            case .done:
+                doneCard
             }
         }
         .padding(28)
         .frame(width: 540)
-        .onAppear {
-            // Force TCC to register Stampo in *both* privacy lists up front, so
-            // each appears already-listed with a prompt instead of needing "+".
-            if !CGPreflightScreenCaptureAccess() {
-                _ = CGRequestScreenCaptureAccess()
-            }
-            if !CGPreflightListenEventAccess() {
-                _ = CGRequestListenEventAccess()
-            }
-        }
-        .onReceive(timer) { _ in
-            screenRecordingGranted = CGPreflightScreenCaptureAccess()
-            inputMonitoringGranted = CGPreflightListenEventAccess()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .notchClickStatusChanged)) { _ in
-            inputMonitoringGranted = CGPreflightListenEventAccess()
-        }
+        // No system prompts fire at launch — the wizard opens each one only
+        // when the user acts on that step, so they arrive one at a time.
+        .onReceive(timer) { _ in advance() }
     }
 
     private var headerSection: some View {
@@ -219,45 +170,132 @@ struct FirstLaunchView: View {
         .background(RoundedRectangle(cornerRadius: 8).fill(Color.blue.opacity(0.08)))
     }
 
+    /// Polls the current grants and advances the wizard one permission at a
+    /// time — the step flips to the next only once the prior one is granted.
+    private func advance() {
+        inputMonitoringGranted = CGPreflightListenEventAccess()
+        screenRecordingGranted = CGPreflightScreenCaptureAccess()
+        switch step {
+        case .inputMonitoring:
+            if inputMonitoringGranted {
+                step = screenRecordingGranted ? .done : .screenRecording
+            }
+        case .screenRecording:
+            if screenRecordingGranted { step = .done }
+        case .done:
+            break
+        }
+    }
+
+    private func openSecuritySettings(_ pane: String) {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(pane)") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    private func finish(relaunch: Bool) {
+        UserDefaults.standard.set(true, forKey: AppSettings.Keys.hasCompletedOnboarding)
+        if relaunch {
+            FirstLaunchWindowController.relaunch()
+        } else {
+            FirstLaunchWindowController.shared.close()
+        }
+    }
+
     @ViewBuilder
-    private func permissionRow(
+    private func stepCard(
+        stepLabel: LocalizedStringKey,
         icon: String,
         title: LocalizedStringKey,
         description: LocalizedStringKey,
         granted: Bool,
-        settingsURL: String,
-        preflight: (() -> Void)? = nil
+        grant: @escaping () -> Void
     ) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: icon)
-                .font(.title3)
-                .foregroundStyle(granted ? .green : .orange)
-                .frame(width: 28)
-            VStack(alignment: .leading, spacing: 2) {
-                HStack {
-                    Text(title).fontWeight(.medium)
-                    Spacer()
-                    if granted {
-                        Label("Granted", systemImage: "checkmark.circle.fill")
-                            .foregroundStyle(.green)
-                            .font(.caption)
-                    } else {
-                        Button("Open System Settings") {
-                            preflight?()
-                            if let url = URL(string: settingsURL) {
-                                NSWorkspace.shared.open(url)
-                            }
-                        }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                    }
+        VStack(alignment: .leading, spacing: 14) {
+            Text(stepLabel)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: icon)
+                    .font(.system(size: 26))
+                    .foregroundStyle(granted ? .green : .blue)
+                    .frame(width: 34)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(title).font(.headline)
+                    Text(description)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-                Text(description)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+            }
+
+            if granted {
+                Label("Granted — continuing…", systemImage: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+                    .font(.callout)
+            } else {
+                HStack(spacing: 10) {
+                    Button("Grant Access", action: grant)
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.large)
+                        .keyboardShortcut(.defaultAction)
+                    Text("Toggle Stampo on in the window macOS opens.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
         }
-        .padding(10)
-        .background(RoundedRectangle(cornerRadius: 8).fill(Color.primary.opacity(0.04)))
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Color.primary.opacity(0.04)))
+    }
+
+    private var doneCard: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(spacing: 12) {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 26))
+                    .foregroundStyle(.green)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("All set").font(.headline)
+                    Text(screenRecordingNeededGrant
+                         ? "Relaunching Stampo to activate screen recording…"
+                         : "Permissions granted. You're ready to go.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            Toggle("Launch at Login", isOn: $launchAtLogin)
+                .onChange(of: launchAtLogin) { _, v in
+                    AppSettings.setLaunchAtLogin(v)
+                    launchAtLogin = AppSettings.launchAtLoginEnabled
+                }
+
+            HStack {
+                Spacer()
+                Button(screenRecordingNeededGrant ? "Relaunch Stampo" : "Get Started") {
+                    finish(relaunch: screenRecordingNeededGrant)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Color.green.opacity(0.08)))
+        .onAppear {
+            // The single relaunch at the end, fired automatically when a fresh
+            // Screen Recording grant needs a new process to take effect.
+            if screenRecordingNeededGrant {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
+                    finish(relaunch: true)
+                }
+            }
+        }
     }
 }
