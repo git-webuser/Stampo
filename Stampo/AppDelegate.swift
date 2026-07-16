@@ -28,12 +28,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         guard !Self.isRunningTests else { return }
         AppSettings.migrateLegacySaveDirectoryIfNeeded()
-        // If onboarding is about to take over the permissions flow, mute
-        // standalone permission alerts up front — hover.start() installs the
-        // event tap and could otherwise fire the cold-start alert before the
-        // First-Launch window appears.
-        let willOnboard = !UserDefaults.standard.bool(forKey: AppSettings.Keys.hasCompletedOnboarding)
-        if willOnboard { UserFacingError.suppressPermissionAlerts = true }
+        // Run the permission wizard on first launch OR any later launch that's
+        // missing a required permission — an ad-hoc update invalidates the TCC
+        // grants, and the wizard is the only path that requests them in order
+        // (keyboard → screen recording) without firing prompts behind the user.
+        // Gating solely on hasCompletedOnboarding meant returning users hit the
+        // old bare CGRequestScreenCaptureAccess fallback instead.
+        let onboardingDone = UserDefaults.standard.bool(forKey: AppSettings.Keys.hasCompletedOnboarding)
+        let permissionsMissing = !CGPreflightListenEventAccess() || !CGPreflightScreenCaptureAccess()
+        let showWizard = !onboardingDone || permissionsMissing
+        // Mute standalone permission alerts up front — hover.start() installs
+        // the event tap and could otherwise fire the cold-start alert before
+        // the wizard appears.
+        if showWizard { UserFacingError.suppressPermissionAlerts = true }
         hover.start()
         interceptSettingsMenuItem()
         UpdateChecker.shared.startAutomaticChecks()
@@ -43,16 +50,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             name: .requestOpenSettings,
             object: nil
         )
-        if willOnboard {
+        if showWizard {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                 FirstLaunchWindowController.shared.show()
-            }
-        } else if !CGPreflightScreenCaptureAccess() {
-            // Onboarding was already completed but Screen Recording is not
-            // granted (e.g. TCC was reset). Trigger a request so Stampo
-            // is registered in System Settings → Screen Recording.
-            DispatchQueue.main.async {
-                _ = CGRequestScreenCaptureAccess()
             }
         }
     }
