@@ -33,6 +33,18 @@ enum UserFacingError {
         /// Input Monitoring permission in Privacy & Security settings.
         case notchClickUnavailable
 
+        /// Permission-onboarding kinds: while the First-Launch window is the
+        /// active surface, these are suppressed so the user isn't buried under
+        /// stacked modal alerts about permissions they're already granting.
+        var isPermissionKind: Bool {
+            switch self {
+            case .notchClickUnavailable, .screenCaptureFailed, .colorPickerUnavailable:
+                return true
+            case .saveDirectoryInaccessible:
+                return false
+            }
+        }
+
         /// Stable key used for throttling; identical kinds share the same cooldown.
         var throttleKey: String {
             switch self {
@@ -131,6 +143,14 @@ enum UserFacingError {
         }
     }
 
+    // MARK: Onboarding suppression
+
+    /// Set while the First-Launch permissions window owns the flow (including
+    /// the brief window between launch and the window appearing). Permission
+    /// alerts are the window's job then, so standalone modals — which would
+    /// otherwise stack on top of System Settings — are suppressed.
+    @MainActor static var suppressPermissionAlerts = false
+
     // MARK: Throttle state
 
     private static var lastShown: [String: Date] = [:]
@@ -148,7 +168,10 @@ enum UserFacingError {
         }
     }
 
+    @MainActor
     private static func presentOnMain(_ kind: Kind) {
+        if kind.isPermissionKind && suppressPermissionAlerts { return }
+
         let key = kind.throttleKey
         let now = Date()
         if let last = lastShown[key], now.timeIntervalSince(last) < throttleInterval {

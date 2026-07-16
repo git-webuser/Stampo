@@ -18,11 +18,14 @@ extension NSImage {
 
 // MARK: - Window Controller
 
-final class FirstLaunchWindowController: NSObject {
+final class FirstLaunchWindowController: NSObject, NSWindowDelegate {
     static let shared = FirstLaunchWindowController()
     private var window: NSWindow?
 
     func show() {
+        // This window is the single permissions surface — mute the standalone
+        // modal alerts that would otherwise stack on top of System Settings.
+        UserFacingError.suppressPermissionAlerts = true
         let hosting = NSHostingView(rootView: FirstLaunchView().managedLocale())
         hosting.sizingOptions = .intrinsicContentSize
 
@@ -38,14 +41,33 @@ final class FirstLaunchWindowController: NSObject {
         win.setContentSize(hosting.intrinsicContentSize)
         win.center()
         win.level = .floating
+        win.delegate = self
         win.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         self.window = win
     }
 
     func close() {
+        // Resetting the suppression flag is handled in windowWillClose so it
+        // also covers the user closing the window with its title-bar button.
         window?.close()
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        UserFacingError.suppressPermissionAlerts = false
         window = nil
+    }
+
+    /// Relaunches the app: Screen Recording only takes effect in a fresh
+    /// process, so the onboarding offers a one-click restart. A detached shell
+    /// waits for this instance to quit, then reopens the bundle.
+    static func relaunch() {
+        let path = Bundle.main.bundlePath
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/bin/sh")
+        task.arguments = ["-c", "sleep 0.4; /usr/bin/open \"\(path)\""]
+        try? task.run()
+        NSApp.terminate(nil)
     }
 }
 
@@ -54,7 +76,7 @@ final class FirstLaunchWindowController: NSObject {
 struct FirstLaunchView: View {
     @State private var launchAtLogin          = AppSettings.launchAtLoginEnabled
     @State private var screenRecordingGranted = CGPreflightScreenCaptureAccess()
-    @State private var inputMonitoringGranted = NotchHoverController.isEventTapInstalled
+    @State private var inputMonitoringGranted = CGPreflightListenEventAccess()
 
     private let timer = Timer.publish(every: 1.5, on: .main, in: .common).autoconnect()
 
@@ -89,7 +111,13 @@ struct FirstLaunchView: View {
                 title: "Input Monitoring",
                 description: "Required for clicking the notch and global hotkeys",
                 granted: inputMonitoringGranted,
-                settingsURL: "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent"
+                settingsURL: "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent",
+                preflight: {
+                    // Registers Stampo in System Settings → Input Monitoring so
+                    // the user finds it already listed — without this the entry
+                    // never appears and has to be added manually via "+".
+                    _ = CGRequestListenEventAccess()
+                }
             )
             .padding(.bottom, 20)
 
@@ -109,6 +137,27 @@ struct FirstLaunchView: View {
                     .padding(.bottom, 8)
             }
 
+            // Screen Recording only activates in a fresh process. Offer a
+            // one-click relaunch once it's granted so the user doesn't have to
+            // quit and reopen manually.
+            if screenRecordingGranted {
+                HStack(spacing: 8) {
+                    Image(systemName: "arrow.clockwise.circle")
+                        .foregroundStyle(.blue)
+                    Text("Screen Recording activates after a relaunch.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Relaunch Stampo") {
+                        FirstLaunchWindowController.relaunch()
+                    }
+                    .controlSize(.small)
+                }
+                .padding(10)
+                .background(RoundedRectangle(cornerRadius: 8).fill(Color.blue.opacity(0.08)))
+                .padding(.bottom, 16)
+            }
+
             HStack {
                 Spacer()
                 Button("Get Started") {
@@ -123,18 +172,21 @@ struct FirstLaunchView: View {
         .padding(28)
         .frame(width: 540)
         .onAppear {
-            // Force TCC to register Stampo in the Screen Recording list,
-            // so the user can find and toggle it in System Settings.
+            // Force TCC to register Stampo in *both* privacy lists up front, so
+            // each appears already-listed with a prompt instead of needing "+".
             if !CGPreflightScreenCaptureAccess() {
                 _ = CGRequestScreenCaptureAccess()
+            }
+            if !CGPreflightListenEventAccess() {
+                _ = CGRequestListenEventAccess()
             }
         }
         .onReceive(timer) { _ in
             screenRecordingGranted = CGPreflightScreenCaptureAccess()
-            inputMonitoringGranted = NotchHoverController.isEventTapInstalled
+            inputMonitoringGranted = CGPreflightListenEventAccess()
         }
         .onReceive(NotificationCenter.default.publisher(for: .notchClickStatusChanged)) { _ in
-            inputMonitoringGranted = NotchHoverController.isEventTapInstalled
+            inputMonitoringGranted = CGPreflightListenEventAccess()
         }
     }
 

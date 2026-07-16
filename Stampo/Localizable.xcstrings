@@ -3175,6 +3175,42 @@
         }
       }
     },
+    "Relaunch Stampo" : {
+      "comment" : "Button in onboarding to relaunch the app so Screen Recording takes effect.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Relaunch Stampo"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Перезапустить Stampo"
+          }
+        }
+      }
+    },
+    "Screen Recording activates after a relaunch." : {
+      "comment" : "Onboarding hint: Screen Recording permission only takes effect after restarting the app.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Screen Recording activates after a relaunch."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Screen Recording заработает после перезапуска."
+          }
+        }
+      }
+    },
     "Rotate Left" : {
       "extractionState" : "stale",
       "localizations" : {

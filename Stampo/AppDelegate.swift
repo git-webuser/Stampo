@@ -28,6 +28,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         guard !Self.isRunningTests else { return }
         AppSettings.migrateLegacySaveDirectoryIfNeeded()
+        // If onboarding is about to take over the permissions flow, mute
+        // standalone permission alerts up front — hover.start() installs the
+        // event tap and could otherwise fire the cold-start alert before the
+        // First-Launch window appears.
+        let willOnboard = !UserDefaults.standard.bool(forKey: AppSettings.Keys.hasCompletedOnboarding)
+        if willOnboard { UserFacingError.suppressPermissionAlerts = true }
         hover.start()
         interceptSettingsMenuItem()
         UpdateChecker.shared.startAutomaticChecks()
@@ -37,7 +43,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             name: .requestOpenSettings,
             object: nil
         )
-        if !UserDefaults.standard.bool(forKey: AppSettings.Keys.hasCompletedOnboarding) {
+        if willOnboard {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                 FirstLaunchWindowController.shared.show()
             }
