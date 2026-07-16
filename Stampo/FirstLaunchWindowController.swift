@@ -40,7 +40,9 @@ final class FirstLaunchWindowController: NSObject, NSWindowDelegate {
         win.contentView = hosting
         win.setContentSize(hosting.intrinsicContentSize)
         win.center()
-        win.level = .floating
+        // Normal level: the wizard must not sit on top of System Settings while
+        // the user toggles a permission there. It auto-advances by polling, so
+        // it doesn't need to stay visible during the grant.
         win.delegate = self
         win.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
