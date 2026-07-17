@@ -181,6 +181,13 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         open()
     }
 
+    /// Close the settings window if open. Used when the permission wizard takes
+    /// over the foreground — this window is `.floating`, so leaving it open
+    /// would hide the (normal-level) wizard behind it.
+    func close() {
+        window?.close()
+    }
+
     private func openToolbarStyle() {
         let tabController = makeTabViewController()
 

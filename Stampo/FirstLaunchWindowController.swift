@@ -26,6 +26,10 @@ final class FirstLaunchWindowController: NSObject, NSWindowDelegate {
         // This window is the single permissions surface — mute the standalone
         // modal alerts that would otherwise stack on top of System Settings.
         UserFacingError.suppressPermissionAlerts = true
+        // The settings window is `.floating`; close it so the wizard (kept at
+        // normal level so it never covers System Settings) isn't opened behind
+        // it and left looking like nothing happened.
+        SettingsWindowController.shared.close()
         let hosting = NSHostingView(rootView: FirstLaunchView().managedLocale())
         hosting.sizingOptions = .intrinsicContentSize
 
@@ -45,6 +49,9 @@ final class FirstLaunchWindowController: NSObject, NSWindowDelegate {
         // it doesn't need to stay visible during the grant.
         win.delegate = self
         win.makeKeyAndOrderFront(nil)
+        // orderFrontRegardless raises it even when another app (e.g. the one the
+        // user launched from) is active, so opening it never looks like a no-op.
+        win.orderFrontRegardless()
         NSApp.activate(ignoringOtherApps: true)
         self.window = win
     }
