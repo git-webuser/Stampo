@@ -262,11 +262,11 @@ private struct PersistedTrayItem: Codable {
         // Screenshots live in ~/Downloads, a TCC-protected folder. Touching
         // them (existence check, thumbnail decode, file watch) before the
         // save-folder permission is granted fires the "Downloads" prompt — and
-        // at launch that beats the onboarding wizard to the screen. Until
-        // onboarding is done, restore screenshots optimistically without any
-        // file access; the post-onboarding relaunch loads them normally.
-        let deferScreenshotFiles = !UserDefaults.standard.bool(
-            forKey: AppSettings.Keys.hasCompletedOnboarding)
+        // at launch that beats the onboarding wizard to the screen. While the
+        // wizard still has to run (first launch, or permissions were reset),
+        // restore screenshots optimistically without any file access; the
+        // post-onboarding relaunch loads them normally.
+        let deferScreenshotFiles = AppSettings.onboardingPending
 
         let restored: [TrayItem] = decoded.compactMap { p in
             switch p.kind {

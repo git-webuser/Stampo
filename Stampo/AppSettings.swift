@@ -161,6 +161,17 @@ enum AppSettings {
         defer { if didStart { url.stopAccessingSecurityScopedResource() } }
         return try block(url)
     }
+
+    /// True while the onboarding wizard still owns the permission flow — first
+    /// launch, or any launch missing a required system permission (an ad-hoc
+    /// update or a TCC reset). Protected-folder access (the tray touching
+    /// ~/Downloads at launch) is deferred until this is false, so the tray
+    /// never fires the Downloads prompt ahead of the wizard's save-folder step.
+    static var onboardingPending: Bool {
+        !UserDefaults.standard.bool(forKey: Keys.hasCompletedOnboarding)
+            || !CGPreflightListenEventAccess()
+            || !CGPreflightScreenCaptureAccess()
+    }
     static var filenamePreset: FilenamePreset {
         let raw = UserDefaults.standard.string(forKey: Keys.filenamePreset) ?? "compact"
         return FilenamePreset(rawValue: raw) ?? .compact

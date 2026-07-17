@@ -34,9 +34,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // (keyboard → screen recording) without firing prompts behind the user.
         // Gating solely on hasCompletedOnboarding meant returning users hit the
         // old bare CGRequestScreenCaptureAccess fallback instead.
-        let onboardingDone = UserDefaults.standard.bool(forKey: AppSettings.Keys.hasCompletedOnboarding)
-        let permissionsMissing = !CGPreflightListenEventAccess() || !CGPreflightScreenCaptureAccess()
-        let showWizard = !onboardingDone || permissionsMissing
+        let showWizard = AppSettings.onboardingPending
         // Mute standalone permission alerts up front — hover.start() installs
         // the event tap and could otherwise fire the cold-start alert before
         // the wizard appears.
