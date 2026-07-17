@@ -83,12 +83,16 @@ final class FirstLaunchWindowController: NSObject, NSWindowDelegate {
 // MARK: - View
 
 struct FirstLaunchView: View {
-    private enum Step { case inputMonitoring, screenRecording, done }
+    private enum Step { case inputMonitoring, screenRecording, downloads, done }
 
     @State private var launchAtLogin = AppSettings.launchAtLoginEnabled
     @State private var step: Step
     @State private var inputMonitoringGranted: Bool
     @State private var screenRecordingGranted: Bool
+    @State private var downloadsGranted = false
+    /// The save-folder (Files & Folders) permission has no silent preflight —
+    /// probing it fires the prompt — so we only probe after the user asks.
+    @State private var downloadsProbeArmed = false
     /// Screen Recording only takes effect in a fresh process — but only matters
     /// when it wasn't already active at launch. A returning user who already
     /// granted it doesn't need a relaunch.
@@ -103,7 +107,9 @@ struct FirstLaunchView: View {
         _screenRecordingGranted = State(initialValue: sr)
         screenRecordingNeededGrant = !sr
         // Start at the first ungranted permission — one at a time, in order.
-        _step = State(initialValue: im ? (sr ? .done : .screenRecording) : .inputMonitoring)
+        // Downloads can't be preflighted silently, so it's always the last gate
+        // once the two system permissions are in place.
+        _step = State(initialValue: im ? (sr ? .downloads : .screenRecording) : .inputMonitoring)
     }
 
     var body: some View {
@@ -117,10 +123,11 @@ struct FirstLaunchView: View {
             switch step {
             case .inputMonitoring:
                 stepCard(
-                    stepLabel: "Step 1 of 2",
+                    stepLabel: "Step 1 of 3",
                     icon: "keyboard",
                     title: "Keyboard access",
                     description: "Lets you click the notch to open the panel and use global hotkeys. macOS lists this as Input Monitoring.",
+                    hint: "Toggle Stampo on in the window macOS opens.",
                     granted: inputMonitoringGranted,
                     grant: {
                         _ = CGRequestListenEventAccess()
@@ -129,14 +136,28 @@ struct FirstLaunchView: View {
                 )
             case .screenRecording:
                 stepCard(
-                    stepLabel: "Step 2 of 2",
+                    stepLabel: "Step 2 of 3",
                     icon: "rectangle.dashed.badge.record",
                     title: "Screen recording",
                     description: "Lets Stampo take screenshots and sample colors from the screen.",
+                    hint: "Toggle Stampo on in the window macOS opens.",
                     granted: screenRecordingGranted,
                     grant: {
                         _ = CGRequestScreenCaptureAccess()
                         openSecuritySettings("Privacy_ScreenCapture")
+                    }
+                )
+            case .downloads:
+                stepCard(
+                    stepLabel: "Step 3 of 3",
+                    icon: "folder",
+                    title: "Save folder access",
+                    description: "Lets Stampo save screenshots to your Downloads folder.",
+                    hint: "Click Allow in the prompt.",
+                    granted: downloadsGranted,
+                    grant: {
+                        downloadsProbeArmed = true
+                        _ = saveFolderAccessible()
                     }
                 )
             case .done:
@@ -187,10 +208,16 @@ struct FirstLaunchView: View {
         switch step {
         case .inputMonitoring:
             if inputMonitoringGranted {
-                step = screenRecordingGranted ? .done : .screenRecording
+                step = screenRecordingGranted ? .downloads : .screenRecording
             }
         case .screenRecording:
-            if screenRecordingGranted { step = .done }
+            if screenRecordingGranted { step = .downloads }
+        case .downloads:
+            // Only probe (which fires the TCC prompt) after the user asks.
+            if downloadsProbeArmed {
+                downloadsGranted = saveFolderAccessible()
+                if downloadsGranted { step = .done }
+            }
         case .done:
             break
         }
@@ -200,6 +227,16 @@ struct FirstLaunchView: View {
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(pane)") {
             NSWorkspace.shared.open(url)
         }
+    }
+
+    /// Attempts a read of the save folder inside its security scope. Succeeds
+    /// only when the Files & Folders (Downloads) grant is in place; the first
+    /// attempt is what surfaces the system prompt.
+    private func saveFolderAccessible() -> Bool {
+        ((try? AppSettings.withSaveDirectoryAccess { dir -> Bool in
+            _ = try FileManager.default.contentsOfDirectory(atPath: dir.path)
+            return true
+        }) ?? false)
     }
 
     private func finish(relaunch: Bool) {
@@ -217,6 +254,7 @@ struct FirstLaunchView: View {
         icon: String,
         title: LocalizedStringKey,
         description: LocalizedStringKey,
+        hint: LocalizedStringKey,
         granted: Bool,
         grant: @escaping () -> Void
     ) -> some View {
@@ -249,7 +287,7 @@ struct FirstLaunchView: View {
                         .buttonStyle(.borderedProminent)
                         .controlSize(.large)
                         .keyboardShortcut(.defaultAction)
-                    Text("Toggle Stampo on in the window macOS opens.")
+                    Text(hint)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)

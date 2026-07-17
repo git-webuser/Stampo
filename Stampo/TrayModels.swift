@@ -259,6 +259,15 @@ private struct PersistedTrayItem: Codable {
               let decoded = try? JSONDecoder().decode([PersistedTrayItem].self, from: data)
         else { return }
 
+        // Screenshots live in ~/Downloads, a TCC-protected folder. Touching
+        // them (existence check, thumbnail decode, file watch) before the
+        // save-folder permission is granted fires the "Downloads" prompt — and
+        // at launch that beats the onboarding wizard to the screen. Until
+        // onboarding is done, restore screenshots optimistically without any
+        // file access; the post-onboarding relaunch loads them normally.
+        let deferScreenshotFiles = !UserDefaults.standard.bool(
+            forKey: AppSettings.Keys.hasCompletedOnboarding)
+
         let restored: [TrayItem] = decoded.compactMap { p in
             switch p.kind {
             case .color:
@@ -267,6 +276,7 @@ private struct PersistedTrayItem: Codable {
             case .screenshot:
                 guard let path = p.path else { return nil }
                 let url = URL(fileURLWithPath: path)
+                if deferScreenshotFiles { return .screenshot(TrayScreenshot(url: url)) }
                 guard FileManager.default.fileExists(atPath: path) else { return nil }
                 return .screenshot(TrayScreenshot(url: url))
             case .text:
@@ -275,6 +285,7 @@ private struct PersistedTrayItem: Codable {
             }
         }
         items = restored
+        guard !deferScreenshotFiles else { return }
         for case .screenshot(let shot) in items {
             prepareThumbnail(for: shot)
             startWatching(shot)
