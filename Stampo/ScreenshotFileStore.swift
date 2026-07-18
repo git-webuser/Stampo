@@ -14,6 +14,7 @@ final class ScreenshotFileStore {
     /// Returns the final URL on success; throws on failure.
     func moveToFinalDestination(from tmpURL: URL) throws -> URL {
         try AppSettings.withSaveDirectoryAccess { outputDir in
+            try fm.createDirectory(at: outputDir, withIntermediateDirectories: true)
             let dest = uniqueDestURL(in: outputDir, filename: makeFilename())
             try fm.moveItem(at: tmpURL, to: dest)
             return dest
@@ -29,6 +30,7 @@ final class ScreenshotFileStore {
             throw SaveError.encodingFailed
         }
         return try AppSettings.withSaveDirectoryAccess { outputDir in
+            try fm.createDirectory(at: outputDir, withIntermediateDirectories: true)
             let dest = uniqueDestURL(in: outputDir, filename: makeFilename())
             try data.write(to: dest)
             return dest

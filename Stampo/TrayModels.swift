@@ -259,13 +259,14 @@ private struct PersistedTrayItem: Codable {
               let decoded = try? JSONDecoder().decode([PersistedTrayItem].self, from: data)
         else { return }
 
-        // Screenshots live in ~/Downloads, a TCC-protected folder. Touching
-        // them (existence check, thumbnail decode, file watch) before the
-        // save-folder permission is granted fires the "Downloads" prompt — and
-        // at launch that beats the onboarding wizard to the screen. While the
-        // wizard still has to run (first launch, or permissions were reset),
-        // restore screenshots optimistically without any file access; the
-        // post-onboarding relaunch loads them normally.
+        // The default save folder (~/Pictures/Stampo) is outside the TCC set, but
+        // a user may have pointed the save folder at a protected location
+        // (Downloads/Desktop/Documents) via Settings. Touching screenshot files
+        // (existence check, thumbnail decode, file watch) before the wizard has
+        // run could then fire a TCC prompt that beats the onboarding wizard to
+        // the screen. While the wizard still has to run (first launch, or the
+        // system permissions were reset), restore screenshots optimistically
+        // without any file access; the post-onboarding relaunch loads them normally.
         let deferScreenshotFiles = AppSettings.onboardingPending
 
         let restored: [TrayItem] = decoded.compactMap { p in

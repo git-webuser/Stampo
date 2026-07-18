@@ -13,8 +13,9 @@ struct CaptureSettingsView: View {
     @AppStorage(AppSettings.Keys.defaultTimerDelay)   private var defaultTimerDelay   = CaptureDelay.off
 
     private var saveFolderDisplay: String {
+        // Empty == the ~/Pictures/Stampo default (see AppSettings.defaultSaveURL).
         saveDirectory.isEmpty
-            ? (FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first?.lastPathComponent ?? "Downloads")
+            ? "Stampo"
             : URL(fileURLWithPath: saveDirectory).lastPathComponent
     }
 

@@ -4,312 +4,6 @@
     "" : {
 
     },
-    "Step 1 of 3" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Step 1 of 3"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Шаг 1 из 3"
-          }
-        }
-      }
-    },
-    "Step 2 of 3" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Step 2 of 3"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Шаг 2 из 3"
-          }
-        }
-      }
-    },
-    "Step 3 of 3" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Step 3 of 3"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Шаг 3 из 3"
-          }
-        }
-      }
-    },
-    "Save folder access" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Save folder access"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Доступ к папке сохранения"
-          }
-        }
-      }
-    },
-    "Lets Stampo save screenshots to your Downloads folder." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Lets Stampo save screenshots to your Downloads folder."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Позволяет Stampo сохранять скриншоты в папку «Загрузки»."
-          }
-        }
-      }
-    },
-    "Click Allow in the prompt." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Click Allow in the prompt."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Нажмите «Разрешить» в запросе."
-          }
-        }
-      }
-    },
-    "Step 1 of 2" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Step 1 of 2"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Шаг 1 из 2"
-          }
-        }
-      }
-    },
-    "Step 2 of 2" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Step 2 of 2"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Шаг 2 из 2"
-          }
-        }
-      }
-    },
-    "Keyboard access" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Keyboard access"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Доступ к клавиатуре"
-          }
-        }
-      }
-    },
-    "Lets you click the notch to open the panel and use global hotkeys. macOS lists this as Input Monitoring." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Lets you click the notch to open the panel and use global hotkeys. macOS lists this as Input Monitoring."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Позволяет открывать панель кликом по челке и использовать глобальные хоткеи. В macOS это называется Input Monitoring."
-          }
-        }
-      }
-    },
-    "Screen recording" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Screen recording"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Запись экрана"
-          }
-        }
-      }
-    },
-    "Lets Stampo take screenshots and sample colors from the screen." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Lets Stampo take screenshots and sample colors from the screen."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Позволяет Stampo делать скриншоты и брать цвета с экрана."
-          }
-        }
-      }
-    },
-    "Granted — continuing…" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Granted — continuing…"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Выдано — продолжаем…"
-          }
-        }
-      }
-    },
-    "Grant Access" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Grant Access"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Разрешить"
-          }
-        }
-      }
-    },
-    "Toggle Stampo on in the window macOS opens." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Toggle Stampo on in the window macOS opens."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Включите Stampo в окне, которое откроет macOS."
-          }
-        }
-      }
-    },
-    "All set" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "All set"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Готово"
-          }
-        }
-      }
-    },
-    "Relaunching Stampo to activate screen recording…" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Relaunching Stampo to activate screen recording…"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Перезапуск Stampo для активации записи экрана…"
-          }
-        }
-      }
-    },
-    "Permissions granted. You're ready to go." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Permissions granted. You're ready to go."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Разрешения выданы. Всё готово к работе."
-          }
-        }
-      }
-    },
     "%lld" : {
       "comment" : "A label displaying the remaining time in seconds. The value inside the parentheses is replaced with the actual remaining time.",
       "isCommentAutoGenerated" : true
@@ -468,6 +162,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Добавьте ⌘, ⌃ или ⌥ к сочетанию"
+          }
+        }
+      }
+    },
+    "All set" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "All set"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Готово"
           }
         }
       }
@@ -944,6 +655,23 @@
         }
       }
     },
+    "Click Allow in the prompt." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Click Allow in the prompt."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Нажмите «Разрешить» в запросе."
+          }
+        }
+      }
+    },
     "Click the notch — or the center of the menu bar on screens without one — to open the panel." : {
       "comment" : "Onboarding tip: how to open the panel",
       "localizations" : {
@@ -1008,6 +736,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Закрыть"
+          }
+        }
+      }
+    },
+    "Close All Pins" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Close All Pins"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Закрыть все пины"
           }
         }
       }
@@ -1927,8 +1672,26 @@
         }
       }
     },
+    "Grant Access" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Grant Access"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Разрешить"
+          }
+        }
+      }
+    },
     "Granted" : {
       "comment" : "A label indicating that a permission has been granted.",
+      "extractionState" : "stale",
       "isCommentAutoGenerated" : true,
       "localizations" : {
         "en" : {
@@ -1941,6 +1704,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Разрешено"
+          }
+        }
+      }
+    },
+    "Granted — continuing…" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Granted — continuing…"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Выдано — продолжаем…"
           }
         }
       }
@@ -2036,6 +1816,7 @@
     },
     "Input Monitoring" : {
       "comment" : "Permission name: Input Monitoring",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -2107,6 +1888,23 @@
       "comment" : "A file format option in the capture settings view.",
       "isCommentAutoGenerated" : true
     },
+    "Keyboard access" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keyboard access"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Доступ к клавиатуре"
+          }
+        }
+      }
+    },
     "Last checked" : {
       "comment" : "Row title in Updates section",
       "localizations" : {
@@ -2172,6 +1970,57 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Менее минуты назад"
+          }
+        }
+      }
+    },
+    "Lets Stampo save screenshots to your Downloads folder." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lets Stampo save screenshots to your Downloads folder."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Позволяет Stampo сохранять скриншоты в папку «Загрузки»."
+          }
+        }
+      }
+    },
+    "Lets Stampo take screenshots and sample colors from the screen." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lets Stampo take screenshots and sample colors from the screen."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Позволяет Stampo делать скриншоты и брать цвета с экрана."
+          }
+        }
+      }
+    },
+    "Lets you click the notch to open the panel and use global hotkeys. macOS lists this as Input Monitoring." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lets you click the notch to open the panel and use global hotkeys. macOS lists this as Input Monitoring."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Позволяет открывать панель кликом по челке и использовать глобальные хоткеи. В macOS это называется Input Monitoring."
           }
         }
       }
@@ -2434,6 +2283,23 @@
         }
       }
     },
+    "No code found" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No code found"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "QR-код не найден"
+          }
+        }
+      }
+    },
     "No delay" : {
       "comment" : "A description of the capture delay being set to \"No delay\".",
       "isCommentAutoGenerated" : true
@@ -2456,57 +2322,6 @@
         }
       }
     },
-    "No text found" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "No text found"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Текст не найден"
-          }
-        }
-      }
-    },
-    "No code found" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "No code found"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "QR-код не найден"
-          }
-        }
-      }
-    },
-    "Close All Pins" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Close All Pins"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Закрыть все пины"
-          }
-        }
-      }
-    },
     "No recent screenshot" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2520,6 +2335,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Нет недавнего скриншота"
+          }
+        }
+      }
+    },
+    "No text found" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No text found"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Текст не найден"
           }
         }
       }
@@ -2558,24 +2390,6 @@
         }
       }
     },
-    "Notch clicks disabled — grant Input Monitoring" : {
-      "comment" : "Menu-bar warning shown when the notch-click event tap has lost Input Monitoring permission.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Notch clicks disabled — grant Input Monitoring"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Клик по челке отключён — выдайте Input Monitoring"
-          }
-        }
-      }
-    },
     "Notch click" : {
       "comment" : "A section header that describes the \"Notch click\" feature.",
       "isCommentAutoGenerated" : true,
@@ -2590,6 +2404,24 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Клик по челке"
+          }
+        }
+      }
+    },
+    "Notch clicks disabled — grant Input Monitoring" : {
+      "comment" : "Menu-bar warning shown when the notch-click event tap has lost Input Monitoring permission.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Notch clicks disabled — grant Input Monitoring"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Клик по челке отключён — выдайте Input Monitoring"
           }
         }
       }
@@ -2642,6 +2474,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "С номером"
+          }
+        }
+      }
+    },
+    "Numbering" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Numbering"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Нумерация"
           }
         }
       }
@@ -2839,6 +2688,7 @@
     },
     "Open System Settings" : {
       "comment" : "A button label that opens the system settings when tapped.",
+      "extractionState" : "stale",
       "isCommentAutoGenerated" : true,
       "localizations" : {
         "en" : {
@@ -2990,6 +2840,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Разрешения"
+          }
+        }
+      }
+    },
+    "Permissions granted. You're ready to go." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Permissions granted. You're ready to go."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Разрешения выданы. Всё готово к работе."
           }
         }
       }
@@ -3327,6 +3194,41 @@
         }
       }
     },
+    "Relaunch Stampo" : {
+      "comment" : "Button in onboarding to relaunch the app so Screen Recording takes effect.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Relaunch Stampo"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Перезапустить Stampo"
+          }
+        }
+      }
+    },
+    "Relaunching Stampo to activate screen recording…" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Relaunching Stampo to activate screen recording…"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Перезапуск Stampo для активации записи экрана…"
+          }
+        }
+      }
+    },
     "Remove from tray" : {
       "localizations" : {
         "en" : {
@@ -3378,6 +3280,7 @@
     },
     "Required for clicking the notch and global hotkeys" : {
       "comment" : "Onboarding: Input Monitoring permission reason",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -3395,6 +3298,7 @@
     },
     "Required for screenshots and color sampling" : {
       "comment" : "Onboarding: Screen Recording permission reason",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -3412,6 +3316,7 @@
     },
     "Required Permissions" : {
       "comment" : "A heading that lists the permissions required for the app to function.",
+      "extractionState" : "stale",
       "isCommentAutoGenerated" : true,
       "localizations" : {
         "en" : {
@@ -3481,42 +3386,6 @@
         }
       }
     },
-    "Relaunch Stampo" : {
-      "comment" : "Button in onboarding to relaunch the app so Screen Recording takes effect.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Relaunch Stampo"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Перезапустить Stampo"
-          }
-        }
-      }
-    },
-    "Screen Recording activates after a relaunch." : {
-      "comment" : "Onboarding hint: Screen Recording permission only takes effect after restarting the app.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Screen Recording activates after a relaunch."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Screen Recording заработает после перезапуска."
-          }
-        }
-      }
-    },
     "Rotate Left" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -3581,6 +3450,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Сохранить изменения перед закрытием?"
+          }
+        }
+      }
+    },
+    "Save folder access" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Save folder access"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Доступ к папке сохранения"
           }
         }
       }
@@ -3670,8 +3556,26 @@
         }
       }
     },
+    "Screen recording" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Screen recording"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Запись экрана"
+          }
+        }
+      }
+    },
     "Screen Recording" : {
       "comment" : "Permission name: Screen Recording",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -3700,6 +3604,24 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Запись экрана и доступность"
+          }
+        }
+      }
+    },
+    "Screen Recording activates after a relaunch." : {
+      "comment" : "Onboarding hint: Screen Recording permission only takes effect after restarting the app.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Screen Recording activates after a relaunch."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Screen Recording заработает после перезапуска."
           }
         }
       }
@@ -4110,19 +4032,87 @@
       "comment" : "A section header in the general settings view, describing the startup options.",
       "isCommentAutoGenerated" : true
     },
-    "Numbering" : {
+    "Step 1 of 2" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Numbering"
+            "value" : "Step 1 of 2"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Нумерация"
+            "value" : "Шаг 1 из 2"
+          }
+        }
+      }
+    },
+    "Step 1 of 3" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Step 1 of 3"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Шаг 1 из 3"
+          }
+        }
+      }
+    },
+    "Step 2 of 2" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Step 2 of 2"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Шаг 2 из 2"
+          }
+        }
+      }
+    },
+    "Step 2 of 3" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Step 2 of 3"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Шаг 2 из 3"
+          }
+        }
+      }
+    },
+    "Step 3 of 3" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Step 3 of 3"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Шаг 3 из 3"
           }
         }
       }
@@ -4441,6 +4431,23 @@
         }
       }
     },
+    "Toggle Stampo on in the window macOS opens." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Toggle Stampo on in the window macOS opens."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Включите Stampo в окне, которое откроет macOS."
+          }
+        }
+      }
+    },
     "Toolbar" : {
       "comment" : "Title for the \"Toolbar\" settings style.",
       "localizations" : {
@@ -4671,6 +4678,7 @@
     },
     "Without these permissions, capture, color picking, notch click, and hotkeys may not work." : {
       "comment" : "Warning shown under Get Started button when permissions are not yet granted.",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {

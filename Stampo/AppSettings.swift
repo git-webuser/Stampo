@@ -116,11 +116,11 @@ enum AppSettings {
             // moved, deleted, or on an unmounted volume. Surface once via the
             // centralized presenter (throttled) so the user gets a remediation
             // path instead of silently writing to Downloads.
-            let fallback = legacyOrDownloadsURL()
+            let fallback = defaultSaveURL()
             UserFacingError.present(.saveDirectoryInaccessible(url: fallback))
             return fallback
         }
-        return legacyOrDownloadsURL()
+        return defaultSaveURL()
     }
 
     /// One-time migration: if a legacy plain-path saveDirectory exists but no
@@ -147,12 +147,17 @@ enum AppSettings {
     }
 
     /// Fallback resolution when no (resolvable) bookmark exists: prefer the
-    /// legacy plain-string path if present, otherwise Downloads, otherwise home.
-    private static func legacyOrDownloadsURL() -> URL {
+    /// legacy plain-string path if present, otherwise the default ~/Pictures/Stampo.
+    /// ~/Pictures is outside the TCC-protected set (Desktop/Documents/Downloads/
+    /// iCloud), so this default needs no permission prompt — unlike the old
+    /// Downloads default. Users with an explicitly chosen path/bookmark keep it;
+    /// only never-configured (default) users migrate to Pictures.
+    private static func defaultSaveURL() -> URL {
         let path = UserDefaults.standard.string(forKey: Keys.saveDirectory) ?? ""
         if !path.isEmpty { return URL(fileURLWithPath: path) }
-        return FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+        let pictures = FileManager.default.urls(for: .picturesDirectory, in: .userDomainMask).first
             ?? FileManager.default.homeDirectoryForCurrentUser
+        return pictures.appendingPathComponent("Stampo", isDirectory: true)
     }
 
     static func withSaveDirectoryAccess<T>(_ block: (URL) throws -> T) throws -> T {
