@@ -6,13 +6,20 @@ import OSLog
 final class NotchHoverController: NSObject {
     private let panel: NotchPanelController
 
-    /// True если CGEvent tap для области челки установлен успешно.
-    /// Читается из GeneralSettingsView для отображения статуса разрешений.
+    /// True если мониторы кликов для области челки установлены.
+    /// Читается из GeneralSettingsView для отображения статуса.
+    /// (Имя историческое — с прототипа notch-click-monitors кликом занимаются
+    /// NSEvent-мониторы, Input Monitoring больше не нужен.)
     static private(set) var isEventTapInstalled: Bool = false
 
     private var statusItem: NSStatusItem?
-    private var eventTap: CFMachPort?
-    private var eventTapSource: CFRunLoopSource?
+    /// PROTOTYPE: пара NSEvent-мониторов вместо CGEventTap. Глобальные
+    /// mouse-мониторы НЕ требуют Input Monitoring (в отличие от CGEventTap,
+    /// которому оно нужно даже для мыши). Global видит клики в чужих окнах и
+    /// системных зонах (меню-бар/челка); local — клики по окнам самого Stampo
+    /// (глобальный монитор их не получает).
+    private var globalClickMonitor: Any?
+    private var localClickMonitor: Any?
     private var hotKeyHandlerRef: EventHandlerRef?
 
     /// Live Carbon hotkey refs, keyed by action. Only enabled (non-nil combo)
@@ -129,27 +136,17 @@ final class NotchHoverController: NSObject {
         installEventTap()
     }
 
-    /// Reconciles the notch-click tap against the *current* Input Monitoring
-    /// grant. `CGPreflightListenEventAccess()` reflects the running binary's
-    /// access, so a signature change that invalidated the old grant reads as
-    /// no-access here even though the tap was created earlier.
+    /// PROTOTYPE: NSEvent-мониторы не зависят от Input Monitoring и не
+    /// отключаются системой, поэтому сверять с TCC-грантом больше нечего —
+    /// доступность равна «мониторы установлены». Метод сохранён (health-таймер
+    /// и wake-обсервер зовут его) как самовосстановление: если мониторы
+    /// почему-то сняты — ставим заново.
     @objc private func reconcileNotchClickAvailability() {
-        let hasAccess = CGPreflightListenEventAccess()
-
-        if hasAccess {
-            if eventTap == nil {
-                // Access (re)granted after being missing — (re)create the tap.
-                installEventTap()
-            } else if !CGEvent.tapIsEnabled(tap: eventTap!) {
-                CGEvent.tapEnable(tap: eventTap!, enable: true)
-            }
-        } else if eventTap != nil {
-            // Access lost while a tap was live — tear it down so status is honest.
+        if globalClickMonitor == nil || localClickMonitor == nil {
             uninstallEventTap()
+            installEventTap()
         }
-
-        let working = hasAccess && (eventTap.map { CGEvent.tapIsEnabled(tap: $0) } ?? false)
-        applyNotchClickWorking(working)
+        applyNotchClickWorking(globalClickMonitor != nil && localClickMonitor != nil)
     }
 
     /// Applies the resolved availability once per change: keeps the shared flag,
@@ -472,83 +469,46 @@ final class NotchHoverController: NSObject {
     }
 
     private func installEventTap() {
-        let mask = (1 << CGEventType.leftMouseDown.rawValue)
+        guard globalClickMonitor == nil && localClickMonitor == nil else { return }
 
-        let callback: CGEventTapCallBack = { _, type, event, userInfo in
-            guard let userInfo else {
-                return Unmanaged.passUnretained(event)
-            }
-
-            let controller = Unmanaged<NotchHoverController>.fromOpaque(userInfo).takeUnretainedValue()
-
-            if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
-                if let tap = controller.eventTap {
-                    CGEvent.tapEnable(tap: tap, enable: true)
-                }
-                return Unmanaged.passUnretained(event)
-            }
-
-            guard type == .leftMouseDown else {
-                return Unmanaged.passUnretained(event)
-            }
-
-            DispatchQueue.main.async {
-                controller.handleGlobalLeftMouseDown()
-            }
-            return Unmanaged.passUnretained(event)
+        // Global: клики в других приложениях и системных областях (меню-бар,
+        // мёртвая зона челки). Хендлер приходит на главном потоке; события
+        // read-only — консьюмить их (как listenOnly-tap) и не требовалось.
+        globalClickMonitor = NSEvent.addGlobalMonitorForEvents(
+            matching: .leftMouseDown
+        ) { [weak self] _ in
+            self?.handleGlobalLeftMouseDown()
         }
 
-        guard let tap = CGEvent.tapCreate(
-            tap: .cgSessionEventTap,
-            place: .headInsertEventTap,
-            options: .listenOnly,
-            eventsOfInterest: CGEventMask(mask),
-            callback: callback,
-            userInfo: Unmanaged.passUnretained(self).toOpaque()
-        ) else {
-            Log.input.error("CGEvent.tapCreate returned nil — Input Monitoring permission likely missing")
-            NotchHoverController.isEventTapInstalled = false
-            NotificationCenter.default.post(name: .notchClickStatusChanged, object: nil)
-            // Alert показываем только один раз за «жизнь» разрешения: при первой
-            // ошибке. Повторные запуски без разрешения — тихо, статус виден в Settings.
-            // Флаг сбрасывается при успешной установке tap, поэтому если пользователь
-            // сначала выдаст разрешение, а потом отзовёт — alert покажется снова.
-            let alreadyShown = UserDefaults.standard.bool(forKey: AppSettings.Keys.notchClickAlertShown)
-            if !alreadyShown {
-                UserDefaults.standard.set(true, forKey: AppSettings.Keys.notchClickAlertShown)
-                UserFacingError.present(.notchClickUnavailable)
-            }
-            return
+        // Local: клики по окнам самого Stampo (панель, настройки, редактор) —
+        // глобальный монитор их не видит, а логика «клик по челке при открытой
+        // панели» и «клик внутри панели» должна работать и для них.
+        // Возвращаем событие как есть — ничего не перехватываем.
+        localClickMonitor = NSEvent.addLocalMonitorForEvents(
+            matching: .leftMouseDown
+        ) { [weak self] event in
+            self?.handleGlobalLeftMouseDown()
+            return event
         }
 
-        guard let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0) else {
-            Log.input.error("CFMachPortCreateRunLoopSource returned nil for event tap")
-            NotchHoverController.isEventTapInstalled = false
-            NotificationCenter.default.post(name: .notchClickStatusChanged, object: nil)
-            return
-        }
-
-        self.eventTap = tap
-        self.eventTapSource = source
-        CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
-        CGEvent.tapEnable(tap: tap, enable: true)
+        // NSEvent-мониторы мыши не требуют TCC-разрешений и не «умирают» от
+        // смены сигнатуры — установка не может провалиться, вся обвязка
+        // notchClickAlertShown/notchClickUnavailable для этого пути не нужна.
         NotchHoverController.isEventTapInstalled = true
         NotificationCenter.default.post(name: .notchClickStatusChanged, object: nil)
-        // Tap установлен — сбрасываем флаг чтобы при следующем отзыве разрешения
-        // пользователь снова увидел объясняющий alert.
         UserDefaults.standard.removeObject(forKey: AppSettings.Keys.notchClickAlertShown)
     }
 
     private func uninstallEventTap() {
-        if let tap = eventTap {
-            CGEvent.tapEnable(tap: tap, enable: false)
+        if let m = globalClickMonitor {
+            NSEvent.removeMonitor(m)
+            globalClickMonitor = nil
         }
-        if let source = eventTapSource {
-            CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes)
-            self.eventTapSource = nil
+        if let m = localClickMonitor {
+            NSEvent.removeMonitor(m)
+            localClickMonitor = nil
         }
-        self.eventTap = nil
-        // Сбрасываем статус: tap снят, Settings должен показать актуальное состояние.
+        // Сбрасываем статус: мониторы сняты, Settings должен показать актуальное состояние.
         NotchHoverController.isEventTapInstalled = false
         NotificationCenter.default.post(name: .notchClickStatusChanged, object: nil)
     }
