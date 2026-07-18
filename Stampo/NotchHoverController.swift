@@ -26,20 +26,6 @@ final class NotchHoverController: NSObject {
     /// actions appear here.
     private var hotKeyRefs: [HotkeyAction: EventHotKeyRef] = [:]
 
-    /// Polls whether notch clicks still work. A CGEvent tap can be created
-    /// successfully and then silently stop delivering events when Input
-    /// Monitoring is revoked or invalidated — e.g. an ad-hoc-signed update
-    /// changes the code signature, so macOS no longer honors the old TCC grant.
-    /// Without this the app looks alive (mascot animates) but the notch is dead.
-    private var healthTimer: Timer?
-    /// Last known notch-click availability, for edge-triggered signaling.
-    private var lastNotchClickWorking: Bool?
-    /// Red badge on the menu-bar icon shown while notch clicks are unavailable.
-    private var warningBadge: NSView?
-    /// Menu-bar items surfaced only while notch clicks are unavailable.
-    private var statusWarningItem: NSMenuItem?
-    private var statusWarningSeparator: NSMenuItem?
-
     // Control + Option + Command + N  →  toggle panel
     private let hotKeyCode: UInt32 = UInt32(kVK_ANSI_N)
     private let hotKeyModifiers: UInt32 = UInt32(controlKey | optionKey | cmdKey)
@@ -72,12 +58,6 @@ final class NotchHoverController: NSObject {
         )
         NotificationCenter.default.addObserver(
             self,
-            selector: #selector(onRetryEventTapInstall),
-            name: .retryEventTapInstall,
-            object: nil
-        )
-        NotificationCenter.default.addObserver(
-            self,
             selector: #selector(onMascotStateChanged(_:)),
             name: .mascotStateChanged,
             object: nil
@@ -93,21 +73,14 @@ final class NotchHoverController: NSObject {
         ) { [weak self] note in
             self?.isRecordingHotkey = (note.object as? Bool) ?? false
         }
-        // The notch dying is invisible to activation callbacks (the tap is
-        // non-activating), so poll on a timer plus re-check on wake — the
-        // signature/permission can change while the app is backgrounded.
+        // NSEvent-мониторы не могут «умереть» от смены сигнатуры или отзыва
+        // TCC (разрешений они не требуют), так что 4-секундный health-поллинг
+        // прежней tap-эры больше не нужен. Дешёвая самопроверка на пробуждении
+        // остаётся как страховка.
         NSWorkspace.shared.notificationCenter.addObserver(
             self, selector: #selector(reconcileNotchClickAvailability),
             name: NSWorkspace.didWakeNotification, object: nil
         )
-        lastNotchClickWorking = NotchHoverController.isEventTapInstalled
-        updateNotchClickWarning(visible: !NotchHoverController.isEventTapInstalled)
-        let timer = Timer(timeInterval: 4, target: self,
-                          selector: #selector(reconcileNotchClickAvailability),
-                          userInfo: nil, repeats: true)
-        timer.tolerance = 1
-        RunLoop.main.add(timer, forMode: .common)
-        healthTimer = timer
     }
 
     /// True while the shortcut recorder is armed — suppresses hotkey actions.
@@ -116,12 +89,9 @@ final class NotchHoverController: NSObject {
     func stop() {
         NotificationCenter.default.removeObserver(self, name: .settingsWindowDidClose, object: nil)
         NotificationCenter.default.removeObserver(self, name: UserDefaults.didChangeNotification, object: nil)
-        NotificationCenter.default.removeObserver(self, name: .retryEventTapInstall, object: nil)
         NotificationCenter.default.removeObserver(self, name: .mascotStateChanged, object: nil)
         NotificationCenter.default.removeObserver(self, name: .mascotCursorMoved, object: nil)
         NSWorkspace.shared.notificationCenter.removeObserver(self, name: NSWorkspace.didWakeNotification, object: nil)
-        healthTimer?.invalidate()
-        healthTimer = nil
         uninstallEventTap()
         uninstallHotKey()
         uninstallStatusItem()
@@ -131,52 +101,14 @@ final class NotchHoverController: NSObject {
         reinstallHotKeysIfNeeded()
     }
 
-    @objc private func onRetryEventTapInstall() {
-        uninstallEventTap()
-        installEventTap()
-    }
-
-    /// PROTOTYPE: NSEvent-мониторы не зависят от Input Monitoring и не
-    /// отключаются системой, поэтому сверять с TCC-грантом больше нечего —
-    /// доступность равна «мониторы установлены». Метод сохранён (health-таймер
-    /// и wake-обсервер зовут его) как самовосстановление: если мониторы
-    /// почему-то сняты — ставим заново.
+    /// Самовосстановление после пробуждения: NSEvent-мониторы не зависят от
+    /// TCC и не отключаются системой, так что доступность равна «мониторы
+    /// установлены» — если их вдруг нет, ставим заново.
     @objc private func reconcileNotchClickAvailability() {
         if globalClickMonitor == nil || localClickMonitor == nil {
             uninstallEventTap()
             installEventTap()
         }
-        applyNotchClickWorking(globalClickMonitor != nil && localClickMonitor != nil)
-    }
-
-    /// Applies the resolved availability once per change: keeps the shared flag,
-    /// the menu-bar warning, and — on the working→broken edge — a loud alert in
-    /// sync, so the notch never fails silently.
-    private func applyNotchClickWorking(_ working: Bool) {
-        guard lastNotchClickWorking != working else { return }
-        let wasKnownWorking = lastNotchClickWorking == true
-        lastNotchClickWorking = working
-
-        NotchHoverController.isEventTapInstalled = working
-        NotificationCenter.default.post(name: .notchClickStatusChanged, object: nil)
-        updateNotchClickWarning(visible: !working)
-
-        // Alert only on a real regression (working→broken), not on a cold start
-        // that never had permission — that path is handled inside installEventTap.
-        if !working && wasKnownWorking {
-            UserFacingError.present(.notchClickUnavailable)
-        }
-    }
-
-    /// Toggles the persistent menu-bar signals (icon badge + menu item).
-    private func updateNotchClickWarning(visible: Bool) {
-        warningBadge?.isHidden = !visible
-        statusWarningItem?.isHidden = !visible
-        statusWarningSeparator?.isHidden = !visible
-    }
-
-    @objc private func statusMenuFixNotchTapped() {
-        UserFacingError.Remediation.openInputMonitoringSettings.perform()
     }
 
     @objc private func onUserDefaultsChanged() {
@@ -241,35 +173,7 @@ final class NotchHoverController: NSObject {
         button.addSubview(mascot)
         mascotView = mascot
 
-        // Red badge over the icon while notch clicks are unavailable — the
-        // always-visible passive counterpart to the (dismissable) alert.
-        let badge = NSView(frame: NSRect(x: 20, y: 11, width: 8, height: 8))
-        badge.wantsLayer = true
-        badge.layer?.backgroundColor = NSColor.systemRed.cgColor
-        badge.layer?.cornerRadius = 4
-        badge.layer?.borderColor = NSColor.black.withAlphaComponent(0.25).cgColor
-        badge.layer?.borderWidth = 0.5
-        badge.isHidden = true
-        button.addSubview(badge)
-        warningBadge = badge
-
         let menu = NSMenu()
-
-        // Actionable line, hidden unless notch clicks are broken.
-        let warnItem = NSMenuItem(
-            title: LocaleManager.shared.string("Notch clicks disabled — grant Input Monitoring"),
-            action: #selector(statusMenuFixNotchTapped),
-            keyEquivalent: ""
-        )
-        warnItem.target = self
-        warnItem.isHidden = true
-        menu.addItem(warnItem)
-        statusWarningItem = warnItem
-
-        let warnSeparator = NSMenuItem.separator()
-        warnSeparator.isHidden = true
-        menu.addItem(warnSeparator)
-        statusWarningSeparator = warnSeparator
 
         let settingsItem = NSMenuItem(
             title: LocaleManager.shared.string("Settings"),
@@ -301,9 +205,6 @@ final class NotchHoverController: NSObject {
         }
         statusItemSettingsItem = nil
         statusItemQuitItem = nil
-        statusWarningItem = nil
-        statusWarningSeparator = nil
-        warningBadge = nil
         mascotView = nil
     }
 
@@ -492,11 +393,9 @@ final class NotchHoverController: NSObject {
         }
 
         // NSEvent-мониторы мыши не требуют TCC-разрешений и не «умирают» от
-        // смены сигнатуры — установка не может провалиться, вся обвязка
-        // notchClickAlertShown/notchClickUnavailable для этого пути не нужна.
+        // смены сигнатуры — установка не может провалиться.
         NotchHoverController.isEventTapInstalled = true
         NotificationCenter.default.post(name: .notchClickStatusChanged, object: nil)
-        UserDefaults.standard.removeObject(forKey: AppSettings.Keys.notchClickAlertShown)
     }
 
     private func uninstallEventTap() {
@@ -608,13 +507,9 @@ final class NotchHoverController: NSObject {
 }
 
 extension Notification.Name {
-    /// Постится при изменении статуса CGEvent tap (установлен / не установлен).
-    /// GeneralSettingsView подписывается через `.onReceive` для обновления индикатора.
+    /// Постится при изменении статуса мониторов клика по челке
+    /// (установлены / сняты).
     static let notchClickStatusChanged = Notification.Name("Stampo.notchClickStatusChanged")
-
-    /// Постится из GeneralSettingsView при нажатии кнопки Retry.
-    /// NotchHoverController реагирует переустановкой event tap.
-    static let retryEventTapInstall    = Notification.Name("Stampo.retryEventTapInstall")
 
     /// Posted by ShortcutRecorderView with `object: Bool` (true = recording).
     /// NotchHoverController suppresses hotkey actions while recording.

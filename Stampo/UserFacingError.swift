@@ -29,16 +29,12 @@ enum UserFacingError {
         /// not be resolved or access was denied.
         case saveDirectoryInaccessible(url: URL)
 
-        /// CGEvent.tapCreate returned nil — the user hasn't granted
-        /// Input Monitoring permission in Privacy & Security settings.
-        case notchClickUnavailable
-
         /// Permission-onboarding kinds: while the First-Launch window is the
         /// active surface, these are suppressed so the user isn't buried under
         /// stacked modal alerts about permissions they're already granting.
         var isPermissionKind: Bool {
             switch self {
-            case .notchClickUnavailable, .screenCaptureFailed, .colorPickerUnavailable:
+            case .screenCaptureFailed, .colorPickerUnavailable:
                 return true
             case .saveDirectoryInaccessible:
                 return false
@@ -51,7 +47,6 @@ enum UserFacingError {
             case .screenCaptureFailed:       return "screenCaptureFailed"
             case .colorPickerUnavailable:    return "colorPickerUnavailable"
             case .saveDirectoryInaccessible: return "saveDirectoryInaccessible"
-            case .notchClickUnavailable:     return "notchClickUnavailable"
             }
         }
 
@@ -64,8 +59,6 @@ enum UserFacingError {
                 return lm.string("Color picker unavailable")
             case .saveDirectoryInaccessible:
                 return lm.string("Save folder is not accessible")
-            case .notchClickUnavailable:
-                return lm.string("Notch click unavailable")
             }
         }
 
@@ -86,8 +79,6 @@ enum UserFacingError {
                 return base
             case .saveDirectoryInaccessible(let url):
                 return String(format: lm.string("Stampo can't write screenshots to \"%@\". The folder may have been moved, renamed, or access was revoked. Choose a new save folder in Settings \u{2192} Capture."), url.lastPathComponent)
-            case .notchClickUnavailable:
-                return lm.string("Clicking the notch area to open the panel requires Input Monitoring permission. Grant it in System Settings \u{2192} Privacy & Security \u{2192} Input Monitoring.")
             }
         }
 
@@ -97,8 +88,6 @@ enum UserFacingError {
             switch self {
             case .screenCaptureFailed, .colorPickerUnavailable:
                 return .openScreenRecordingSettings
-            case .notchClickUnavailable:
-                return .openInputMonitoringSettings
             case .saveDirectoryInaccessible:
                 return .openAppSettings
             }
@@ -107,13 +96,11 @@ enum UserFacingError {
 
     enum Remediation {
         case openScreenRecordingSettings
-        case openInputMonitoringSettings
         case openAppSettings
 
         var buttonTitle: String {
             switch self {
             case .openScreenRecordingSettings: return LocaleManager.shared.string("Open Privacy Settings")
-            case .openInputMonitoringSettings: return LocaleManager.shared.string("Open Privacy Settings")
             case .openAppSettings:             return LocaleManager.shared.string("Open Stampo Settings")
             }
         }
@@ -123,12 +110,6 @@ enum UserFacingError {
             case .openScreenRecordingSettings:
                 if let url = URL(string:
                     "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")
-                {
-                    NSWorkspace.shared.open(url)
-                }
-            case .openInputMonitoringSettings:
-                if let url = URL(string:
-                    "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent")
                 {
                     NSWorkspace.shared.open(url)
                 }

@@ -28,9 +28,6 @@ enum AppSettings {
         static let defaultCaptureMode    = "defaultCaptureMode"
         static let defaultTimerDelay     = "defaultTimerDelay"
         // Permissions
-        /// true после первого показа alert'а об отсутствии Input Monitoring разрешения.
-        /// Сбрасывается при успешной установке event tap.
-        static let notchClickAlertShown  = "notchClickAlertShown"
         /// true после того как пользователь закрыл onboarding окно при первом запуске.
         static let hasCompletedOnboarding = "hasCompletedOnboarding"
         // Tray
@@ -174,7 +171,6 @@ enum AppSettings {
     /// never fires the Downloads prompt ahead of the wizard's save-folder step.
     static var onboardingPending: Bool {
         !UserDefaults.standard.bool(forKey: Keys.hasCompletedOnboarding)
-            || !CGPreflightListenEventAccess()
             || !CGPreflightScreenCaptureAccess()
     }
     static var filenamePreset: FilenamePreset {

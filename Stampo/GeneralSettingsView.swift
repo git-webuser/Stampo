@@ -11,7 +11,6 @@ struct GeneralSettingsView: View {
     @AppStorage(AppSettings.Keys.preferredLanguage)     private var preferredLanguage      = "system"
 
     @State private var launchAtLogin = AppSettings.launchAtLoginEnabled
-    @State private var notchClickAvailable = NotchHoverController.isEventTapInstalled
 
     var body: some View {
         Form {
@@ -26,44 +25,18 @@ struct GeneralSettingsView: View {
                         }
                 }
 
-                SettingRow(
-                    icon: "rectangle.topthird.inset",
-                    title: "Notch click",
-                    description: "Click the notch area to open the panel"
-                ) {
-                    if notchClickAvailable {
-                        Label("Enabled", systemImage: "checkmark.circle.fill")
-                            .foregroundStyle(.green)
-                            .font(.callout)
-                    } else {
-                        HStack(spacing: 8) {
-                            Button {
-                                UserFacingError.present(.notchClickUnavailable)
-                            } label: {
-                                Label("Permission required", systemImage: "exclamationmark.triangle.fill")
-                                    .foregroundStyle(.orange)
-                            }
-                            .buttonStyle(.plain)
-
-                            Button("Retry") {
-                                NotificationCenter.default.post(name: .retryEventTapInstall, object: nil)
-                            }
-                        }
-                    }
-                }
-
+                // Notch clicks run on permission-free NSEvent monitors — there
+                // is no broken state left to surface, so the old status row
+                // (badge / Retry) is gone.
                 SettingRow(
                     icon: "lock.shield",
                     title: "Permissions",
-                    description: "Screen recording & accessibility"
+                    description: "Screen recording"
                 ) {
                     Button("Set up…") {
                         FirstLaunchWindowController.shared.show()
                     }
                 }
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .notchClickStatusChanged)) { _ in
-                notchClickAvailable = NotchHoverController.isEventTapInstalled
             }
 
             // MARK: Appearance

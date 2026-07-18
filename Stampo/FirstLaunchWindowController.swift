@@ -106,17 +106,11 @@ extension Notification.Name {
 // MARK: - View
 
 struct FirstLaunchView: View {
-    private enum Step { case inputMonitoring, screenRecording, done }
+    private enum Step { case screenRecording, done }
 
     @State private var launchAtLogin = AppSettings.launchAtLoginEnabled
     @State private var step: Step
-    @State private var inputMonitoringGranted: Bool
     @State private var screenRecordingGranted: Bool
-    /// True once the user clicked Grant on the Input Monitoring step. The IM
-    /// grant only takes effect in a fresh process, so if the user declines
-    /// macOS's own "Quit & Reopen" alert the preflight keeps reading false and
-    /// the step looks stuck — this arms an explanatory relaunch affordance.
-    @State private var inputMonitoringRequested = false
     /// Reentrancy guard: the done card's auto-relaunch (asyncAfter) and its
     /// button can otherwise both fire finish(), spawning two relaunch shells.
     @State private var didFinish = false
@@ -128,16 +122,13 @@ struct FirstLaunchView: View {
     private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     init() {
-        let im = CGPreflightListenEventAccess()
+        // Screen Recording is the only system permission left: notch clicks and
+        // Esc run on permission-free NSEvent monitors / Carbon hotkeys, and the
+        // save folder defaults to ~/Pictures/Stampo (outside the TCC set).
         let sr = CGPreflightScreenCaptureAccess()
-        _inputMonitoringGranted = State(initialValue: im)
         _screenRecordingGranted = State(initialValue: sr)
         screenRecordingNeededGrant = !sr
-        // Start at the first ungranted permission — one at a time, in order.
-        // The save folder defaults to ~/Pictures/Stampo (outside the TCC set),
-        // so there's no folder-access gate; the wizard ends after the two
-        // system permissions.
-        _step = State(initialValue: im ? (sr ? .done : .screenRecording) : .inputMonitoring)
+        _step = State(initialValue: sr ? .done : .screenRecording)
     }
 
     var body: some View {
@@ -149,30 +140,8 @@ struct FirstLaunchView: View {
                 .padding(.bottom, 20)
 
             switch step {
-            case .inputMonitoring:
-                stepCard(
-                    stepLabel: "Step 1 of 2",
-                    icon: "keyboard",
-                    title: "Keyboard access",
-                    description: "Lets you click the notch to open the panel and use global hotkeys. macOS lists this as Input Monitoring.",
-                    hint: "Toggle Stampo on in the window macOS opens.",
-                    granted: inputMonitoringGranted,
-                    grant: {
-                        inputMonitoringRequested = true
-                        _ = CGRequestListenEventAccess()
-                        openSecuritySettings("Privacy_ListenEvent")
-                    }
-                )
-                // IM only activates in a fresh process: if the user declined
-                // macOS's "Quit & Reopen" alert, the toggle is on but the step
-                // can't advance — a separate card offers the relaunch.
-                if inputMonitoringRequested && !inputMonitoringGranted {
-                    relaunchCard
-                        .padding(.top, 12)
-                }
             case .screenRecording:
                 stepCard(
-                    stepLabel: "Step 2 of 2",
                     icon: "rectangle.dashed.badge.record",
                     title: "Screen recording",
                     description: "Lets Stampo take screenshots and sample colors from the screen.",
@@ -223,21 +192,11 @@ struct FirstLaunchView: View {
         .background(RoundedRectangle(cornerRadius: 8).fill(Color.blue.opacity(0.08)))
     }
 
-    /// Polls the current grants and advances the wizard one permission at a
-    /// time — the step flips to the next only once the prior one is granted.
+    /// Polls the current grant and flips to the done card once it lands.
     private func advance() {
-        inputMonitoringGranted = CGPreflightListenEventAccess()
+        guard step == .screenRecording else { return }
         screenRecordingGranted = CGPreflightScreenCaptureAccess()
-        switch step {
-        case .inputMonitoring:
-            if inputMonitoringGranted {
-                step = screenRecordingGranted ? .done : .screenRecording
-            }
-        case .screenRecording:
-            if screenRecordingGranted { step = .done }
-        case .done:
-            break
-        }
+        if screenRecordingGranted { step = .done }
     }
 
     private func openSecuritySettings(_ pane: String) {
@@ -259,7 +218,6 @@ struct FirstLaunchView: View {
 
     @ViewBuilder
     private func stepCard(
-        stepLabel: LocalizedStringKey,
         icon: String,
         title: LocalizedStringKey,
         description: LocalizedStringKey,
@@ -268,10 +226,6 @@ struct FirstLaunchView: View {
         grant: @escaping () -> Void
     ) -> some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text(stepLabel)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
             HStack(alignment: .top, spacing: 12) {
                 Image(systemName: icon)
                     .font(.system(size: 26))
@@ -292,48 +246,16 @@ struct FirstLaunchView: View {
                     .font(.callout)
             } else {
                 HStack(spacing: 10) {
-                    Button(action: grant) {
-                        Text("Grant Access")
-                            .frame(minWidth: Self.actionLabelMinWidth)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
-                    .keyboardShortcut(.defaultAction)
+                    Button("Grant Access", action: grant)
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.large)
+                        .keyboardShortcut(.defaultAction)
                     Text(hint)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
-        }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Color.primary.opacity(0.04)))
-    }
-
-    /// Shared minimum label width so the Grant and Relaunch buttons render
-    /// the same size even though their titles differ in length.
-    private static let actionLabelMinWidth: CGFloat = 150
-
-    /// Companion card under the Input Monitoring step: the grant only takes
-    /// effect in a fresh process, so after the user acted in System Settings
-    /// this offers the restart macOS's own alert may have been declined for.
-    private var relaunchCard: some View {
-        HStack(spacing: 10) {
-            Button {
-                FirstLaunchWindowController.relaunch()
-            } label: {
-                Text("Relaunch Stampo")
-                    .frame(minWidth: Self.actionLabelMinWidth)
-            }
-            // Secondary: Grant is the step's one primary action; this is the
-            // recovery path, same footprint but not competing for attention.
-            .buttonStyle(.bordered)
-            .controlSize(.large)
-            Text("Turned it on but nothing happened? The permission takes effect after Stampo restarts.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
