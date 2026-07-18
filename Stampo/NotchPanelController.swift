@@ -454,11 +454,12 @@ final class NotchPanelController: NSObject {
         ) { [weak self] _ in
             self?.isMenuTracking = false
         }
-        // A Space switch can leave WindowServer's binding for a long-lived
-        // non-activating NSPanel corrupted even though AppKit still reports
-        // isVisible=true and canJoinAllSpaces. Re-ordering that same window does
-        // not repair the binding. Recreate it instead: visible UI is restored
-        // immediately, while a hidden panel is rebuilt lazily on the next show.
+        // The panel now lives in a dedicated max-level CGS space (see create()),
+        // so a Space switch no longer corrupts its binding — it stays correctly
+        // placed on its own. The visible-panel recreate that used to run here is
+        // therefore redundant, and its orderOut+close+create was what caused the
+        // brief blink at the tail of a slow swipe. A hidden panel is still torn
+        // down so the next show rebuilds cleanly.
         let t3 = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.activeSpaceDidChangeNotification,
             object: nil,
@@ -473,8 +474,10 @@ final class NotchPanelController: NSObject {
                 // delivers the pending hide completion so capture flows that
                 // wait for the panel to disappear still start.
                 self.markPanelSpaceBindingStale()
-            } else if let panel = self.panel, panel.isVisible {
-                self.recreateVisiblePanelAfterSpaceChange(from: panel)
+            } else if self.panel?.isVisible == true {
+                // Leave the visible panel untouched — the CGS space keeps it in
+                // place across the switch. (No recreate → no blink.)
+                self.trace("spaceDidChange.visible.noop")
             } else {
                 self.markPanelSpaceBindingStale()
             }
@@ -989,6 +992,13 @@ final class NotchPanelController: NSObject {
         panel.contentView = contentView
             ?? NSHostingView(rootView: makeRootView().managedLocale())
         self.panel = panel
+
+        // Place the panel in a dedicated max-level CGS space so it's decoupled
+        // from normal Spaces/Mission Control compositing: it no longer slides
+        // during a Space swipe, and the inter-Space band no longer crosses it in
+        // Mission Control. Assigning replaces the previous window (recreate paths
+        // build a new NSPanel each time), so only the current one is a member.
+        NotchSpaceManager.shared.notchSpace.windows = [panel]
 
         installEscMonitor()
     }
