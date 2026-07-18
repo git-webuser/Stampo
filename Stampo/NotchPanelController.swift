@@ -555,56 +555,6 @@ final class NotchPanelController: NSObject {
         panel.orderFrontRegardless()
     }
 
-    /// Replaces a visible panel with a fresh WindowServer window after the
-    /// active Space changes. The existing NSHostingView is moved to the new
-    /// window instead of rebuilding the SwiftUI hierarchy. This preserves all
-    /// view-local state, including NSScrollView's exact content offset.
-    private func recreateVisiblePanelAfterSpaceChange(from oldPanel: NSPanel) {
-        let restoredState: PanelState
-        switch state {
-        case .countdown:
-            restoredState = .countdown
-        default:
-            restoredState = route == .tray ? .tray : .main
-        }
-
-        bumpGeneration() // invalidate completions that still reference oldPanel
-        let retainedContentView = oldPanel.contentView
-        oldPanel.orderOut(nil)
-        // Detach before close so AppKit does not tear down the hosting tree.
-        oldPanel.contentView = nil
-        oldPanel.close()
-        panel = nil
-        removeEscMonitor()
-
-        create(reusing: retainedContentView)
-        guard let panel,
-              let screen = currentScreen ?? NSScreen.main ?? NSScreen.screens.first else {
-            state = .stale(reason: .spaceChange)
-            trace("spaceDidChange.visible.recreate.failed")
-            return
-        }
-
-        updateScreenMetrics(for: screen)
-        let width = clampedWidth(currentWidthForCurrentRoute, on: screen)
-        panel.setFrame(
-            frameForWidth(width, on: screen, height: trayPanelHeight),
-            display: false
-        )
-        panel.alphaValue = 1
-        interactionState.contentVisibility = 1
-        interactionState.isEnabled = true
-        // Snap the morph to the restored route's rest values. A Space switch
-        // caught mid tray→main morph leaves trayContentVisible pre-faded to 0
-        // and progress between the endpoints; the generation bump above killed
-        // the completions that would have reset them.
-        rootState.trayContentVisible = 1.0
-        rootState.progress = route == .tray ? 1.0 : 0.0
-        state = restoredState
-        orderFrontOnActiveSpace(panel)
-        trace("spaceDidChange.visible.recreate.done")
-    }
-
     /// Помечает Space-привязку панели устаревшей и немедленно уничтожает окно.
     /// Используется при переключении Space пока панель скрыта или закрывается.
     private func markPanelSpaceBindingStale() {
@@ -976,7 +926,7 @@ final class NotchPanelController: NSObject {
 
     // MARK: - Panel lifecycle
 
-    private func create(reusing contentView: NSView? = nil) {
+    private func create() {
         let panel = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: collapsedWidth, height: trayPanelHeight),
             styleMask: [.nonactivatingPanel, .borderless],
@@ -994,15 +944,14 @@ final class NotchPanelController: NSObject {
         panel.ignoresMouseEvents = false
         panel.appearance = NSAppearance(named: .darkAqua)
 
-        panel.contentView = contentView
-            ?? NSHostingView(rootView: makeRootView().managedLocale())
+        panel.contentView = NSHostingView(rootView: makeRootView().managedLocale())
         self.panel = panel
 
         // Place the panel in a dedicated max-level CGS space so it's decoupled
         // from normal Spaces/Mission Control compositing: it no longer slides
         // during a Space swipe, and the inter-Space band no longer crosses it in
-        // Mission Control. Assigning replaces the previous window (recreate paths
-        // build a new NSPanel each time), so only the current one is a member.
+        // Mission Control. Assigning replaces any previous membership, so only
+        // the current window is ever a member.
         NotchSpaceManager.shared.notchSpace.windows = [panel]
 
         installEscMonitor()
