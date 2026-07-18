@@ -111,6 +111,10 @@ struct FirstLaunchView: View {
     @State private var launchAtLogin = AppSettings.launchAtLoginEnabled
     @State private var step: Step
     @State private var screenRecordingGranted: Bool
+    /// True once the user clicked Grant. If they then decline macOS's own
+    /// "Quit & Reopen" alert, the preflight can keep reading false in this
+    /// process and the step looks stuck — this arms the relaunch card.
+    @State private var screenRecordingRequested = false
     /// Reentrancy guard: the done card's auto-relaunch (asyncAfter) and its
     /// button can otherwise both fire finish(), spawning two relaunch shells.
     @State private var didFinish = false
@@ -148,10 +152,18 @@ struct FirstLaunchView: View {
                     hint: "Toggle Stampo on in the window macOS opens.",
                     granted: screenRecordingGranted,
                     grant: {
+                        screenRecordingRequested = true
                         _ = CGRequestScreenCaptureAccess()
                         openSecuritySettings("Privacy_ScreenCapture")
                     }
                 )
+                // The grant may only register in a fresh process: if the user
+                // declined macOS's "Quit & Reopen" alert, the toggle is on but
+                // the step can't advance — a separate card offers the relaunch.
+                if screenRecordingRequested && !screenRecordingGranted {
+                    relaunchCard
+                        .padding(.top, 12)
+                }
             case .done:
                 doneCard
             }
@@ -256,6 +268,28 @@ struct FirstLaunchView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Color.primary.opacity(0.04)))
+    }
+
+    /// Companion card under the permission step: the grant may only take
+    /// effect in a fresh process, so after the user acted in System Settings
+    /// this offers the restart macOS's own alert may have been declined for.
+    private var relaunchCard: some View {
+        HStack(spacing: 10) {
+            Button("Relaunch Stampo") {
+                FirstLaunchWindowController.relaunch()
+            }
+            // Secondary: Grant is the step's one primary action; this is the
+            // recovery path, not competing for attention.
+            .buttonStyle(.bordered)
+            .controlSize(.large)
+            Text("Turned it on but nothing happened? The permission takes effect after Stampo restarts.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
