@@ -15,6 +15,8 @@ final class TextCaptureHUD {
         /// landed on the clipboard — unlike OCR, the user never saw this text.
         case codeCopied(payload: String)
         case noCodeFound
+        /// Unified editor scanner found neither a code nor text in the region.
+        case nothingRecognized
         /// "Pin last screenshot" hotkey fired with nothing captured yet.
         case noScreenshotToPin
     }
@@ -133,6 +135,9 @@ private struct TextCaptureHUDView: View {
                 }
             case .noCodeFound:
                 statusRow(title: "No code found", systemName: "qrcode.viewfinder", iconOpacity: 0.6)
+                    .fixedSize()
+            case .nothingRecognized:
+                statusRow(title: "Nothing recognized", systemName: "viewfinder", iconOpacity: 0.6)
                     .fixedSize()
             case .noScreenshotToPin:
                 statusRow(title: "No recent screenshot", systemName: "pin.slash", iconOpacity: 0.6)

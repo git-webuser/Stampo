@@ -258,10 +258,13 @@ struct FirstLaunchView: View {
                     .font(.callout)
             } else {
                 HStack(spacing: 10) {
-                    Button("Grant Access", action: grant)
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.large)
-                        .keyboardShortcut(.defaultAction)
+                    Button(action: grant) {
+                        Text("Grant Access")
+                            .frame(minWidth: Self.actionLabelMinWidth)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                    .keyboardShortcut(.defaultAction)
                     Text(hint)
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -274,16 +277,23 @@ struct FirstLaunchView: View {
         .background(RoundedRectangle(cornerRadius: 10).fill(Color.primary.opacity(0.04)))
     }
 
+    /// Shared minimum label width so the Grant and Relaunch buttons render
+    /// the same size even though their titles differ in length.
+    private static let actionLabelMinWidth: CGFloat = 150
+
     /// Companion card under the permission step: the grant may only take
     /// effect in a fresh process, so after the user acted in System Settings
     /// this offers the restart macOS's own alert may have been declined for.
     private var relaunchCard: some View {
         HStack(spacing: 10) {
-            Button("Relaunch Stampo") {
+            Button {
                 FirstLaunchWindowController.relaunch()
+            } label: {
+                Text("Relaunch")
+                    .frame(minWidth: Self.actionLabelMinWidth)
             }
             // Secondary: Grant is the step's one primary action; this is the
-            // recovery path, not competing for attention.
+            // recovery path, same footprint but not competing for attention.
             .buttonStyle(.bordered)
             .controlSize(.large)
             Text("Turned it on but nothing happened? The permission takes effect after Stampo restarts.")

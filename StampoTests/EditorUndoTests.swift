@@ -216,10 +216,9 @@ import Testing
             #expect(tool.shortcut?.label == label)
         }
         #expect(EditorTool.tool(forShortcutKeyCode: 7) == nil)
-        #expect(EditorTool.ocr.shortcut == nil)
-        #expect(EditorTool.scanCode.shortcut == nil)
-        #expect(EditorTool.scanCode.systemImage == "qrcode.viewfinder")
-        #expect(EditorTool.scanCode.labelKey == "Scan Code")
+        #expect(EditorTool.scan.shortcut == nil)
+        #expect(EditorTool.scan.systemImage == "viewfinder")
+        #expect(EditorTool.scan.labelKey == "Scan")
         #expect(EditorTool.crop.shortcut == nil)
         #expect(EditorTool.step.labelKey == "Numbering")
     }

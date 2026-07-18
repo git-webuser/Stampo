@@ -35,8 +35,7 @@ struct EditorView: View {
                 editingTextID: $editingTextID,
                 zoomFactor: $zoomFactor,
                 panOffset: $panOffset,
-                onRecognizeRegion: { recognizeRegion($0) },
-                onScanCodeRegion: { scanCodeRegion($0) },
+                onScanRegion: { scanRegion($0) },
                 cropRect: $cropRect,
                 onCropApply: applyCrop,
                 onCropCancel: cancelCrop
@@ -103,12 +102,8 @@ struct EditorView: View {
     /// reflow the canvas.
     private var contextBar: some View {
         HStack(spacing: 12) {
-            if tool == .ocr, document.selectedAnnotation == nil {
-                Label("Drag to select an area to recognize", systemImage: "text.viewfinder")
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-            } else if tool == .scanCode, document.selectedAnnotation == nil {
-                Label("Drag to select an area to scan", systemImage: "qrcode.viewfinder")
+            if tool == .scan, document.selectedAnnotation == nil {
+                Label("Drag to select an area to scan", systemImage: "viewfinder")
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
             } else if tool == .crop {
@@ -190,7 +185,7 @@ struct EditorView: View {
     private var contextKind: AnnotationKind? {
         if let selected = document.selectedAnnotation { return selected.kind }
         switch tool {
-        case .select, .eraser, .ocr, .scanCode, .crop: return nil
+        case .select, .eraser, .scan, .crop: return nil
         case .line:   return .line
         case .arrow:  return .arrow
         case .rect:   return .rect
@@ -873,25 +868,18 @@ struct EditorView: View {
 
     private var standardActionButtons: some View {
         HStack(spacing: 8) {
+            // One scanner entry point: the marquee interaction is identical for
+            // text and codes, so what the pixels contain is decided after the
+            // drag (see scanRegion), not by picking the right button up front.
             Button {
-                tool = (tool == .ocr) ? .select : .ocr
+                tool = (tool == .scan) ? .select : .scan
                 document.selectedID = nil
             } label: {
-                Image(systemName: "text.viewfinder")
-                    .foregroundStyle(tool == .ocr ? Color.accentColor : Color.primary)
+                Image(systemName: "viewfinder")
+                    .foregroundStyle(tool == .scan ? Color.accentColor : Color.primary)
             }
             .disabled(textEditingActive)
-            .hoverTip("Recognize Text")
-
-            Button {
-                tool = (tool == .scanCode) ? .select : .scanCode
-                document.selectedID = nil
-            } label: {
-                Image(systemName: "qrcode.viewfinder")
-                    .foregroundStyle(tool == .scanCode ? Color.accentColor : Color.primary)
-            }
-            .disabled(textEditingActive)
-            .hoverTip("Scan Code")
+            .hoverTip("Scan")
 
             Button {
                 copyToClipboard()
@@ -937,15 +925,29 @@ struct EditorView: View {
         showCaptureHUD(.copied)
     }
 
-    /// OCRs just the marquee region the user dragged and copies the recognized
-    /// text to the clipboard. Runs off the main thread so a large crop doesn't
-    /// stall the UI; the shared capture HUD reports success or "no text found",
-    /// same as the notch Capture Text flow. Leaving OCR mode after a scan
-    /// matches the "select once, then copy" flow.
-    private func recognizeRegion(_ pixelRect: CGRect) {
+    /// Unified scanner over the marquee region: tries a QR/barcode first (the
+    /// more specific content — a code region would also OCR as garbage text),
+    /// then falls back to text recognition. Whatever is found lands on the
+    /// clipboard; the shared capture HUD reports the outcome. Runs off the
+    /// main thread so a large crop doesn't stall the UI. Leaving scan mode
+    /// after a scan matches the "select once, then copy" flow.
+    private func scanRegion(_ pixelRect: CGRect) {
         tool = .select
-        guard let cropped = croppedBaseImage(pixelRect) else { showCaptureHUD(.noTextFound); return }
+        guard let cropped = croppedBaseImage(pixelRect) else { showCaptureHUD(.nothingRecognized); return }
         DispatchQueue.global(qos: .userInitiated).async {
+            // 1) Codes take priority.
+            let payload = ((try? CodeRecognition.payload(in: cropped)) ?? "")
+            if !payload.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                DispatchQueue.main.async {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(payload, forType: .string)
+                    NotificationCenter.default.post(name: .editorDidScanCode, object: payload)
+                    showCaptureHUD(.codeCopied(payload: payload))
+                }
+                return
+            }
+
+            // 2) No code — try text.
             let request = TextRecognition.makeRequest()
             let handler = VNImageRequestHandler(cgImage: cropped, options: [:])
             var recognized = ""
@@ -959,29 +961,10 @@ struct EditorView: View {
             }
             DispatchQueue.main.async {
                 let trimmed = recognized.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !trimmed.isEmpty else { showCaptureHUD(.noTextFound); return }
+                guard !trimmed.isEmpty else { showCaptureHUD(.nothingRecognized); return }
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(recognized, forType: .string)
                 showCaptureHUD(.copied)
-            }
-        }
-    }
-
-    /// Detects a QR/barcode payload in the selected image region, copies it as
-    /// inert plain text, and confirms via the shared capture HUD with a
-    /// truncated payload preview.
-    private func scanCodeRegion(_ pixelRect: CGRect) {
-        tool = .select
-        guard let cropped = croppedBaseImage(pixelRect) else { showCaptureHUD(.noCodeFound); return }
-        DispatchQueue.global(qos: .userInitiated).async {
-            let payload = (try? CodeRecognition.payload(in: cropped)) ?? ""
-            DispatchQueue.main.async {
-                let trimmed = payload.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !trimmed.isEmpty else { showCaptureHUD(.noCodeFound); return }
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(payload, forType: .string)
-                NotificationCenter.default.post(name: .editorDidScanCode, object: payload)
-                showCaptureHUD(.codeCopied(payload: payload))
             }
         }
     }

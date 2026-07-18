@@ -3,11 +3,11 @@ import SwiftUI
 
 /// Active tool in the editor toolbar.
 enum EditorTool: Equatable, CaseIterable {
-    case select, line, arrow, rect, oval, text, drawing, eraser, blur, step, loupe, ocr, scanCode, crop
+    case select, line, arrow, rect, oval, text, drawing, eraser, blur, step, loupe, scan, crop
 
-    /// Drawing tools shown in the toolbar picker. OCR, Scan Code, and Crop are
-    /// transient modes driven by their own action buttons, not persistent
-    /// drawing tools, so they're excluded here.
+    /// Drawing tools shown in the toolbar picker. Scan and Crop are transient
+    /// modes driven by their own action buttons, not persistent drawing tools,
+    /// so they're excluded here.
     static let pickerCases: [EditorTool] = [
         .select, .line, .arrow, .rect, .oval, .text, .drawing, .eraser, .blur, .step, .loupe
     ]
@@ -27,7 +27,7 @@ enum EditorTool: Equatable, CaseIterable {
         case .blur:   return (11, "B")
         case .step:   return (1, "S")
         case .loupe:  return (46, "M")
-        case .ocr, .scanCode, .crop: return nil
+        case .scan, .crop: return nil
         }
     }
 
@@ -48,8 +48,7 @@ enum EditorTool: Equatable, CaseIterable {
         case .blur:   return "drop"
         case .step:   return "1.circle"
         case .loupe:  return "magnifyingglass"
-        case .ocr:    return "text.viewfinder"
-        case .scanCode: return "qrcode.viewfinder"
+        case .scan:   return "viewfinder"
         case .crop:   return "crop"
         }
     }
@@ -67,8 +66,7 @@ enum EditorTool: Equatable, CaseIterable {
         case .blur:   return "Blur"
         case .step:   return "Numbering"
         case .loupe:  return "Loupe"
-        case .ocr:    return "Recognize Text"
-        case .scanCode: return "Scan Code"
+        case .scan:   return "Scan"
         case .crop:   return "Crop"
         }
     }
@@ -177,8 +175,9 @@ struct EditorCanvasView: View {
     @Binding var panOffset: CGSize
     /// Called with the marquee's image-pixel rect when a recognition tool's
     /// drag ends, so the owner can process just that region.
-    var onRecognizeRegion: (CGRect) -> Void = { _ in }
-    var onScanCodeRegion: (CGRect) -> Void = { _ in }
+    /// Unified scanner marquee: the region is handed to one callback that
+    /// decides what the pixels contain (code vs text) on the EditorView side.
+    var onScanRegion: (CGRect) -> Void = { _ in }
     /// The crop rectangle (image-pixel space) while the `.crop` tool is active;
     /// nil otherwise. The canvas draws it and adjusts it via drag.
     @Binding var cropRect: CGRect?
@@ -205,13 +204,12 @@ struct EditorCanvasView: View {
         case moving(UUID, last: CGPoint)
         case resizing(UUID, Annotation.Handle)
         case panning(last: CGPoint)
-        case recognitionSelecting(kind: RecognitionKind, start: CGPoint, current: CGPoint)
+        case recognitionSelecting(start: CGPoint, current: CGPoint)
         case cropCreating(start: CGPoint)
         case cropMoving(last: CGPoint)
         case cropResizing(CropHandle)
         case ignore
     }
-    private enum RecognitionKind { case text, code }
     @State private var dragMode: DragMode?
 
     /// Handle grab radius in view points (converted to pixels per gesture).
@@ -327,8 +325,8 @@ struct EditorCanvasView: View {
                 drawSelection(for: selected, context: context, fitScale: fitScale, offset: offset)
             }
 
-            // Shared marquee for OCR and QR recognition tools.
-            if case let .recognitionSelecting(_, start, current) = dragMode {
+            // Marquee for the unified scanner tool.
+            if case let .recognitionSelecting(start, current) = dragMode {
                 drawRecognitionMarquee(from: start, to: current, context: context,
                                        fitScale: fitScale, offset: offset)
             }
@@ -576,7 +574,7 @@ struct EditorCanvasView: View {
                         dragMode = beginCropDrag(at: p, fitScale: fitScale)
                     } else if isSpaceHeld {
                         dragMode = .panning(last: value.location)
-                    } else if tool != .ocr, tool != .scanCode,
+                    } else if tool != .scan,
                               beginEditingIfDoubleClick(at: p, fitScale: fitScale) {
                         // A double-click on text/step opens its inline editor
                         // instead of starting a move — detected at mouse-down
@@ -678,8 +676,8 @@ struct EditorCanvasView: View {
                         }
                     }
 
-                case .recognitionSelecting(let kind, let start, _):
-                    dragMode = .recognitionSelecting(kind: kind, start: start, current: p)
+                case .recognitionSelecting(let start, _):
+                    dragMode = .recognitionSelecting(start: start, current: p)
 
                 case .cropCreating(let start):
                     // Ignore a stray click (or the first sub-pixel of a drag) so
@@ -757,14 +755,11 @@ struct EditorCanvasView: View {
                     document.commitChange()
                 case .moving, .resizing:
                     document.commitChange()
-                case .recognitionSelecting(let kind, let start, _):
+                case .recognitionSelecting(let start, _):
                     let rect = CGRect(x: min(start.x, p.x), y: min(start.y, p.y),
                                       width: abs(p.x - start.x), height: abs(p.y - start.y))
                     guard rect.width >= 4, rect.height >= 4 else { break }
-                    switch kind {
-                    case .text: onRecognizeRegion(rect)
-                    case .code: onScanCodeRegion(rect)
-                    }
+                    onScanRegion(rect)
                 case .duplicatePending, .cropCreating, .cropMoving, .cropResizing,
                      .panning, .ignore, nil:
                     break
@@ -789,21 +784,17 @@ struct EditorCanvasView: View {
         // while a regular drawing tool is active. Recognition and crop keep
         // exclusive ownership of their gestures. Creation is deferred until
         // movement crosses the standard 3 pt drag threshold, so Option-click only selects.
-        if tool != .ocr, tool != .scanCode, tool != .crop, isOptionHeld,
+        if tool != .scan, tool != .crop, isOptionHeld,
            let hit = document.annotation(at: p, tolerance: tolerancePx) {
             document.selectedID = hit.id
             return .duplicatePending(sourceID: hit.id, start: p)
         }
 
         switch tool {
-        case .ocr:
-            // The recognize-text tool never touches annotations: any drag is a
-            // marquee over the region to OCR.
-            return .recognitionSelecting(kind: .text, start: p, current: p)
-        case .scanCode:
-            // Scan Code shares the marquee interaction but runs barcode
-            // detection on the selected pixels.
-            return .recognitionSelecting(kind: .code, start: p, current: p)
+        case .scan:
+            // The scanner never touches annotations: any drag is a marquee
+            // over the region to recognize (code or text — decided later).
+            return .recognitionSelecting(start: p, current: p)
         case .crop:
             // Crop drags are routed through beginCropDrag before reaching here.
             return .ignore
@@ -904,7 +895,7 @@ struct EditorCanvasView: View {
         case .oval:  return .oval
         case .blur:  return .blur
         case .loupe: return .loupe
-        case .select, .text, .drawing, .eraser, .step, .ocr, .scanCode, .crop: return nil
+        case .select, .text, .drawing, .eraser, .step, .scan, .crop: return nil
         }
     }
 
