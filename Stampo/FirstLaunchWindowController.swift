@@ -30,19 +30,18 @@ final class FirstLaunchWindowController: NSObject, NSWindowDelegate {
         // normal level so it never covers System Settings) isn't opened behind
         // it and left looking like nothing happened.
         SettingsWindowController.shared.close()
-        let hosting = NSHostingView(rootView: FirstLaunchView().managedLocale())
-        hosting.sizingOptions = .intrinsicContentSize
+        // NSHostingController + contentViewController (not a bare NSHostingView
+        // with a one-shot setContentSize): the window then tracks
+        // preferredContentSize, so when a step's content grows at runtime —
+        // e.g. the Input Monitoring relaunch hint appearing — the window grows
+        // with it instead of clipping the bottom padding.
+        let hosting = NSHostingController(rootView: FirstLaunchView().managedLocale())
+        hosting.sizingOptions = .preferredContentSize
 
-        let win = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 420, height: 100),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
+        let win = NSWindow(contentViewController: hosting)
+        win.styleMask = [.titled, .closable]
         win.title = LocaleManager.shared.string("Welcome to Stampo")
         win.isReleasedWhenClosed = false
-        win.contentView = hosting
-        win.setContentSize(hosting.intrinsicContentSize)
         win.center()
         // Normal level: the wizard must not sit on top of System Settings while
         // the user toggles a permission there. It auto-advances by polling, so
@@ -162,12 +161,15 @@ struct FirstLaunchView: View {
                         inputMonitoringRequested = true
                         _ = CGRequestListenEventAccess()
                         openSecuritySettings("Privacy_ListenEvent")
-                    },
-                    // IM only activates in a fresh process: if the user declined
-                    // macOS's "Quit & Reopen" alert, the toggle is on but the
-                    // step can't advance — offer the relaunch here.
-                    showRelaunchHint: inputMonitoringRequested
+                    }
                 )
+                // IM only activates in a fresh process: if the user declined
+                // macOS's "Quit & Reopen" alert, the toggle is on but the step
+                // can't advance — a separate card offers the relaunch.
+                if inputMonitoringRequested && !inputMonitoringGranted {
+                    relaunchCard
+                        .padding(.top, 12)
+                }
             case .screenRecording:
                 stepCard(
                     stepLabel: "Step 2 of 2",
@@ -263,8 +265,7 @@ struct FirstLaunchView: View {
         description: LocalizedStringKey,
         hint: LocalizedStringKey,
         granted: Bool,
-        grant: @escaping () -> Void,
-        showRelaunchHint: Bool = false
+        grant: @escaping () -> Void
     ) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             Text(stepLabel)
@@ -291,28 +292,48 @@ struct FirstLaunchView: View {
                     .font(.callout)
             } else {
                 HStack(spacing: 10) {
-                    Button("Grant Access", action: grant)
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.large)
-                        .keyboardShortcut(.defaultAction)
+                    Button(action: grant) {
+                        Text("Grant Access")
+                            .frame(minWidth: Self.actionLabelMinWidth)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                    .keyboardShortcut(.defaultAction)
                     Text(hint)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-
-                if showRelaunchHint {
-                    HStack(spacing: 10) {
-                        Button("Relaunch Stampo") {
-                            FirstLaunchWindowController.relaunch()
-                        }
-                        Text("Turned it on but nothing happened? The permission takes effect after Stampo restarts.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
             }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Color.primary.opacity(0.04)))
+    }
+
+    /// Shared minimum label width so the Grant and Relaunch buttons render
+    /// the same size even though their titles differ in length.
+    private static let actionLabelMinWidth: CGFloat = 150
+
+    /// Companion card under the Input Monitoring step: the grant only takes
+    /// effect in a fresh process, so after the user acted in System Settings
+    /// this offers the restart macOS's own alert may have been declined for.
+    private var relaunchCard: some View {
+        HStack(spacing: 10) {
+            Button {
+                FirstLaunchWindowController.relaunch()
+            } label: {
+                Text("Relaunch Stampo")
+                    .frame(minWidth: Self.actionLabelMinWidth)
+            }
+            // Secondary: Grant is the step's one primary action; this is the
+            // recovery path, same footprint but not competing for attention.
+            .buttonStyle(.bordered)
+            .controlSize(.large)
+            Text("Turned it on but nothing happened? The permission takes effect after Stampo restarts.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
