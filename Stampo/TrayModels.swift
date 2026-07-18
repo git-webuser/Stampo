@@ -91,6 +91,9 @@ private struct PersistedTrayItem: Codable {
     /// Without this cache, recreating the panel briefly replaces every preview
     /// with the placeholder while the same files are decoded again.
     @ObservationIgnored private var thumbnailLoaders: [UUID: ThumbnailLoader] = [:]
+    /// Non-nil while a restore ran with file access deferred behind the
+    /// onboarding wizard; fires completeDeferredRestore on wizard close.
+    @ObservationIgnored private var deferredRestoreObserver: NSObjectProtocol?
 
     private func schedulePersist() {
         persistWorkItem?.cancel()
@@ -105,6 +108,9 @@ private struct PersistedTrayItem: Codable {
 
     deinit {
         fileWatchers.values.forEach { $0.cancel() }
+        if let obs = deferredRestoreObserver {
+            NotificationCenter.default.removeObserver(obs)
+        }
     }
 
     var colors: [TrayColor] {
@@ -286,12 +292,43 @@ private struct PersistedTrayItem: Codable {
             }
         }
         items = restored
-        guard !deferScreenshotFiles else { return }
+        guard !deferScreenshotFiles else {
+            // The wizard doesn't always end in a relaunch (e.g. only Input
+            // Monitoring was re-granted): complete the deferred file phase —
+            // existence filter, thumbnails, watchers — when its window closes,
+            // or this session would keep bare, unwatched entries forever.
+            deferredRestoreObserver = NotificationCenter.default.addObserver(
+                forName: .onboardingWindowClosed,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated { self?.completeDeferredRestore() }
+            }
+            return
+        }
+        attachFileResources()
+    }
+
+    /// The file-access half of a restore: drop entries whose files vanished,
+    /// then decode thumbnails and start watching the survivors.
+    private func attachFileResources() {
+        items.removeAll {
+            if case .screenshot(let shot) = $0 {
+                return !FileManager.default.fileExists(atPath: shot.url.path)
+            }
+            return false
+        }
         for case .screenshot(let shot) in items {
             prepareThumbnail(for: shot)
             startWatching(shot)
         }
     }
 
-
+    private func completeDeferredRestore() {
+        if let obs = deferredRestoreObserver {
+            NotificationCenter.default.removeObserver(obs)
+            deferredRestoreObserver = nil
+        }
+        attachFileResources()
+    }
 }

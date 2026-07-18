@@ -4483,6 +4483,23 @@
         }
       }
     },
+    "Turned it on but nothing happened? The permission takes effect after Stampo restarts." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Turned it on but nothing happened? The permission takes effect after Stampo restarts."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Включили тумблер, но ничего не произошло? Разрешение вступит в силу после перезапуска Stampo."
+          }
+        }
+      }
+    },
     "Underline" : {
       "extractionState" : "stale",
       "localizations" : {

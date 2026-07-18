@@ -612,6 +612,9 @@ final class NotchPanelController: NSObject {
         // Осиротевшие completion'ы анимации скрытия не должны перезаписать
         // .stale на .hidden после того, как окно уже уничтожено.
         bumpGeneration()
+        // Убираем окно из CGS-спейса ДО close(): позже windowNumber станет
+        // невалидным, и панель зависла бы в Set (strong ref) до следующего create().
+        NotchSpaceManager.shared.notchSpace.windows = []
         panel?.orderOut(nil)
         panel?.close()
         panel = nil
@@ -651,6 +654,8 @@ final class NotchPanelController: NSObject {
 
         activeCountdown?.timer?.invalidate()
         activeCountdown = nil
+        // См. markPanelSpaceBindingStale: чистим CGS-спейс до close().
+        NotchSpaceManager.shared.notchSpace.windows = []
         panel?.orderOut(nil)
         panel?.close()
         panel = nil

@@ -54,6 +54,9 @@ final class FirstLaunchWindowController: NSObject, NSWindowDelegate {
         win.orderFrontRegardless()
         NSApp.activate(ignoringOtherApps: true)
         self.window = win
+        // From here the window's existence (isWindowOpen) is the suppression
+        // signal; the stored flag only had to cover the launch→show gap.
+        UserFacingError.suppressPermissionAlerts = false
     }
 
     func close() {
@@ -65,19 +68,40 @@ final class FirstLaunchWindowController: NSObject, NSWindowDelegate {
     func windowWillClose(_ notification: Notification) {
         UserFacingError.suppressPermissionAlerts = false
         window = nil
+        // Let deferred launch work (tray file access) run now that the wizard
+        // no longer owns the screen. Fires on every close path — including
+        // finishing without the Screen Recording relaunch, where no fresh
+        // process would otherwise pick the deferral up.
+        NotificationCenter.default.post(name: .onboardingWindowClosed, object: nil)
     }
 
-    /// Relaunches the app: Screen Recording only takes effect in a fresh
-    /// process, so the onboarding offers a one-click restart. A detached shell
-    /// waits for this instance to quit, then reopens the bundle.
+    /// Relaunches the app: Screen Recording / Input Monitoring only take
+    /// effect in a fresh process, so the onboarding offers a one-click restart.
+    /// A detached shell waits for THIS pid to actually exit (bounded at ~10s)
+    /// before reopening — a fixed sleep raced a slow teardown, letting `open`
+    /// activate the still-dying instance so no new one ever launched.
     static func relaunch() {
         let path = Bundle.main.bundlePath
+        let pid = ProcessInfo.processInfo.processIdentifier
         let task = Process()
         task.executableURL = URL(fileURLWithPath: "/bin/sh")
-        task.arguments = ["-c", "sleep 0.4; /usr/bin/open \"\(path)\""]
+        task.arguments = ["-c",
+            "for i in $(seq 1 100); do kill -0 \(pid) 2>/dev/null || break; sleep 0.1; done; /usr/bin/open \"\(path)\""]
         try? task.run()
         NSApp.terminate(nil)
     }
+
+    /// True while the wizard window exists. UserFacingError uses this as the
+    /// primary suppression signal so any dismissal path — delegate callback or
+    /// not — automatically stops muting standalone permission alerts.
+    var isWindowOpen: Bool { window != nil }
+}
+
+extension Notification.Name {
+    /// Posted when the onboarding wizard window closes (any path). Consumers
+    /// with launch work deferred behind the wizard (e.g. the tray's screenshot
+    /// file access) complete it on this signal.
+    static let onboardingWindowClosed = Notification.Name("Stampo.onboardingWindowClosed")
 }
 
 // MARK: - View
@@ -89,6 +113,14 @@ struct FirstLaunchView: View {
     @State private var step: Step
     @State private var inputMonitoringGranted: Bool
     @State private var screenRecordingGranted: Bool
+    /// True once the user clicked Grant on the Input Monitoring step. The IM
+    /// grant only takes effect in a fresh process, so if the user declines
+    /// macOS's own "Quit & Reopen" alert the preflight keeps reading false and
+    /// the step looks stuck — this arms an explanatory relaunch affordance.
+    @State private var inputMonitoringRequested = false
+    /// Reentrancy guard: the done card's auto-relaunch (asyncAfter) and its
+    /// button can otherwise both fire finish(), spawning two relaunch shells.
+    @State private var didFinish = false
     /// Screen Recording only takes effect in a fresh process — but only matters
     /// when it wasn't already active at launch. A returning user who already
     /// granted it doesn't need a relaunch.
@@ -127,9 +159,14 @@ struct FirstLaunchView: View {
                     hint: "Toggle Stampo on in the window macOS opens.",
                     granted: inputMonitoringGranted,
                     grant: {
+                        inputMonitoringRequested = true
                         _ = CGRequestListenEventAccess()
                         openSecuritySettings("Privacy_ListenEvent")
-                    }
+                    },
+                    // IM only activates in a fresh process: if the user declined
+                    // macOS's "Quit & Reopen" alert, the toggle is on but the
+                    // step can't advance — offer the relaunch here.
+                    showRelaunchHint: inputMonitoringRequested
                 )
             case .screenRecording:
                 stepCard(
@@ -208,6 +245,8 @@ struct FirstLaunchView: View {
     }
 
     private func finish(relaunch: Bool) {
+        guard !didFinish else { return }
+        didFinish = true
         UserDefaults.standard.set(true, forKey: AppSettings.Keys.hasCompletedOnboarding)
         if relaunch {
             FirstLaunchWindowController.relaunch()
@@ -224,7 +263,8 @@ struct FirstLaunchView: View {
         description: LocalizedStringKey,
         hint: LocalizedStringKey,
         granted: Bool,
-        grant: @escaping () -> Void
+        grant: @escaping () -> Void,
+        showRelaunchHint: Bool = false
     ) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             Text(stepLabel)
@@ -259,6 +299,18 @@ struct FirstLaunchView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
+                }
+
+                if showRelaunchHint {
+                    HStack(spacing: 10) {
+                        Button("Relaunch Stampo") {
+                            FirstLaunchWindowController.relaunch()
+                        }
+                        Text("Turned it on but nothing happened? The permission takes effect after Stampo restarts.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
             }
         }

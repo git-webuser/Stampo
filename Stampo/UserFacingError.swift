@@ -149,6 +149,11 @@ enum UserFacingError {
     /// the brief window between launch and the window appearing). Permission
     /// alerts are the window's job then, so standalone modals — which would
     /// otherwise stack on top of System Settings — are suppressed.
+    ///
+    /// This stored flag only needs to cover the launch→show gap; once the
+    /// wizard window exists, its presence (isWindowOpen, checked in
+    /// presentOnMain) is the authoritative signal, so no dismissal path can
+    /// leave alerts muted for the rest of the session.
     @MainActor static var suppressPermissionAlerts = false
 
     // MARK: Throttle state
@@ -170,7 +175,10 @@ enum UserFacingError {
 
     @MainActor
     private static func presentOnMain(_ kind: Kind) {
-        if kind.isPermissionKind && suppressPermissionAlerts { return }
+        if kind.isPermissionKind
+            && (suppressPermissionAlerts || FirstLaunchWindowController.shared.isWindowOpen) {
+            return
+        }
 
         let key = kind.throttleKey
         let now = Date()
