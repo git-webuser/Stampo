@@ -260,10 +260,13 @@ final class NotchPanelController: NSObject {
     /// in NotchPanelCapture.swift needs to write to it. Only this file
     /// and its extensions should mutate `state`.
     var state: PanelState = .hidden {
-        didSet { postMascotNotification() }
+        didSet {
+            postMascotNotification()
+            syncEscapeHotkey()
+        }
     }
-    private var escEventTap: CFMachPort?
-    private var escEventTapSource: CFRunLoopSource?
+    /// Token in EscapeHotkeyCenter while the panel is on screen; Esc closes it.
+    private var escToken: UUID?
     private var notificationObservers: [NSObjectProtocol] = []
 
     /// True после sleep/wake/display-change/Space-switch, пока панель не была
@@ -953,57 +956,36 @@ final class NotchPanelController: NSObject {
         // Mission Control. Assigning replaces any previous membership, so only
         // the current window is ever a member.
         NotchSpaceManager.shared.notchSpace.windows = [panel]
-
-        installEscMonitor()
     }
 
-    private func installEscMonitor() {
-        let escTapCallback: CGEventTapCallBack = { _, type, event, userInfo in
-            guard let userInfo else { return Unmanaged.passUnretained(event) }
-            let controller = Unmanaged<NotchPanelController>.fromOpaque(userInfo).takeUnretainedValue()
-
-            if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
-                if let tap = controller.escEventTap { CGEvent.tapEnable(tap: tap, enable: true) }
-                return Unmanaged.passUnretained(event)
-            }
-
-            guard type == .keyDown else { return Unmanaged.passUnretained(event) }
-            guard event.getIntegerValueField(.keyboardEventKeycode) == Int64(KeyCode.escape) else {
-                return Unmanaged.passUnretained(event)
-            }
-
-            DispatchQueue.main.async {
-                guard controller.isVisible else { return }
-                controller.hideAnimated(reason: .escKey)
-            }
-            // Pass Esc through — don't consume it
-            return Unmanaged.passUnretained(event)
+    /// Держит Esc-хоткей зарегистрированным ровно пока панель на экране.
+    /// Вызывается из state.didSet: Carbon-хоткей (в отличие от прежнего
+    /// listen-only CGEventTap) съедает Esc системно, поэтому активен он может
+    /// быть только в видимых состояниях. .hiding исключён — панель уже
+    /// закрывается, Esc должен вернуться системе как можно раньше.
+    private func syncEscapeHotkey() {
+        let wantsEsc: Bool
+        switch state {
+        case .showing, .main, .tray, .countdown: wantsEsc = true
+        default: wantsEsc = false
         }
-
-        let selfPtr = Unmanaged.passUnretained(self).toOpaque()
-        guard let tap = CGEvent.tapCreate(
-            tap: .cgSessionEventTap,
-            place: .headInsertEventTap,
-            options: .listenOnly,
-            eventsOfInterest: CGEventMask(1 << CGEventType.keyDown.rawValue),
-            callback: escTapCallback,
-            userInfo: selfPtr
-        ), let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0) else { return }
-
-        escEventTap = tap
-        escEventTapSource = source
-        CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
-        CGEvent.tapEnable(tap: tap, enable: true)
+        if wantsEsc, escToken == nil {
+            escToken = EscapeHotkeyCenter.shared.push { [weak self] in
+                guard let self, self.isVisible else { return }
+                self.hideAnimated(reason: .escKey)
+            }
+        } else if !wantsEsc, let token = escToken {
+            EscapeHotkeyCenter.shared.remove(token)
+            escToken = nil
+        }
     }
 
+    /// Снимает Esc-регистрацию напрямую (страховка для teardown-путей;
+    /// обычно это делает syncEscapeHotkey при смене state).
     private func removeEscMonitor() {
-        if let tap = escEventTap {
-            CGEvent.tapEnable(tap: tap, enable: false)
-            if let src = escEventTapSource {
-                CFRunLoopRemoveSource(CFRunLoopGetMain(), src, .commonModes)
-                escEventTapSource = nil
-            }
-            escEventTap = nil
+        if let token = escToken {
+            EscapeHotkeyCenter.shared.remove(token)
+            escToken = nil
         }
     }
 

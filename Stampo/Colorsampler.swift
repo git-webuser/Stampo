@@ -16,8 +16,8 @@ final class ColorSampler {
     private var localMouseMonitor: Any?
     private var rightClickMonitor: Any?
     private var leftClickMonitor: Any?
-    private var escEventTap: CFMachPort?
-    private var escEventTapSource: CFRunLoopSource?
+    /// Token in EscapeHotkeyCenter for the lifetime of the picking session.
+    private var escToken: UUID?
 
     private var lastColor: NSColor = .black
     var isStopped = false
@@ -95,52 +95,14 @@ final class ColorSampler {
             }
         }
 
-        // CGEventTap for Esc — fires even when another app has focus (e.g. a
-        // text field on a different Space) where a global NSEvent monitor would
-        // never receive keyDown. Installed per-session only (removed in
-        // removeMonitors). .listenOnly: the tap observes Esc to cancel the
-        // session and can never consume or modify any keyboard event.
-        let escTapCallback: CGEventTapCallBack = { _, type, event, userInfo in
-            guard let userInfo else { return Unmanaged.passUnretained(event) }
-            let sampler = Unmanaged<ColorSampler>.fromOpaque(userInfo).takeUnretainedValue()
-
-            if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
-                if let tap = sampler.escEventTap { CGEvent.tapEnable(tap: tap, enable: true) }
-                return Unmanaged.passUnretained(event)
-            }
-
-            guard type == .keyDown else { return Unmanaged.passUnretained(event) }
-            guard event.getIntegerValueField(.keyboardEventKeycode) == Int64(KeyCode.escape) else {
-                return Unmanaged.passUnretained(event)
-            }
-
-            DispatchQueue.main.async {
-                guard !sampler.isStopped else { return }
-                sampler.cancel()
-            }
-            return Unmanaged.passUnretained(event)
-        }
-
-        let selfPtr = Unmanaged.passUnretained(self).toOpaque()
-        if let tap = CGEvent.tapCreate(
-            tap: .cgSessionEventTap,
-            place: .headInsertEventTap,
-            options: .listenOnly,
-            eventsOfInterest: CGEventMask(1 << CGEventType.keyDown.rawValue),
-            callback: escTapCallback,
-            userInfo: selfPtr
-        ) {
-            guard let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0) else {
-                // Tap was created but the run-loop source failed — explicitly
-                // disable the port so it does not linger in the system.
-                CGEvent.tapEnable(tap: tap, enable: false)
-                Log.color.error("CFMachPortCreateRunLoopSource failed — event tap leaked.")
-                return
-            }
-            escEventTap = tap
-            escEventTapSource = source
-            CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
-            CGEvent.tapEnable(tap: tap, enable: true)
+        // Esc via EscapeHotkeyCenter — a Carbon hotkey fires even when another
+        // app has focus (where a global NSEvent keyboard monitor would need
+        // Input Monitoring), and needs no TCC permission at all. Registered
+        // per-session only (removed in removeMonitors); consuming Esc during an
+        // active picking session is the desired behavior.
+        escToken = EscapeHotkeyCenter.shared.push { [weak self] in
+            guard let self, !self.isStopped else { return }
+            self.cancel()
         }
     }
 
@@ -153,13 +115,9 @@ final class ColorSampler {
         leftClickMonitor = nil
         rightClickMonitor = nil
 
-        if let tap = escEventTap {
-            CGEvent.tapEnable(tap: tap, enable: false)
-            if let src = escEventTapSource {
-                CFRunLoopRemoveSource(CFRunLoopGetMain(), src, .commonModes)
-                escEventTapSource = nil
-            }
-            escEventTap = nil
+        if let token = escToken {
+            EscapeHotkeyCenter.shared.remove(token)
+            escToken = nil
         }
     }
 
