@@ -2165,6 +2165,23 @@
         }
       }
     },
+    "Loupe Shape" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Loupe Shape"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Форма лупы"
+          }
+        }
+      }
+    },
     "Loupe Source" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -3838,6 +3855,23 @@
         }
       }
     },
+    "Select an annotation to edit its style" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Select an annotation to edit its style"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Выберите аннотацию, чтобы изменить её стиль"
+          }
+        }
+      }
+    },
     "Select the folder where screenshots will be saved" : {
       "comment" : "Message text in the NSOpenPanel for choosing screenshot save folder",
       "localizations" : {
@@ -4295,6 +4329,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Текст"
+          }
+        }
+      }
+    },
+    "Text Alignment" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Text Alignment"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Выравнивание текста"
           }
         }
       }

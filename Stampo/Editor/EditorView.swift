@@ -7,8 +7,10 @@ import Vision
 /// dark notch-panel look.
 struct EditorView: View {
     /// Keeps every fixed toolbar control visible while allowing Copy/Save
-    /// labels to use their compact icon-only variants.
-    static let minimumContentSize = CGSize(width: 840, height: 360)
+    /// labels to use their compact icon-only variants. The widest context
+    /// rows (text with its alignment picker, loupe with its shape picker and
+    /// source toggle) set the floor.
+    static let minimumContentSize = CGSize(width: 900, height: 360)
 
     var document: EditorDocument
     /// Wired by EditorWindowController in the save/copy commit; nil disables Save.
@@ -134,9 +136,8 @@ struct EditorView: View {
             case .text:
                 colorSwatches
                 fontPicker
-                settingSlider("Text Size", systemImage: "textformat.size",
-                              value: fontSizeBinding, range: 16...96, step: 2,
-                              ticks: false, format: { "\(Int($0))pt" })
+                settingStepper("Text Size", systemImage: "textformat.size",
+                               value: fontSizeBinding, range: 16...96, step: 2)
                 Divider().frame(height: 18)
                 textControls
             case .freehand:
@@ -151,14 +152,18 @@ struct EditorView: View {
             case .step:
                 colorSwatches
                 fontPicker
+                settingStepper("Text Size", systemImage: "textformat.size",
+                               value: stepLabelSizeBinding,
+                               range: 8...stepLabelSizeCap, step: 2)
                 settingSlider("Marker Size", systemImage: "circle.circle",
                               value: stepSizeBinding, range: 24...72, step: 8)
             case .loupe:
                 colorSwatches
+                loupeShapePicker
                 thicknessSlider
                 settingSlider("Magnification", systemImage: "plus.magnifyingglass",
                               value: loupeScaleBinding, range: 1.5...4, step: 0.5,
-                              ticks: false, format: { String(format: "×%.1f", $0) })
+                              format: { String(format: "×%.1f", $0) })
                 if documentHasBlur {
                     loupeSourcePicker
                 }
@@ -175,9 +180,14 @@ struct EditorView: View {
                 arrowStylePicker
                 arrowHeadPlacementPicker
                 thicknessSlider
-            default: // select tool with nothing selected
-                colorSwatches
-                thicknessSlider
+            default:
+                // Select tool with nothing selected: there is nothing to
+                // restyle, so the row offers a hint instead of orphaned
+                // controls.
+                Label("Select an annotation to edit its style",
+                      systemImage: "cursorarrow.click")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
         }
     }
 
@@ -282,17 +292,30 @@ struct EditorView: View {
     private var fillSlider: some View {
         settingSlider("Fill", systemImage: "paintbrush.pointed.fill",
                       value: fillOpacityBinding, range: 0...100, step: 5,
-                      ticks: false, format: { "\(Int($0))%" })
+                      format: { "\(Int($0))%" })
+    }
+
+    /// Outline of the loupe — same segmented pattern as the text background.
+    /// A circle is the shift-locked case of the oval, so it isn't a segment.
+    private var loupeShapePicker: some View {
+        Picker("Loupe Shape", selection: loupeShapeBinding) {
+            Image(systemName: "oval").tag(LoupeShape.oval)
+            Image(systemName: "rectangle").tag(LoupeShape.roundedRect)
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .frame(width: 76)
+        .hoverTip("Loupe Shape")
     }
 
     // MARK: Text formatting controls
 
-    /// Compact menu whose rows are rendered with the font they select. The
-    /// mixed-script sample also makes Latin/Cyrillic coverage visible.
+    /// Compact menu whose rows are rendered with the font they select — the
+    /// name alone is the sample, keeping the menu visually quiet.
     private var fontPicker: some View {
         Picker("Font", selection: fontPresetBinding) {
             ForEach(AnnotationFontPreset.allCases) { preset in
-                Text(verbatim: "\(preset.displayName)  ·  Aa Бб 12")
+                Text(verbatim: preset.displayName)
                     .font(Font(preset.nsFont(ofSize: 13)))
                     .tag(preset)
             }
@@ -323,6 +346,15 @@ struct EditorView: View {
             .labelsHidden()
             .frame(width: 108)
             .hoverTip("Text Background")
+            Picker("Text Alignment", selection: textAlignmentBinding) {
+                Image(systemName: "text.alignleft").tag(TextAlign.left)
+                Image(systemName: "text.aligncenter").tag(TextAlign.center)
+                Image(systemName: "text.alignright").tag(TextAlign.right)
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .frame(width: 108)
+            .hoverTip("Text Alignment")
         }
     }
 
@@ -380,28 +412,29 @@ struct EditorView: View {
                       value: thicknessBinding, range: 4...32, step: 4)
     }
 
-    /// Icon + slider. `ticks` shows detents (stepped slider); when false the
-    /// slider is continuous (no tick marks) and the caller's binding rounds to
-    /// the step. `format` adds a trailing readout.
+    /// Icon + slider. Visually continuous (no tick marks), but the knob still
+    /// lands on discrete detents: the set path snaps every raw value to the
+    /// step grid. `format` adds a trailing readout.
     private func settingSlider(
         _ label: String, systemImage: String,
         value: Binding<CGFloat>, range: ClosedRange<CGFloat>, step: CGFloat,
-        ticks: Bool = true, format: ((CGFloat) -> String)? = nil
+        format: ((CGFloat) -> String)? = nil
     ) -> some View {
-        HStack(spacing: 6) {
+        let snapped = Binding<CGFloat>(
+            get: { value.wrappedValue },
+            set: { raw in
+                let detents = ((raw - range.lowerBound) / step).rounded()
+                value.wrappedValue = min(range.upperBound,
+                                         range.lowerBound + detents * step)
+            }
+        )
+        return HStack(spacing: 6) {
             Image(systemName: systemImage)
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
-            Group {
-                if ticks {
-                    Slider(value: value, in: range, step: step,
-                           onEditingChanged: sliderEditingChanged)
-                } else {
-                    Slider(value: value, in: range, onEditingChanged: sliderEditingChanged)
-                }
-            }
-            .controlSize(.small)
-            .frame(width: 140)
+            Slider(value: snapped, in: range, onEditingChanged: sliderEditingChanged)
+                .controlSize(.small)
+                .frame(width: 140)
             if let format {
                 Text(format(value.wrappedValue))
                     .font(.system(size: 11, design: .monospaced))
@@ -410,6 +443,108 @@ struct EditorView: View {
             }
         }
         .hoverTip(label)
+    }
+
+    /// Icon + minus/value/plus — the discrete counterpart of `settingSlider`
+    /// for values adjusted in a few labelled steps.
+    private func settingStepper(
+        _ label: String, systemImage: String,
+        value: Binding<CGFloat>, range: ClosedRange<CGFloat>, step: CGFloat,
+        format: ((CGFloat) -> String)? = nil
+    ) -> some View {
+        SettingStepper(label: label, systemImage: systemImage, value: value,
+                       range: range, step: step, format: format,
+                       bracket: sliderEditingChanged)
+    }
+
+    /// Minus/value/plus control. Buttons repeat while held; a double-click on
+    /// the value swaps it for a field to type an exact number (Return or
+    /// clicking away commits, non-numeric input is discarded). Each tick or
+    /// typed commit is bracketed into one undo step via `bracket`.
+    private struct SettingStepper: View {
+        let label: String
+        let systemImage: String
+        @Binding var value: CGFloat
+        let range: ClosedRange<CGFloat>
+        let step: CGFloat
+        var format: ((CGFloat) -> String)?
+        var bracket: (Bool) -> Void
+
+        @State private var draft: String?
+        @FocusState private var draftFocused: Bool
+
+        var body: some View {
+            HStack(spacing: 0) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .padding(.trailing, 6)
+                stepButton("minus", enabled: value > range.lowerBound) {
+                    commit(value - step)
+                }
+                valueReadout
+                stepButton("plus", enabled: value < range.upperBound) {
+                    commit(value + step)
+                }
+            }
+            .hoverTip(label)
+        }
+
+        @ViewBuilder private var valueReadout: some View {
+            if draft != nil {
+                TextField("", text: Binding(get: { draft ?? "" },
+                                            set: { draft = $0 }))
+                    .textFieldStyle(.plain)
+                    .multilineTextAlignment(.center)
+                    .font(.system(size: 11, design: .monospaced))
+                    .frame(width: 34)
+                    .focused($draftFocused)
+                    .onSubmit { commitDraft() }
+                    .onChange(of: draftFocused) { _, focused in
+                        if !focused { commitDraft() }   // click-away commits
+                    }
+            } else {
+                Text((format ?? { "\(Int($0.rounded()))" })(value))
+                    .font(.system(size: 11, design: .monospaced))
+                    .frame(width: 34)
+                    .contentShape(Rectangle())
+                    .onTapGesture(count: 2) {
+                        draft = "\(Int(value.rounded()))"
+                        draftFocused = true
+                    }
+            }
+        }
+
+        private func stepButton(_ symbol: String, enabled: Bool,
+                                action: @escaping () -> Void) -> some View {
+            Button(action: action) {
+                Image(systemName: symbol)
+                    .font(.system(size: 11, weight: .medium))
+                    .frame(width: 22, height: 20)
+            }
+            .buttonStyle(.borderless)
+            .background(
+                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    .fill(Color.primary.opacity(0.06))
+            )
+            .buttonRepeatBehavior(.enabled)
+            .disabled(!enabled)
+        }
+
+        private func commitDraft() {
+            guard let text = draft else { return }
+            draft = nil
+            guard let typed = Double(text.replacingOccurrences(of: ",", with: "."))
+            else { return }
+            commit(CGFloat(typed))
+        }
+
+        private func commit(_ raw: CGFloat) {
+            let clamped = min(range.upperBound, max(range.lowerBound, raw))
+            bracket(true)
+            value = clamped
+            bracket(false)
+        }
     }
 
     /// One undo step per slider gesture when it restyles a selection: the
@@ -609,6 +744,54 @@ struct EditorView: View {
         )
     }
 
+    private var textAlignmentBinding: Binding<TextAlign> {
+        Binding(
+            get: {
+                if let selected = document.selectedAnnotation, selected.kind == .text {
+                    return selected.textAlignment
+                }
+                return style.textAlignment
+            },
+            set: { newValue in
+                style.textAlignment = newValue
+                applyToSelection {
+                    if $0.kind == .text { $0.textAlignment = newValue }
+                }
+            }
+        )
+    }
+
+    /// Largest label size that still fits the current step context — the
+    /// stepper's ceiling, and the automatic size while no override is set.
+    private var stepLabelSizeCap: CGFloat {
+        let selected = document.selectedAnnotation?.kind == .step
+            ? document.selectedAnnotation : nil
+        return AnnotationRenderer.stepFontSize(
+            label: selected?.stepLabel ?? document.nextStepLabel,
+            diameter: selected?.stepDiameter ?? style.stepDiameter,
+            fontPreset: selected?.fontPreset ?? style.fontPreset
+        )
+    }
+
+    private var stepLabelSizeBinding: Binding<CGFloat> {
+        Binding(
+            get: {
+                let cap = stepLabelSizeCap
+                if let selected = document.selectedAnnotation, selected.kind == .step {
+                    return min(selected.stepLabelSize ?? cap, cap)
+                }
+                return min(style.stepLabelSize ?? cap, cap)
+            },
+            set: { newValue in
+                let clamped = min(newValue, stepLabelSizeCap)
+                style.stepLabelSize = clamped
+                document.updateSelected {
+                    if $0.kind == .step { $0.stepLabelSize = clamped }
+                }
+            }
+        )
+    }
+
     private var stepSizeBinding: Binding<CGFloat> {
         Binding(
             get: {
@@ -636,6 +819,23 @@ struct EditorView: View {
                 let newValue = (rawValue * 2).rounded() / 2   // 0.5× detents
                 style.loupeScale = newValue
                 document.updateSelected { if $0.kind == .loupe { $0.loupeScale = newValue } }
+            }
+        )
+    }
+
+    private var loupeShapeBinding: Binding<LoupeShape> {
+        Binding(
+            get: {
+                if let selected = document.selectedAnnotation, selected.kind == .loupe {
+                    return selected.loupeShape
+                }
+                return style.loupeShape
+            },
+            set: { newValue in
+                style.loupeShape = newValue
+                applyToSelection {
+                    if $0.kind == .loupe { $0.loupeShape = newValue }
+                }
             }
         )
     }

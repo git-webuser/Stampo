@@ -238,13 +238,39 @@ enum TestImages {
     }
 
     @Test func fontPresetsAreInstalledAndCoverLatinAndCyrillic() {
-        #expect(AnnotationFontPreset.allCases.count == 6)
-        let required = CharacterSet(charactersIn: "AaБбЯяЁё0123")
+        #expect(AnnotationFontPreset.allCases.count == 10)
+        let latin = CharacterSet(charactersIn: "Aa0123")
+        let cyrillic = CharacterSet(charactersIn: "БбЯяЁё")
         for preset in AnnotationFontPreset.allCases {
             let font = preset.nsFont(ofSize: 18)
-            #expect(font.coveredCharacterSet.isSuperset(of: required),
-                    "\(preset.displayName) must support Latin and Cyrillic")
+            #expect(font.coveredCharacterSet.isSuperset(of: latin),
+                    "\(preset.displayName) must support Latin")
+            // Papyrus is the one curated preset without Cyrillic; those
+            // glyphs render through the system-font fallback.
+            guard preset != .papyrus else { continue }
+            #expect(font.coveredCharacterSet.isSuperset(of: cyrillic),
+                    "\(preset.displayName) must support Cyrillic")
         }
+    }
+
+    @Test func textAttributesCarryParagraphAlignment() {
+        var a = Annotation(kind: .text, start: .zero, end: .zero,
+                           color: .red, lineWidth: 4)
+        a.textAlignment = .center
+        let paragraph = AnnotationRenderer.textAttributes(for: a)[.paragraphStyle]
+            as? NSParagraphStyle
+        #expect(paragraph?.alignment == .center)
+    }
+
+    @Test func stepLabelSizeShrinksButNeverExceedsFit() {
+        var a = Annotation(kind: .step, start: .zero, end: .zero,
+                           color: .red, lineWidth: 4)
+        a.stepDiameter = 40
+        let fitted = AnnotationRenderer.stepFont(for: a).pointSize
+        a.stepLabelSize = 10
+        #expect(AnnotationRenderer.stepFont(for: a).pointSize == 10)
+        a.stepLabelSize = 500   // caps at the fitted size — never spills out
+        #expect(AnnotationRenderer.stepFont(for: a).pointSize == fitted)
     }
 
     @Test func rendererUsesAnnotationFontForTextAndNumbering() {

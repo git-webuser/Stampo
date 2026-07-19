@@ -360,11 +360,29 @@ import Testing
         #expect(a.handle(at: CGPoint(x: 40, y: 40), tolerance: 3) == .bottomRight)
     }
 
-    @Test func loupeCornerResizeIsAlwaysSquare() {
+    @Test func loupeCornerResizeLocksAspectOnlyWithShift() {
         var a = make(.loupe, start: CGPoint(x: 0, y: 0), end: CGPoint(x: 40, y: 40))
-        // Non-square target without aspectLocked still yields a square.
         a.apply(handle: .bottomRight, to: CGPoint(x: 80, y: 50))
+        #expect(a.rect.width == 80 && a.rect.height == 50)
+        // Shift (aspectLocked) turns the oval into a circle.
+        a.apply(handle: .bottomRight, to: CGPoint(x: 80, y: 50), aspectLocked: true)
         #expect(a.rect.width == a.rect.height)
+    }
+
+    @Test func ovalLoupeHitsEllipseNotCorners() {
+        var a = make(.loupe, start: CGPoint(x: 0, y: 0), end: CGPoint(x: 80, y: 40))
+        a.loupeShape = .oval
+        #expect(a.hitTest(CGPoint(x: 40, y: 20), tolerance: 4))   // center
+        #expect(!a.hitTest(CGPoint(x: 76, y: 38), tolerance: 2))  // corner outside ellipse
+    }
+
+    @Test func roundedRectLoupeResizesFreelyAndHitsCorners() {
+        var a = make(.loupe, start: CGPoint(x: 0, y: 0), end: CGPoint(x: 40, y: 40))
+        a.loupeShape = .roundedRect
+        a.apply(handle: .bottomRight, to: CGPoint(x: 80, y: 50))
+        #expect(a.rect.width == 80 && a.rect.height == 50)
+        #expect(a.hitTest(CGPoint(x: 78, y: 48), tolerance: 2))   // corner is inside
+        #expect(!a.hitTest(CGPoint(x: 90, y: 25), tolerance: 2))  // outside
     }
 
     @Test func loupeDegenerateUnderFourPixels() {

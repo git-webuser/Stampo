@@ -303,8 +303,23 @@ enum AnnotationRenderer {
         }
     }
 
-    /// Circular magnifier: the pixels under the loupe scaled up around its
-    /// center, then a ring stroke in the annotation color. By default the
+    /// Shared outline path of a loupe: an ellipse or a rounded rectangle.
+    /// Used for both the content clip and the border stroke so they always
+    /// coincide.
+    static func loupePath(for a: Annotation) -> CGPath {
+        let r = a.rect
+        switch a.loupeShape {
+        case .oval:
+            return CGPath(ellipseIn: r, transform: nil)
+        case .roundedRect:
+            let radius = min(r.width, r.height) * 0.2
+            return CGPath(roundedRect: r, cornerWidth: radius,
+                          cornerHeight: radius, transform: nil)
+        }
+    }
+
+    /// Magnifier: the pixels under the loupe scaled up around its center,
+    /// then a border stroke in the annotation color. By default the
     /// magnified content respects blur redaction (the blur pass is replayed
     /// inside the magnified frame); `loupeRevealsOriginal` opts into raw
     /// base pixels instead.
@@ -317,9 +332,10 @@ enum AnnotationRenderer {
         let scale = max(1, a.loupeScale)
         let fullRect = CGRect(x: 0, y: 0,
                               width: CGFloat(base.width), height: CGFloat(base.height))
+        let outline = loupePath(for: a)
 
         ctx.saveGState()
-        ctx.addEllipse(in: r)
+        ctx.addPath(outline)
         ctx.clip()
         // Magnify about the loupe center. The clip stays fixed in device
         // space, so the circle shows the pixels beneath it scaled up.
@@ -342,10 +358,11 @@ enum AnnotationRenderer {
         }
         ctx.restoreGState()
 
-        // Ring on top.
+        // Border on top.
         ctx.setStrokeColor(a.color.cgColor)
         ctx.setLineWidth(a.lineWidth)
-        ctx.strokeEllipse(in: r)
+        ctx.addPath(outline)
+        ctx.strokePath()
     }
 
     /// Bold font sized so `label` fits inside a marker of `diameter`, capped
@@ -366,8 +383,11 @@ enum AnnotationRenderer {
     }
 
     static func stepFont(for a: Annotation) -> NSFont {
-        let size = stepFontSize(label: a.stepLabel, diameter: a.stepDiameter,
-                                fontPreset: a.fontPreset)
+        let fitted = stepFontSize(label: a.stepLabel, diameter: a.stepDiameter,
+                                  fontPreset: a.fontPreset)
+        // An explicit label size can only shrink the label — the fitted size
+        // is the largest that stays inside the circle.
+        let size = min(a.stepLabelSize ?? fitted, fitted)
         return a.fontPreset.nsFont(ofSize: size, bold: true)
     }
 
@@ -412,6 +432,9 @@ enum AnnotationRenderer {
         }
         if a.underline { attrs[.underlineStyle] = NSUnderlineStyle.single.rawValue }
         if a.strikethrough { attrs[.strikethroughStyle] = NSUnderlineStyle.single.rawValue }
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = a.textAlignment.nsAlignment
+        attrs[.paragraphStyle] = paragraph
         return attrs
     }
 

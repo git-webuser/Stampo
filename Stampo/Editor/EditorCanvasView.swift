@@ -121,10 +121,16 @@ struct ToolStyle {
     var strikethrough = false
     var textShadow = false
     var textBackground: TextBackground = .none
+    /// Paragraph alignment of new text annotations.
+    var textAlignment: TextAlign = .left
     /// Diameter of new step markers in image pixels.
     var stepDiameter: CGFloat = 40
+    /// Explicit label size for new step markers; nil auto-fits the diameter.
+    var stepLabelSize: CGFloat? = nil
     /// Magnification factor of new loupes.
     var loupeScale: CGFloat = 2
+    /// Outline of new loupes.
+    var loupeShape: LoupeShape = .oval
     /// Whether new loupes reveal the original (unredacted) pixels.
     var loupeRevealsOriginal = false
     var drawingMode: DrawingMode = .pen
@@ -497,7 +503,7 @@ struct EditorCanvasView: View {
                                   size: CGSize(width: r.width * fitScale, height: r.height * fitScale))
                 .insetBy(dx: -3, dy: -3)
             var path = Path()
-            if a.kind == .step || a.kind == .loupe {
+            if a.kind == .step || (a.kind == .loupe && a.loupeShape != .roundedRect) {
                 path.addEllipse(in: viewRect)
             } else {
                 path.addRect(viewRect)
@@ -631,6 +637,7 @@ struct EditorCanvasView: View {
                     annotation.lineStyle = style.lineStyle
                     annotation.fillOpacity = style.fillOpacity
                     annotation.loupeScale = style.loupeScale
+                    annotation.loupeShape = style.loupeShape
                     annotation.loupeRevealsOriginal = style.loupeRevealsOriginal
                     annotation.end = constrainedEndpoint(p, from: startPixel, kind: kind)
                     document.annotations.append(annotation)
@@ -920,15 +927,14 @@ struct EditorCanvasView: View {
 
     private func constrainedEndpoint(_ point: CGPoint, from start: CGPoint,
                                      kind: AnnotationKind) -> CGPoint {
-        // A loupe is always circular — no shift required.
-        if kind == .loupe { return Annotation.aspectLockedEnd(from: start, to: point) }
         guard isShiftHeld else { return point }
         switch kind {
         case .line, .arrow:
             return Annotation.snappedArrowEnd(from: start, to: point)
-        case .rect, .oval:
+        case .rect, .oval, .loupe:
+            // Shift makes a loupe's oval a circle (its rounded rect a square).
             return Annotation.aspectLockedEnd(from: start, to: point)
-        case .text, .freehand, .blur, .step, .loupe:
+        case .text, .freehand, .blur, .step:
             return point
         }
     }
@@ -1145,6 +1151,7 @@ struct EditorCanvasView: View {
         annotation.strikethrough = style.strikethrough
         annotation.textShadow = style.textShadow
         annotation.textBackground = style.textBackground
+        annotation.textAlignment = style.textAlignment
         document.annotations.append(annotation)
         document.selectedID = annotation.id
         startEditingText(annotation.id, isNew: true)
@@ -1156,6 +1163,7 @@ struct EditorCanvasView: View {
                                     color: style.color, lineWidth: style.lineWidth)
         annotation.stepLabel = document.nextStepLabel
         annotation.stepDiameter = style.stepDiameter
+        annotation.stepLabelSize = style.stepLabelSize
         annotation.fontPreset = style.fontPreset
         document.annotations.append(annotation)
         document.selectedID = annotation.id
@@ -1262,7 +1270,10 @@ struct EditorCanvasView: View {
 /// A minimal `NSTextView` wrapper for editing a text annotation inline:
 /// **Return commits**, **⇧Return inserts a newline**, **Esc commits**. The
 /// annotation renderer already lays out embedded newlines, so multi-line
-/// labels round-trip to the exported image.
+/// labels round-trip to the exported image. Paragraph alignment is applied
+/// by the renderer on commit, not while editing — the editor's container is
+/// unbounded (it must never soft-wrap), so non-left alignment would place
+/// glyphs at the container's far edge instead of within the visible box.
 private struct InlineTextView: NSViewRepresentable {
     @Binding var text: String
     var font: NSFont

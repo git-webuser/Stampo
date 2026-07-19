@@ -83,17 +83,45 @@ enum TextBackground: String, Equatable, CaseIterable {
     case light
 }
 
-/// Curated fonts available to text and numbering annotations. The list is
-/// deliberately short enough for a useful menu, while covering neutral,
-/// rounded, geometric, book, classic, and monospaced styles. Every named
-/// family ships with macOS and includes both Latin and Cyrillic glyphs.
+/// Paragraph alignment of a (multi-line) `.text` annotation.
+enum TextAlign: String, Equatable, CaseIterable {
+    case left
+    case center
+    case right
+
+    var nsAlignment: NSTextAlignment {
+        switch self {
+        case .left:   return .left
+        case .center: return .center
+        case .right:  return .right
+        }
+    }
+}
+
+/// Outline of a `.loupe`: an ellipse or a rounded rectangle. A circle is
+/// just the aspect-locked ellipse — hold shift while drawing or resizing.
+enum LoupeShape: String, Equatable, CaseIterable {
+    case oval
+    case roundedRect
+}
+
+/// Curated fonts available to text and numbering annotations (the same set
+/// Telegram curates, plus SF Rounded and Times New Roman). Short enough for a
+/// useful menu while covering neutral, rounded, typewriter, geometric, book,
+/// classic, monospaced, handwritten, decorative, and script styles. Every
+/// named family ships with macOS; all but Papyrus also include Cyrillic —
+/// missing scripts render through the system-font fallback.
 enum AnnotationFontPreset: String, Equatable, CaseIterable, Identifiable {
     case system
     case rounded
+    case typewriter
     case avenirNext
     case georgia
     case timesNewRoman
     case courierNew
+    case noteworthy
+    case papyrus
+    case snellRoundhand
 
     var id: Self { self }
 
@@ -101,20 +129,28 @@ enum AnnotationFontPreset: String, Equatable, CaseIterable, Identifiable {
         switch self {
         case .system:         return "SF Pro"
         case .rounded:        return "SF Rounded"
+        case .typewriter:     return "American Typewriter"
         case .avenirNext:     return "Avenir Next"
         case .georgia:        return "Georgia"
         case .timesNewRoman:  return "Times New Roman"
         case .courierNew:     return "Courier New"
+        case .noteworthy:     return "Noteworthy"
+        case .papyrus:        return "Papyrus"
+        case .snellRoundhand: return "Snell Roundhand"
         }
     }
 
     private var postScriptName: String? {
         switch self {
         case .system, .rounded: return nil
+        case .typewriter:       return "AmericanTypewriter"
         case .avenirNext:       return "AvenirNext-Regular"
         case .georgia:          return "Georgia"
         case .timesNewRoman:    return "TimesNewRomanPSMT"
         case .courierNew:       return "CourierNewPSMT"
+        case .noteworthy:       return "Noteworthy-Light"
+        case .papyrus:          return "Papyrus"
+        case .snellRoundhand:   return "SnellRoundhand"
         }
     }
 
@@ -279,6 +315,8 @@ struct Annotation: Identifiable, Equatable {
     var strikethrough: Bool = false
     var textShadow: Bool = false
     var textBackground: TextBackground = .none
+    /// Paragraph alignment of a multi-line `.text` label.
+    var textAlignment: TextAlign = .left
     var blurStyle: BlurStyle = .pixelate
     /// Intensity detent for `.blur` (BlurIntensity.range).
     var blurLevel: Int = BlurIntensity.defaultLevel
@@ -297,12 +335,18 @@ struct Annotation: Identifiable, Equatable {
     var stepLabel: String = "1"
     /// Diameter of a `.step` marker in image pixels.
     var stepDiameter: CGFloat = 40
+    /// Explicit label size for a `.step` marker; nil auto-fits to the
+    /// diameter. The renderer caps it at the fitted size either way, so the
+    /// label never spills out of the circle.
+    var stepLabelSize: CGFloat? = nil
     /// Native image-pixel samples of a `.freehand` annotation.
     var freehandPoints: [CGPoint] = []
     /// Rendering strategy for a `.freehand` annotation.
     var freehandStyle: FreehandStyle = .pen
     /// Magnification factor of a `.loupe`.
     var loupeScale: CGFloat = 2
+    /// Outline of a `.loupe`.
+    var loupeShape: LoupeShape = .oval
     /// A `.loupe` magnifies the redacted image by default so blur keeps
     /// hiding what it hides; opting in reveals the raw original pixels.
     var loupeRevealsOriginal: Bool = false
@@ -435,8 +479,16 @@ struct Annotation: Identifiable, Equatable {
         case .step:
             return hypot(p.x - start.x, p.y - start.y) <= stepDiameter / 2 + tolerance
         case .loupe:
-            // Full disk: the loupe occludes what's beneath it anyway.
-            return hypot(p.x - rect.midX, p.y - rect.midY) <= rect.width / 2 + tolerance
+            // Full interior: the loupe occludes what's beneath it anyway.
+            if loupeShape == .roundedRect {
+                return rect.insetBy(dx: -tolerance, dy: -tolerance).contains(p)
+            }
+            let r = rect
+            guard r.width > 0, r.height > 0 else { return false }
+            let nx = (p.x - r.midX) / (r.width / 2)
+            let ny = (p.y - r.midY) / (r.height / 2)
+            let tol = tolerance / min(r.width, r.height) * 2
+            return sqrt(nx * nx + ny * ny) <= 1 + tol
         }
     }
 
@@ -591,11 +643,11 @@ struct Annotation: Identifiable, Equatable {
             default: return
             }
             start = anchor
-            // A loupe is always a circle, so its corner resize is always
-            // aspect-locked; rect/oval lock only while shift is held.
-            end = (aspectLocked && (kind == .rect || kind == .oval)) || kind == .loupe
-                ? Self.aspectLockedEnd(from: anchor, to: p)
-                : p
+            // Shift locks the aspect for area shapes (a loupe's oval becomes
+            // a circle, its rounded rect a square).
+            let lockAspect = aspectLocked
+                && (kind == .rect || kind == .oval || kind == .loupe)
+            end = lockAspect ? Self.aspectLockedEnd(from: anchor, to: p) : p
         }
     }
 
