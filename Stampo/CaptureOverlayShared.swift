@@ -42,20 +42,41 @@ enum CGSCursorBridge {
     }
 }
 
-// MARK: - ESC monitor helper
+// MARK: - ESC observation helper
 
-/// Installs both a global and a local monitor for the Escape key.
-/// Tokens are appended to `monitors`; the caller must remove them via
-/// `NSEvent.removeMonitor` when the overlay is dismissed.
-func installEscMonitors(into monitors: inout [Any], action: @escaping () -> Void) {
-    if let m = NSEvent.addGlobalMonitorForEvents(matching: .keyDown, handler: { event in
-        if event.keyCode == KeyCode.escape { action() }
-    }) { monitors.append(m) }
+/// Esc handling for a capture overlay's lifetime.
+///
+/// The primary path is a Carbon hotkey via EscapeHotkeyCenter: permission-free
+/// and independent of key-window status. (The old global keyDown NSEvent
+/// monitor silently required Input Monitoring — with the permission gone it
+/// received nothing, so Esc-cancel died whenever the nonactivating overlay
+/// wasn't key.) A local monitor stays as fallback for the rare case the
+/// hotkey registration fails (Esc claimed by another app) while our overlay
+/// is key; with the hotkey active it simply never fires.
+final class EscObservation {
+    private var token: UUID?
+    private var localMonitor: Any?
 
-    if let m = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: { event in
-        if event.keyCode == KeyCode.escape { action(); return nil }
-        return event
-    }) { monitors.append(m) }
+    init(action: @escaping () -> Void) {
+        token = EscapeHotkeyCenter.shared.push(action)
+        localMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            if event.keyCode == KeyCode.escape { action(); return nil }
+            return event
+        }
+    }
+
+    /// Idempotent; must be called when the overlay is dismissed — while the
+    /// center token is held, Esc is consumed system-wide.
+    func cancel() {
+        if let token {
+            EscapeHotkeyCenter.shared.remove(token)
+            self.token = nil
+        }
+        if let localMonitor {
+            NSEvent.removeMonitor(localMonitor)
+            self.localMonitor = nil
+        }
+    }
 }
 
 // MARK: - Screen coordinate conversion

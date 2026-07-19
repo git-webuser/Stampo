@@ -11,7 +11,7 @@ final class SelectionOverlay {
 
     private var panel: NSPanel?
     private var targetScreen: NSScreen?
-    private var escMonitors: [Any] = []
+    private var escObservation: EscObservation?
 
     private var selectionCursor: NSCursor?
     private var cursorPushed = false
@@ -45,7 +45,7 @@ final class SelectionOverlay {
         panel.contentView = view
         self.panel = panel
 
-        installEscMonitors(into: &escMonitors) { [weak self] in self?.cancel() }
+        escObservation = EscObservation { [weak self] in self?.cancel() }
 
         cursor.push()
         cursorPushed = true
@@ -95,8 +95,8 @@ final class SelectionOverlay {
 
         CGSCursorBridge.setCursorInBackground(false)
 
-        escMonitors.forEach { NSEvent.removeMonitor($0) }
-        escMonitors.removeAll()
+        escObservation?.cancel()
+        escObservation = nil
 
         panel?.orderOut(nil)
         panel = nil

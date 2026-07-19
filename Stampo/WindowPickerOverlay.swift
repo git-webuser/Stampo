@@ -11,7 +11,7 @@ final class WindowPickerOverlay {
 
     private var panel: NSPanel?
     private var targetScreen: NSScreen?
-    private var escMonitors: [Any] = []
+    private var escObservation: EscObservation?
     private var cursorObservers: [NSObjectProtocol] = []
     private var cursorTimer: Timer?
     /// The pushed cursor — kept so observers can re-apply it after focus/space changes.
@@ -45,7 +45,7 @@ final class WindowPickerOverlay {
         panel.contentView = view
         self.panel = panel
 
-        installEscMonitors(into: &escMonitors) { [weak self] in self?.cancel() }
+        escObservation = EscObservation { [weak self] in self?.cancel() }
 
         // Push cursor before the window becomes key (mirrors SelectionOverlay pattern).
         // The view's resetCursorRects / cursorUpdate / mouseMoved maintain it afterwards.
@@ -98,8 +98,8 @@ final class WindowPickerOverlay {
         }
         wpcCursor = nil
         CGSCursorBridge.setCursorInBackground(false)
-        escMonitors.forEach { NSEvent.removeMonitor($0) }
-        escMonitors.removeAll()
+        escObservation?.cancel()
+        escObservation = nil
         panel?.orderOut(nil)
         panel = nil
         NSCursor.arrow.set()

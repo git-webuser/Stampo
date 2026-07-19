@@ -7,7 +7,7 @@ import SwiftUI
 /// visible on every Space, never steals focus. One instance per pin — unlike
 /// `ScreenshotThumbnailHUD`, which reuses a single transient panel.
 final class PinnedScreenshotPanel: NSPanel {
-    private var escMonitors: [Any] = []
+    private var escObservation: EscObservation?
     private var onClose: () -> Void
 
     init(imageURL: URL,
@@ -70,18 +70,18 @@ final class PinnedScreenshotPanel: NSPanel {
     // MARK: Esc handling
 
     // The panel never becomes key, so keyDown never routes to it; reuse the
-    // capture overlays' global+local monitor pair instead. Installed only
-    // while the mouse is over this pin, so Esc closes exactly the hovered one.
+    // capture overlays' EscObservation instead. Installed only while the
+    // mouse is over this pin, so Esc closes exactly the hovered one.
     private func installEsc() {
-        guard escMonitors.isEmpty else { return }
-        installEscMonitors(into: &escMonitors) { [weak self] in
+        guard escObservation == nil else { return }
+        escObservation = EscObservation { [weak self] in
             self?.requestClose()
         }
     }
 
     private func removeEsc() {
-        escMonitors.forEach { NSEvent.removeMonitor($0) }
-        escMonitors.removeAll()
+        escObservation?.cancel()
+        escObservation = nil
     }
 }
 
