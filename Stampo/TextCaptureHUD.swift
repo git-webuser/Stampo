@@ -10,11 +10,11 @@ final class TextCaptureHUD {
     enum Outcome {
         case copied
         case saved
-        case noTextFound
         /// Carries the scanned payload so the toast can preview what actually
         /// landed on the clipboard — unlike OCR, the user never saw this text.
         case codeCopied(payload: String)
-        case noCodeFound
+        /// Multi-finding scan: two or more codes, or codes mixed with text.
+        case scanCopied(codes: Int, includesText: Bool)
         /// Unified editor scanner found neither a code nor text in the region.
         case nothingRecognized
         /// "Pin last screenshot" hotkey fired with nothing captured yet.
@@ -116,9 +116,6 @@ private struct TextCaptureHUDView: View {
             case .saved:
                 statusRow(title: "Saved", systemName: "checkmark.circle", iconOpacity: 0.8)
                     .fixedSize()
-            case .noTextFound:
-                statusRow(title: "No text found", systemName: "text.viewfinder", iconOpacity: 0.6)
-                    .fixedSize()
             case .codeCopied(let payload):
                 VStack(spacing: 3) {
                     statusRow(title: "Code Copied", systemName: "checkmark.circle", iconOpacity: 0.8)
@@ -133,9 +130,17 @@ private struct TextCaptureHUDView: View {
                         .truncationMode(.middle)
                         .frame(maxWidth: 280)
                 }
-            case .noCodeFound:
-                statusRow(title: "No code found", systemName: "qrcode.viewfinder", iconOpacity: 0.6)
-                    .fixedSize()
+            case .scanCopied(let codes, let includesText):
+                Group {
+                    if includesText {
+                        statusRow(title: "\(codes) codes and text copied",
+                                  systemName: "checkmark.circle", iconOpacity: 0.8)
+                    } else {
+                        statusRow(title: "\(codes) codes copied",
+                                  systemName: "checkmark.circle", iconOpacity: 0.8)
+                    }
+                }
+                .fixedSize()
             case .nothingRecognized:
                 statusRow(title: "Nothing recognized", systemName: "viewfinder", iconOpacity: 0.6)
                     .fixedSize()

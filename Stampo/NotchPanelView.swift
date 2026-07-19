@@ -90,8 +90,7 @@ struct NotchPanelView: View {
     let onCapture: (_ mode: CaptureMode, _ delay: CaptureDelay) -> Void
     let onToggleTray: () -> Void
     let onPickColor: () -> Void
-    let onCaptureText: () -> Void
-    let onScanCode: () -> Void
+    let onScan: () -> Void
     let onModeDelayChanged: () -> Void
 
     var body: some View {
@@ -188,8 +187,7 @@ struct NotchPanelView: View {
             model: model,
             metrics: metrics,
             onPickColor: onPickColor,
-            onCaptureText: onCaptureText,
-            onScanCode: onScanCode
+            onScan: onScan
         )
         .animation(nil, value: model.mode)
         .help("Capture mode")
@@ -256,8 +254,7 @@ struct NotchPanelView: View {
 private struct PopUpModeButtonWrapper: NSViewRepresentable {
     @Binding var selection: CaptureMode
     var onPickColor: () -> Void
-    var onCaptureText: () -> Void
-    var onScanCode: () -> Void
+    var onScan: () -> Void
     var onOpen:  () -> Void
     var onClose: () -> Void
     @Environment(\.locale) private var locale
@@ -281,24 +278,17 @@ private struct PopUpModeButtonWrapper: NSViewRepresentable {
             keyEquivalent: ""
         )
         button.menu?.addItem(pickItem)
-        let ocrItem = NSMenuItem(
-            title: LocaleManager.string("Capture Text", locale: locale),
-            action: #selector(Coordinator.captureTextTapped),
+        let scanItem = NSMenuItem(
+            title: LocaleManager.string("Scan", locale: locale),
+            action: #selector(Coordinator.scanTapped),
             keyEquivalent: ""
         )
-        button.menu?.addItem(ocrItem)
-        let scanCodeItem = NSMenuItem(
-            title: LocaleManager.string("Scan Code", locale: locale),
-            action: #selector(Coordinator.scanCodeTapped),
-            keyEquivalent: ""
-        )
-        button.menu?.addItem(scanCodeItem)
+        button.menu?.addItem(scanItem)
 
         button.target = context.coordinator
         button.action = #selector(Coordinator.selectionChanged(_:))
         pickItem.target = context.coordinator
-        ocrItem.target = context.coordinator
-        scanCodeItem.target = context.coordinator
+        scanItem.target = context.coordinator
 
         NotificationCenter.default.addObserver(
             context.coordinator,
@@ -322,13 +312,11 @@ private struct PopUpModeButtonWrapper: NSViewRepresentable {
             button.item(at: idx)?.title = mode.localizedTitle(locale)
         }
         // Separator is at allCases.count, Pick Color is at allCases.count + 1,
-        // Capture Text is at allCases.count + 2, Scan Code at + 3.
+        // Scan at + 2.
         button.item(at: CaptureMode.allCases.count + 1)?.title =
             LocaleManager.string("Pick Color", locale: locale)
         button.item(at: CaptureMode.allCases.count + 2)?.title =
-            LocaleManager.string("Capture Text", locale: locale)
-        button.item(at: CaptureMode.allCases.count + 3)?.title =
-            LocaleManager.string("Scan Code", locale: locale)
+            LocaleManager.string("Scan", locale: locale)
 
         let idx = CaptureMode.allCases.firstIndex(of: selection) ?? 0
         NSAnimationContext.runAnimationGroup { ctx in
@@ -358,12 +346,8 @@ private struct PopUpModeButtonWrapper: NSViewRepresentable {
             DispatchQueue.main.async { self.parent.onPickColor() }
         }
 
-        @objc func captureTextTapped() {
-            DispatchQueue.main.async { self.parent.onCaptureText() }
-        }
-
-        @objc func scanCodeTapped() {
-            DispatchQueue.main.async { self.parent.onScanCode() }
+        @objc func scanTapped() {
+            DispatchQueue.main.async { self.parent.onScan() }
         }
 
         @objc func menuWillOpen(_ notification: Notification) {
@@ -461,8 +445,7 @@ private struct PanelModeMenuButton: View {
     var model: NotchPanelModel
     let metrics: NotchMetrics
     let onPickColor: () -> Void
-    let onCaptureText: () -> Void
-    let onScanCode: () -> Void
+    let onScan: () -> Void
 
     @State private var isHovered  = false
     @State private var isPressed  = false
@@ -474,8 +457,7 @@ private struct PanelModeMenuButton: View {
             PopUpModeButtonWrapper(
                 selection: $model.mode,
                 onPickColor: onPickColor,
-                onCaptureText: onCaptureText,
-                onScanCode: onScanCode,
+                onScan: onScan,
                 onOpen:  { isMenuOpen = true  },
                 onClose: { isMenuOpen = false }
             )

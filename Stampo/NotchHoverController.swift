@@ -223,6 +223,7 @@ final class NotchHoverController: NSObject {
 
     private func installHotKey() {
         HotkeyAction.migrateIfNeeded()
+        HotkeyAction.migrateScanMergeIfNeeded()
         var eventSpec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
 
         let callback: EventHandlerUPP = { _, eventRef, userData in
@@ -309,12 +310,10 @@ final class NotchHoverController: NSObject {
         case 5:
             // Pick color — open panel then invoke pick color
             triggerPickColor(on: screen)
-        case 6:
-            // Capture text (OCR) — area selection, recognized text → clipboard
-            triggerCaptureText(on: screen)
         case 7:
-            // Scan code — area selection, barcode payload → clipboard + tray
-            triggerScanCode(on: screen)
+            // Scan — area selection, every barcode payload + recognized text
+            // → clipboard + tray
+            triggerScan(on: screen)
         case 8:
             // Pin last screenshot as a floating always-on-top window
             PinnedScreenshotController.shared.pinLastCapture(
@@ -349,23 +348,13 @@ final class NotchHoverController: NSObject {
         }
     }
 
-    private func triggerCaptureText(on screen: NSScreen) {
+    private func triggerScan(on screen: NSScreen) {
         // Тот же stale-инвариант, что и у triggerPickColor: при ненадёжной
         // Space-привязке передаём экран явно, чтобы overlay попал на активный.
         if panel.isVisible && !panel.needsSpaceRebind {
-            panel.captureText()
+            panel.scan()
         } else {
-            panel.captureText(on: screen)
-        }
-    }
-
-    private func triggerScanCode(on screen: NSScreen) {
-        // Match Capture Text: pass the active screen explicitly whenever the
-        // panel's Space binding cannot be trusted.
-        if panel.isVisible && !panel.needsSpaceRebind {
-            panel.scanCode()
-        } else {
-            panel.scanCode(on: screen)
+            panel.scan(on: screen)
         }
     }
 

@@ -1,9 +1,9 @@
 import Vision
 
 /// Single source of truth for the app's text recognition (OCR) configuration,
-/// shared by the notch "Capture Text" action (`NotchPanelOCR`) and the editor's
-/// region-recognize tool (`EditorView`). Keeping the recognition level and
-/// language hints here means adding a UI language only touches one place.
+/// shared by the panel's unified Scan action (`ScanRecognition`) and the
+/// editor's region-recognize tool (`EditorView`). Keeping the recognition level
+/// and language hints here means adding a UI language only touches one place.
 enum TextRecognition {
     /// Language hints biasing toward the app's shipped UI languages.
     /// `automaticallyDetectsLanguage` still allows others to be recognized.

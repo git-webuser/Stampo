@@ -9,8 +9,9 @@ enum HotkeyAction: UInt32, CaseIterable {
     case fullscreen  = 3
     case window      = 4
     case color       = 5
-    case ocr         = 6
-    case scanCode    = 7
+    // 6 was the separate Capture Text (OCR) action, merged into `scan` —
+    // see `migrateScanMergeIfNeeded`. The ID stays retired.
+    case scan        = 7
     case pinLastCapture = 8
 
     /// Localization key for the row label.
@@ -21,8 +22,7 @@ enum HotkeyAction: UInt32, CaseIterable {
         case .fullscreen:  return "Fullscreen Screenshot"
         case .window:      return "Window Screenshot"
         case .color:       return "Pick Color"
-        case .ocr:         return "Capture Text"
-        case .scanCode:    return "Scan Code"
+        case .scan:        return "Scan"
         case .pinLastCapture: return "Pin Last Screenshot"
         }
     }
@@ -35,8 +35,7 @@ enum HotkeyAction: UInt32, CaseIterable {
         case .fullscreen:  return "menubar.dock.rectangle"
         case .window:      return "macwindow"
         case .color:       return "eyedropper"
-        case .ocr:         return "text.viewfinder"
-        case .scanCode:    return "qrcode.viewfinder"
+        case .scan:        return "viewfinder"
         case .pinLastCapture: return "pin"
         }
     }
@@ -51,8 +50,7 @@ enum HotkeyAction: UInt32, CaseIterable {
         case .fullscreen:  key = kVK_ANSI_B
         case .window:      key = kVK_ANSI_G
         case .color:       key = kVK_ANSI_C
-        case .ocr:         key = kVK_ANSI_T
-        case .scanCode:    key = kVK_ANSI_S
+        case .scan:        key = kVK_ANSI_S
         case .pinLastCapture: key = kVK_ANSI_P
         }
         return HotkeyCombo(keyCode: UInt16(key), carbonModifiers: mods)
@@ -70,8 +68,7 @@ enum HotkeyAction: UInt32, CaseIterable {
         case .fullscreen:  return "hotkeyFullscreenEnabled"
         case .window:      return "hotkeyWindowEnabled"
         case .color:       return "hotkeyColorEnabled"
-        case .ocr:         return "hotkeyOcrEnabled"
-        case .scanCode:    return "hotkeyScanCodeEnabled"
+        case .scan:        return "hotkeyScanCodeEnabled"
         case .pinLastCapture: return "hotkeyPinLastCaptureEnabled"
         }
     }
@@ -111,5 +108,69 @@ enum HotkeyAction: UInt32, CaseIterable {
             action.setCombo(wasEnabled ? action.defaultCombo : nil)
         }
         defaults.set(true, forKey: migratedKey)
+    }
+
+    private static let scanMergeKey = "hotkeysMergedScanHotkey"
+    /// Storage key of the retired Capture Text action (raw value 6).
+    private static let retiredOcrComboKey = "hotkey.combo.6"
+
+    /// One-time merge of the former Capture Text (6) and Scan Code (7) hotkeys
+    /// into the single Scan action. A combo the user customized survives:
+    /// Scan Code's wins outright, Capture Text's is adopted when Scan Code was
+    /// still at its factory state. With both at factory state the unified
+    /// default applies, enabled unless both actions were disabled. Runs after
+    /// `migrateIfNeeded`; the retired storage is removed either way.
+    /// `defaults` is injectable for tests only.
+    static func migrateScanMergeIfNeeded(defaults: UserDefaults = .standard) {
+        guard !defaults.bool(forKey: scanMergeKey) else { return }
+        defaults.set(true, forKey: scanMergeKey)
+
+        func decode(_ key: String) -> Stored? {
+            guard let data = defaults.data(forKey: key) else { return nil }
+            return try? JSONDecoder().decode(Stored.self, from: data)
+        }
+        func storeScan(_ combo: HotkeyCombo?) {
+            if let data = try? JSONEncoder().encode(Stored(combo: combo)) {
+                defaults.set(data, forKey: HotkeyAction.scan.storageKey)
+            }
+        }
+
+        let scanStored = decode(HotkeyAction.scan.storageKey)
+        let ocrStored = decode(retiredOcrComboKey)
+        defaults.removeObject(forKey: retiredOcrComboKey)
+
+        guard let ocrStored else {
+            // Pre-combo installs never stored the OCR combo; honor the legacy
+            // enable bool so an OCR-only user still gets a working Scan hotkey.
+            if defaults.object(forKey: "hotkeyOcrEnabled") as? Bool == true,
+               let scanStored, scanStored.combo == nil {
+                storeScan(HotkeyAction.scan.defaultCombo)
+            }
+            return
+        }
+
+        // Nothing stored for Scan Code means its factory default was in
+        // effect; a stored nil combo means the user disabled the action.
+        let scanCombo: HotkeyCombo?
+        if let scanStored {
+            scanCombo = scanStored.combo
+        } else {
+            scanCombo = HotkeyAction.scan.defaultCombo
+        }
+        let retiredOcrDefault = HotkeyCombo(
+            keyCode: UInt16(kVK_ANSI_T),
+            carbonModifiers: UInt32(controlKey | optionKey | cmdKey)
+        )
+
+        if let scanCombo, scanCombo != HotkeyAction.scan.defaultCombo {
+            return // user's Scan Code bind wins
+        }
+        if let ocrCombo = ocrStored.combo, ocrCombo != retiredOcrDefault {
+            storeScan(ocrCombo) // user's Capture Text bind survives
+            return
+        }
+        if scanCombo == nil && ocrStored.combo != nil {
+            storeScan(HotkeyAction.scan.defaultCombo)
+        }
     }
 }

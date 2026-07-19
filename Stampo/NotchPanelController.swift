@@ -107,8 +107,7 @@ private struct NotchPanelRootView: View {
     let onCapture: (CaptureMode, CaptureDelay) -> Void
     let onToggleTray: () -> Void
     let onPickColor: () -> Void
-    let onCaptureText: () -> Void
-    let onScanCode: () -> Void
+    let onScan: () -> Void
     let onModeDelayChanged: () -> Void
     let onBack: () -> Void
     let onHidePanel: () -> Void
@@ -184,8 +183,7 @@ private struct NotchPanelRootView: View {
                 onCapture: onCapture,
                 onToggleTray: onToggleTray,
                 onPickColor: onPickColor,
-                onCaptureText: onCaptureText,
-                onScanCode: onScanCode,
+                onScan: onScan,
                 onModeDelayChanged: onModeDelayChanged
             )
             .opacity(max(0.0, min(1.0, (0.6 - p) / 0.6)) * (1.0 - rootState.countdownVisible))
@@ -358,8 +356,7 @@ final class NotchPanelController: NSObject {
     let trayModel = NotchTrayModel()
     let screenshot = ScreenshotService()
     let colorPicker = ColorPickingCoordinator()
-    let textCapture = TextCaptureCoordinator()
-    let codeCapture = CodeCaptureCoordinator()
+    let scanCapture = ScanCaptureCoordinator()
 
     enum CaptureTarget {
         case screen
@@ -414,8 +411,7 @@ final class NotchPanelController: NSObject {
         colorPicker.onCursorMoved = { point in
             NotificationCenter.default.post(name: .mascotCursorMoved, object: NSValue(point: point))
         }
-        textCapture.addText = { [weak self] text in self?.trayModel.add(text: text) }
-        codeCapture.addText = { [weak self] text in self?.trayModel.add(text: text) }
+        scanCapture.addText = { [weak self] text in self?.trayModel.add(text: text) }
         screenshot.onCaptured = { [weak self] url in
             self?.trayModel.add(screenshotURL: url)
             // Clear preSelection so the next capture attempt isn't blocked.
@@ -601,8 +597,7 @@ final class NotchPanelController: NSObject {
         selectionOverlay.cancel()
         windowPickerOverlay.cancel()
         colorPicker.cancel()
-        textCapture.cancel()
-        codeCapture.cancel()
+        scanCapture.cancel()
         screenshot.cancelCurrentCapture()
 
         activeCountdown?.timer?.invalidate()
@@ -1036,8 +1031,7 @@ final class NotchPanelController: NSObject {
             },
             onToggleTray: { [weak self] in self?.switchToTray() },
             onPickColor: { [weak self] in self?.pickColor() },
-            onCaptureText: { [weak self] in self?.captureText() },
-            onScanCode: { [weak self] in self?.scanCode() },
+            onScan: { [weak self] in self?.scan() },
             onModeDelayChanged: { [weak self] in self?.updateWidthForNoNotchIfNeeded() },
             onBack: { [weak self] in self?.switchToMain() },
             onHidePanel: { [weak self] in self?.hideAnimated(reason: .closeButton) },
