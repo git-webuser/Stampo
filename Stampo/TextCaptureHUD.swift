@@ -137,7 +137,7 @@ private struct TextCaptureHUDView: View {
                 statusRow(title: "No code found", systemName: "qrcode.viewfinder", iconOpacity: 0.6)
                     .fixedSize()
             case .nothingRecognized:
-                statusRow(title: "Nothing recognized", systemName: "viewfinder", iconOpacity: 0.6)
+                statusRow(title: "Nothing recognized", systemName: "doc.viewfinder", iconOpacity: 0.6)
                     .fixedSize()
             case .noScreenshotToPin:
                 statusRow(title: "No recent screenshot", systemName: "pin.slash", iconOpacity: 0.6)

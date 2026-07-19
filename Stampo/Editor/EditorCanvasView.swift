@@ -48,7 +48,7 @@ enum EditorTool: Equatable, CaseIterable {
         case .blur:   return "drop"
         case .step:   return "1.circle"
         case .loupe:  return "magnifyingglass"
-        case .scan:   return "viewfinder"
+        case .scan:   return "doc.viewfinder"
         case .crop:   return "crop"
         }
     }

@@ -103,7 +103,7 @@ struct EditorView: View {
     private var contextBar: some View {
         HStack(spacing: 12) {
             if tool == .scan, document.selectedAnnotation == nil {
-                Label("Drag to select an area to scan", systemImage: "viewfinder")
+                Label("Drag to select an area to scan", systemImage: "doc.viewfinder")
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
             } else if tool == .crop {
@@ -875,7 +875,7 @@ struct EditorView: View {
                 tool = (tool == .scan) ? .select : .scan
                 document.selectedID = nil
             } label: {
-                Image(systemName: "viewfinder")
+                Image(systemName: "doc.viewfinder")
                     .foregroundStyle(tool == .scan ? Color.accentColor : Color.primary)
             }
             .disabled(textEditingActive)
