@@ -1191,12 +1191,9 @@ struct EditorView: View {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(result.clipboardText, forType: .string)
                 // The tray inserts each entry at the top, so post in reverse:
-                // the topmost finding ends up as the topmost tray entry.
-                if !result.text.isEmpty {
-                    NotificationCenter.default.post(name: .editorDidScan, object: result.text)
-                }
-                for payload in result.codePayloads.reversed() {
-                    NotificationCenter.default.post(name: .editorDidScan, object: payload)
+                // the visually-topmost finding ends up as the topmost tray entry.
+                for entry in result.trayEntries.reversed() {
+                    NotificationCenter.default.post(name: .editorDidScan, object: entry)
                 }
                 showCaptureHUD(ScanCaptureCoordinator.outcome(for: result))
             }

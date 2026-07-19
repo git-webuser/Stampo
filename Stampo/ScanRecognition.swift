@@ -22,6 +22,11 @@ enum ScanRecognition {
         var text: String
         /// Every finding in visual order — what lands on the clipboard.
         var clipboardText: String
+        /// Tray entries in visual order (topmost first): each code payload on
+        /// its own, plus the whole recognized text as one entry placed where
+        /// its topmost line falls. Callers add these in reverse so the tray —
+        /// which inserts at the top — lists the visually-topmost finding first.
+        var trayEntries: [String] = []
 
         var isEmpty: Bool { codePayloads.isEmpty && text.isEmpty }
     }
@@ -100,10 +105,26 @@ enum ScanRecognition {
             row.sorted { $0.candidate.box.minX < $1.candidate.box.minX }
         }
 
+        let text = ordered.filter { !$0.isCode }.map(\.candidate.string).joined(separator: "\n")
+
+        // Tray order = visual order: each code on its own, and the whole text
+        // blob once, at the position of its topmost line.
+        var trayEntries: [String] = []
+        var textInserted = false
+        for item in ordered {
+            if item.isCode {
+                trayEntries.append(item.candidate.string)
+            } else if !textInserted {
+                trayEntries.append(text)
+                textInserted = true
+            }
+        }
+
         return Result(
             codePayloads: ordered.filter(\.isCode).map(\.candidate.string),
-            text: ordered.filter { !$0.isCode }.map(\.candidate.string).joined(separator: "\n"),
-            clipboardText: ordered.map(\.candidate.string).joined(separator: "\n")
+            text: text,
+            clipboardText: ordered.map(\.candidate.string).joined(separator: "\n"),
+            trayEntries: trayEntries
         )
     }
 

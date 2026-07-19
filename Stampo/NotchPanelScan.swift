@@ -58,9 +58,8 @@ final class ScanCaptureCoordinator {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(result.clipboardText, forType: .string)
                 // The tray inserts each entry at the top, so add in reverse:
-                // the topmost finding ends up as the topmost tray entry.
-                if !result.text.isEmpty { self.addText(result.text) }
-                for payload in result.codePayloads.reversed() { self.addText(payload) }
+                // the visually-topmost finding ends up as the topmost tray entry.
+                for entry in result.trayEntries.reversed() { self.addText(entry) }
                 self.hud.show(Self.outcome(for: result), on: resultScreen)
             }
         }

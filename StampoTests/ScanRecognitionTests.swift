@@ -51,6 +51,26 @@ import Testing
         #expect(result.codePayloads == ["left QR", "right QR"])
         #expect(result.text == "Title\nFooter")
         #expect(result.clipboardText == "Title\nleft QR\nright QR\nFooter")
+        // Tray entries follow the same visual order: the text blob sits where
+        // its topmost line (Title) falls — above both codes.
+        #expect(result.trayEntries == ["Title\nFooter", "left QR", "right QR"])
+    }
+
+    @Test func trayEntriesPlaceTextBlobAtItsTopmostLine() {
+        // A caption BELOW a single code: the code is visually topmost, so it
+        // must lead the tray entries (the old code always put text first,
+        // dropping it to the bottom of the tray).
+        let qr = code("payload", CGRect(x: 0.3, y: 0.6, width: 0.4, height: 0.3))
+        let caption = code("Caption below", CGRect(x: 0.3, y: 0.1, width: 0.4, height: 0.08))
+
+        let result = ScanRecognition.assemble(codes: [qr], textLines: [caption])
+        #expect(result.trayEntries == ["payload", "Caption below"])
+
+        // A caption ABOVE the code: text leads.
+        let above = code("Caption above", CGRect(x: 0.3, y: 0.9, width: 0.4, height: 0.08))
+        let low = code("payload", CGRect(x: 0.3, y: 0.3, width: 0.4, height: 0.3))
+        let flipped = ScanRecognition.assemble(codes: [low], textLines: [above])
+        #expect(flipped.trayEntries == ["Caption above", "payload"])
     }
 }
 
