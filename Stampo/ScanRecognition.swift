@@ -1,36 +1,6 @@
 import Foundation
 import Vision
 
-// MARK: - CodeRecognition
-
-enum CodeRecognition {
-    /// Runs Vision barcode detection locally and returns the highest-confidence
-    /// non-empty text payload. The result is never interpreted as a URL.
-    static func payload(in imageURL: URL) throws -> String {
-        let handler = VNImageRequestHandler(url: imageURL)
-        return try payload(using: handler)
-    }
-
-    /// CGImage overload used by the editor, where the selected region already
-    /// exists in memory and does not need a temporary file.
-    static func payload(in cgImage: CGImage) throws -> String {
-        let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
-        return try payload(using: handler)
-    }
-
-    private static func payload(using handler: VNImageRequestHandler) throws -> String {
-        // Leave `symbologies` at Vision's default so QR and the other barcode
-        // formats supported by the running macOS release are all recognized.
-        let request = VNDetectBarcodesRequest()
-        try handler.perform([request])
-
-        return (request.results ?? [])
-            .sorted { $0.confidence > $1.confidence }
-            .compactMap(\.payloadStringValue)
-            .first(where: { !$0.isEmpty }) ?? ""
-    }
-}
-
 // MARK: - ScanRecognition
 
 /// The panel's unified scanner: one Vision pass over the selected region that
@@ -65,6 +35,8 @@ enum ScanRecognition {
     }
 
     private static func scan(using handler: VNImageRequestHandler) throws -> Result {
+        // Leave `symbologies` at Vision's default so QR and the other barcode
+        // formats supported by the running macOS release are all recognized.
         let barcodes = VNDetectBarcodesRequest()
         let text = TextRecognition.makeRequest()
         try handler.perform([barcodes, text])

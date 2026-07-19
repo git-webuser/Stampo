@@ -105,6 +105,38 @@ import Testing
 
 @Suite struct ScanRecognitionVisionTests {
 
+    /// The panel coordinator feeds Vision a temporary file; the payload must
+    /// round-trip through the URL overload as plain text.
+    @Test func qrPayloadRoundTripsThroughTemporaryFile() throws {
+        let payload = "https://stampo.invalid/scan?value=plain-text"
+        let filter = try #require(CIFilter(name: "CIQRCodeGenerator"))
+        filter.setValue(Data(payload.utf8), forKey: "inputMessage")
+        filter.setValue("M", forKey: "inputCorrectionLevel")
+        let qrImage = try #require(filter.outputImage)
+            .transformed(by: CGAffineTransform(scaleX: 10, y: 10))
+        let context = CIContext()
+        let cgImage = try #require(context.createCGImage(qrImage, from: qrImage.extent))
+        let png = try #require(
+            NSBitmapImageRep(cgImage: cgImage).representation(using: .png, properties: [:])
+        )
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("stampo-scan-recognition-\(UUID().uuidString).png")
+        try png.write(to: url, options: .atomic)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let result = try ScanRecognition.scan(in: url)
+        #expect(result.codePayloads == [payload])
+        #expect(result.clipboardText == payload)
+    }
+
+    @Test @MainActor func hudPayloadPreviewIsSingleLineAndBounded() {
+        #expect(TextCaptureHUD.payloadPreview("WIFI:S:Home;\nT:WPA;\nP:secret;;")
+                == "WIFI:S:Home; T:WPA; P:secret;;")
+        #expect(TextCaptureHUD.payloadPreview("  spaced\t\tout  ") == "spaced out")
+        let long = String(repeating: "a", count: 1000)
+        #expect(TextCaptureHUD.payloadPreview(long).count == 256)
+    }
+
     /// One synthetic image, one Vision pass: the QR payload and the caption
     /// both come back, in visual order, with the QR's own pattern not leaking
     /// into the recognized text.

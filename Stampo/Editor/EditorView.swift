@@ -925,46 +925,31 @@ struct EditorView: View {
         showCaptureHUD(.copied)
     }
 
-    /// Unified scanner over the marquee region: tries a QR/barcode first (the
-    /// more specific content — a code region would also OCR as garbage text),
-    /// then falls back to text recognition. Whatever is found lands on the
-    /// clipboard; the shared capture HUD reports the outcome. Runs off the
-    /// main thread so a large crop doesn't stall the UI. Leaving scan mode
-    /// after a scan matches the "select once, then copy" flow.
+    /// Unified scanner over the marquee region: the same one-pass barcode+text
+    /// recognition as the panel's Scan action. Everything found lands on the
+    /// clipboard in visual order and each finding joins the tray; the shared
+    /// capture HUD reports the outcome. Runs off the main thread so a large
+    /// crop doesn't stall the UI. Leaving scan mode after a scan matches the
+    /// "select once, then copy" flow.
     private func scanRegion(_ pixelRect: CGRect) {
         tool = .select
         guard let cropped = croppedBaseImage(pixelRect) else { showCaptureHUD(.nothingRecognized); return }
         DispatchQueue.global(qos: .userInitiated).async {
-            // 1) Codes take priority.
-            let payload = ((try? CodeRecognition.payload(in: cropped)) ?? "")
-            if !payload.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                DispatchQueue.main.async {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(payload, forType: .string)
-                    NotificationCenter.default.post(name: .editorDidScanCode, object: payload)
-                    showCaptureHUD(.codeCopied(payload: payload))
-                }
-                return
-            }
-
-            // 2) No code — try text.
-            let request = TextRecognition.makeRequest()
-            let handler = VNImageRequestHandler(cgImage: cropped, options: [:])
-            var recognized = ""
-            do {
-                try handler.perform([request])
-                let lines = (request.results ?? [])
-                    .compactMap { $0.topCandidates(1).first?.string }
-                recognized = lines.joined(separator: "\n")
-            } catch {
-                recognized = ""
-            }
+            let result = (try? ScanRecognition.scan(in: cropped))
+                ?? ScanRecognition.Result(codePayloads: [], text: "", clipboardText: "")
             DispatchQueue.main.async {
-                let trimmed = recognized.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !trimmed.isEmpty else { showCaptureHUD(.nothingRecognized); return }
+                guard !result.isEmpty else { showCaptureHUD(.nothingRecognized); return }
                 NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(recognized, forType: .string)
-                showCaptureHUD(.copied)
+                NSPasteboard.general.setString(result.clipboardText, forType: .string)
+                // The tray inserts each entry at the top, so post in reverse:
+                // the topmost finding ends up as the topmost tray entry.
+                if !result.text.isEmpty {
+                    NotificationCenter.default.post(name: .editorDidScan, object: result.text)
+                }
+                for payload in result.codePayloads.reversed() {
+                    NotificationCenter.default.post(name: .editorDidScan, object: payload)
+                }
+                showCaptureHUD(ScanCaptureCoordinator.outcome(for: result))
             }
         }
     }

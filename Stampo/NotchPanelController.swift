@@ -513,7 +513,7 @@ final class NotchPanelController: NSObject {
             self?.trayModel.add(screenshotURL: url)
         }
         let t9 = NotificationCenter.default.addObserver(
-            forName: .editorDidScanCode,
+            forName: .editorDidScan,
             object: nil, queue: .main
         ) { [weak self] note in
             guard let payload = note.object as? String else { return }
