@@ -35,7 +35,7 @@ import Testing
 
     @Test func scanRowMetadataIsFilledIn() {
         #expect(HotkeyAction.scan.labelKey == "Scan")
-        #expect(HotkeyAction.scan.icon == "viewfinder")
+        #expect(HotkeyAction.scan.icon == "doc.viewfinder")
     }
 }
 

@@ -35,7 +35,7 @@ enum HotkeyAction: UInt32, CaseIterable {
         case .fullscreen:  return "menubar.dock.rectangle"
         case .window:      return "macwindow"
         case .color:       return "eyedropper"
-        case .scan:        return "viewfinder"
+        case .scan:        return "doc.viewfinder"
         case .pinLastCapture: return "pin"
         }
     }
