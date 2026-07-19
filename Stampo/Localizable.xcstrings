@@ -1394,7 +1394,7 @@
       }
     },
     "Drag to select an area to scan" : {
-      "comment" : "Editor context hint shown while the Scan Code tool is active.",
+      "comment" : "Editor context hint shown while the Scan tool is active.",
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
