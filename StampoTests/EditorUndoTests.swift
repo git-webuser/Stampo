@@ -217,7 +217,7 @@ import Testing
         }
         #expect(EditorTool.tool(forShortcutKeyCode: 7) == nil)
         #expect(EditorTool.scan.shortcut == nil)
-        #expect(EditorTool.scan.systemImage == "viewfinder")
+        #expect(EditorTool.scan.systemImage == "doc.viewfinder")
         #expect(EditorTool.scan.labelKey == "Scan")
         #expect(EditorTool.crop.shortcut == nil)
         #expect(EditorTool.step.labelKey == "Numbering")
