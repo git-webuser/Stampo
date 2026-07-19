@@ -1393,23 +1393,6 @@
         }
       }
     },
-    "Drag to select an area to recognize" : {
-      "comment" : "Hint shown in the editor context bar while the recognize-text (OCR) tool is active.",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Drag to select an area to recognize"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Выделите область для распознавания"
-          }
-        }
-      }
-    },
     "Drag to select an area to scan" : {
       "comment" : "Editor context hint shown while the Scan Code tool is active.",
       "extractionState" : "manual",
@@ -2428,23 +2411,6 @@
         }
       }
     },
-    "Nothing recognized" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Nothing recognized"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ничего не распознано"
-          }
-        }
-      }
-    },
     "Notch" : {
       "comment" : "Panel shape option: notch-style pinned to the top edge",
       "localizations" : {
@@ -2529,6 +2495,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Пока пусто"
+          }
+        }
+      }
+    },
+    "Nothing recognized" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nothing recognized"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ничего не распознано"
           }
         }
       }
