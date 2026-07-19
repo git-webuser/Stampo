@@ -160,6 +160,7 @@ struct EditorView: View {
             case .loupe:
                 colorSwatches
                 loupeShapePicker
+                loupeModePicker
                 thicknessSlider
                 settingSlider("Magnification", systemImage: "plus.magnifyingglass",
                               value: loupeScaleBinding, range: 1.5...4, step: 0.5,
@@ -254,20 +255,31 @@ struct EditorView: View {
 
     /// Whether the loupe magnifies the redacted image (default) or the raw
     /// original. Only offered while the document actually has a blur — without
-    /// one, the two modes render identically.
+    /// one, the two modes render identically. Icon-only, like the loupe's
+    /// other pickers, so the row fits the minimum window width.
     private var loupeSourcePicker: some View {
-        IconSegmentedPicker(
-            segments: [
-                .init("Redacted", systemImage: "eye.slash",
-                      value: false),
-                .init("Original", systemImage: "eye",
-                      value: true)
-            ],
-            selection: loupeRevealsOriginalBinding
-        )
-        .fixedSize()
-        .accessibilityLabel("Loupe Source")
+        Picker("Loupe Source", selection: loupeRevealsOriginalBinding) {
+            Image(systemName: "eye.slash").tag(false)
+            Image(systemName: "eye").tag(true)
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .frame(width: 76)
         .hoverTip("Loupe Source")
+    }
+
+    /// In-place magnifier vs callout (source marker + detached magnifier
+    /// joined by a connector).
+    private var loupeModePicker: some View {
+        Picker("Loupe Mode", selection: loupeCalloutBinding) {
+            Image(systemName: "smallcircle.filled.circle").tag(false)
+            Image(systemName: "point.topleft.down.to.point.bottomright.curvepath")
+                .tag(true)
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .frame(width: 76)
+        .hoverTip("Loupe Mode")
     }
 
     private var documentHasBlur: Bool {
@@ -818,6 +830,8 @@ struct EditorView: View {
             set: { rawValue in
                 let newValue = (rawValue * 2).rounded() / 2   // 0.5× detents
                 style.loupeScale = newValue
+                // Magnification is the content zoom only — neither the marker
+                // nor the magnifier frame moves.
                 document.updateSelected { if $0.kind == .loupe { $0.loupeScale = newValue } }
             }
         )
@@ -835,6 +849,41 @@ struct EditorView: View {
                 style.loupeShape = newValue
                 applyToSelection {
                     if $0.kind == .loupe { $0.loupeShape = newValue }
+                }
+            }
+        )
+    }
+
+    private var loupeCalloutBinding: Binding<Bool> {
+        Binding(
+            get: {
+                if let selected = document.selectedAnnotation, selected.kind == .loupe {
+                    return selected.loupeSource != nil
+                }
+                return style.loupeCallout
+            },
+            set: { newValue in
+                style.loupeCallout = newValue
+                let pixel = document.pixelSize
+                applyToSelection {
+                    guard $0.kind == .loupe else { return }
+                    guard newValue else {
+                        $0.loupeSource = nil; $0.loupeSourceSize = nil; return
+                    }
+                    guard $0.loupeSource == nil else { return }
+                    // The marker stays put where the loupe was aimed, sized to
+                    // frame the magnified region (display ÷ scale); the
+                    // magnifier jumps diagonally aside (clamped to the image)
+                    // so the split into two bodies is immediately visible.
+                    let r = $0.rect
+                    let k = max(1, $0.loupeScale)
+                    $0.loupeSource = CGPoint(x: r.midX, y: r.midY)
+                    $0.loupeSourceSize = CGSize(width: r.width / k, height: r.height / k)
+                    var moved = r.offsetBy(dx: r.width * 0.9, dy: -r.height * 0.9)
+                    moved.origin.x = min(max(0, moved.origin.x), pixel.width - moved.width)
+                    moved.origin.y = min(max(0, moved.origin.y), pixel.height - moved.height)
+                    $0.moveLoupePart(.display, by: CGPoint(x: moved.minX - r.minX,
+                                                           y: moved.minY - r.minY))
                 }
             }
         )

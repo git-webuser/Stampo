@@ -131,6 +131,8 @@ struct ToolStyle {
     var loupeScale: CGFloat = 2
     /// Outline of new loupes.
     var loupeShape: LoupeShape = .oval
+    /// Whether new loupes are callouts (source marker + detached magnifier).
+    var loupeCallout = false
     /// Whether new loupes reveal the original (unredacted) pixels.
     var loupeRevealsOriginal = false
     var drawingMode: DrawingMode = .pen
@@ -208,6 +210,7 @@ struct EditorCanvasView: View {
         case drawing(UUID)
         case erasing(last: CGPoint)
         case moving(UUID, last: CGPoint)
+        case movingLoupePart(UUID, Annotation.LoupePart, last: CGPoint)
         case resizing(UUID, Annotation.Handle)
         case panning(last: CGPoint)
         case recognitionSelecting(start: CGPoint, current: CGPoint)
@@ -305,17 +308,31 @@ struct EditorCanvasView: View {
         return document.annotations.first { $0.id == editingTextID }
     }
 
+    /// Id of a callout loupe still being drawn — the rect the user is dragging
+    /// is the source marker, shown as a plain outline until release turns it
+    /// into a magnifier. nil for in-place loupes and every other tool.
+    private var calloutMarkerPreviewID: UUID? {
+        guard style.loupeCallout, case .creating(let id) = dragMode,
+              document.annotations.first(where: { $0.id == id })?.kind == .loupe
+        else { return nil }
+        return id
+    }
+
     // MARK: Canvas
 
     private func canvas(fitScale: CGFloat, offset: CGPoint) -> some View {
         Canvas { context, _ in
+            let markerPreviewID = calloutMarkerPreviewID
             context.withCGContext { cg in
                 cg.saveGState()
                 cg.translateBy(x: offset.x, y: offset.y)
                 cg.scaleBy(x: fitScale, y: fitScale)
-                // Only hide a text annotation while its TextField overlays it;
-                // a step keeps its circle drawn under the label editor.
-                let skipID = editingAnnotation?.kind == .text ? editingTextID : nil
+                // Skip the magnifier for: a text annotation being edited (its
+                // TextField overlays it) and a callout loupe still being drawn
+                // — the marker region is defined without magnification, which
+                // only appears once the drag ends.
+                let skipID = editingAnnotation?.kind == .text ? editingTextID
+                    : markerPreviewID
                 AnnotationRenderer.draw(
                     in: cg,
                     base: document.baseImage,
@@ -324,6 +341,13 @@ struct EditorCanvasView: View {
                     skipping: skipID
                 )
                 cg.restoreGState()
+            }
+
+            // While drawing a callout, preview only the plain marker outline
+            // (in the annotation color and shape) — no magnified content yet.
+            if let id = markerPreviewID,
+               let a = document.annotations.first(where: { $0.id == id }) {
+                drawMarkerPreview(a, context: context, fitScale: fitScale, offset: offset)
             }
 
             // Selection chrome in view space (crisp at any zoom).
@@ -392,6 +416,27 @@ struct EditorCanvasView: View {
             context.fill(square, with: .color(.white))
             context.stroke(square, with: .color(.black.opacity(0.5)), lineWidth: 1)
         }
+    }
+
+    /// Plain outline of the source marker while a callout is being drawn — the
+    /// loupe's shape in its color, no magnified content. The magnifier appears
+    /// only when the drag ends.
+    private func drawMarkerPreview(_ a: Annotation, context: GraphicsContext,
+                                   fitScale: CGFloat, offset: CGPoint) {
+        let r = a.rect
+        let viewRect = CGRect(x: r.minX * fitScale + offset.x,
+                              y: r.minY * fitScale + offset.y,
+                              width: r.width * fitScale, height: r.height * fitScale)
+        var path = Path()
+        if a.loupeShape == .roundedRect {
+            let radius = min(viewRect.width, viewRect.height) * 0.2
+            path.addRoundedRect(in: viewRect,
+                                cornerSize: CGSize(width: radius, height: radius))
+        } else {
+            path.addEllipse(in: viewRect)
+        }
+        context.stroke(path, with: .color(Color(nsColor: a.color.nsColor)),
+                       lineWidth: max(1, a.lineWidth * fitScale))
     }
 
     private func drawRecognitionMarquee(from start: CGPoint, to current: CGPoint,
@@ -498,15 +543,20 @@ struct EditorCanvasView: View {
         // Freehand paths use endpoint markers like lines, avoiding a bounding
         // box that visually suggests the curve itself is rectangular.
         if a.kind != .line && a.kind != .arrow && a.kind != .freehand {
-            let r = a.rect
-            let viewRect = CGRect(origin: toView(r.origin),
-                                  size: CGSize(width: r.width * fitScale, height: r.height * fitScale))
-                .insetBy(dx: -3, dy: -3)
+            // A callout loupe's source marker is part of the selection too.
+            var outlineRects = [a.rect]
+            if let sourceRect = a.loupeSourceRect { outlineRects.append(sourceRect) }
             var path = Path()
-            if a.kind == .step || (a.kind == .loupe && a.loupeShape != .roundedRect) {
-                path.addEllipse(in: viewRect)
-            } else {
-                path.addRect(viewRect)
+            for r in outlineRects {
+                let viewRect = CGRect(origin: toView(r.origin),
+                                      size: CGSize(width: r.width * fitScale,
+                                                   height: r.height * fitScale))
+                    .insetBy(dx: -3, dy: -3)
+                if a.kind == .step || (a.kind == .loupe && a.loupeShape != .roundedRect) {
+                    path.addEllipse(in: viewRect)
+                } else {
+                    path.addRect(viewRect)
+                }
             }
             context.stroke(path, with: .color(.white.opacity(0.9)),
                            style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
@@ -654,6 +704,11 @@ struct EditorCanvasView: View {
                     update(id) { $0.move(by: delta) }
                     dragMode = .moving(id, last: p)
 
+                case .movingLoupePart(let id, let part, let last):
+                    let delta = CGPoint(x: p.x - last.x, y: p.y - last.y)
+                    update(id) { $0.moveLoupePart(part, by: delta) }
+                    dragMode = .movingLoupePart(id, part, last: p)
+
                 case .resizing(let id, let handle):
                     update(id) { annotation in
                         // Curve control: dragging near the straight start–end
@@ -741,6 +796,22 @@ struct EditorCanvasView: View {
                         document.selectedID = nil
                         document.discardChange()
                     } else {
+                        // A callout loupe: the drawn rect is the source marker
+                        // (what to magnify). The magnifier — source × scale —
+                        // pops out beside it, on whichever side has more room,
+                        // never overlapping, so both bodies and the connector
+                        // read immediately.
+                        update(id) {
+                            guard $0.kind == .loupe, style.loupeCallout else { return }
+                            let source = $0.rect
+                            $0.loupeSource = CGPoint(x: source.midX, y: source.midY)
+                            $0.loupeSourceSize = source.size
+                            let display = Self.calloutDisplayPlacement(
+                                source: source, scale: $0.loupeScale,
+                                lineWidth: $0.lineWidth, imageSize: pixel)
+                            $0.start = CGPoint(x: display.minX, y: display.minY)
+                            $0.end = CGPoint(x: display.maxX, y: display.maxY)
+                        }
                         document.commitChange()
                     }
                 case .drawing(let id):
@@ -760,7 +831,7 @@ struct EditorCanvasView: View {
                     }
                 case .erasing:
                     document.commitChange()
-                case .moving, .resizing:
+                case .moving, .movingLoupePart, .resizing:
                     document.commitChange()
                 case .recognitionSelecting(let start, _):
                     let rect = CGRect(x: min(start.x, p.x), y: min(start.y, p.y),
@@ -809,6 +880,11 @@ struct EditorCanvasView: View {
             if let hit = document.annotation(at: p, tolerance: tolerancePx) {
                 document.selectedID = hit.id
                 document.beginChange()
+                // A callout loupe's bodies drag independently; whole-
+                // annotation moves stay on the keyboard-nudge path.
+                if let part = hit.loupePart(at: p, tolerance: tolerancePx) {
+                    return .movingLoupePart(hit.id, part, last: p)
+                }
                 return .moving(hit.id, last: p)
             }
             // Empty space: a click deselects (in handleClick), a drag pans.
@@ -844,6 +920,9 @@ struct EditorCanvasView: View {
             if let selected = document.selectedAnnotation,
                selected.hitTest(p, tolerance: tolerancePx) {
                 document.beginChange()
+                if let part = selected.loupePart(at: p, tolerance: tolerancePx) {
+                    return .movingLoupePart(selected.id, part, last: p)
+                }
                 return .moving(selected.id, last: p)
             }
             return .undecided(pixelPoint: p)
@@ -892,6 +971,28 @@ struct EditorCanvasView: View {
         guard let id, let last = lastClick, last.id == id else { return false }
         return Date().timeIntervalSince(last.time) < 0.5
             && hypot(p.x - last.point.x, p.y - last.point.y) < 12
+    }
+
+    /// Where a freshly drawn callout loupe drops its magnifier: the user draws
+    /// the source marker, and the magnifier — `source × scale` — is placed
+    /// diagonally beside it on the side with more room, clamped so it stays
+    /// on-image. Pure and static so it's unit-testable and free of view state.
+    static func calloutDisplayPlacement(source: CGRect, scale: CGFloat,
+                                        lineWidth: CGFloat,
+                                        imageSize: CGSize) -> CGRect {
+        let k = max(1, scale)
+        let dw = source.width * k, dh = source.height * k
+        let gap = max(source.width, source.height) * 0.5 + lineWidth
+        let cx = source.minX >= (imageSize.width - source.maxX)
+            ? source.minX - gap - dw / 2
+            : source.maxX + gap + dw / 2
+        let cy = source.minY >= (imageSize.height - source.maxY)
+            ? source.minY - gap - dh / 2
+            : source.maxY + gap + dh / 2
+        let clampedX = min(max(dw / 2, cx), imageSize.width - dw / 2)
+        let clampedY = min(max(dh / 2, cy), imageSize.height - dh / 2)
+        return CGRect(x: clampedX - dw / 2, y: clampedY - dh / 2,
+                      width: dw, height: dh)
     }
 
     private func shapeKind(for tool: EditorTool) -> AnnotationKind? {

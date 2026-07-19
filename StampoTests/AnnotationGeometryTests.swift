@@ -385,6 +385,123 @@ import Testing
         #expect(!a.hitTest(CGPoint(x: 90, y: 25), tolerance: 2))  // outside
     }
 
+    /// A callout with an independently-sized marker frame.
+    private func callout(display: CGRect, markerCenter: CGPoint,
+                         markerSize: CGSize, scale: CGFloat = 2) -> Annotation {
+        var a = make(.loupe, start: display.origin,
+                     end: CGPoint(x: display.maxX, y: display.maxY))
+        a.loupeScale = scale
+        a.loupeSource = markerCenter
+        a.loupeSourceSize = markerSize
+        return a
+    }
+
+    @Test func calloutLoupeBodiesHitAndMoveIndependently() {
+        var a = callout(display: CGRect(x: 100, y: 100, width: 40, height: 40),
+                        markerCenter: CGPoint(x: 30, y: 30),
+                        markerSize: CGSize(width: 20, height: 20))
+        // The marker frame is its stored center and size — independent of scale.
+        #expect(a.loupeSourceRect == CGRect(x: 20, y: 20, width: 20, height: 20))
+        // Both bodies are hittable and route to their own part.
+        #expect(a.hitTest(CGPoint(x: 30, y: 30), tolerance: 2))
+        #expect(a.loupePart(at: CGPoint(x: 120, y: 120), tolerance: 2) == .display)
+        #expect(a.loupePart(at: CGPoint(x: 30, y: 30), tolerance: 2) == .source)
+        // Part drags leave the other body in place…
+        a.moveLoupePart(.source, by: CGPoint(x: 5, y: 0))
+        #expect(a.loupeSource == CGPoint(x: 35, y: 30))
+        #expect(a.start == CGPoint(x: 100, y: 100))
+        a.moveLoupePart(.display, by: CGPoint(x: -10, y: 0))
+        #expect(a.start == CGPoint(x: 90, y: 100))
+        #expect(a.loupeSource == CGPoint(x: 35, y: 30))
+        // …while a whole-annotation move carries both.
+        a.move(by: CGPoint(x: 10, y: 10))
+        #expect(a.start == CGPoint(x: 100, y: 110))
+        #expect(a.loupeSource == CGPoint(x: 45, y: 40))
+    }
+
+    @Test func calloutAddsSourceHandlesInPlaceLoupeDoesNot() {
+        var a = make(.loupe, start: CGPoint(x: 100, y: 100), end: CGPoint(x: 140, y: 140))
+        // In-place loupe: only the four display corners.
+        #expect(a.handles.count == 4)
+        a.loupeSource = CGPoint(x: 30, y: 30)
+        a.loupeSourceSize = CGSize(width: 20, height: 20)   // marker (20,20,20,20)
+        let kinds = a.handles.map(\.0)
+        #expect(a.handles.count == 8)           // display + source corners
+        #expect(kinds.contains(.sourceBottomRight))
+        // The marker's bottom-right corner sits at its stored rect edge.
+        #expect(a.handle(at: CGPoint(x: 40, y: 40), tolerance: 3) == .sourceBottomRight)
+        // And a display corner still resolves to its display handle.
+        #expect(a.handle(at: CGPoint(x: 140, y: 140), tolerance: 3) == .bottomRight)
+    }
+
+    @Test func resizingEitherFrameScalesBothKeepingRatio() {
+        // Marker 20×20, magnifier 40×40 → size ratio 2.
+        var a = callout(display: CGRect(x: 100, y: 100, width: 40, height: 40),
+                        markerCenter: CGPoint(x: 30, y: 30),
+                        markerSize: CGSize(width: 20, height: 20))
+        let markerCenter = a.loupeSource!
+        // Drag the magnifier's bottom-right from 140→160 (×1.5 each axis).
+        a.apply(handle: .bottomRight, to: CGPoint(x: 160, y: 160))
+        #expect(a.rect.width == 60 && a.rect.height == 60)
+        // Marker scales by the same factor about its own center (stays put).
+        #expect(a.loupeSourceSize == CGSize(width: 30, height: 30))
+        #expect(a.loupeSource == markerCenter)
+    }
+
+    @Test func resizingMarkerScalesMagnifierAboutItsCenter() {
+        var a = callout(display: CGRect(x: 100, y: 100, width: 40, height: 40),
+                        markerCenter: CGPoint(x: 30, y: 30),
+                        markerSize: CGSize(width: 20, height: 20))
+        let displayCenter = CGPoint(x: a.rect.midX, y: a.rect.midY)
+        // Marker (20,20,20,20): drag top-left 20→10, anchoring corner (40,40).
+        a.apply(handle: .sourceTopLeft, to: CGPoint(x: 10, y: 10))
+        #expect(a.loupeSourceRect == CGRect(x: 10, y: 10, width: 30, height: 30))
+        // Magnifier scales ×1.5 about its own center (stays put).
+        #expect(a.rect.width == 60 && a.rect.height == 60)
+        #expect(abs(a.rect.midX - displayCenter.x) < 0.001)
+        #expect(abs(a.rect.midY - displayCenter.y) < 0.001)
+    }
+
+    @Test func changingMagnificationLeavesBothFramesInPlace() {
+        var a = callout(display: CGRect(x: 100, y: 100, width: 40, height: 40),
+                        markerCenter: CGPoint(x: 30, y: 30),
+                        markerSize: CGSize(width: 20, height: 20))
+        let marker = a.loupeSourceRect!
+        let display = a.rect
+        // Magnification is content zoom only — neither frame moves or resizes.
+        a.loupeScale = 3.5
+        #expect(a.loupeSourceRect == marker)
+        #expect(a.rect == display)
+    }
+
+    @Test func calloutDisplayPlacementSizesAndClearsSource() {
+        // The user draws the marker; the magnifier is source × scale beside it.
+        let source = CGRect(x: 400, y: 300, width: 40, height: 40)
+        let display = EditorCanvasView.calloutDisplayPlacement(
+            source: source, scale: 2, lineWidth: 4,
+            imageSize: CGSize(width: 1000, height: 800))
+        #expect(display.width == 80 && display.height == 80)   // source × scale
+        #expect(!display.intersects(source))                   // never overlaps
+        // Stays on-image.
+        #expect(display.minX >= 0 && display.minY >= 0)
+        #expect(display.maxX <= 1000 && display.maxY <= 800)
+    }
+
+    @Test func calloutConnectorSpansEdgesAndHidesWhenOverlapping() {
+        // Display: circle r20 centered (80,40); marker: r10 centered (20,40).
+        var a = callout(display: CGRect(x: 60, y: 20, width: 40, height: 40),
+                        markerCenter: CGPoint(x: 20, y: 40),
+                        markerSize: CGSize(width: 20, height: 20))
+        let points = a.loupeConnectorPoints()
+        #expect(abs((points?.0.x ?? 0) - 30) < 0.001)   // marker's right edge
+        #expect(abs((points?.0.y ?? 0) - 40) < 0.001)
+        #expect(abs((points?.1.x ?? 0) - 60) < 0.001)   // display's left edge
+        #expect(abs((points?.1.y ?? 0) - 40) < 0.001)
+        // Overlapping bodies hide the connector.
+        a.loupeSource = CGPoint(x: 75, y: 40)
+        #expect(a.loupeConnectorPoints() == nil)
+    }
+
     @Test func loupeDegenerateUnderFourPixels() {
         #expect(make(.loupe, start: .zero, end: CGPoint(x: 3, y: 3)).isDegenerate)
         #expect(!make(.loupe, start: .zero, end: CGPoint(x: 20, y: 20)).isDegenerate)

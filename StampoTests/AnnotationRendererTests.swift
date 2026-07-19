@@ -179,6 +179,29 @@ enum TestImages {
         #expect(farRight > 0.9)                          // untouched white
     }
 
+    @Test func calloutLoupeMagnifiesSourceRegionAndDrawsConnector() {
+        // Display over the black half, source aimed at the white half: the
+        // magnifier must show the source's pixels, not what's beneath it.
+        var loupe = Annotation(kind: .loupe, start: CGPoint(x: 5, y: 5),
+                               end: CGPoint(x: 25, y: 25), color: .red, lineWidth: 3)
+        loupe.loupeScale = 2
+        loupe.loupeSource = CGPoint(x: 45, y: 30)
+        loupe.loupeSourceSize = CGSize(width: 10, height: 10)
+        let rep = AnnotationRenderer.renderBitmap(base: halfToneBase(),
+                                                  annotations: [loupe])!
+        let inside = rep.colorAt(x: 15, y: 15)?.brightnessComponent ?? 0
+        #expect(inside > 0.9)
+        // The connector runs between the bodies in the annotation color.
+        if let (from, to) = loupe.loupeConnectorPoints() {
+            let mid = rep.colorAt(x: Int(((from.x + to.x) / 2).rounded()),
+                                  y: Int(((from.y + to.y) / 2).rounded()))
+            #expect((mid?.redComponent ?? 0) > 0.7)
+            #expect((mid?.greenComponent ?? 1) < 0.5)
+        } else {
+            Issue.record("connector expected for separated bodies")
+        }
+    }
+
     @Test func loupeStrokesRingInAnnotationColor() {
         var loupe = Annotation(kind: .loupe, start: CGPoint(x: 20, y: 20),
                                end: CGPoint(x: 40, y: 40), color: .red, lineWidth: 3)

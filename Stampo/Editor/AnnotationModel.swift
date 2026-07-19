@@ -347,6 +347,16 @@ struct Annotation: Identifiable, Equatable {
     var loupeScale: CGFloat = 2
     /// Outline of a `.loupe`.
     var loupeShape: LoupeShape = .oval
+    /// Center of the **callout** loupe's source marker. nil is the plain
+    /// in-place loupe (it magnifies the pixels beneath itself). The marker and
+    /// the magnifier are two independent frames sharing the loupe's shape,
+    /// joined by a straight connector; each is dragged independently, while
+    /// whole-annotation moves (`move(by:)`) carry both.
+    var loupeSource: CGPoint? = nil
+    /// Size of the callout marker, stored independently of the magnifier — the
+    /// magnification (`loupeScale`) zooms the content, not the marker frame, so
+    /// the region the user chose keeps its size when magnification changes.
+    var loupeSourceSize: CGSize? = nil
     /// A `.loupe` magnifies the redacted image by default so blur keeps
     /// hiding what it hides; opting in reveals the raw original pixels.
     var loupeRevealsOriginal: Bool = false
@@ -372,6 +382,103 @@ struct Annotation: Identifiable, Equatable {
             let x = a * from.x + b * control.x + c * to.x
             let y = a * from.y + b * control.y + c * to.y
             return CGPoint(x: x, y: y)
+        }
+    }
+
+    /// The callout marker's frame in image space (its stored center and
+    /// size). nil for an in-place loupe.
+    var loupeSourceRect: CGRect? {
+        guard kind == .loupe, let center = loupeSource,
+              let size = loupeSourceSize else { return nil }
+        return CGRect(x: center.x - size.width / 2, y: center.y - size.height / 2,
+                      width: size.width, height: size.height)
+    }
+
+    /// The two independently draggable bodies of a callout loupe.
+    enum LoupePart: Equatable {
+        case display
+        case source
+    }
+
+    /// Which body of a callout loupe the point lands on; the magnifier wins
+    /// when the two overlap. nil for misses and for in-place loupes (whose
+    /// single body routes through the ordinary move path).
+    func loupePart(at p: CGPoint, tolerance: CGFloat) -> LoupePart? {
+        guard kind == .loupe, loupeSource != nil else { return nil }
+        if Self.shapeContains(p, in: rect, shape: loupeShape, tolerance: tolerance) {
+            return .display
+        }
+        if let sourceRect = loupeSourceRect,
+           Self.shapeContains(p, in: sourceRect, shape: loupeShape,
+                              tolerance: tolerance) {
+            return .source
+        }
+        return nil
+    }
+
+    /// Drags one body of a callout loupe without disturbing the other.
+    mutating func moveLoupePart(_ part: LoupePart, by delta: CGPoint) {
+        switch part {
+        case .display:
+            start.x += delta.x; start.y += delta.y
+            end.x += delta.x; end.y += delta.y
+        case .source:
+            guard let source = loupeSource else { return }
+            loupeSource = CGPoint(x: source.x + delta.x, y: source.y + delta.y)
+        }
+    }
+
+    /// Full-interior containment for a loupe body (ellipse or rounded rect —
+    /// corner rounding is within tolerance of the plain rect).
+    private static func shapeContains(_ p: CGPoint, in r: CGRect,
+                                      shape: LoupeShape,
+                                      tolerance: CGFloat) -> Bool {
+        switch shape {
+        case .roundedRect:
+            return r.insetBy(dx: -tolerance, dy: -tolerance).contains(p)
+        case .oval:
+            guard r.width > 0, r.height > 0 else { return false }
+            let nx = (p.x - r.midX) / (r.width / 2)
+            let ny = (p.y - r.midY) / (r.height / 2)
+            let tol = tolerance / min(r.width, r.height) * 2
+            return sqrt(nx * nx + ny * ny) <= 1 + tol
+        }
+    }
+
+    /// Endpoints of a callout's connector: where the straight line between
+    /// the source and magnifier centers crosses each outline. nil while the
+    /// bodies overlap (the line would be hidden anyway) — pure, so the
+    /// renderer and tests agree on when the connector appears.
+    func loupeConnectorPoints() -> (CGPoint, CGPoint)? {
+        guard let sourceRect = loupeSourceRect else { return nil }
+        let displayRect = rect
+        let c1 = CGPoint(x: sourceRect.midX, y: sourceRect.midY)
+        let c2 = CGPoint(x: displayRect.midX, y: displayRect.midY)
+        let distance = hypot(c2.x - c1.x, c2.y - c1.y)
+        guard distance > 0.01 else { return nil }
+        let dxn = (c2.x - c1.x) / distance, dyn = (c2.y - c1.y) / distance
+        let t1 = Self.edgeDistance(halfWidth: sourceRect.width / 2,
+                                   halfHeight: sourceRect.height / 2,
+                                   shape: loupeShape, dxn: dxn, dyn: dyn)
+        let t2 = Self.edgeDistance(halfWidth: displayRect.width / 2,
+                                   halfHeight: displayRect.height / 2,
+                                   shape: loupeShape, dxn: dxn, dyn: dyn)
+        guard t1 + t2 < distance else { return nil }
+        return (CGPoint(x: c1.x + dxn * t1, y: c1.y + dyn * t1),
+                CGPoint(x: c2.x - dxn * t2, y: c2.y - dyn * t2))
+    }
+
+    /// Distance from a shape's center to its outline along a unit direction
+    /// (ray–ellipse, or ray–box with corner rounding ignored).
+    private static func edgeDistance(halfWidth: CGFloat, halfHeight: CGFloat,
+                                     shape: LoupeShape,
+                                     dxn: CGFloat, dyn: CGFloat) -> CGFloat {
+        guard halfWidth > 0, halfHeight > 0 else { return 0 }
+        switch shape {
+        case .oval:
+            return 1 / sqrt(pow(dxn / halfWidth, 2) + pow(dyn / halfHeight, 2))
+        case .roundedRect:
+            return 1 / max(abs(dxn) / halfWidth, abs(dyn) / halfHeight)
         }
     }
 
@@ -479,16 +586,17 @@ struct Annotation: Identifiable, Equatable {
         case .step:
             return hypot(p.x - start.x, p.y - start.y) <= stepDiameter / 2 + tolerance
         case .loupe:
-            // Full interior: the loupe occludes what's beneath it anyway.
-            if loupeShape == .roundedRect {
-                return rect.insetBy(dx: -tolerance, dy: -tolerance).contains(p)
+            // Full interior: the loupe occludes what's beneath it anyway. A
+            // callout's source marker is a second hittable body.
+            if Self.shapeContains(p, in: rect, shape: loupeShape,
+                                  tolerance: tolerance) {
+                return true
             }
-            let r = rect
-            guard r.width > 0, r.height > 0 else { return false }
-            let nx = (p.x - r.midX) / (r.width / 2)
-            let ny = (p.y - r.midY) / (r.height / 2)
-            let tol = tolerance / min(r.width, r.height) * 2
-            return sqrt(nx * nx + ny * ny) <= 1 + tol
+            if let sourceRect = loupeSourceRect {
+                return Self.shapeContains(p, in: sourceRect, shape: loupeShape,
+                                          tolerance: tolerance)
+            }
+            return false
         }
     }
 
@@ -507,9 +615,34 @@ struct Annotation: Identifiable, Equatable {
         case start, end                                  // line/arrow endpoints
         case control                                     // arrow curve control
         case topLeft, topRight, bottomLeft, bottomRight  // shape corners
+        // A callout loupe's source marker carries its own corner handles.
+        case sourceTopLeft, sourceTopRight, sourceBottomLeft, sourceBottomRight
+
+        /// The display-body corner mirroring a source corner (both resize the
+        /// pair together, so they share resize logic).
+        var displayCounterpart: Handle? {
+            switch self {
+            case .sourceTopLeft:     return .topLeft
+            case .sourceTopRight:    return .topRight
+            case .sourceBottomLeft:  return .bottomLeft
+            case .sourceBottomRight: return .bottomRight
+            default:                 return nil
+            }
+        }
     }
 
-    /// Draggable handles for the current kind, with their positions.
+    private static func corners(of r: CGRect,
+                                _ handles: (Handle, Handle, Handle, Handle))
+        -> [(Handle, CGPoint)] {
+        [(handles.0, CGPoint(x: r.minX, y: r.minY)),
+         (handles.1, CGPoint(x: r.maxX, y: r.minY)),
+         (handles.2, CGPoint(x: r.minX, y: r.maxY)),
+         (handles.3, CGPoint(x: r.maxX, y: r.maxY))]
+    }
+
+    /// Draggable handles for the current kind, with their positions. A callout
+    /// loupe adds a second set of corners on its source marker (source handles
+    /// last so a display grab wins where the two bodies overlap).
     var handles: [(Handle, CGPoint)] {
         switch kind {
         case .arrow:
@@ -521,11 +654,14 @@ struct Annotation: Identifiable, Equatable {
         case .line:
             return [(.start, start), (.end, end)]
         case .rect, .oval, .blur, .loupe:
-            let r = rect
-            return [(.topLeft, CGPoint(x: r.minX, y: r.minY)),
-                    (.topRight, CGPoint(x: r.maxX, y: r.minY)),
-                    (.bottomLeft, CGPoint(x: r.minX, y: r.maxY)),
-                    (.bottomRight, CGPoint(x: r.maxX, y: r.maxY))]
+            var result = Self.corners(of: rect,
+                                      (.topLeft, .topRight, .bottomLeft, .bottomRight))
+            if let sourceRect = loupeSourceRect {
+                result += Self.corners(of: sourceRect,
+                                       (.sourceTopLeft, .sourceTopRight,
+                                        .sourceBottomLeft, .sourceBottomRight))
+            }
+            return result
         case .text, .freehand, .step:
             return [] // move-only; double-click edits
         }
@@ -540,6 +676,9 @@ struct Annotation: Identifiable, Equatable {
         end.x += delta.x; end.y += delta.y
         if let control = curveControl {
             curveControl = CGPoint(x: control.x + delta.x, y: control.y + delta.y)
+        }
+        if let source = loupeSource {
+            loupeSource = CGPoint(x: source.x + delta.x, y: source.y + delta.y)
         }
         if kind == .freehand {
             freehandPoints = freehandPoints.map {
@@ -633,6 +772,12 @@ struct Annotation: Identifiable, Equatable {
         case .control:
             if kind == .arrow { curveControl = p }
         case .topLeft, .topRight, .bottomLeft, .bottomRight:
+            // A callout scales its marker in step (see applyDisplayResize);
+            // plain shapes just re-anchor on the opposite corner.
+            if kind == .loupe, loupeSourceRect != nil {
+                applyDisplayResize(handle: handle, to: p, aspectLocked: aspectLocked)
+                return
+            }
             let r = rect
             let anchor: CGPoint
             switch handle {
@@ -648,7 +793,72 @@ struct Annotation: Identifiable, Equatable {
             let lockAspect = aspectLocked
                 && (kind == .rect || kind == .oval || kind == .loupe)
             end = lockAspect ? Self.aspectLockedEnd(from: anchor, to: p) : p
+        case .sourceTopLeft, .sourceTopRight, .sourceBottomLeft, .sourceBottomRight:
+            applySourceResize(handle: handle, to: p, aspectLocked: aspectLocked)
         }
+    }
+
+    /// Resizes the magnifier from one of its corners, scaling the source
+    /// marker by the same factors so the two frames keep their size ratio
+    /// ("both drag together"). The magnifier re-anchors on its opposite
+    /// corner; the marker scales about its own center, staying put.
+    private mutating func applyDisplayResize(handle: Handle, to p: CGPoint,
+                                             aspectLocked: Bool) {
+        let old = rect
+        let anchor: CGPoint
+        switch handle {
+        case .topLeft:     anchor = CGPoint(x: old.maxX, y: old.maxY)
+        case .topRight:    anchor = CGPoint(x: old.minX, y: old.maxY)
+        case .bottomLeft:  anchor = CGPoint(x: old.maxX, y: old.minY)
+        case .bottomRight: anchor = CGPoint(x: old.minX, y: old.minY)
+        default: return
+        }
+        start = anchor
+        let lockAspect = aspectLocked
+            && (kind == .rect || kind == .oval || kind == .loupe)
+        end = lockAspect ? Self.aspectLockedEnd(from: anchor, to: p) : p
+        scaleLoupeSource(byWidth: old.width, height: old.height, from: rect)
+    }
+
+    /// Resizes the source marker from one of its corners, scaling the
+    /// magnifier by the same factors so both frames keep their size ratio.
+    /// The marker re-anchors on its opposite corner; the magnifier scales
+    /// about its own center, staying put.
+    private mutating func applySourceResize(handle: Handle, to p: CGPoint,
+                                            aspectLocked: Bool) {
+        guard kind == .loupe, let sourceRect = loupeSourceRect else { return }
+        let anchor: CGPoint
+        switch handle {
+        case .sourceTopLeft:     anchor = CGPoint(x: sourceRect.maxX, y: sourceRect.maxY)
+        case .sourceTopRight:    anchor = CGPoint(x: sourceRect.minX, y: sourceRect.maxY)
+        case .sourceBottomLeft:  anchor = CGPoint(x: sourceRect.maxX, y: sourceRect.minY)
+        case .sourceBottomRight: anchor = CGPoint(x: sourceRect.minX, y: sourceRect.minY)
+        default: return
+        }
+        let corner = aspectLocked ? Self.aspectLockedEnd(from: anchor, to: p) : p
+        let newSource = CGRect(x: min(anchor.x, corner.x), y: min(anchor.y, corner.y),
+                               width: abs(corner.x - anchor.x),
+                               height: abs(corner.y - anchor.y))
+        loupeSource = CGPoint(x: newSource.midX, y: newSource.midY)
+        loupeSourceSize = newSource.size
+        // Grow the magnifier by the same factors, about its own center.
+        let displayCenter = CGPoint(x: rect.midX, y: rect.midY)
+        let kw = sourceRect.width > 0 ? newSource.width / sourceRect.width : 1
+        let kh = sourceRect.height > 0 ? newSource.height / sourceRect.height : 1
+        let half = CGSize(width: rect.width * kw / 2, height: rect.height * kh / 2)
+        start = CGPoint(x: displayCenter.x - half.width, y: displayCenter.y - half.height)
+        end = CGPoint(x: displayCenter.x + half.width, y: displayCenter.y + half.height)
+    }
+
+    /// Scales the source marker by the width/height factors implied by the
+    /// magnifier changing from `oldW`×`oldH` to `new`, keeping the marker
+    /// centered where it is. No-op for an in-place loupe.
+    private mutating func scaleLoupeSource(byWidth oldW: CGFloat, height oldH: CGFloat,
+                                           from new: CGRect) {
+        guard let size = loupeSourceSize else { return }
+        let kw = oldW > 0 ? new.width / oldW : 1
+        let kh = oldH > 0 ? new.height / oldH : 1
+        loupeSourceSize = CGSize(width: size.width * kw, height: size.height * kh)
     }
 
     // MARK: Arrow geometry (pure — unit-testable)
@@ -828,6 +1038,13 @@ struct DocumentSnapshot: Equatable {
             a.end = rotatePoint(a.end, in: size, clockwise: clockwise)
             if let control = a.curveControl {
                 a.curveControl = rotatePoint(control, in: size, clockwise: clockwise)
+            }
+            if let source = a.loupeSource {
+                a.loupeSource = rotatePoint(source, in: size, clockwise: clockwise)
+            }
+            if let markerSize = a.loupeSourceSize {
+                a.loupeSourceSize = CGSize(width: markerSize.height,
+                                           height: markerSize.width)
             }
             if a.kind == .freehand {
                 a.freehandPoints = a.freehandPoints.map {

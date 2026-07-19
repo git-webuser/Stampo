@@ -303,12 +303,11 @@ enum AnnotationRenderer {
         }
     }
 
-    /// Shared outline path of a loupe: an ellipse or a rounded rectangle.
-    /// Used for both the content clip and the border stroke so they always
-    /// coincide.
-    static func loupePath(for a: Annotation) -> CGPath {
-        let r = a.rect
-        switch a.loupeShape {
+    /// Outline path of a loupe body: an ellipse or a rounded rectangle. Used
+    /// for the content clip, the border stroke, and a callout's source
+    /// marker so they always coincide.
+    static func loupePath(shape: LoupeShape, in r: CGRect) -> CGPath {
+        switch shape {
         case .oval:
             return CGPath(ellipseIn: r, transform: nil)
         case .roundedRect:
@@ -318,11 +317,18 @@ enum AnnotationRenderer {
         }
     }
 
-    /// Magnifier: the pixels under the loupe scaled up around its center,
-    /// then a border stroke in the annotation color. By default the
-    /// magnified content respects blur redaction (the blur pass is replayed
-    /// inside the magnified frame); `loupeRevealsOriginal` opts into raw
-    /// base pixels instead.
+    static func loupePath(for a: Annotation) -> CGPath {
+        loupePath(shape: a.loupeShape, in: a.rect)
+    }
+
+    /// Magnifier: scaled-up pixels inside the loupe shape, then a border
+    /// stroke in the annotation color. An in-place loupe magnifies what's
+    /// beneath it; a callout magnifies the region around `loupeSource`,
+    /// drawing the source marker and a straight connector between the two
+    /// bodies first, so the magnifier reads as layered above them. By
+    /// default the magnified content respects blur redaction (the blur pass
+    /// is replayed inside the magnified frame); `loupeRevealsOriginal` opts
+    /// into raw base pixels instead.
     private static func drawLoupe(_ a: Annotation, base: CGImage,
                                   blurSources: [BlurSource: CGImage],
                                   annotations: [Annotation], ctx: CGContext) {
@@ -334,14 +340,30 @@ enum AnnotationRenderer {
                               width: CGFloat(base.width), height: CGFloat(base.height))
         let outline = loupePath(for: a)
 
+        // Callout chrome beneath the magnifier: connector, then the source
+        // marker's outline.
+        if let sourceRect = a.loupeSourceRect {
+            ctx.setStrokeColor(a.color.cgColor)
+            ctx.setLineWidth(a.lineWidth)
+            if let (from, to) = a.loupeConnectorPoints() {
+                ctx.move(to: from)
+                ctx.addLine(to: to)
+                ctx.strokePath()
+            }
+            ctx.addPath(loupePath(shape: a.loupeShape, in: sourceRect))
+            ctx.strokePath()
+        }
+
         ctx.saveGState()
         ctx.addPath(outline)
         ctx.clip()
-        // Magnify about the loupe center. The clip stays fixed in device
-        // space, so the circle shows the pixels beneath it scaled up.
+        // Map the sampled region onto the display: its center (the loupe's
+        // own center in place, the source center for a callout) lands on the
+        // display center, magnified. The clip stays fixed in device space.
+        let sampleCenter = a.loupeSource ?? center
         ctx.translateBy(x: center.x, y: center.y)
         ctx.scaleBy(x: scale, y: scale)
-        ctx.translateBy(x: -center.x, y: -center.y)
+        ctx.translateBy(x: -sampleCenter.x, y: -sampleCenter.y)
         drawImageInFlippedSpace(base, in: fullRect, ctx: ctx)
         if !a.loupeRevealsOriginal {
             // Replay the blur redaction pass inside the magnified frame.

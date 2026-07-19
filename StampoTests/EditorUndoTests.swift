@@ -536,6 +536,25 @@ import Testing
         #expect(doc.annotations[0].curveControl == CGPoint(x: 4, y: 2))
     }
 
+    @Test func rotateRemapsLoupeSource() {
+        let doc = EditorDocument(baseImage: TestImages.make(width: 8, height: 4),
+                                 sourceURL: URL(fileURLWithPath: "/tmp/test.png"))
+        var loupe = Annotation(kind: .loupe, start: CGPoint(x: 4, y: 1),
+                               end: CGPoint(x: 7, y: 3), color: .red, lineWidth: 2)
+        loupe.loupeSource = CGPoint(x: 1, y: 2)
+        loupe.loupeSourceSize = CGSize(width: 3, height: 1)
+        doc.annotations = [loupe]
+
+        doc.rotate(clockwise: true)                // (x,y) → (H−y, x), H = 4
+        #expect(doc.annotations[0].loupeSource == CGPoint(x: 2, y: 1))
+        // The marker size swaps axes with the image.
+        #expect(doc.annotations[0].loupeSourceSize == CGSize(width: 1, height: 3))
+
+        doc.undo()
+        #expect(doc.annotations[0].loupeSource == CGPoint(x: 1, y: 2))
+        #expect(doc.annotations[0].loupeSourceSize == CGSize(width: 3, height: 1))
+    }
+
     @Test func cropOffsetsCurveControl() {
         let doc = EditorDocument(baseImage: TestImages.make(width: 20, height: 20),
                                  sourceURL: URL(fileURLWithPath: "/tmp/test.png"))
