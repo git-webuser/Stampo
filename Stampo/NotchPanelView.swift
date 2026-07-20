@@ -260,7 +260,7 @@ private struct PopUpModeButtonWrapper: NSViewRepresentable {
     @Environment(\.locale) private var locale
 
     func makeNSView(context: Context) -> NSPopUpButton {
-        let button = NSPopUpButton()
+        let button = PanelPopUpButton()
         button.isBordered        = false
         button.isTransparent     = true
         button.pullsDown         = false
@@ -369,7 +369,7 @@ private struct PopUpButtonWrapper: NSViewRepresentable {
     @Environment(\.locale) private var locale
 
     func makeNSView(context: Context) -> NSPopUpButton {
-        let button = NSPopUpButton()
+        let button = PanelPopUpButton()
         button.isBordered        = false
         button.isTransparent     = true
         button.pullsDown         = false

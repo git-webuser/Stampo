@@ -1,5 +1,19 @@
 import SwiftUI
 
+// MARK: - PanelPopUpButton
+
+/// NSPopUpButton opens its menu on mouseDown without checking where the click
+/// actually landed. During rapid open/close cycles (spam-clicking one popup,
+/// then immediately clicking a neighbour) NSHostingView can deliver the next
+/// mouseDown to the popup that was tracking last — which then pops the wrong
+/// menu. Guard: only accept mouse-downs whose location falls inside our bounds.
+final class PanelPopUpButton: NSPopUpButton {
+    override func mouseDown(with event: NSEvent) {
+        guard bounds.contains(convert(event.locationInWindow, from: nil)) else { return }
+        super.mouseDown(with: event)
+    }
+}
+
 // MARK: - PanelIconButton
 
 /// Unified icon button for the panel with hover and active states.
@@ -71,7 +85,7 @@ struct PopUpMoreButtonWrapper: NSViewRepresentable {
     @Environment(\.locale) private var locale
 
     func makeNSView(context: Context) -> NSPopUpButton {
-        let button = NSPopUpButton()
+        let button = PanelPopUpButton()
         button.isBordered       = false
         button.isTransparent    = true
         button.pullsDown        = false
