@@ -241,6 +241,13 @@ final class NotchHoverController: NSObject {
                 &incomingHotKeyID
             )
             guard status == noErr else { return noErr }
+            // Dispatch only our own action hotkeys ('STMP'): the Esc hotkey
+            // (EscapeHotkeyCenter, 'STES') also uses id 1, which would
+            // otherwise collide with togglePanel if its event ever reaches
+            // this handler.
+            guard incomingHotKeyID.signature == fourCharCode("STMP") else {
+                return OSStatus(eventNotHandledErr)
+            }
 
             controller.handleHotKey(incomingHotKeyID)
             return noErr
@@ -318,6 +325,10 @@ final class NotchHoverController: NSObject {
             // Pin last screenshot as a floating always-on-top window
             PinnedScreenshotController.shared.pinLastCapture(
                 url: panel.screenshot.lastCaptureURL, on: screen)
+        case 9:
+            // Collect files — open the panel straight into the tray, pinned,
+            // ready to receive file drops (Dropover-style shelf flow)
+            panel.openTrayPinned(on: screen)
         default:
             break
         }
