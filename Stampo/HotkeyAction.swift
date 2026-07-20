@@ -13,6 +13,7 @@ enum HotkeyAction: UInt32, CaseIterable {
     // see `migrateScanMergeIfNeeded`. The ID stays retired.
     case scan        = 7
     case pinLastCapture = 8
+    case collectFiles = 9
 
     /// Localization key for the row label.
     var labelKey: String {
@@ -24,6 +25,7 @@ enum HotkeyAction: UInt32, CaseIterable {
         case .color:       return "Pick Color"
         case .scan:        return "Scan"
         case .pinLastCapture: return "Pin Last Screenshot"
+        case .collectFiles: return "Collect Files"
         }
     }
 
@@ -37,6 +39,7 @@ enum HotkeyAction: UInt32, CaseIterable {
         case .color:       return "eyedropper"
         case .scan:        return "doc.viewfinder"
         case .pinLastCapture: return "pin"
+        case .collectFiles: return "tray.and.arrow.down"
         }
     }
 
@@ -52,6 +55,7 @@ enum HotkeyAction: UInt32, CaseIterable {
         case .color:       key = kVK_ANSI_C
         case .scan:        key = kVK_ANSI_S
         case .pinLastCapture: key = kVK_ANSI_P
+        case .collectFiles: key = kVK_ANSI_T
         }
         return HotkeyCombo(keyCode: UInt16(key), carbonModifiers: mods)
     }
@@ -70,6 +74,9 @@ enum HotkeyAction: UInt32, CaseIterable {
         case .color:       return "hotkeyColorEnabled"
         case .scan:        return "hotkeyScanCodeEnabled"
         case .pinLastCapture: return "hotkeyPinLastCaptureEnabled"
+        // Added after the combo migration — no legacy key was ever written;
+        // migrateIfNeeded reads nil and treats the action as enabled.
+        case .collectFiles: return "hotkeyCollectFilesEnabled"
         }
     }
 

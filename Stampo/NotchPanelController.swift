@@ -641,6 +641,25 @@ final class NotchPanelController: NSObject {
         }
     }
 
+    /// Hotkey entry for the collect-files flow: reveal the panel straight into
+    /// the tray and pin it, so the panel survives the mouse-down that starts a
+    /// file drag from another app (pin feeds suppressesGlobalAutoHide). Mirrors
+    /// screenshot.onThumbnailTapped's show-then-switch template; guards the
+    /// route because switchToTray() is a toggle.
+    func openTrayPinned(on screen: NSScreen) {
+        if isVisible && !needsSpaceRebind {
+            if route != .tray { switchToTray() }
+            rootState.isTrayPinned = true
+        } else {
+            showAnimated(on: screen, forceRebind: needsSpaceRebind)
+            DispatchQueue.main.asyncAfter(deadline: .now() + PanelTiming.showBeforeTray) { [weak self] in
+                guard let self else { return }
+                if self.route != .tray { self.switchToTray() }
+                self.rootState.isTrayPinned = true
+            }
+        }
+    }
+
     /// Trigger a capture directly (e.g. from a hotkey) without going through the panel UI.
     func captureDirectly(mode: CaptureMode, on screen: NSScreen) {
         currentScreen = screen

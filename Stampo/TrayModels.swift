@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import UniformTypeIdentifiers
 
 // MARK: - Tray Item
 
@@ -7,12 +8,14 @@ enum TrayItem: Identifiable, Equatable {
     case color(TrayColor)
     case screenshot(TrayScreenshot)
     case text(TrayText)
+    case stack(TrayStack)
 
     var id: UUID {
         switch self {
         case .color(let c):      return c.id
         case .screenshot(let s): return s.id
         case .text(let t):       return t.id
+        case .stack(let s):      return s.id
         }
     }
 }
@@ -26,6 +29,40 @@ struct TrayColor: Identifiable, Equatable {
 struct TrayScreenshot: Identifiable, Equatable {
     let id = UUID()
     let url: URL
+}
+
+/// A shelf-style pile of files the user dropped onto the tray. The tray keeps
+/// at most one stack: consecutive drops accumulate into it (deduplicated by
+/// standardized URL), and dragging the stack out carries every member at once.
+/// Members are references to the original files, never copies.
+struct TrayStack: Identifiable, Equatable {
+    let id = UUID()
+    var urls: [URL]
+
+    /// Pure accumulate half of NotchTrayModel.add(droppedFiles:): standardizes
+    /// URLs, dedupes within the batch and against the existing stack. Returns
+    /// the resulting stack (the existing one keeps its identity) and the URLs
+    /// that are actually new — the ones that need file watchers.
+    static func merging(_ existing: TrayStack?, droppedFiles urls: [URL]) -> (stack: TrayStack, fresh: [URL]) {
+        var seen = Set<URL>()
+        let incoming = urls.map(\.standardizedFileURL).filter { seen.insert($0).inserted }
+        guard var stack = existing else {
+            return (TrayStack(urls: incoming), incoming)
+        }
+        let known = Set(stack.urls)
+        let fresh = incoming.filter { !known.contains($0) }
+        stack.urls.append(contentsOf: fresh)
+        return (stack, fresh)
+    }
+
+    /// Pure removal half of NotchTrayModel.removeStackMember: nil when the
+    /// last member leaves (the stack disappears from the tray).
+    func removingMember(_ url: URL) -> TrayStack? {
+        let target = url.standardizedFileURL
+        var copy = self
+        copy.urls.removeAll { $0 == target }
+        return copy.urls.isEmpty ? nil : copy
+    }
 }
 
 /// A plain-text entity captured via OCR or Scan Code.
@@ -73,11 +110,12 @@ enum ColorSchemeType: CaseIterable, Equatable {
 // MARK: - Tray Persistence (Codable)
 
 private struct PersistedTrayItem: Codable {
-    enum Kind: String, Codable { case color, screenshot, text }
+    enum Kind: String, Codable { case color, screenshot, text, stack }
     let kind: Kind
-    let hex:  String?   // color items
-    let path: String?   // screenshot items
-    let text: String?   // text items
+    let hex:  String?    // color items
+    let path: String?    // screenshot items
+    let text: String?    // text items
+    let paths: [String]? // stack items (absent in pre-stack data)
 }
 
 // MARK: - NotchTrayModel
@@ -87,6 +125,12 @@ private struct PersistedTrayItem: Codable {
 
     private var persistWorkItem: DispatchWorkItem?
     @ObservationIgnored private var fileWatchers: [UUID: DispatchSourceFileSystemObject] = [:]
+    /// Per-member watchers of the (single) stack item, keyed by file path —
+    /// unlike screenshots, one stack item watches N files.
+    @ObservationIgnored private var stackWatchers: [String: DispatchSourceFileSystemObject] = [:]
+    /// Thumbnail loaders for image-file stack members, keyed by file path.
+    /// Non-image members use the NSWorkspace file icon and need no loader.
+    @ObservationIgnored private var stackLoaders: [String: ThumbnailLoader] = [:]
     /// Thumbnail loaders outlive individual SwiftUI cells and hosting views.
     /// Without this cache, recreating the panel briefly replaces every preview
     /// with the placeholder while the same files are decoded again.
@@ -108,6 +152,7 @@ private struct PersistedTrayItem: Codable {
 
     deinit {
         fileWatchers.values.forEach { $0.cancel() }
+        stackWatchers.values.forEach { $0.cancel() }
         if let obs = deferredRestoreObserver {
             NotificationCenter.default.removeObserver(obs)
         }
@@ -163,9 +208,57 @@ private struct PersistedTrayItem: Codable {
         schedulePersist()
     }
 
+    // MARK: Stack (dropped files)
+
+    /// The tray's single stack item, if present.
+    var stackItem: TrayStack? {
+        for case .stack(let s) in items { return s }
+        return nil
+    }
+
+    /// Ingest files dropped onto the tray. Accumulates into the existing stack
+    /// (deduplicated by standardized URL) or creates one; either way the stack
+    /// moves to the front so the user sees where the drop landed.
+    func add(droppedFiles urls: [URL]) {
+        guard !urls.isEmpty else { return }
+        let existingIdx = items.firstIndex { if case .stack = $0 { return true } else { return false } }
+        let existing: TrayStack? = existingIdx.flatMap {
+            if case .stack(let s) = items[$0] { return s } else { return nil }
+        }
+
+        let (stack, fresh) = TrayStack.merging(existing, droppedFiles: urls)
+        guard !stack.urls.isEmpty else { return }
+
+        if let existingIdx { items.remove(at: existingIdx) }
+        items.insert(.stack(stack), at: 0)
+        for url in fresh { startWatchingStackMember(url) }
+        if existing == nil { trim() }
+        guard existing == nil || !fresh.isEmpty else { return }  // reorder is cosmetic, no persist
+        schedulePersist()
+    }
+
+    /// Drop a single member from the stack (file deleted on disk, or removed
+    /// via UI). An emptied stack disappears from the tray entirely.
+    func removeStackMember(url: URL) {
+        let target = url.standardizedFileURL
+        guard let idx = items.firstIndex(where: { if case .stack = $0 { return true } else { return false } }),
+              case .stack(let stack) = items[idx],
+              stack.urls.contains(target)
+        else { return }
+
+        stopWatchingStackMember(target)
+        if let updated = stack.removingMember(target) {
+            items[idx] = .stack(updated)
+        } else {
+            items.remove(at: idx)
+        }
+        schedulePersist()
+    }
+
     func remove(id: UUID) {
-        stopWatching(id: id)
-        thumbnailLoaders.removeValue(forKey: id)
+        if let item = items.first(where: { $0.id == id }) {
+            releaseResources(for: item)
+        }
         items.removeAll { $0.id == id }
         schedulePersist()
     }
@@ -187,11 +280,21 @@ private struct PersistedTrayItem: Codable {
         guard items.count > limit else { return }
         let removed = items.dropFirst(limit)
         for item in removed {
-            stopWatching(id: item.id)
-            thumbnailLoaders.removeValue(forKey: item.id)
+            releaseResources(for: item)
         }
         items = Array(items.prefix(limit))
         schedulePersist()
+    }
+
+    /// Watcher/loader teardown shared by remove(id:) and trim(). A stack owns
+    /// per-member resources; every other kind owns at most one of each.
+    private func releaseResources(for item: TrayItem) {
+        if case .stack(let stack) = item {
+            for url in stack.urls { stopWatchingStackMember(url) }
+        } else {
+            stopWatching(id: item.id)
+            thumbnailLoaders.removeValue(forKey: item.id)
+        }
     }
 
     // MARK: Thumbnail Cache
@@ -207,6 +310,20 @@ private struct PersistedTrayItem: Codable {
         let loader = ThumbnailLoader()
         thumbnailLoaders[shot.id] = loader
         loader.load(imageURL: shot.url)
+        return loader
+    }
+
+    /// Loader for an image-file stack member; nil for any other file type —
+    /// the cell then falls back to the NSWorkspace file icon. Lazy: only the
+    /// members the fan actually shows ever get decoded.
+    func stackThumbnailLoader(for url: URL) -> ThumbnailLoader? {
+        guard let type = UTType(filenameExtension: url.pathExtension),
+              type.conforms(to: .image)
+        else { return nil }
+        if let loader = stackLoaders[url.path] { return loader }
+        let loader = ThumbnailLoader()
+        stackLoaders[url.path] = loader
+        loader.load(imageURL: url)
         return loader
     }
 
@@ -240,58 +357,112 @@ private struct PersistedTrayItem: Codable {
         fileWatchers.removeValue(forKey: id)?.cancel()
     }
 
+    private func startWatchingStackMember(_ url: URL) {
+        let path = url.path
+        guard stackWatchers[path] == nil else { return }
+        let fd = open(path, O_EVTONLY)
+        guard fd >= 0 else { return }
+
+        let source = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: fd,
+            eventMask: [.delete, .rename],
+            queue: .main
+        )
+        source.setEventHandler { [weak self] in
+            if !FileManager.default.fileExists(atPath: path) {
+                self?.removeStackMember(url: url)
+            }
+        }
+        source.setCancelHandler { close(fd) }
+
+        stackWatchers[path] = source
+        source.resume()
+    }
+
+    private func stopWatchingStackMember(_ url: URL) {
+        stackWatchers.removeValue(forKey: url.path)?.cancel()
+        stackLoaders.removeValue(forKey: url.path)
+    }
+
     // MARK: Persistence
 
     private func persistIfNeeded() {
         guard AppSettings.persistTray else { return }
-        let encoded: [PersistedTrayItem] = items.compactMap {
-            switch $0 {
-            case .color(let c):
-                return PersistedTrayItem(kind: .color, hex: c.hex, path: nil, text: nil)
-            case .screenshot(let s):
-                return PersistedTrayItem(kind: .screenshot, hex: nil, path: s.url.path, text: nil)
-            case .text(let t):
-                return PersistedTrayItem(kind: .text, hex: nil, path: nil, text: t.text)
-            }
-        }
-        if let data = try? JSONEncoder().encode(encoded) {
+        if let data = Self.encodePersistedItems(items) {
             UserDefaults.standard.set(data, forKey: AppSettings.Keys.trayPersistedData)
         }
     }
 
-    private func restoreIfNeeded() {
-        guard AppSettings.persistTray,
-              let data = UserDefaults.standard.data(forKey: AppSettings.Keys.trayPersistedData),
-              let decoded = try? JSONDecoder().decode([PersistedTrayItem].self, from: data)
-        else { return }
+    /// Pure encode half of tray persistence. Internal so tests can round-trip
+    /// items without UserDefaults.
+    static func encodePersistedItems(_ items: [TrayItem]) -> Data? {
+        let encoded: [PersistedTrayItem] = items.map {
+            switch $0 {
+            case .color(let c):
+                return PersistedTrayItem(kind: .color, hex: c.hex, path: nil, text: nil, paths: nil)
+            case .screenshot(let s):
+                return PersistedTrayItem(kind: .screenshot, hex: nil, path: s.url.path, text: nil, paths: nil)
+            case .text(let t):
+                return PersistedTrayItem(kind: .text, hex: nil, path: nil, text: t.text, paths: nil)
+            case .stack(let s):
+                return PersistedTrayItem(kind: .stack, hex: nil, path: nil, text: nil, paths: s.urls.map(\.path))
+            }
+        }
+        return try? JSONEncoder().encode(encoded)
+    }
 
-        // The default save folder (~/Pictures/Stampo) is outside the TCC set, but
-        // a user may have pointed the save folder at a protected location
-        // (Downloads/Desktop/Documents) via Settings. Touching screenshot files
-        // (existence check, thumbnail decode, file watch) before the wizard has
-        // run could then fire a TCC prompt that beats the onboarding wizard to
-        // the screen. While the wizard still has to run (first launch, or the
-        // system permissions were reset), restore screenshots optimistically
-        // without any file access; the post-onboarding relaunch loads them normally.
-        let deferScreenshotFiles = AppSettings.onboardingPending
+    /// Pure decode half of tray persistence. With `deferFileChecks` the file
+    /// system is never touched (the TCC-deferred restore path); otherwise
+    /// entries whose files vanished are dropped, including individual stack
+    /// members (an emptied stack is dropped whole). `fileExists` is
+    /// injectable for tests.
+    static func decodePersistedItems(
+        _ data: Data,
+        deferFileChecks: Bool,
+        fileExists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }
+    ) -> [TrayItem] {
+        guard let decoded = try? JSONDecoder().decode([PersistedTrayItem].self, from: data)
+        else { return [] }
 
-        let restored: [TrayItem] = decoded.compactMap { p in
+        return decoded.compactMap { p in
             switch p.kind {
             case .color:
                 guard let hex = p.hex, let color = NSColor(hexString: hex) else { return nil }
                 return .color(TrayColor(color: color, hex: hex))
             case .screenshot:
                 guard let path = p.path else { return nil }
-                let url = URL(fileURLWithPath: path)
-                if deferScreenshotFiles { return .screenshot(TrayScreenshot(url: url)) }
-                guard FileManager.default.fileExists(atPath: path) else { return nil }
-                return .screenshot(TrayScreenshot(url: url))
+                guard deferFileChecks || fileExists(path) else { return nil }
+                return .screenshot(TrayScreenshot(url: URL(fileURLWithPath: path)))
             case .text:
                 guard let text = p.text, !text.isEmpty else { return nil }
                 return .text(TrayText(text: text))
+            case .stack:
+                guard let paths = p.paths, !paths.isEmpty else { return nil }
+                let kept = deferFileChecks ? paths : paths.filter(fileExists)
+                guard !kept.isEmpty else { return nil }
+                return .stack(TrayStack(urls: kept.map { URL(fileURLWithPath: $0) }))
             }
         }
-        items = restored
+    }
+
+    private func restoreIfNeeded() {
+        guard AppSettings.persistTray,
+              let data = UserDefaults.standard.data(forKey: AppSettings.Keys.trayPersistedData)
+        else { return }
+
+        // The default save folder (~/Pictures/Stampo) is outside the TCC set, but
+        // a user may have pointed the save folder at a protected location
+        // (Downloads/Desktop/Documents) via Settings — and stack members are
+        // arbitrary user paths, so they live in TCC folders routinely. Touching
+        // those files (existence check, thumbnail decode, file watch) before the
+        // wizard has run could fire a TCC prompt that beats the onboarding
+        // wizard to the screen. While the wizard still has to run (first launch,
+        // or the system permissions were reset), restore file-backed items
+        // optimistically without any file access; the post-onboarding relaunch
+        // loads them normally.
+        let deferScreenshotFiles = AppSettings.onboardingPending
+
+        items = Self.decodePersistedItems(data, deferFileChecks: deferScreenshotFiles)
         guard !deferScreenshotFiles else {
             // The wizard doesn't always end in a relaunch (e.g. only Input
             // Monitoring was re-granted): complete the deferred file phase —
@@ -321,6 +492,12 @@ private struct PersistedTrayItem: Codable {
         for case .screenshot(let shot) in items {
             prepareThumbnail(for: shot)
             startWatching(shot)
+        }
+        if let stack = stackItem {
+            let missing = stack.urls.filter { !FileManager.default.fileExists(atPath: $0.path) }
+            for url in missing { removeStackMember(url: url) }
+            // Re-read: removals may have emptied the stack entirely.
+            for url in stackItem?.urls ?? [] { startWatchingStackMember(url) }
         }
     }
 

@@ -63,8 +63,29 @@ final class EscapeHotkeyCenter {
             let selfPtr = Unmanaged.passUnretained(self).toOpaque()
             InstallEventHandler(
                 GetApplicationEventTarget(),
-                { _, _, userData in
-                    guard let userData else { return noErr }
+                { _, eventRef, userData in
+                    guard let userData, let eventRef else { return noErr }
+
+                    // This handler sees EVERY Carbon hotkey press in the app
+                    // (NotchHoverController's actions included) and is called
+                    // before earlier-installed handlers. Consume only our own
+                    // Esc hotkey — swallowing foreign events turned every
+                    // action hotkey into Esc while the panel was open.
+                    var hotKeyID = EventHotKeyID()
+                    let status = GetEventParameter(
+                        eventRef,
+                        EventParamName(kEventParamDirectObject),
+                        EventParamType(typeEventHotKeyID),
+                        nil,
+                        MemoryLayout<EventHotKeyID>.size,
+                        nil,
+                        &hotKeyID
+                    )
+                    guard status == noErr,
+                          hotKeyID.signature == OSType(0x5354_4553) /* 'STES' */,
+                          hotKeyID.id == 1
+                    else { return OSStatus(eventNotHandledErr) }
+
                     let center = Unmanaged<EscapeHotkeyCenter>
                         .fromOpaque(userData).takeUnretainedValue()
                     DispatchQueue.main.async {

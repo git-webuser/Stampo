@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import UniformTypeIdentifiers
 
 
 // MARK: - NotchTrayView
@@ -13,7 +14,10 @@ struct NotchTrayView: View {
     let onTogglePin: () -> Void
 
     @AppStorage(AppSettings.Keys.defaultColorFormat) private var scheme: ColorSchemeType = .hex
-    @State private var hoveredScreenshotID: UUID?
+    /// Cell currently hovered via a TrayDragShim NSView (screenshot or stack
+    /// cells — the AppKit shim owns hover tracking for drag-capable cells).
+    @State private var hoveredDragCellID: UUID?
+    @State private var isDropTargeted = false
 
     private func handleBack() {
         onBack()  // controller drives the content fade-out
@@ -51,6 +55,87 @@ struct NotchTrayView: View {
             }
         }
         .frame(height: trayHeight)
+        .background { dropHighlight }
+        .onDrop(of: [.fileURL], isTargeted: $isDropTargeted) { providers in
+            handleDrop(providers)
+        }
+    }
+
+    /// Drop frame (user-designed mock, "Frame 1000001163"): not a contour
+    /// ring but a filled plate marking the shelf band — top edge exactly at
+    /// the header boundary (panelHeight), 20pt side insets, 5pt off the
+    /// bottom, radii 9.6 top / 17.6 bottom, dashed system-blue outline.
+    /// Rendered as the view's background so cells ride on top of it.
+    private var dropHighlight: some View {
+        // Geometry adapts to the panel style:
+        // - shoulder styles (real notch, notch tab): side inset = wall(15) +
+        //   5pt gap; bottom radius 11 = the 16pt shoulder arc minus the gap
+        //   (concentric), top radius = buttonRadius to match the controls.
+        // - rounded style: straight sides at x=0, so a uniform 5pt gap all
+        //   around and buttonRadius corners everywhere.
+        let hasShoulders = metrics.hasNotch || metrics.pinnedToTopEdge
+        let pad: CGFloat = 5
+        let sideInset: CGFloat = hasShoulders ? 15 + pad : pad
+        let topRadius = metrics.buttonRadius
+        let bottomRadius: CGFloat = hasShoulders ? 16 - pad : metrics.buttonRadius
+        let shape = UnevenRoundedRectangle(
+            topLeadingRadius: topRadius,
+            bottomLeadingRadius: bottomRadius,
+            bottomTrailingRadius: bottomRadius,
+            topTrailingRadius: topRadius,
+            style: .continuous
+        )
+        return shape
+            .fill(Color(red: 0x2C / 255, green: 0x2C / 255, blue: 0x2E / 255))
+            .overlay(
+                shape.stroke(
+                    Color(red: 0x0A / 255, green: 0x84 / 255, blue: 0xFF / 255),
+                    style: StrokeStyle(lineWidth: 1, lineCap: .round, dash: [4, 4])
+                )
+            )
+            .overlay {
+                // The plate's own state hint — replaces the regular empty-state
+                // line (hidden while targeting). Cells cover this band when the
+                // tray has items, so the hint only appears for an empty tray.
+                if trayModel.items.isEmpty {
+                    trayHint(icon: "tray.and.arrow.down.fill", label: "Drop Files Here")
+                }
+            }
+            .padding(.top, metrics.panelHeight)
+            .padding(.horizontal, sideInset)
+            .padding(.bottom, pad)
+            .opacity(isDropTargeted ? 1 : 0)
+            .allowsHitTesting(false)
+            .animation(.easeInOut(duration: 0.15), value: isDropTargeted)
+    }
+
+    private func handleDrop(_ providers: [NSItemProvider]) -> Bool {
+        let fileProviders = providers.filter {
+            $0.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier)
+        }
+        guard !fileProviders.isEmpty else { return false }
+
+        let group = DispatchGroup()
+        let lock = NSLock()
+        var urls: [URL] = []
+        for provider in fileProviders {
+            group.enter()
+            _ = provider.loadObject(ofClass: URL.self) { url, _ in
+                if let url, url.isFileURL {
+                    lock.lock()
+                    urls.append(url)
+                    lock.unlock()
+                }
+                group.leave()
+            }
+        }
+        group.notify(queue: .main) {
+            guard !urls.isEmpty else { return }
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                trayModel.add(droppedFiles: urls)
+            }
+        }
+        return true
     }
 
     private var notchLayout: some View {
@@ -130,22 +215,27 @@ struct NotchTrayView: View {
         .padding(.horizontal, skewInset)
     }
 
-    private var emptyState: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "photo.on.rectangle.angled")
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(.white.opacity(0.3))
-            VStack(alignment: .leading, spacing: 1) {
-                Text("Nothing Here Yet")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.4))
-                Text("Screenshots, text, and colors you capture will appear here.")
-                    .font(.system(size: 10, weight: .regular))
-                    .foregroundStyle(.white.opacity(0.25))
-                    .lineLimit(1)
-            }
+    /// Shared vertical "icon over label" hint, used both for the resting empty
+    /// tray and for the drop plate's targeting hint so the two read as one
+    /// visual language.
+    private func trayHint(icon: String, label: LocalizedStringKey) -> some View {
+        VStack(spacing: 4) {
+            Image(systemName: icon)
+                .font(.system(size: 15, weight: .medium))
+                .foregroundStyle(.white.opacity(0.35))
+            Text(label)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.45))
         }
+    }
+
+    private var emptyState: some View {
+        trayHint(icon: "photo.on.rectangle.angled", label: "Nothing Here Yet")
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+        // The drop plate carries its own hint while a drag hovers — showing
+        // both indicators at once reads as overlapping clutter.
+        .opacity(isDropTargeted ? 0 : 1)
+        .animation(.easeInOut(duration: 0.15), value: isDropTargeted)
     }
 
     private var scrollContent: some View {
@@ -162,12 +252,12 @@ struct NotchTrayView: View {
                                 badgeBleed: badgeBleed,
                                 labelOffset: labelOffset,
                                 cornerRadius: metrics.buttonRadius,
-                                isHovered: hoveredScreenshotID == shot.id,
+                                isHovered: hoveredDragCellID == shot.id,
                                 setHovered: { hovering in
                                     if hovering {
-                                        hoveredScreenshotID = shot.id
-                                    } else if hoveredScreenshotID == shot.id {
-                                        hoveredScreenshotID = nil
+                                        hoveredDragCellID = shot.id
+                                    } else if hoveredDragCellID == shot.id {
+                                        hoveredDragCellID = nil
                                     }
                                 },
                                 onOpen: { onHidePanel() },
@@ -207,6 +297,33 @@ struct NotchTrayView: View {
                                 onRemove: {
                                     withAnimation(.easeInOut(duration: 0.18)) {
                                         trayModel.remove(id: t.id)
+                                    }
+                                }
+                            )
+                        case .stack(let stack):
+                            TrayStackCell(
+                                stack: stack,
+                                loaders: stack.urls.prefix(3).map { trayModel.stackThumbnailLoader(for: $0) },
+                                height: cellH,
+                                badgeBleed: badgeBleed,
+                                labelOffset: labelOffset,
+                                cornerRadius: metrics.buttonRadius,
+                                isHovered: hoveredDragCellID == stack.id,
+                                setHovered: { hovering in
+                                    if hovering {
+                                        hoveredDragCellID = stack.id
+                                    } else if hoveredDragCellID == stack.id {
+                                        hoveredDragCellID = nil
+                                    }
+                                },
+                                onDragOutCompleted: {
+                                    withAnimation(.easeInOut(duration: 0.18)) {
+                                        trayModel.remove(id: stack.id)
+                                    }
+                                },
+                                onRemove: {
+                                    withAnimation(.easeInOut(duration: 0.18)) {
+                                        trayModel.remove(id: stack.id)
                                     }
                                 }
                             )
@@ -586,8 +703,8 @@ private struct TrayScreenshotCell: View {
         .animation(.spring(response: 0.15, dampingFraction: 0.7), value: isPressed)
         .overlay {
             TrayDragShim(
-                url: shot.url,
-                dragImage: loader.image,
+                urls: [shot.url],
+                dragImages: [loader.image],
                 cellSize: CGSize(width: width, height: height),
                 isPressed: $isPressed,
                 isDragging: $isDragging,
@@ -643,6 +760,125 @@ private struct TrayScreenshotCell: View {
     }
 }
 
+// MARK: - Tray Stack Cell
+
+/// The shelf pile: files the user dropped onto the tray. Shows a fan of up to
+/// three member previews plus a count badge. Dragging the cell carries every
+/// member URL in one session; a drag that lands outside the app clears the
+/// stack (the shelf is transit storage, not an archive). Tap reveals all
+/// members in Finder.
+private struct TrayStackCell: View {
+    let stack: TrayStack
+    let loaders: [ThumbnailLoader?]
+    let height: CGFloat
+    let badgeBleed: CGFloat
+    let labelOffset: CGFloat
+    let cornerRadius: CGFloat
+    let isHovered: Bool
+    let setHovered: (Bool) -> Void
+    let onDragOutCompleted: () -> Void
+    let onRemove: () -> Void
+
+    @State private var isPressed     = false
+    @State private var isBadgeActive = false
+    @State private var isDragging    = false
+
+    private var width: CGFloat { height * 1.6 }
+    private var fanCount: Int { min(stack.urls.count, 3) }
+
+    /// Preview for a fan slot: decoded thumbnail for images, the file icon for
+    /// everything else (and while an image thumbnail is still decoding).
+    private func previewImage(at index: Int) -> NSImage {
+        if index < loaders.count, let img = loaders[index]?.image { return img }
+        guard index < stack.urls.count else { return NSImage() }
+        return NSWorkspace.shared.icon(forFile: stack.urls[index].path)
+    }
+
+    private func revealInFinder() {
+        NSWorkspace.shared.activateFileViewerSelecting(stack.urls)
+    }
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                .fill(Color.white.opacity(0.08))
+                .overlay(
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .stroke(Color.white.opacity(isHovered ? 0.35 : 0.12), lineWidth: 1)
+                )
+
+            // Fan of member previews, centred; reversed so slot 0 (the newest
+            // member) draws on top.
+            ForEach((0..<fanCount).reversed(), id: \.self) { idx in
+                Image(nsImage: previewImage(at: idx))
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: height * 0.78, height: height * 0.78)
+                    .clipShape(RoundedRectangle(cornerRadius: cornerRadius * 0.7, style: .continuous))
+                    .rotationEffect(.degrees(Double(idx) * 8 - Double(fanCount - 1) * 4))
+                    .offset(x: CGFloat(idx) * 6 - CGFloat(fanCount - 1) * 3)
+            }
+        }
+        .frame(width: width, height: height)
+        .contentShape(Rectangle())
+        .overlay(alignment: .bottomTrailing) {
+            Text(verbatim: "\(stack.urls.count)")
+                .font(.system(size: 8, weight: .bold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 4)
+                .padding(.vertical, 1.5)
+                .background(Capsule(style: .continuous).fill(Color.black.opacity(0.65)))
+                .padding(2)
+                .allowsHitTesting(false)
+        }
+        .overlay(alignment: .bottom) {
+            Text("\(stack.urls.count) files")
+                .font(.system(size: 11, weight: .regular, design: .default))
+                .foregroundStyle(.white)
+                .lineLimit(1)
+                .padding(.horizontal, 4)
+                .padding(.vertical, 2)
+                .background(Capsule(style: .continuous).fill(Color.black.opacity(0.65)))
+                .fixedSize()
+                .opacity(isHovered ? 1 : 0)
+                .allowsHitTesting(false)
+                .offset(y: labelOffset)
+        }
+        .scaleEffect(isPressed ? 0.88 : (isDragging ? 0.92 : 1.0))
+        .opacity(isDragging ? 0.45 : 1)
+        .animation(.spring(response: 0.2, dampingFraction: 0.8), value: isHovered)
+        .animation(.spring(response: 0.15, dampingFraction: 0.7), value: isPressed)
+        .overlay {
+            TrayDragShim(
+                urls: stack.urls,
+                dragImages: (0..<fanCount).map { previewImage(at: $0) },
+                cellSize: CGSize(width: width, height: height),
+                isPressed: $isPressed,
+                isDragging: $isDragging,
+                onHoverChange: setHovered,
+                onTap: { revealInFinder() },
+                onDragCompleted: { _ in onDragOutCompleted() }
+            )
+        }
+        // Badge after the shim, mirroring TrayScreenshotCell's z-order note.
+        .overlay(alignment: .topTrailing) {
+            TrayDeleteBadge(action: { onRemove() },
+                            isPressed: $isBadgeActive)
+            .opacity(isHovered ? 1 : 0)
+            .allowsHitTesting(isHovered)
+            .offset(x: badgeBleed, y: -badgeBleed)
+        }
+        .contextMenu {
+            Button("Show in Finder") { revealInFinder() }
+            Divider()
+            Button("Remove from tray") { onRemove() }
+        }
+        .accessibilityLabel("File stack, \(stack.urls.count) files")
+        .accessibilityHint("Tap to show in Finder, drag to move all files")
+        .accessibilityAddTraits(.isButton)
+    }
+}
+
 // MARK: - PopUpSchemeButtonWrapper
 
 private struct PopUpSchemeButtonWrapper: NSViewRepresentable {
@@ -651,7 +887,7 @@ private struct PopUpSchemeButtonWrapper: NSViewRepresentable {
     var onClose: () -> Void
 
     func makeNSView(context: Context) -> NSPopUpButton {
-        let button = NSPopUpButton()
+        let button = PanelPopUpButton()
         button.isBordered       = false
         button.isTransparent    = true
         button.pullsDown        = true
@@ -794,13 +1030,16 @@ private struct TraySchemeMenuButton: View {
 // MARK: - Drag Shim (NSView-based NSDraggingSource)
 
 private struct TrayDragShim: NSViewRepresentable {
-    let url: URL
-    let dragImage: NSImage?
+    let urls: [URL]
+    let dragImages: [NSImage?]
     let cellSize: CGSize
     @Binding var isPressed: Bool
     @Binding var isDragging: Bool
     let onHoverChange: (Bool) -> Void
     let onTap: () -> Void
+    /// Fired when a drag session ends outside this window with a non-empty
+    /// operation (i.e. the payload actually landed somewhere external).
+    var onDragCompleted: ((NSDragOperation) -> Void)? = nil
 
     func makeNSView(context: Context) -> TrayDragShimView {
         TrayDragShimView(isPressed: $isPressed, isDragging: $isDragging,
@@ -808,17 +1047,19 @@ private struct TrayDragShim: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: TrayDragShimView, context: Context) {
-        nsView.url = url
-        nsView.dragImage = dragImage
+        nsView.urls = urls
+        nsView.dragImages = dragImages
         nsView.cellSize = cellSize
         nsView.onHoverChange = onHoverChange
+        nsView.onDragCompleted = onDragCompleted
     }
 }
 
 final class TrayDragShimView: NSView, NSDraggingSource {
-    var url: URL?
-    var dragImage: NSImage?
+    var urls: [URL] = []
+    var dragImages: [NSImage?] = []
     var cellSize: CGSize = .zero
+    var onDragCompleted: ((NSDragOperation) -> Void)?
     /// Size of the top-right corner to leave for the delete badge
     var badgeExcludeSize: CGFloat = 16
 
@@ -927,15 +1168,23 @@ final class TrayDragShimView: NSView, NSDraggingSource {
     }
 
     override func mouseDragged(with event: NSEvent) {
-        guard let url else { return }
+        guard !urls.isEmpty else { return }
         DispatchQueue.main.async {
             self.isPressed = false
             self.isDragging = true
         }
-        let item = NSDraggingItem(pasteboardWriter: url as NSURL)
         let previewSize = NSSize(width: cellSize.width * 0.75, height: cellSize.height * 0.75)
-        item.setDraggingFrame(NSRect(origin: .zero, size: previewSize), contents: dragImage)
-        beginDraggingSession(with: [item], event: event, source: self)
+        let items = urls.enumerated().map { idx, url -> NSDraggingItem in
+            let item = NSDraggingItem(pasteboardWriter: url as NSURL)
+            // Shallow cascade: the first few items carry previews, the rest
+            // ride along without one (their payload still lands on the drop).
+            let shift = CGFloat(min(idx, 2)) * 5
+            let image = idx < dragImages.count ? dragImages[idx] : nil
+            item.setDraggingFrame(NSRect(origin: NSPoint(x: shift, y: shift), size: previewSize),
+                                  contents: image)
+            return item
+        }
+        beginDraggingSession(with: items, event: event, source: self)
     }
 
     func draggingSession(_ session: NSDraggingSession,
@@ -945,6 +1194,14 @@ final class TrayDragShimView: NSView, NSDraggingSource {
 
     func draggingSession(_ session: NSDraggingSession,
                          endedAt screenPoint: NSPoint, operation: NSDragOperation) {
-        DispatchQueue.main.async { self.isDragging = false }
+        // A drop back onto our own panel (e.g. the stack dragged an inch and
+        // released over the tray) must not count as a completed drag-out.
+        let insideOwnWindow = window?.frame.contains(screenPoint) == true
+        DispatchQueue.main.async {
+            self.isDragging = false
+            if operation != [], !insideOwnWindow {
+                self.onDragCompleted?(operation)
+            }
+        }
     }
 }
