@@ -1,6 +1,6 @@
 cask "stampo" do
-  version "0.5.2"
-  sha256 "71458e66eb1736c8eb8541414e4f49c0166b25a2d67b2a8b6fbecd28899952fc"
+  version "0.5.3"
+  sha256 "c501ebebb9eaf7f97aae144408f54e55ca3c12caf172a6bff082618e3bd091b0"
 
   url "https://github.com/git-webuser/Stampo/releases/download/#{version}/Stampo-#{version}.dmg"
   name "Stampo"
