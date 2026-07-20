@@ -673,7 +673,15 @@ final class NotchPanelController: NSObject {
     /// file drag from another app (pin feeds suppressesGlobalAutoHide). Mirrors
     /// screenshot.onThumbnailTapped's show-then-switch template; guards the
     /// route because switchToTray() is a toggle.
+    ///
+    /// The hotkey itself toggles: pressing it again while already collecting
+    /// (tray shown + pinned) dismisses the panel, mirroring togglePanel (⌃⌥⌘N).
+    /// hideAnimated resets isTrayPinned, so the unpin comes for free.
     func openTrayPinned(on screen: NSScreen) {
+        if isVisible && !needsSpaceRebind && route == .tray && rootState.isTrayPinned {
+            hideAnimated(reason: .hotkeyToggle)
+            return
+        }
         if isVisible && !needsSpaceRebind {
             if route != .tray { switchToTray() }
             rootState.isTrayPinned = true

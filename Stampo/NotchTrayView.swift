@@ -785,6 +785,7 @@ private struct TrayStackCell: View {
 
     private var width: CGFloat { height * 1.6 }
     private var fanCount: Int { min(stack.urls.count, 3) }
+    private var folderName: String? { stack.folder?.lastPathComponent }
 
     /// Preview for a fan slot: decoded thumbnail for images, the file icon for
     /// everything else (and while an image thumbnail is still decoding).
@@ -796,6 +797,15 @@ private struct TrayStackCell: View {
 
     private func revealInFinder() {
         NSWorkspace.shared.activateFileViewerSelecting(stack.urls)
+    }
+
+    /// Localized VoiceOver label; names the source folder when known so
+    /// separate stacks are distinguishable (the count stays on the badge).
+    private var accessibilityTitle: Text {
+        if let folderName {
+            return Text("File stack from \(folderName)")
+        }
+        return Text("File stack, \(stack.urls.count) files")
     }
 
     var body: some View {
@@ -832,13 +842,17 @@ private struct TrayStackCell: View {
                 .allowsHitTesting(false)
         }
         .overlay(alignment: .bottom) {
-            Text("\(stack.urls.count) files")
+            // Source folder name — the discriminator between stacks (each stack
+            // is one folder). Falls back to the count if the folder is unknown.
+            Text(verbatim: folderName ?? "\(stack.urls.count)")
                 .font(.system(size: 11, weight: .regular, design: .default))
                 .foregroundStyle(.white)
                 .lineLimit(1)
+                .truncationMode(.middle)
                 .padding(.horizontal, 4)
                 .padding(.vertical, 2)
                 .background(Capsule(style: .continuous).fill(Color.black.opacity(0.65)))
+                .frame(maxWidth: width * 2)
                 .fixedSize()
                 .opacity(isHovered ? 1 : 0)
                 .allowsHitTesting(false)
@@ -873,7 +887,7 @@ private struct TrayStackCell: View {
             Divider()
             Button("Remove from tray") { onRemove() }
         }
-        .accessibilityLabel("File stack, \(stack.urls.count) files")
+        .accessibilityLabel(accessibilityTitle)
         .accessibilityHint("Tap to show in Finder, drag to move all files")
         .accessibilityAddTraits(.isButton)
     }

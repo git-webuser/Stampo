@@ -60,7 +60,58 @@ import Testing
         let (stack, _) = TrayStack.merging(nil, droppedFiles: [a])
         #expect(stack.removingMember(b)?.urls == [a])
     }
+
+    @Test func folderIsTheMembersParent() {
+        let (stack, _) = TrayStack.merging(nil, droppedFiles: [a, b])
+        #expect(stack.folder?.path == "/tmp/stack")
+    }
 }
+
+// MARK: - Folder grouping (one stack per source folder)
+
+@Suite struct TrayStackGroupingTests {
+
+    private let downA = URL(fileURLWithPath: "/tmp/Downloads/a.png")
+    private let downB = URL(fileURLWithPath: "/tmp/Downloads/b.pdf")
+    private let deskC = URL(fileURLWithPath: "/tmp/Desktop/c.txt")
+    private let deskD = URL(fileURLWithPath: "/tmp/Desktop/d.txt")
+
+    @Test func singleFolderYieldsOneGroup() {
+        let groups = TrayStack.groupedByFolder([downA, downB])
+        #expect(groups.count == 1)
+        #expect(groups[0].folder.path == "/tmp/Downloads")
+        #expect(groups[0].urls == [downA, downB])
+    }
+
+    @Test func twoFoldersYieldTwoGroupsInFirstSeenOrder() {
+        let groups = TrayStack.groupedByFolder([deskC, downA, deskD, downB])
+        #expect(groups.map(\.folder.path) == ["/tmp/Desktop", "/tmp/Downloads"])
+        #expect(groups[0].urls == [deskC, deskD])
+        #expect(groups[1].urls == [downA, downB])
+    }
+
+    @Test func groupingDedupesAcrossTheBatch() {
+        let groups = TrayStack.groupedByFolder([downA, downA, deskC])
+        #expect(groups.count == 2)
+        #expect(groups[0].urls == [downA])
+        #expect(groups[1].urls == [deskC])
+    }
+
+    @Test func groupFolderMatchesStackFolder() {
+        // The grouping key must equal a resulting stack's derived folder, so a
+        // later drop from the same folder finds and extends the right stack.
+        let group = TrayStack.groupedByFolder([downA])[0]
+        let (stack, _) = TrayStack.merging(nil, droppedFiles: group.urls)
+        #expect(stack.folder == group.folder)
+    }
+}
+
+// Note: `add(droppedFiles:)` is deliberately not exercised through a live
+// NotchTrayModel here — the model reads/writes UserDefaults.standard, which in
+// the Stampo.app-hosted test bundle is the user's real tray (restoring their
+// stacks into the fixture and risking a persist over their data). Its logic is
+// a thin loop over the pure `groupedByFolder` + `merging` helpers, both covered
+// above; grouping the tests keeps them isolated and side-effect free.
 
 // MARK: - Persistence codec round-trips
 

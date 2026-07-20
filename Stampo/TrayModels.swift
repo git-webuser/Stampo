@@ -31,13 +31,36 @@ struct TrayScreenshot: Identifiable, Equatable {
     let url: URL
 }
 
-/// A shelf-style pile of files the user dropped onto the tray. The tray keeps
-/// at most one stack: consecutive drops accumulate into it (deduplicated by
-/// standardized URL), and dragging the stack out carries every member at once.
-/// Members are references to the original files, never copies.
+/// A shelf-style pile of files the user dropped onto the tray. Files are
+/// grouped by their source folder: the tray keeps one stack per parent folder,
+/// so dropping from two folders yields two stacks. Consecutive drops from the
+/// same folder accumulate (deduplicated by standardized URL), and dragging a
+/// stack out carries every member at once. Members are references to the
+/// original files, never copies.
 struct TrayStack: Identifiable, Equatable {
     let id = UUID()
     var urls: [URL]
+
+    /// The source folder shared by every member. All members are grouped by
+    /// parent folder, so this is well-defined; nil only for an empty stack.
+    /// Derived (not stored): the members already carry standardized paths, so
+    /// this matches the grouping key in `groupedByFolder` exactly.
+    var folder: URL? { urls.first?.deletingLastPathComponent() }
+
+    /// Groups dropped URLs by parent folder, preserving first-seen folder order
+    /// and deduplicating within the whole batch. One drop spanning several
+    /// folders therefore fans out into several stacks.
+    static func groupedByFolder(_ urls: [URL]) -> [(folder: URL, urls: [URL])] {
+        var seen = Set<URL>()
+        var order: [URL] = []
+        var buckets: [URL: [URL]] = [:]
+        for url in urls.map(\.standardizedFileURL) where seen.insert(url).inserted {
+            let folder = url.deletingLastPathComponent()
+            if buckets[folder] == nil { order.append(folder) }
+            buckets[folder, default: []].append(url)
+        }
+        return order.map { (folder: $0, urls: buckets[$0]!) }
+    }
 
     /// Pure accumulate half of NotchTrayModel.add(droppedFiles:): standardizes
     /// URLs, dedupes within the batch and against the existing stack. Returns
@@ -210,40 +233,53 @@ private struct PersistedTrayItem: Codable {
 
     // MARK: Stack (dropped files)
 
-    /// The tray's single stack item, if present.
-    var stackItem: TrayStack? {
-        for case .stack(let s) in items { return s }
-        return nil
+    /// Every stack item currently in the tray (one per source folder).
+    var stacks: [TrayStack] {
+        items.compactMap { if case .stack(let s) = $0 { return s } else { return nil } }
     }
 
-    /// Ingest files dropped onto the tray. Accumulates into the existing stack
-    /// (deduplicated by standardized URL) or creates one; either way the stack
-    /// moves to the front so the user sees where the drop landed.
+    /// Ingest files dropped onto the tray. Files are grouped by parent folder:
+    /// each group accumulates into its folder's existing stack (deduplicated by
+    /// standardized URL) or creates a new one. Every touched stack moves to the
+    /// front so the user sees where the drop landed.
     func add(droppedFiles urls: [URL]) {
         guard !urls.isEmpty else { return }
-        let existingIdx = items.firstIndex { if case .stack = $0 { return true } else { return false } }
-        let existing: TrayStack? = existingIdx.flatMap {
-            if case .stack(let s) = items[$0] { return s } else { return nil }
+        var didChange = false
+
+        for group in TrayStack.groupedByFolder(urls) {
+            let existingIdx = items.firstIndex {
+                if case .stack(let s) = $0 { return s.folder == group.folder } else { return false }
+            }
+            let existing: TrayStack? = existingIdx.flatMap {
+                if case .stack(let s) = items[$0] { return s } else { return nil }
+            }
+
+            let (stack, fresh) = TrayStack.merging(existing, droppedFiles: group.urls)
+            // A pure re-drop of files already in this folder's stack: nothing
+            // new to show, don't even reorder.
+            if existing != nil && fresh.isEmpty { continue }
+
+            if let existingIdx { items.remove(at: existingIdx) }
+            items.insert(.stack(stack), at: 0)
+            for url in fresh { startWatchingStackMember(url) }
+            if existing == nil { trim() }
+            didChange = true
         }
 
-        let (stack, fresh) = TrayStack.merging(existing, droppedFiles: urls)
-        guard !stack.urls.isEmpty else { return }
-
-        if let existingIdx { items.remove(at: existingIdx) }
-        items.insert(.stack(stack), at: 0)
-        for url in fresh { startWatchingStackMember(url) }
-        if existing == nil { trim() }
-        guard existing == nil || !fresh.isEmpty else { return }  // reorder is cosmetic, no persist
-        schedulePersist()
+        if didChange { schedulePersist() }
     }
 
     /// Drop a single member from the stack (file deleted on disk, or removed
     /// via UI). An emptied stack disappears from the tray entirely.
     func removeStackMember(url: URL) {
         let target = url.standardizedFileURL
-        guard let idx = items.firstIndex(where: { if case .stack = $0 { return true } else { return false } }),
-              case .stack(let stack) = items[idx],
-              stack.urls.contains(target)
+        // A path has exactly one parent folder, so it belongs to exactly one
+        // stack — find the stack that actually contains it, not merely the
+        // first stack in the tray.
+        guard let idx = items.firstIndex(where: {
+                  if case .stack(let s) = $0 { return s.urls.contains(target) } else { return false }
+              }),
+              case .stack(let stack) = items[idx]
         else { return }
 
         stopWatchingStackMember(target)
@@ -493,12 +529,14 @@ private struct PersistedTrayItem: Codable {
             prepareThumbnail(for: shot)
             startWatching(shot)
         }
-        if let stack = stackItem {
-            let missing = stack.urls.filter { !FileManager.default.fileExists(atPath: $0.path) }
-            for url in missing { removeStackMember(url: url) }
-            // Re-read: removals may have emptied the stack entirely.
-            for url in stackItem?.urls ?? [] { startWatchingStackMember(url) }
+        // Drop members whose files vanished across every stack, then watch the
+        // survivors. Snapshot first: removeStackMember mutates `items`, and an
+        // emptied stack drops out entirely.
+        let allMembers = stacks.flatMap(\.urls)
+        for url in allMembers where !FileManager.default.fileExists(atPath: url.path) {
+            removeStackMember(url: url)
         }
+        for url in stacks.flatMap(\.urls) { startWatchingStackMember(url) }
     }
 
     private func completeDeferredRestore() {
