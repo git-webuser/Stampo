@@ -115,21 +115,27 @@ struct NotchTrayView: View {
         }
         guard !fileProviders.isEmpty else { return false }
 
+        // loadObject completions race, so write each result into its own slot
+        // keyed by provider index — the drop's order is then preserved (fan
+        // order, and which folder-stack lands in front) instead of depending
+        // on which loads happen to finish first. The lock guards the array
+        // itself (concurrent Swift-array writes race even at disjoint indices).
         let group = DispatchGroup()
         let lock = NSLock()
-        var urls: [URL] = []
-        for provider in fileProviders {
+        var slots = [URL?](repeating: nil, count: fileProviders.count)
+        for (index, provider) in fileProviders.enumerated() {
             group.enter()
             _ = provider.loadObject(ofClass: URL.self) { url, _ in
                 if let url, url.isFileURL {
                     lock.lock()
-                    urls.append(url)
+                    slots[index] = url
                     lock.unlock()
                 }
                 group.leave()
             }
         }
         group.notify(queue: .main) {
+            let urls = slots.compactMap { $0 }
             guard !urls.isEmpty else { return }
             withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
                 trayModel.add(droppedFiles: urls)
@@ -785,7 +791,13 @@ private struct TrayStackCell: View {
 
     private var width: CGFloat { height * 1.6 }
     private var fanCount: Int { min(stack.urls.count, 3) }
-    private var folderName: String? { stack.folder?.lastPathComponent }
+    /// Source folder name for the label, or nil for the filesystem root
+    /// ("/".lastPathComponent is "/", which reads as noise) so the label and
+    /// VoiceOver fall back to the file count.
+    private var folderName: String? {
+        guard let name = stack.folder?.lastPathComponent, name != "/" else { return nil }
+        return name
+    }
 
     /// Preview for a fan slot: decoded thumbnail for images, the file icon for
     /// everything else (and while an image thumbnail is still decoding).
