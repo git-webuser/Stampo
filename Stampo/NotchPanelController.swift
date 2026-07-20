@@ -7,18 +7,45 @@ import SwiftUI
 /// Centralised here so every phase of the open/close/morph choreography is
 /// documented and easy to tune without hunting for magic numbers.
 enum PanelTiming {
-    /// Content fade-out before a tray→main morph (easeIn).
-    static let hideAnimation:       TimeInterval = 0.18
+    /// Panel reveal (frame descent + content fade-in, decelerate curve).
+    static let openAnimation:       TimeInterval = 0.30
+    /// Panel close / content fade-out before a tray→main morph (accelerate curve).
+    static let hideAnimation:       TimeInterval = 0.22
     /// Countdown / tray-content crossfade (easeOut).
     static let crossfade:           TimeInterval = 0.16
     /// One-frame settle: lets SwiftUI process a visibility change before
     /// starting the shape morph that follows it.
     static let oneFrameSettle:      TimeInterval = 0.03
-    /// Full tray-close morph (shape + position, cubic easing).
-    static let trayCloseMorph:      TimeInterval = 0.28
+    /// Full tray-open/close morph (shape + position).
+    static let trayCloseMorph:      TimeInterval = 0.32
     /// Delay between showAnimated() and switchToTray() so the open
     /// animation has a head-start before tray content appears.
     static let showBeforeTray:      TimeInterval = 0.25
+
+    // MARK: Shared easing curves
+
+    /// Smooth deceleration — quick off the mark, gentle settle. Reveals / opens.
+    static let decelerate = CAMediaTimingFunction(controlPoints: 0.16, 0.9, 0.2, 1.0)
+    /// Smooth acceleration — soft start, quick finish. Closes / retractions
+    /// where the panel leaves the screen (the hard stop is masked by orderOut).
+    static let accelerate = CAMediaTimingFunction(controlPoints: 0.4, 0.0, 0.9, 0.6)
+    /// Soft-landing ease-in-out for morphs that end on-screen: matches the
+    /// gentle settle of the Y-axis spring so X and Y arrive together.
+    static let settle = CAMediaTimingFunction(controlPoints: 0.4, 0.0, 0.2, 1.0)
+
+    /// SwiftUI twin of `accelerate`, for `withAnimation` on shape progress so
+    /// the morph reads as one motion with the window frame.
+    static func accelerateSwift(_ d: TimeInterval) -> Animation { .timingCurve(0.4, 0.0, 0.9, 0.6, duration: d) }
+
+    /// Content fade-in during panel open. Delayed so the buttons appear once
+    /// the GeometryReader shoulders are near final width — fading them in
+    /// earlier shows the squeezed mid-expansion layout ("chewed" look).
+    /// Ends together with the 0.30s frame animation.
+    static var contentFadeIn: Animation { .easeOut(duration: 0.20).delay(0.10) }
+    /// Content fade-out on close: fast, so the content is gone before the
+    /// collapsing frame starts squeezing the layout (accelerate moves the
+    /// frame slowly at first, giving the fade a head start).
+    static var contentFadeOut: Animation { .easeOut(duration: 0.12) }
 }
 
 // MARK: - Interaction state
@@ -757,10 +784,10 @@ final class NotchPanelController: NSObject {
         if metrics.hasNotch {
             let target = frameForWidth(clampedWidth(currentWidthForCurrentRoute, on: screen), on: screen, height: trayPanelHeight)
             NSAnimationContext.runAnimationGroup { ctx in
-                ctx.duration = 0.20
-                ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                ctx.duration = PanelTiming.openAnimation
+                ctx.timingFunction = PanelTiming.decelerate
 
-                withAnimation(.easeOut(duration: ctx.duration)) {
+                withAnimation(PanelTiming.contentFadeIn) {
                     self.interactionState.contentVisibility = 1.0
                 }
                 panel.animator().setFrame(target, display: true)
@@ -781,10 +808,10 @@ final class NotchPanelController: NSObject {
             let visible = frameForWidth(w, on: screen, height: h)
 
             NSAnimationContext.runAnimationGroup { ctx in
-                ctx.duration = 0.20
-                ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                ctx.duration = PanelTiming.openAnimation
+                ctx.timingFunction = PanelTiming.decelerate
 
-                withAnimation(.easeOut(duration: ctx.duration)) {
+                withAnimation(PanelTiming.contentFadeIn) {
                     self.interactionState.contentVisibility = 1.0
                 }
                 panel.animator().setFrame(visible, display: true)
@@ -856,7 +883,7 @@ final class NotchPanelController: NSObject {
 
             // Phase 2: morph shape tray → main (Y axis via progress, width unchanged).
             self.route = .main
-            withAnimation(.easeIn(duration: PanelTiming.hideAnimation)) {
+            withAnimation(PanelTiming.accelerateSwift(PanelTiming.hideAnimation)) {
                 self.rootState.progress = 0.0
             }
 
@@ -876,9 +903,9 @@ final class NotchPanelController: NSObject {
 
             NSAnimationContext.runAnimationGroup { ctx in
                 ctx.duration = PanelTiming.hideAnimation
-                ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                ctx.timingFunction = PanelTiming.accelerate
 
-                withAnimation(.easeIn(duration: ctx.duration)) {
+                withAnimation(PanelTiming.contentFadeOut) {
                     self.interactionState.contentVisibility = 0.0
                 }
                 panel.animator().setFrame(target, display: true)
@@ -910,9 +937,9 @@ final class NotchPanelController: NSObject {
 
             NSAnimationContext.runAnimationGroup { ctx in
                 ctx.duration = PanelTiming.hideAnimation
-                ctx.timingFunction = CAMediaTimingFunction(name: .easeIn)
+                ctx.timingFunction = PanelTiming.accelerate
 
-                withAnimation(.easeIn(duration: ctx.duration)) {
+                withAnimation(PanelTiming.contentFadeOut) {
                     self.interactionState.contentVisibility = 0.0
                 }
                 panel.animator().setFrame(hidden, display: true)
@@ -1107,10 +1134,12 @@ final class NotchPanelController: NSObject {
                     on: screen, height: self.trayPanelHeight
                 )
 
-                // X axis: panel width — NSAnimationContext
+                // X axis: panel width — NSAnimationContext. `settle`, not
+                // `accelerate`: the panel stays on screen after this morph,
+                // so X must land as softly as the Y-axis spring below.
                 NSAnimationContext.runAnimationGroup { ctx in
                     ctx.duration = PanelTiming.trayCloseMorph
-                    ctx.timingFunction = CAMediaTimingFunction(name: .easeIn)
+                    ctx.timingFunction = PanelTiming.settle
                     panel.animator().setFrame(targetFrame, display: true)
                 } completionHandler: { [weak self] in
                     guard let self, self.animationGeneration == gen else { return }
@@ -1119,8 +1148,8 @@ final class NotchPanelController: NSObject {
                     self.rootState.trayContentVisible = 1.0  // reset for next open
                 }
 
-                // Y axis: shape morph — same curve, same runloop cycle as X
-                withAnimation(.easeIn(duration: PanelTiming.trayCloseMorph)) {
+                // Y axis: shape morph — spring settle, no abrupt stop at the seam
+                withAnimation(.spring(response: 0.34, dampingFraction: 0.9)) {
                     self.rootState.progress = 0.0
                 }
             }
@@ -1138,7 +1167,7 @@ final class NotchPanelController: NSObject {
             )
             NSAnimationContext.runAnimationGroup { ctx in
                 ctx.duration = PanelTiming.trayCloseMorph
-                ctx.timingFunction = CAMediaTimingFunction(controlPoints: 0.25, 0.8, 0.25, 1.0)
+                ctx.timingFunction = PanelTiming.decelerate
                 panel.animator().setFrame(targetFrame, display: true)
             } completionHandler: { [weak self] in
                 guard let self, self.animationGeneration == gen else { return }
@@ -1146,7 +1175,7 @@ final class NotchPanelController: NSObject {
                 self.interactionState.isEnabled = true
             }
             DispatchQueue.main.async {
-                withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
+                withAnimation(.spring(response: 0.38, dampingFraction: 0.88)) {
                     self.rootState.progress = 1.0
                 }
             }

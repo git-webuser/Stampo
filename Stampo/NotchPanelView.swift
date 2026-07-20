@@ -141,8 +141,11 @@ struct NotchPanelView: View {
                     .frame(width: shoulders, alignment: .trailing)
                 }
                 .frame(height: metrics.panelHeight)
+                // No .animation(value:) here: contentVisibility's animation is
+                // owned by the controller (PanelTiming.contentFadeIn/Out) — a
+                // view-level animation would override those transactions and
+                // fade the buttons in while the shoulders are still squeezed.
                 .opacity(contentOpacity)
-                .animation(contentFade, value: interaction.contentVisibility)
             }
         }
     }
@@ -161,8 +164,8 @@ struct NotchPanelView: View {
             }
             .padding(.horizontal, metrics.edgeSafe)
             .frame(height: metrics.panelHeight)
+            // Controller-owned animation (see notchLayout).
             .opacity(contentOpacity)
-            .animation(contentFade, value: interaction.contentVisibility)
         }
         .animation(nil, value: model.delay)
         .animation(nil, value: model.mode)
@@ -245,8 +248,6 @@ struct NotchPanelView: View {
         if t >= 1 { return 1 }
         return max(0, (t - 0.15) / 0.85)
     }
-
-    private var contentFade: Animation { .easeOut(duration: 0.16) }
 }
 
 // MARK: - PopUpModeButtonWrapper
@@ -661,8 +662,8 @@ struct CountdownView: View {
                 .frame(width: shoulders, alignment: .trailing)
             }
             .frame(height: metrics.panelHeight)
+            // Controller-owned animation (see NotchPanelView.notchLayout).
             .opacity(contentOpacity)
-            .animation(contentFade, value: interaction.contentVisibility)
         }
     }
 
@@ -677,8 +678,8 @@ struct CountdownView: View {
         }
         .padding(.horizontal, metrics.outerSideInset)
         .frame(height: metrics.panelHeight)
+        // Controller-owned animation (see NotchPanelView.notchLayout).
         .opacity(contentOpacity)
-        .animation(contentFade, value: interaction.contentVisibility)
     }
 
     // MARK: - Cells
@@ -743,6 +744,4 @@ struct CountdownView: View {
         if t >= 1 { return 1 }
         return max(0, (t - 0.15) / 0.85)
     }
-
-    private var contentFade: Animation { .easeOut(duration: 0.16) }
 }
