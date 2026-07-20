@@ -92,6 +92,7 @@ Click the post-capture thumbnail (or right-click a screenshot in the tray → **
 | Pick color | `⌃⌥⌘C` |
 | Scan (text & codes) | `⌃⌥⌘S` |
 | Pin last screenshot | `⌃⌥⌘P` |
+| Collect files | `⌃⌥⌘T` |
 
 Every hotkey is fully customizable in **Settings → Hotkeys** — record a new combination, restore the default, or clear it to disable the action.
 
@@ -103,12 +104,18 @@ File names follow one of four presets, selectable in **Settings → Capture**: c
 
 ## Tray
 
-The tray shows recent screenshots and color swatches.
+The tray shows recent screenshots, color swatches, and scanned text — and it's also a drop shelf for files.
 
 - **Click** a screenshot to open it.
 - **Right-click** for options: Edit, Open, Pin to Screen, Show in Finder, Copy, Move to Trash.
 - **X button** (on hover) removes the item from the tray — the file is not deleted.
 - **Drag** a screenshot out of the tray to copy it anywhere.
+
+### Collect files (drop shelf)
+
+Drop files onto the open tray and they gather into a **stack** — a temporary shelf you fill from several windows, then drag out all at once into a destination folder. Files are grouped by their source folder, so dropping from Downloads and Desktop makes two separate stacks, each labeled with its folder name. Drag a stack out to move everything it holds in one gesture; the stack clears once the files land. The tray keeps references to the originals, never copies, so nothing is duplicated on disk while it sits on the shelf.
+
+Press `⌃⌥⌘T` to open the tray straight into collect mode — the panel pins itself so it survives the mouse-down that starts a drag from another window; press it again to close.
 
 ## Pin to Screen
 
@@ -162,4 +169,4 @@ MIT License. See [LICENSE](LICENSE).
 
 ---
 
-*Stampo 0.5.2 — for macOS 15.7+*
+*Stampo 0.5.3 — for macOS 15.7+*
