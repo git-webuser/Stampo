@@ -17,6 +17,9 @@ struct EditorView: View {
     var saveHandler: ((EditorDocument) -> Bool)?
 
     @State private var tool: EditorTool = .select
+    /// Last shape picked from the collapsed shape-family popover; drives the
+    /// shapes button emblem while another tool is active.
+    @State private var lastShape: EditorTool = .rect
     @State private var style = ToolStyle()
     @State private var editingTextID: UUID?
     @State private var zoomFactor: CGFloat = 1
@@ -71,30 +74,48 @@ struct EditorView: View {
         .padding(.vertical, 8)
     }
 
+    /// Toolbar tools, left to right. The shape family (rectangle, oval, blur,
+    /// loupe) is collapsed behind one popover button between the high-frequency
+    /// line/arrow tools and text — the rest stay inline. Their keyboard
+    /// shortcuts still work through the canvas handler, so this only declutters
+    /// the row.
     private var toolPicker: some View {
         HStack(spacing: 2) {
-            ForEach(EditorTool.pickerCases, id: \.self) { t in
-                Button {
-                    tool = t
-                    cropRect = nil
-                    if t != .select { document.selectedID = nil }
-                    if t == .blur {
-                        document.prepareBlurSource(style: style.blurStyle,
-                                                   level: style.blurLevel)
-                    }
-                } label: {
-                    Image(systemName: t.systemImage)
-                        .font(.system(size: 13, weight: .medium))
-                        .frame(width: 26, height: 22)
-                }
-                .buttonStyle(.borderless)
-                .background(
-                    RoundedRectangle(cornerRadius: 5, style: .continuous)
-                        .fill(tool == t ? Color.accentColor.opacity(0.22) : .clear)
-                )
-                .foregroundStyle(tool == t ? Color.accentColor : Color.primary)
-                .hoverTip(t.labelKey, shortcut: t.shortcut?.label)
-            }
+            toolButton(.select)
+            toolButton(.line)
+            toolButton(.arrow)
+            ShapeToolButton(tool: $tool, lastShape: $lastShape, select: selectTool)
+            toolButton(.text)
+            toolButton(.drawing)
+            toolButton(.eraser)
+            toolButton(.step)
+        }
+    }
+
+    private func toolButton(_ t: EditorTool) -> some View {
+        Button { selectTool(t) } label: {
+            Image(systemName: t.systemImage)
+                .font(.system(size: 13, weight: .medium))
+                .frame(width: 26, height: 22)
+        }
+        .buttonStyle(.borderless)
+        .background(
+            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                .fill(tool == t ? Color.accentColor.opacity(0.22) : .clear)
+        )
+        .foregroundStyle(tool == t ? Color.accentColor : Color.primary)
+        .hoverTip(t.labelKey, shortcut: t.shortcut?.label)
+    }
+
+    /// Shared tool-activation path for the inline buttons and the shape
+    /// popover: switches tool, clears any crop frame and selection, and warms
+    /// the blur source when entering the blur tool.
+    private func selectTool(_ t: EditorTool) {
+        tool = t
+        cropRect = nil
+        if t != .select { document.selectedID = nil }
+        if t == .blur {
+            document.prepareBlurSource(style: style.blurStyle, level: style.blurLevel)
         }
     }
 
