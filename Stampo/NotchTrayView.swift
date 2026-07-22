@@ -9,6 +9,10 @@ struct NotchTrayView: View {
     let metrics: NotchMetrics
     var trayModel: NotchTrayModel
     let isPinned: Bool
+    /// True while the tray content is on screen; flips to false as the tray
+    /// closes (back, hide, ESC). Drives the ephemeral collapse of any expanded
+    /// stack so the tray always reopens fully collapsed.
+    let isContentVisible: Bool
     let onBack: () -> Void
     let onHidePanel: () -> Void
     let onTogglePin: () -> Void
@@ -18,6 +22,25 @@ struct NotchTrayView: View {
     /// cells — the AppKit shim owns hover tracking for drag-capable cells).
     @State private var hoveredDragCellID: UUID?
     @State private var isDropTargeted = false
+    /// Which stack is currently expanded into an inline accordion, if any.
+    /// Ephemeral: never persisted, reset when the tray leaves the stage or the
+    /// stack disappears (see `effectiveExpandedID`).
+    @State private var expandedStackID: UUID?
+
+    /// Inline expansion is a quick peek, not a file browser: cap how many
+    /// members render in the row; the overflow tail routes the rest to Finder.
+    private let memberCap = 60
+
+    /// `expandedStackID`, but only if that stack still exists in the tray.
+    /// A stack can vanish while expanded (last member removed → model drops it,
+    /// `trim()`, or Remove from the menu); this guard collapses the view instead
+    /// of rendering an accordion for a stack that is no longer there.
+    private var effectiveExpandedID: UUID? {
+        guard let id = expandedStackID,
+              trayModel.items.contains(where: { $0.id == id })
+        else { return nil }
+        return id
+    }
 
     private func handleBack() {
         onBack()  // controller drives the content fade-out
@@ -55,9 +78,17 @@ struct NotchTrayView: View {
             }
         }
         .frame(height: trayHeight)
-        .background { dropHighlight }
+        // Overlay (not background) so the plate rides ABOVE the cells: its
+        // icon+label stay visible and it fully covers an expanded stack while
+        // targeting. `allowsHitTesting(false)` keeps the drop landing on the row.
+        .overlay { dropHighlight }
         .onDrop(of: [.fileURL], isTargeted: $isDropTargeted) { providers in
             handleDrop(providers)
+        }
+        // Ephemeral expansion: collapse whenever the tray closes so it always
+        // reopens in the compact grid.
+        .onChange(of: isContentVisible) {
+            if !isContentVisible { expandedStackID = nil }
         }
     }
 
@@ -94,12 +125,12 @@ struct NotchTrayView: View {
                 )
             )
             .overlay {
-                // The plate's own state hint — replaces the regular empty-state
-                // line (hidden while targeting). Cells cover this band when the
-                // tray has items, so the hint only appears for an empty tray.
-                if trayModel.items.isEmpty {
-                    trayHint(icon: "tray.and.arrow.down.fill", label: "Drop Files Here")
-                }
+                // The plate's own state hint. Now that the plate is an overlay
+                // riding above the cells, it covers the whole shelf band while
+                // targeting, so the hint shows for every external drop — not only
+                // the empty tray. (The plate itself is opacity-gated on
+                // isDropTargeted, so this is only visible mid-drop.)
+                trayHint(icon: "tray.and.arrow.down.fill", label: "Drop Files Here")
             }
             .padding(.top, metrics.panelHeight)
             .padding(.horizontal, sideInset)
@@ -139,6 +170,11 @@ struct NotchTrayView: View {
             guard !urls.isEmpty else { return }
             withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
                 trayModel.add(droppedFiles: urls)
+                // Collapse on a landed drop: show the (possibly reordered) stack
+                // in its compact form. This also sidesteps the reorder jank —
+                // add() moves a touched stack to the front, and an expanded group
+                // jumping across the row would read as broken.
+                expandedStackID = nil
             }
         }
         return true
@@ -245,6 +281,7 @@ struct NotchTrayView: View {
     }
 
     private var scrollContent: some View {
+        ScrollViewReader { proxy in
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(alignment: .top, spacing: cellSpacing) {
                 ForEach(trayModel.items) { item in
@@ -307,32 +344,55 @@ struct NotchTrayView: View {
                                 }
                             )
                         case .stack(let stack):
-                            TrayStackCell(
-                                stack: stack,
-                                loaders: stack.urls.prefix(3).map { trayModel.stackThumbnailLoader(for: $0) },
-                                height: cellH,
-                                badgeBleed: badgeBleed,
-                                labelOffset: labelOffset,
-                                cornerRadius: metrics.buttonRadius,
-                                isHovered: hoveredDragCellID == stack.id,
-                                setHovered: { hovering in
-                                    if hovering {
-                                        hoveredDragCellID = stack.id
-                                    } else if hoveredDragCellID == stack.id {
-                                        hoveredDragCellID = nil
+                            if stack.id == effectiveExpandedID {
+                                ExpandedStackGroup(
+                                    stack: stack,
+                                    trayModel: trayModel,
+                                    height: cellH,
+                                    cornerRadius: metrics.buttonRadius,
+                                    badgeBleed: badgeBleed,
+                                    spacing: cellSpacing,
+                                    memberCap: memberCap,
+                                    onCollapse: { collapseStack() },
+                                    onOpenMember: { onHidePanel() },
+                                    onRevealAll: {
+                                        NSWorkspace.shared.activateFileViewerSelecting(stack.urls)
+                                    },
+                                    onRemoveStack: {
+                                        withAnimation(.easeInOut(duration: 0.18)) {
+                                            trayModel.remove(id: stack.id)
+                                        }
                                     }
-                                },
-                                onDragOutCompleted: {
-                                    withAnimation(.easeInOut(duration: 0.18)) {
-                                        trayModel.remove(id: stack.id)
+                                )
+                            } else {
+                                TrayStackCell(
+                                    stack: stack,
+                                    loaders: stack.urls.prefix(3).map { trayModel.stackThumbnailLoader(for: $0) },
+                                    height: cellH,
+                                    badgeBleed: badgeBleed,
+                                    labelOffset: labelOffset,
+                                    cornerRadius: metrics.buttonRadius,
+                                    isHovered: hoveredDragCellID == stack.id,
+                                    setHovered: { hovering in
+                                        if hovering {
+                                            hoveredDragCellID = stack.id
+                                        } else if hoveredDragCellID == stack.id {
+                                            hoveredDragCellID = nil
+                                        }
+                                    },
+                                    onExpand: { expandStack(stack.id, proxy: proxy) },
+                                    onDragOutCompleted: {
+                                        withAnimation(.easeInOut(duration: 0.18)) {
+                                            trayModel.remove(id: stack.id)
+                                        }
+                                    },
+                                    onRemove: {
+                                        withAnimation(.easeInOut(duration: 0.18)) {
+                                            trayModel.remove(id: stack.id)
+                                        }
                                     }
-                                },
-                                onRemove: {
-                                    withAnimation(.easeInOut(duration: 0.18)) {
-                                        trayModel.remove(id: stack.id)
-                                    }
-                                }
-                            )
+                                )
+                            }
                         }
                     }
                     // Cell exit: shrink + fade out together; neighbours
@@ -370,6 +430,27 @@ struct NotchTrayView: View {
             }
         )
         .padding(.horizontal, innerInset)
+        }
+    }
+
+    /// Expand a stack into its inline accordion and bring its header to the left
+    /// edge so the user sees what they opened even if the stack sat far right.
+    private func expandStack(_ id: UUID, proxy: ScrollViewProxy) {
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+            expandedStackID = id
+        }
+        // Scroll after the layout swap to the expanded group has a frame.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.02) {
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                proxy.scrollTo(id, anchor: .leading)
+            }
+        }
+    }
+
+    private func collapseStack() {
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+            expandedStackID = nil
+        }
     }
 
     // MARK: - Buttons
@@ -782,6 +863,7 @@ private struct TrayStackCell: View {
     let cornerRadius: CGFloat
     let isHovered: Bool
     let setHovered: (Bool) -> Void
+    let onExpand: () -> Void
     let onDragOutCompleted: () -> Void
     let onRemove: () -> Void
 
@@ -882,7 +964,7 @@ private struct TrayStackCell: View {
                 isPressed: $isPressed,
                 isDragging: $isDragging,
                 onHoverChange: setHovered,
-                onTap: { revealInFinder() },
+                onTap: { onExpand() },
                 onDragCompleted: { _ in onDragOutCompleted() }
             )
         }
@@ -900,7 +982,253 @@ private struct TrayStackCell: View {
             Button("Remove from tray") { onRemove() }
         }
         .accessibilityLabel(accessibilityTitle)
-        .accessibilityHint("Tap to show in Finder, drag to move all files")
+        .accessibilityHint("Tap to open the stack, drag to move all files")
+        .accessibilityAddTraits(.isButton)
+    }
+}
+
+// MARK: - Expanded Stack (inline accordion)
+
+/// A stack expanded in place: `[divider] [header] [members…] [+N tail?] [divider]`.
+/// Lives inside the tray's horizontal scroll row — the collapsed cell it replaces
+/// morphs into this group and the neighbours slide aside. Only one stack is ever
+/// expanded (the tray tracks a single `expandedStackID`).
+private struct ExpandedStackGroup: View {
+    let stack: TrayStack
+    var trayModel: NotchTrayModel
+    let height: CGFloat
+    let cornerRadius: CGFloat
+    let badgeBleed: CGFloat
+    let spacing: CGFloat
+    let memberCap: Int
+    let onCollapse: () -> Void
+    let onOpenMember: () -> Void
+    let onRevealAll: () -> Void
+    let onRemoveStack: () -> Void
+
+    /// Source folder name, or nil for the filesystem root — mirrors
+    /// TrayStackCell.folderName so the header reads the same as the badge.
+    private var folderName: String? {
+        guard let name = stack.folder?.lastPathComponent, name != "/" else { return nil }
+        return name
+    }
+    private var shownURLs: [URL] { Array(stack.urls.prefix(memberCap)) }
+    private var overflow: Int { max(0, stack.urls.count - memberCap) }
+
+    var body: some View {
+        // Top-aligned so members sit on the same line as the neighbouring tray
+        // cells (the outer scroll HStack is also `.top`). Any element taller than
+        // a cell (the divider) must not center-shift the row downward.
+        HStack(alignment: .top, spacing: spacing) {
+            divider
+            header
+            ForEach(shownURLs, id: \.self) { url in
+                StackMemberCell(
+                    url: url,
+                    loader: trayModel.stackThumbnailLoader(for: url),
+                    height: height,
+                    badgeBleed: badgeBleed,
+                    cornerRadius: cornerRadius,
+                    onOpen: onOpenMember,
+                    onRemove: {
+                        withAnimation(.easeInOut(duration: 0.18)) {
+                            trayModel.removeStackMember(url: url)
+                        }
+                    }
+                )
+            }
+            if overflow > 0 {
+                OverflowTailCell(count: overflow, height: height,
+                                 cornerRadius: cornerRadius, onReveal: onRevealAll)
+            }
+            divider
+        }
+    }
+
+    private var divider: some View {
+        // Short hairline, vertically centred against the cell band (the outer
+        // frame tops-aligns with cells, the line centres inside it).
+        RoundedRectangle(cornerRadius: 0.5, style: .continuous)
+            .fill(Color.white.opacity(0.18))
+            .frame(width: 1, height: height * 0.6)
+            .frame(height: height, alignment: .center)
+    }
+
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(verbatim: folderName ?? "\(stack.urls.count)")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.white)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .frame(maxWidth: 120, alignment: .leading)
+            Text("\(stack.urls.count) files")
+                .font(.system(size: 9, weight: .regular))
+                .foregroundStyle(.white.opacity(0.5))
+        }
+        .padding(.horizontal, 6)
+        .frame(height: height)
+        .contentShape(Rectangle())
+        // Left click collapses; right click opens the stack-level menu.
+        .onTapGesture { onCollapse() }
+        .contextMenu {
+            Button("Show in Finder") { onRevealAll() }
+            Button("Collapse") { onCollapse() }
+            Divider()
+            Button("Remove from tray") { onRemoveStack() }
+        }
+        .help("Collapse")
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(accessibilityTitle)
+        .accessibilityHint("Tap to collapse")
+        .accessibilityAddTraits(.isButton)
+    }
+
+    /// Reuses TrayStackCell's wording so the (already translated) catalog
+    /// entries cover it too.
+    private var accessibilityTitle: Text {
+        if let folderName {
+            return Text("File stack from \(folderName)")
+        }
+        return Text("File stack, \(stack.urls.count) files")
+    }
+}
+
+/// One file inside an expanded stack. Cut from TrayScreenshotCell: image members
+/// show their thumbnail, everything else the NSWorkspace file icon. Tap opens the
+/// file and hides the panel; drag carries just this file; the badge removes it.
+private struct StackMemberCell: View {
+    let url: URL
+    let loader: ThumbnailLoader?
+    let height: CGFloat
+    let badgeBleed: CGFloat
+    let cornerRadius: CGFloat
+    let onOpen: () -> Void
+    let onRemove: () -> Void
+
+    @State private var isHovered     = false
+    @State private var isPressed     = false
+    @State private var isBadgeActive = false
+    @State private var isDragging    = false
+
+    private var width: CGFloat { height * 1.6 }
+    private var displayName: String { url.lastPathComponent }
+
+    /// Decoded thumbnail for images, the system file icon otherwise (and while a
+    /// thumbnail is still decoding). Mirrors TrayStackCell.previewImage.
+    private var previewImage: NSImage {
+        loader?.image ?? NSWorkspace.shared.icon(forFile: url.path)
+    }
+
+    private func open() {
+        let cfg = NSWorkspace.OpenConfiguration()
+        cfg.activates = true
+        NSWorkspace.shared.open(url, configuration: cfg)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { onOpen() }
+    }
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                .fill(Color.white.opacity(0.08))
+                .overlay(
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .stroke(Color.white.opacity(isHovered ? 0.35 : 0.12), lineWidth: 1)
+                )
+            Image(nsImage: previewImage)
+                .resizable()
+                .scaledToFill()
+                .frame(width: width, height: height)
+                .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+        }
+        .frame(width: width, height: height)
+        .contentShape(Rectangle())
+        .overlay(alignment: .bottom) {
+            Text(displayName)
+                .font(.system(size: 11, weight: .regular, design: .default))
+                .foregroundStyle(.white)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .padding(.horizontal, 4)
+                .padding(.vertical, 2)
+                .background(Capsule(style: .continuous).fill(Color.black.opacity(0.65)))
+                .frame(maxWidth: width)
+                .fixedSize(horizontal: false, vertical: true)
+                .opacity(isHovered ? 1 : 0)
+                .allowsHitTesting(false)
+                .offset(y: 18)
+        }
+        .scaleEffect(isPressed ? 0.88 : (isDragging ? 0.92 : 1.0))
+        .opacity(isDragging ? 0.45 : 1)
+        .animation(.spring(response: 0.2, dampingFraction: 0.8), value: isHovered)
+        .animation(.spring(response: 0.15, dampingFraction: 0.7), value: isPressed)
+        .overlay {
+            TrayDragShim(
+                urls: [url],
+                dragImages: [previewImage],
+                cellSize: CGSize(width: width, height: height),
+                isPressed: $isPressed,
+                isDragging: $isDragging,
+                onHoverChange: { isHovered = $0 },
+                onTap: { open() },
+                onDragCompleted: { _ in onRemove() }
+            )
+        }
+        // Badge after the shim so it wins hit-testing (see TrayScreenshotCell).
+        .overlay(alignment: .topTrailing) {
+            TrayDeleteBadge(action: { onRemove() },
+                            isPressed: $isBadgeActive)
+            .opacity(isHovered ? 1 : 0)
+            .allowsHitTesting(isHovered)
+            .offset(x: badgeBleed, y: -badgeBleed)
+        }
+        .contextMenu {
+            Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([url]) }
+            Divider()
+            Button("Remove from tray") { onRemove() }
+        }
+        .accessibilityLabel("File \(displayName)")
+        .accessibilityHint("Tap to open, drag to move")
+        .accessibilityAddTraits(.isButton)
+    }
+}
+
+/// The "+N" tail on a capped stack: no delete badge, so hovering swaps the count
+/// for a folder-arrow glyph; a tap reveals every member in Finder.
+private struct OverflowTailCell: View {
+    let count: Int
+    let height: CGFloat
+    let cornerRadius: CGFloat
+    let onReveal: () -> Void
+
+    @State private var isHovered = false
+    private var width: CGFloat { height * 1.6 }
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                .fill(Color.white.opacity(0.08))
+                .overlay(
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .stroke(Color.white.opacity(isHovered ? 0.35 : 0.12), lineWidth: 1)
+                )
+            if isHovered {
+                Image(systemName: "arrow.forward.folder")
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(.white)
+            } else {
+                Text(verbatim: "+\(count)")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.white)
+            }
+        }
+        .frame(width: width, height: height)
+        .contentShape(Rectangle())
+        .onHover { isHovered = $0 }
+        .onTapGesture { onReveal() }
+        .animation(.spring(response: 0.2, dampingFraction: 0.8), value: isHovered)
+        .accessibilityLabel("\(count) more files")
+        .accessibilityHint("Show all in Finder")
         .accessibilityAddTraits(.isButton)
     }
 }

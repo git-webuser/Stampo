@@ -238,6 +238,7 @@ private struct NotchPanelRootView: View {
                 metrics: m,
                 trayModel: trayModel,
                 isPinned: rootState.isTrayPinned,
+                isContentVisible: rootState.trayContentVisible > 0.5,
                 onBack: onBack,
                 onHidePanel: onHidePanel,
                 onTogglePin: onTogglePin
