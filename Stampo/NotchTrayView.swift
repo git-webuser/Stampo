@@ -22,6 +22,12 @@ struct NotchTrayView: View {
     /// cells — the AppKit shim owns hover tracking for drag-capable cells).
     @State private var hoveredDragCellID: UUID?
     @State private var isDropTargeted = false
+    /// True while any tray cell is mid drag-out (its TrayDragShim reports through
+    /// `InternalDraggingKey`). SwiftUI's `.onDrop` also fires `isDropTargeted`
+    /// for the app's OWN drags, so this gates them out: without it, dragging a
+    /// screenshot back over the tray re-ingests it as a duplicate stack, and the
+    /// drop plate paints over the content being dragged.
+    @State private var isInternalDragging = false
     /// Which stack is currently expanded into an inline accordion, if any.
     /// Ephemeral: never persisted, reset when the tray leaves the stage or the
     /// stack disappears (see `effectiveExpandedID`).
@@ -90,6 +96,14 @@ struct NotchTrayView: View {
         .onChange(of: isContentVisible) {
             if !isContentVisible { expandedStackID = nil }
         }
+        // Clear the stored id once its stack is gone (last member removed, trim,
+        // Remove) — effectiveExpandedID already masks the render; this dedupes
+        // the latent @State so it can never point at a dead stack.
+        .onChange(of: effectiveExpandedID) {
+            if effectiveExpandedID == nil { expandedStackID = nil }
+        }
+        // Aggregate drag state from every TrayDragShim-backed cell below.
+        .onPreferenceChange(InternalDraggingKey.self) { isInternalDragging = $0 }
     }
 
     /// Drop frame (user-designed mock, "Frame 1000001163"): not a contour
@@ -135,12 +149,18 @@ struct NotchTrayView: View {
             .padding(.top, metrics.panelHeight)
             .padding(.horizontal, sideInset)
             .padding(.bottom, pad)
-            .opacity(isDropTargeted ? 1 : 0)
+            // Only for EXTERNAL drags — an internal drag-out must not paint the
+            // plate over the very cells being moved.
+            .opacity((isDropTargeted && !isInternalDragging) ? 1 : 0)
             .allowsHitTesting(false)
             .animation(.easeInOut(duration: 0.15), value: isDropTargeted)
     }
 
     private func handleDrop(_ providers: [NSItemProvider]) -> Bool {
+        // Ignore the app's own drags: a tray cell dropped back onto the tray
+        // would otherwise be re-ingested (e.g. a screenshot becomes a duplicate
+        // stack). External file drops leave isInternalDragging false.
+        guard !isInternalDragging else { return false }
         let fileProviders = providers.filter {
             $0.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier)
         }
@@ -351,6 +371,7 @@ struct NotchTrayView: View {
                                     height: cellH,
                                     cornerRadius: metrics.buttonRadius,
                                     badgeBleed: badgeBleed,
+                                    labelOffset: labelOffset,
                                     spacing: cellSpacing,
                                     memberCap: memberCap,
                                     onCollapse: { collapseStack() },
@@ -841,6 +862,7 @@ private struct TrayScreenshotCell: View {
                 onMoveToTrash()
             }
         }
+        .preference(key: InternalDraggingKey.self, value: isDragging)
         .accessibilityLabel("Screenshot \(shot.url.deletingPathExtension().lastPathComponent)")
         .accessibilityHint("Tap to open, hold to delete")
         .accessibilityAddTraits(.isButton)
@@ -981,6 +1003,7 @@ private struct TrayStackCell: View {
             Divider()
             Button("Remove from tray") { onRemove() }
         }
+        .preference(key: InternalDraggingKey.self, value: isDragging)
         .accessibilityLabel(accessibilityTitle)
         .accessibilityHint("Tap to open the stack, drag to move all files")
         .accessibilityAddTraits(.isButton)
@@ -999,6 +1022,7 @@ private struct ExpandedStackGroup: View {
     let height: CGFloat
     let cornerRadius: CGFloat
     let badgeBleed: CGFloat
+    let labelOffset: CGFloat
     let spacing: CGFloat
     let memberCap: Int
     let onCollapse: () -> Void
@@ -1028,6 +1052,7 @@ private struct ExpandedStackGroup: View {
                     loader: trayModel.stackThumbnailLoader(for: url),
                     height: height,
                     badgeBleed: badgeBleed,
+                    labelOffset: labelOffset,
                     cornerRadius: cornerRadius,
                     onOpen: onOpenMember,
                     onRemove: {
@@ -1041,6 +1066,9 @@ private struct ExpandedStackGroup: View {
                 OverflowTailCell(count: overflow, height: height,
                                  cornerRadius: cornerRadius, onReveal: onRevealAll)
             }
+            // Explicit collapse at the row's end — reachable now that members are
+            // capped, and pairs with the header's left-click collapse.
+            CollapseButton(height: height, cornerRadius: cornerRadius, onCollapse: onCollapse)
             divider
         }
     }
@@ -1102,6 +1130,7 @@ private struct StackMemberCell: View {
     let loader: ThumbnailLoader?
     let height: CGFloat
     let badgeBleed: CGFloat
+    let labelOffset: CGFloat
     let cornerRadius: CGFloat
     let onOpen: () -> Void
     let onRemove: () -> Void
@@ -1110,14 +1139,17 @@ private struct StackMemberCell: View {
     @State private var isPressed     = false
     @State private var isBadgeActive = false
     @State private var isDragging    = false
+    /// The NSWorkspace file icon for non-image members, resolved once on appear
+    /// so hover/press re-renders don't re-run the lookup.
+    @State private var resolvedIcon: NSImage?
 
     private var width: CGFloat { height * 1.6 }
     private var displayName: String { url.lastPathComponent }
 
-    /// Decoded thumbnail for images, the system file icon otherwise (and while a
-    /// thumbnail is still decoding). Mirrors TrayStackCell.previewImage.
+    /// Decoded thumbnail for images, the cached system file icon otherwise (and
+    /// while a thumbnail is still decoding). Mirrors TrayStackCell.previewImage.
     private var previewImage: NSImage {
-        loader?.image ?? NSWorkspace.shared.icon(forFile: url.path)
+        loader?.image ?? resolvedIcon ?? NSWorkspace.shared.icon(forFile: url.path)
     }
 
     private func open() {
@@ -1128,14 +1160,16 @@ private struct StackMemberCell: View {
     }
 
     var body: some View {
-        ZStack {
+        // Resolve once per render; reused by the thumbnail and the drag preview.
+        let preview = previewImage
+        return ZStack {
             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                 .fill(Color.white.opacity(0.08))
                 .overlay(
                     RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                         .stroke(Color.white.opacity(isHovered ? 0.35 : 0.12), lineWidth: 1)
                 )
-            Image(nsImage: previewImage)
+            Image(nsImage: preview)
                 .resizable()
                 .scaledToFill()
                 .frame(width: width, height: height)
@@ -1156,16 +1190,21 @@ private struct StackMemberCell: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .opacity(isHovered ? 1 : 0)
                 .allowsHitTesting(false)
-                .offset(y: 18)
+                .offset(y: labelOffset)
         }
         .scaleEffect(isPressed ? 0.88 : (isDragging ? 0.92 : 1.0))
         .opacity(isDragging ? 0.45 : 1)
         .animation(.spring(response: 0.2, dampingFraction: 0.8), value: isHovered)
         .animation(.spring(response: 0.15, dampingFraction: 0.7), value: isPressed)
+        .onAppear {
+            if loader == nil, resolvedIcon == nil {
+                resolvedIcon = NSWorkspace.shared.icon(forFile: url.path)
+            }
+        }
         .overlay {
             TrayDragShim(
                 urls: [url],
-                dragImages: [previewImage],
+                dragImages: [preview],
                 cellSize: CGSize(width: width, height: height),
                 isPressed: $isPressed,
                 isDragging: $isDragging,
@@ -1187,6 +1226,7 @@ private struct StackMemberCell: View {
             Divider()
             Button("Remove from tray") { onRemove() }
         }
+        .preference(key: InternalDraggingKey.self, value: isDragging)
         .accessibilityLabel("File \(displayName)")
         .accessibilityHint("Tap to open, drag to move")
         .accessibilityAddTraits(.isButton)
@@ -1229,6 +1269,39 @@ private struct OverflowTailCell: View {
         .animation(.spring(response: 0.2, dampingFraction: 0.8), value: isHovered)
         .accessibilityLabel("\(count) more files")
         .accessibilityHint("Show all in Finder")
+        .accessibilityAddTraits(.isButton)
+    }
+}
+
+/// Explicit collapse action at the end of an expanded stack. Square (not the
+/// cell's 1.6 aspect) so it reads as an action rather than a file; shares the
+/// tail cell's rounded-rect + hover-stroke chrome for row consistency.
+private struct CollapseButton: View {
+    let height: CGFloat
+    let cornerRadius: CGFloat
+    let onCollapse: () -> Void
+
+    @State private var isHovered = false
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                .fill(Color.white.opacity(0.08))
+                .overlay(
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .stroke(Color.white.opacity(isHovered ? 0.35 : 0.12), lineWidth: 1)
+                )
+            Image(systemName: "arrow.down.forward.and.arrow.up.backward")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(.white)
+        }
+        .frame(width: height, height: height)
+        .contentShape(Rectangle())
+        .onHover { isHovered = $0 }
+        .onTapGesture { onCollapse() }
+        .animation(.spring(response: 0.2, dampingFraction: 0.8), value: isHovered)
+        .help("Collapse")
+        .accessibilityLabel("Collapse")
         .accessibilityAddTraits(.isButton)
     }
 }
@@ -1382,6 +1455,15 @@ private struct TraySchemeMenuButton: View {
 }
 
 // MARK: - Drag Shim (NSView-based NSDraggingSource)
+
+/// OR-reduces `isDragging` from every draggable tray cell up to NotchTrayView,
+/// so the parent knows when one of its own cells is mid drag-out.
+private struct InternalDraggingKey: PreferenceKey {
+    static let defaultValue = false
+    static func reduce(value: inout Bool, nextValue: () -> Bool) {
+        value = value || nextValue()
+    }
+}
 
 private struct TrayDragShim: NSViewRepresentable {
     let urls: [URL]
