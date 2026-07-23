@@ -346,7 +346,7 @@ import Testing
         source.blurStyle = .gaussian
         source.blurLevel = 5
         source.fillOpacity = 0.35
-        source.arrowStyle = .bold
+        source.arrowStyle = .dashed
         source.arrowHeadPlacement = .both
         source.lineStyle = .dashed
         source.stepLabel = "7"

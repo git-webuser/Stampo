@@ -202,15 +202,23 @@ enum AnnotationRenderer {
     }
 
     private static func drawArrow(_ a: Annotation, ctx: CGContext) {
-        // `bold` draws a heavier shaft and a proportionally larger head so
-        // arrows read clearly over busy screenshots; other styles keep the
-        // annotation's own line width.
-        let shaftWidth = a.arrowStyle == .bold ? a.lineWidth * 1.8 : a.lineWidth
-        let headWidth = a.arrowStyle == .bold ? a.lineWidth * 1.8 : a.lineWidth
+        let shaftWidth = a.lineWidth
+        let headWidth = a.lineWidth
+        let headLength = max(12, headWidth * 4)
+        let overlap = headLength * 0.6
 
-        // Curved shaft: stroke the full Bézier, then paint the heads over its
-        // ends — the filled triangle covers the round cap, so no inset math.
+        // Curved shaft: stroke the Bézier, then paint the heads over its ends.
+        // Each headed end is pulled back along its tangent so the round cap
+        // hides under the triangle instead of poking a nub past the tip;
+        // a tail without a head keeps its endpoint (and round cap) as is.
         if let control = a.curveControl {
+            let curveStart = a.arrowHeadPlacement.includesStart
+                ? Self.insetTowardControl(a.start, control: control, by: overlap)
+                : a.start
+            let curveEnd = a.arrowHeadPlacement.includesEnd
+                ? Self.insetTowardControl(a.end, control: control, by: overlap)
+                : a.end
+
             ctx.setStrokeColor(a.color.cgColor)
             ctx.setFillColor(a.color.cgColor)
             ctx.setLineWidth(shaftWidth)
@@ -220,8 +228,8 @@ enum AnnotationRenderer {
                 let dash = max(6, shaftWidth * 2.4)
                 ctx.setLineDash(phase: 0, lengths: [dash, dash * 0.8])
             }
-            ctx.move(to: a.start)
-            ctx.addQuadCurve(to: a.end, control: control)
+            ctx.move(to: curveStart)
+            ctx.addQuadCurve(to: curveEnd, control: control)
             ctx.strokePath()
             ctx.setLineDash(phase: 0, lengths: [])
 
@@ -237,8 +245,6 @@ enum AnnotationRenderer {
         }
 
         let angle = atan2(a.end.y - a.start.y, a.end.x - a.start.x)
-        let headLength = max(12, headWidth * 4)
-        let overlap = headLength * 0.6
         let shaftLength = hypot(a.end.x - a.start.x, a.end.y - a.start.y)
         let headCount = (a.arrowHeadPlacement.includesStart ? 1 : 0)
             + (a.arrowHeadPlacement.includesEnd ? 1 : 0)
@@ -278,6 +284,20 @@ enum AnnotationRenderer {
         if a.arrowHeadPlacement.includesEnd {
             drawArrowhead(from: a.start, tip: a.end, lineWidth: headWidth, ctx: ctx)
         }
+    }
+
+    /// Moves a curved arrow's endpoint back toward its control point by up to
+    /// `distance`, along the end tangent (control→endpoint). Capped so it
+    /// never passes the control on a short curve. Keeps the drawn shaft short
+    /// of the real tip so the round cap tucks under the arrowhead.
+    private static func insetTowardControl(_ endpoint: CGPoint, control: CGPoint,
+                                           by distance: CGFloat) -> CGPoint {
+        let dx = endpoint.x - control.x, dy = endpoint.y - control.y
+        let length = hypot(dx, dy)
+        guard length > 0.001 else { return endpoint }
+        let d = min(distance, length * 0.9)
+        return CGPoint(x: endpoint.x - dx / length * d,
+                       y: endpoint.y - dy / length * d)
     }
 
     private static func drawArrowhead(from: CGPoint, tip: CGPoint,

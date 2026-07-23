@@ -90,6 +90,35 @@ enum TestImages {
         #expect(onShaft)
     }
 
+    @Test func curvedArrowCapDoesNotPokePastTip() {
+        // The round shaft cap must tuck under the arrowhead: no ink should
+        // sit ahead of the tip along the approach direction.
+        let base = TestImages.make(width: 80, height: 60)  // all white
+        var arrow = Annotation(kind: .arrow, start: CGPoint(x: 10, y: 50),
+                               end: CGPoint(x: 60, y: 30), color: .black, lineWidth: 6)
+        arrow.curveControl = CGPoint(x: 30, y: 20)   // bows upward
+        let rep = AnnotationRenderer.renderBitmap(base: base, annotations: [arrow])!
+
+        // A few px beyond the tip (continuing the control→tip direction) must
+        // stay white — the old round cap left a nub here.
+        let dx = arrow.end.x - arrow.curveControl!.x
+        let dy = arrow.end.y - arrow.curveControl!.y
+        let length = hypot(dx, dy)
+        for ahead in stride(from: CGFloat(5), through: 9, by: 1) {
+            let x = Int((arrow.end.x + dx / length * ahead).rounded())
+            let y = Int((arrow.end.y + dy / length * ahead).rounded())
+            #expect((rep.colorAt(x: x, y: y)?.brightnessComponent ?? 1) > 0.9)
+        }
+        // Sanity: the arrowhead itself is inked (scan its body, just behind
+        // the tip, rather than the razor-thin apex pixel).
+        let headInked = (48...58).contains { x in
+            (26...36).contains { y in
+                (rep.colorAt(x: x, y: y)?.brightnessComponent ?? 1) < 0.5
+            }
+        }
+        #expect(headInked)
+    }
+
     @Test(arguments: ArrowHeadPlacement.allCases, ArrowStyle.allCases)
     func arrowHeadsRenderAtConfiguredEndpoints(placement: ArrowHeadPlacement,
                                                style: ArrowStyle) {

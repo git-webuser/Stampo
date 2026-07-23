@@ -105,11 +105,11 @@ enum DrawingMode: String, Equatable, CaseIterable {
     }
 }
 
-/// Visual variant of an `.arrow`. `filled` is the default.
+/// Visual variant of an `.arrow`. `filled` is the default. (Weight is the
+/// thickness slider's job, so there's no separate "bold" style.)
 enum ArrowStyle: String, Equatable, CaseIterable {
     case filled   // solid shaft, filled triangle head   (→)
     case dashed   // dashed shaft, filled head           (⇢)
-    case bold     // heavy shaft, oversized filled head  (⇨)
 }
 
 /// Backing plate drawn behind `.text` for legibility over busy images.

@@ -477,11 +477,10 @@ struct EditorView: View {
         Picker("Arrow Style", selection: arrowStyleBinding) {
             Text(verbatim: "→").tag(ArrowStyle.filled)
             Text(verbatim: "⇢").tag(ArrowStyle.dashed)
-            Text(verbatim: "⇨").tag(ArrowStyle.bold)
         }
         .pickerStyle(.segmented)
         .labelsHidden()
-        .frame(width: 108)
+        .frame(width: 76)
         .hoverTip("Arrow Style")
     }
 
