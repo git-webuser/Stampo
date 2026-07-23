@@ -315,14 +315,6 @@ struct NotchTrayView: View {
                                 badgeBleed: badgeBleed,
                                 labelOffset: labelOffset,
                                 cornerRadius: metrics.buttonRadius,
-                                isHovered: hoveredDragCellID == shot.id,
-                                setHovered: { hovering in
-                                    if hovering {
-                                        hoveredDragCellID = shot.id
-                                    } else if hoveredDragCellID == shot.id {
-                                        hoveredDragCellID = nil
-                                    }
-                                },
                                 onOpen: { onHidePanel() },
                                 onRemove: {
                                     withAnimation(.easeInOut(duration: 0.18)) {
@@ -728,31 +720,46 @@ private struct TrayTextCell: View {
     }
 }
 
-// MARK: - Tray Screenshot Cell
+/// Finder-style copy: puts the given files on the general pasteboard so a paste
+/// in Finder (or any file-aware app) reproduces them.
+private func copyFilesToPasteboard(_ urls: [URL]) {
+    NSPasteboard.general.clearContents()
+    NSPasteboard.general.writeObjects(urls.map { $0 as NSURL })
+}
 
-private struct TrayScreenshotCell: View {
-    let shot: TrayScreenshot
-    let loader: ThumbnailLoader
+// MARK: - Shared single-file cell
+
+/// Shared chrome for a single-file tray cell — a captured screenshot or a stack
+/// member. Owns the rounded preview, hover label, press/drag animation, the
+/// drag-out shim, the delete badge, and the internal-drag preference. Callers
+/// supply the preview image, name, tap/drag behaviour, and context menu. While
+/// `isCopied` is up the label swaps to "Copied!" — the same idiom as the color
+/// and text cells. Hover is local — the shim's per-view zone tracking already
+/// prevents neighbour oscillation, and cellSpacing (8) exceeds the badge
+/// bleed (3) so no two cells hover at once.
+private struct TrayFileCell<Menu: View>: View {
+    let url: URL
+    /// nil → generic placeholder glyph (a still-decoding screenshot thumbnail).
+    let preview: NSImage?
+    let displayName: String
     let height: CGFloat
     let badgeBleed: CGFloat
     let labelOffset: CGFloat
     let cornerRadius: CGFloat
-    let isHovered: Bool
-    let setHovered: (Bool) -> Void
-    let onOpen: () -> Void
+    /// Swaps the name label for "Copied!" (driven by the caller's copy action).
+    var isCopied: Bool = false
+    let onTap: () -> Void
     let onRemove: () -> Void
-    let onMoveToTrash: () -> Void
+    let accessibilityLabelText: Text
+    let accessibilityHintText: Text
+    @ViewBuilder let menu: () -> Menu
 
-    @State private var isPressed    = false
+    @State private var isHovered     = false
+    @State private var isPressed     = false
     @State private var isBadgeActive = false
-    @State private var isDragging   = false
-    @State private var isCopied     = false
+    @State private var isDragging    = false
 
     private var width: CGFloat { height * 1.6 }
-
-    private var displayName: String {
-        shot.url.deletingPathExtension().lastPathComponent
-    }
 
     var body: some View {
         ZStack {
@@ -763,8 +770,8 @@ private struct TrayScreenshotCell: View {
                         .stroke(Color.white.opacity(isHovered ? 0.35 : 0.12), lineWidth: 1)
                 )
 
-            if let img = loader.image {
-                Image(nsImage: img)
+            if let preview {
+                Image(nsImage: preview)
                     .resizable()
                     .scaledToFill()
                     .frame(width: width, height: height)
@@ -778,32 +785,32 @@ private struct TrayScreenshotCell: View {
         .frame(width: width, height: height)
         .contentShape(Rectangle())
         .overlay(alignment: .bottom) {
-            Text(displayName)
+            // Name ↔ "Copied!" swap, mirroring TrayColorCell/TrayTextCell. Only
+            // the file name is width-capped and truncatable; the confirmation
+            // always renders whole — the capsule may outgrow the cell, exactly
+            // like the color cell's label.
+            Group {
+                if isCopied {
+                    Text("Copied!")
+                } else {
+                    Text(displayName)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+            }
                 .font(.system(size: 11, weight: .regular, design: .default))
                 .foregroundStyle(.white)
-                .lineLimit(1)
-                .truncationMode(.middle)
                 .padding(.horizontal, 4)
                 .padding(.vertical, 2)
                 .background(Capsule(style: .continuous).fill(Color.black.opacity(0.65)))
-                .frame(maxWidth: width)
-                .fixedSize(horizontal: false, vertical: true)
-                .opacity(isHovered ? 1 : 0)
+                .frame(maxWidth: isCopied ? nil : width)
+                .fixedSize(horizontal: isCopied, vertical: true)
+                // Copying from the context menu must show feedback even if the
+                // cursor already slid off the cell.
+                .opacity((isHovered || isCopied) ? 1 : 0)
                 .allowsHitTesting(false)
                 .offset(y: labelOffset)
-        }
-        .overlay {
-            if isCopied {
-                ZStack {
-                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .fill(Color.black.opacity(0.55))
-                    Text("Copied ✓")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(.white)
-                }
-                .transition(.opacity.animation(.easeInOut(duration: 0.14)))
-                .allowsHitTesting(false)
-            }
+                .animation(.easeInOut(duration: 0.14), value: isCopied)
         }
         .scaleEffect(isPressed ? 0.88 : (isDragging ? 0.92 : 1.0))
         .opacity(isDragging ? 0.45 : 1)
@@ -811,61 +818,93 @@ private struct TrayScreenshotCell: View {
         .animation(.spring(response: 0.15, dampingFraction: 0.7), value: isPressed)
         .overlay {
             TrayDragShim(
-                urls: [shot.url],
-                dragImages: [loader.image],
+                urls: [url],
+                dragImages: [preview],
                 cellSize: CGSize(width: width, height: height),
                 isPressed: $isPressed,
                 isDragging: $isDragging,
-                onHoverChange: setHovered,
-                onTap: {
-                    let cfg = NSWorkspace.OpenConfiguration()
-                    cfg.activates = true
-                    NSWorkspace.shared.open(shot.url, configuration: cfg)
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { onOpen() }
-                }
+                onHoverChange: { isHovered = $0 },
+                onTap: onTap
             )
         }
         // Badge is placed AFTER TrayDragShim so it sits above the NSView in z-order
         // and receives SwiftUI hit-testing before the NSView can intercept.
         .overlay(alignment: .topTrailing) {
-            TrayDeleteBadge(action: { onRemove() },
-                            isPressed: $isBadgeActive)
-            .opacity(isHovered ? 1 : 0)
-            .allowsHitTesting(isHovered)
-            .offset(x: badgeBleed, y: -badgeBleed)
+            TrayDeleteBadge(action: onRemove, isPressed: $isBadgeActive)
+                .opacity(isHovered ? 1 : 0)
+                .allowsHitTesting(isHovered)
+                .offset(x: badgeBleed, y: -badgeBleed)
         }
-        .contextMenu {
-            Button("Edit") {
-                EditorWindowController.shared.open(url: shot.url)
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { onOpen() }
-            }
-            Button("Open") {
-                let cfg = NSWorkspace.OpenConfiguration()
-                cfg.activates = true
-                NSWorkspace.shared.open(shot.url, configuration: cfg)
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { onOpen() }
-            }
-            Button("Pin to Screen") {
-                PinnedScreenshotController.shared.pin(url: shot.url)
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { onOpen() }
-            }
-            Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([shot.url]) }
-            Button("Copy") {
-                NSPasteboard.general.writeImage(at: shot.url)
-                withAnimation { isCopied = true }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                    withAnimation { isCopied = false }
-                }
-            }
-            Divider()
-            Button("Move to Trash", role: .destructive) {
-                onMoveToTrash()
-            }
-        }
+        .contextMenu { menu() }
         .preference(key: InternalDraggingKey.self, value: isDragging)
-        .accessibilityLabel("Screenshot \(shot.url.deletingPathExtension().lastPathComponent)")
-        .accessibilityHint("Tap to open, hold to delete")
+        .accessibilityLabel(accessibilityLabelText)
+        .accessibilityHint(accessibilityHintText)
         .accessibilityAddTraits(.isButton)
+    }
+}
+
+// MARK: - Tray Screenshot Cell
+
+private struct TrayScreenshotCell: View {
+    let shot: TrayScreenshot
+    let loader: ThumbnailLoader
+    let height: CGFloat
+    let badgeBleed: CGFloat
+    let labelOffset: CGFloat
+    let cornerRadius: CGFloat
+    let onOpen: () -> Void
+    let onRemove: () -> Void
+    let onMoveToTrash: () -> Void
+
+    @State private var isCopied = false
+
+    private var displayName: String {
+        shot.url.deletingPathExtension().lastPathComponent
+    }
+
+    private func open() {
+        let cfg = NSWorkspace.OpenConfiguration()
+        cfg.activates = true
+        NSWorkspace.shared.open(shot.url, configuration: cfg)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { onOpen() }
+    }
+
+    var body: some View {
+        TrayFileCell(
+            url: shot.url,
+            preview: loader.image,
+            displayName: displayName,
+            height: height,
+            badgeBleed: badgeBleed,
+            labelOffset: labelOffset,
+            cornerRadius: cornerRadius,
+            isCopied: isCopied,
+            onTap: { open() },
+            onRemove: onRemove,
+            accessibilityLabelText: Text("Screenshot \(displayName)"),
+            accessibilityHintText: Text("Tap to open, hold to delete"),
+            menu: {
+                Button("Edit") {
+                    EditorWindowController.shared.open(url: shot.url)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { onOpen() }
+                }
+                Button("Open") { open() }
+                Button("Pin to Screen") {
+                    PinnedScreenshotController.shared.pin(url: shot.url)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { onOpen() }
+                }
+                Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([shot.url]) }
+                Button("Copy") {
+                    NSPasteboard.general.writeImage(at: shot.url)
+                    withAnimation { isCopied = true }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                        withAnimation { isCopied = false }
+                    }
+                }
+                Divider()
+                Button("Move to Trash", role: .destructive) { onMoveToTrash() }
+            }
+        )
     }
 }
 
@@ -892,6 +931,7 @@ private struct TrayStackCell: View {
     @State private var isPressed     = false
     @State private var isBadgeActive = false
     @State private var isDragging    = false
+    @State private var isCopied      = false
 
     private var width: CGFloat { height * 1.6 }
     private var fanCount: Int { min(stack.urls.count, 3) }
@@ -913,6 +953,15 @@ private struct TrayStackCell: View {
 
     private func revealInFinder() {
         NSWorkspace.shared.activateFileViewerSelecting(stack.urls)
+    }
+
+    /// Copies every member to the pasteboard and flashes "Copied!" in the label.
+    private func copyAll() {
+        copyFilesToPasteboard(stack.urls)
+        withAnimation { isCopied = true }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+            withAnimation { isCopied = false }
+        }
     }
 
     /// Localized VoiceOver label; names the source folder when known so
@@ -960,19 +1009,27 @@ private struct TrayStackCell: View {
         .overlay(alignment: .bottom) {
             // Source folder name — the discriminator between stacks (each stack
             // is one folder). Falls back to the count if the folder is unknown.
-            Text(verbatim: folderName ?? "\(stack.urls.count)")
+            // While copying, swaps to "Copied!" (rendered whole, never truncated).
+            Group {
+                if isCopied {
+                    Text("Copied!")
+                } else {
+                    Text(verbatim: folderName ?? "\(stack.urls.count)")
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+            }
                 .font(.system(size: 11, weight: .regular, design: .default))
                 .foregroundStyle(.white)
-                .lineLimit(1)
-                .truncationMode(.middle)
                 .padding(.horizontal, 4)
                 .padding(.vertical, 2)
                 .background(Capsule(style: .continuous).fill(Color.black.opacity(0.65)))
-                .frame(maxWidth: width * 2)
+                .frame(maxWidth: isCopied ? nil : width * 2)
                 .fixedSize()
-                .opacity(isHovered ? 1 : 0)
+                .opacity((isHovered || isCopied) ? 1 : 0)
                 .allowsHitTesting(false)
                 .offset(y: labelOffset)
+                .animation(.easeInOut(duration: 0.14), value: isCopied)
         }
         .scaleEffect(isPressed ? 0.88 : (isDragging ? 0.92 : 1.0))
         .opacity(isDragging ? 0.45 : 1)
@@ -1000,6 +1057,7 @@ private struct TrayStackCell: View {
         }
         .contextMenu {
             Button("Show in Finder") { revealInFinder() }
+            Button("Copy") { copyAll() }
             Divider()
             Button("Remove from tray") { onRemove() }
         }
@@ -1029,6 +1087,17 @@ private struct ExpandedStackGroup: View {
     let onOpenMember: () -> Void
     let onRevealAll: () -> Void
     let onRemoveStack: () -> Void
+
+    @State private var isCopied = false
+
+    /// Copies every member to the pasteboard and flashes "Copied!" in the header.
+    private func copyAll() {
+        copyFilesToPasteboard(stack.urls)
+        withAnimation { isCopied = true }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+            withAnimation { isCopied = false }
+        }
+    }
 
     /// Source folder name, or nil for the filesystem root — mirrors
     /// TrayStackCell.folderName so the header reads the same as the badge.
@@ -1084,12 +1153,21 @@ private struct ExpandedStackGroup: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 1) {
-            Text(verbatim: folderName ?? "\(stack.urls.count)")
+            // Folder name; swaps to a whole, untruncated "Copied!" while copying.
+            Group {
+                if isCopied {
+                    Text("Copied!")
+                } else {
+                    Text(verbatim: folderName ?? "\(stack.urls.count)")
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+            }
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(.white)
-                .lineLimit(1)
-                .truncationMode(.middle)
                 .frame(maxWidth: 120, alignment: .leading)
+                .fixedSize(horizontal: isCopied, vertical: false)
+                .animation(.easeInOut(duration: 0.14), value: isCopied)
             Text("\(stack.urls.count) files")
                 .font(.system(size: 9, weight: .regular))
                 .foregroundStyle(.white.opacity(0.5))
@@ -1101,6 +1179,7 @@ private struct ExpandedStackGroup: View {
         .onTapGesture { onCollapse() }
         .contextMenu {
             Button("Show in Finder") { onRevealAll() }
+            Button("Copy") { copyAll() }
             Button("Collapse") { onCollapse() }
             Divider()
             Button("Remove from tray") { onRemoveStack() }
@@ -1122,9 +1201,11 @@ private struct ExpandedStackGroup: View {
     }
 }
 
-/// One file inside an expanded stack. Cut from TrayScreenshotCell: image members
-/// show their thumbnail, everything else the NSWorkspace file icon. Tap opens the
-/// file and hides the panel; drag carries just this file; the badge removes it.
+/// One file inside an expanded stack — a thin wrapper over TrayFileCell: image
+/// members show their thumbnail, everything else the cached NSWorkspace file
+/// icon. Tap opens the file and hides the panel; drag copies this file out
+/// (the member stays, like a screenshot cell — only the whole-stack drag is
+/// transit); the badge removes it from the tray.
 private struct StackMemberCell: View {
     let url: URL
     let loader: ThumbnailLoader?
@@ -1135,19 +1216,15 @@ private struct StackMemberCell: View {
     let onOpen: () -> Void
     let onRemove: () -> Void
 
-    @State private var isHovered     = false
-    @State private var isPressed     = false
-    @State private var isBadgeActive = false
-    @State private var isDragging    = false
+    @State private var isCopied = false
     /// The NSWorkspace file icon for non-image members, resolved once on appear
     /// so hover/press re-renders don't re-run the lookup.
     @State private var resolvedIcon: NSImage?
 
-    private var width: CGFloat { height * 1.6 }
     private var displayName: String { url.lastPathComponent }
 
     /// Decoded thumbnail for images, the cached system file icon otherwise (and
-    /// while a thumbnail is still decoding). Mirrors TrayStackCell.previewImage.
+    /// while a thumbnail is still decoding).
     private var previewImage: NSImage {
         loader?.image ?? resolvedIcon ?? NSWorkspace.shared.icon(forFile: url.path)
     }
@@ -1160,76 +1237,43 @@ private struct StackMemberCell: View {
     }
 
     var body: some View {
-        // Resolve once per render; reused by the thumbnail and the drag preview.
-        let preview = previewImage
-        return ZStack {
-            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .fill(Color.white.opacity(0.08))
-                .overlay(
-                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .stroke(Color.white.opacity(isHovered ? 0.35 : 0.12), lineWidth: 1)
-                )
-            Image(nsImage: preview)
-                .resizable()
-                .scaledToFill()
-                .frame(width: width, height: height)
-                .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-        }
-        .frame(width: width, height: height)
-        .contentShape(Rectangle())
-        .overlay(alignment: .bottom) {
-            Text(displayName)
-                .font(.system(size: 11, weight: .regular, design: .default))
-                .foregroundStyle(.white)
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .padding(.horizontal, 4)
-                .padding(.vertical, 2)
-                .background(Capsule(style: .continuous).fill(Color.black.opacity(0.65)))
-                .frame(maxWidth: width)
-                .fixedSize(horizontal: false, vertical: true)
-                .opacity(isHovered ? 1 : 0)
-                .allowsHitTesting(false)
-                .offset(y: labelOffset)
-        }
-        .scaleEffect(isPressed ? 0.88 : (isDragging ? 0.92 : 1.0))
-        .opacity(isDragging ? 0.45 : 1)
-        .animation(.spring(response: 0.2, dampingFraction: 0.8), value: isHovered)
-        .animation(.spring(response: 0.15, dampingFraction: 0.7), value: isPressed)
+        TrayFileCell(
+            url: url,
+            preview: previewImage,
+            displayName: displayName,
+            height: height,
+            badgeBleed: badgeBleed,
+            labelOffset: labelOffset,
+            cornerRadius: cornerRadius,
+            isCopied: isCopied,
+            onTap: { open() },
+            onRemove: onRemove,
+            accessibilityLabelText: Text("File \(displayName)"),
+            accessibilityHintText: Text("Tap to open, hold to delete"),
+            menu: {
+                Button("Open") { open() }
+                Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([url]) }
+                Button("Copy") {
+                    // Arbitrary file type → put the file itself on the
+                    // pasteboard (pastes in Finder and file-aware apps).
+                    copyFilesToPasteboard([url])
+                    withAnimation { isCopied = true }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                        withAnimation { isCopied = false }
+                    }
+                }
+                Divider()
+                Button("Move to Trash", role: .destructive) {
+                    onRemove()
+                    NSWorkspace.shared.recycle([url])
+                }
+            }
+        )
         .onAppear {
             if loader == nil, resolvedIcon == nil {
                 resolvedIcon = NSWorkspace.shared.icon(forFile: url.path)
             }
         }
-        .overlay {
-            TrayDragShim(
-                urls: [url],
-                dragImages: [preview],
-                cellSize: CGSize(width: width, height: height),
-                isPressed: $isPressed,
-                isDragging: $isDragging,
-                onHoverChange: { isHovered = $0 },
-                onTap: { open() },
-                onDragCompleted: { _ in onRemove() }
-            )
-        }
-        // Badge after the shim so it wins hit-testing (see TrayScreenshotCell).
-        .overlay(alignment: .topTrailing) {
-            TrayDeleteBadge(action: { onRemove() },
-                            isPressed: $isBadgeActive)
-            .opacity(isHovered ? 1 : 0)
-            .allowsHitTesting(isHovered)
-            .offset(x: badgeBleed, y: -badgeBleed)
-        }
-        .contextMenu {
-            Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([url]) }
-            Divider()
-            Button("Remove from tray") { onRemove() }
-        }
-        .preference(key: InternalDraggingKey.self, value: isDragging)
-        .accessibilityLabel("File \(displayName)")
-        .accessibilityHint("Tap to open, drag to move")
-        .accessibilityAddTraits(.isButton)
     }
 }
 
