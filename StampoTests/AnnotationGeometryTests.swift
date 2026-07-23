@@ -68,6 +68,47 @@ import Testing
         #expect(oval.hitTest(CGPoint(x: 50, y: 50), tolerance: 0))
     }
 
+    // MARK: path shapes (rounded rect, triangle, polygon, star, bubble)
+
+    @Test func triangleHitsOutlineNotInteriorUntilFilled() {
+        let triangle = make(.triangle, start: CGPoint(x: 0, y: 0),
+                            end: CGPoint(x: 100, y: 100))
+        #expect(triangle.hitTest(CGPoint(x: 50, y: 1), tolerance: 4))    // apex
+        #expect(triangle.hitTest(CGPoint(x: 50, y: 99), tolerance: 4))   // base
+        #expect(!triangle.hitTest(CGPoint(x: 50, y: 60), tolerance: 4))  // inside
+        #expect(!triangle.hitTest(CGPoint(x: 3, y: 5), tolerance: 4))    // outside
+
+        var filled = triangle
+        filled.fillOpacity = 0.3
+        #expect(filled.hitTest(CGPoint(x: 50, y: 60), tolerance: 0))
+    }
+
+    @Test func polygonAndStarVerticesFollowTheirCounts() {
+        let square = CGRect(x: 0, y: 0, width: 100, height: 100)
+        #expect(Annotation.polygonVertices(sides: 6, in: square).count == 6)
+        // First vertex sits at the top center.
+        let top = Annotation.polygonVertices(sides: 5, in: square)[0]
+        #expect(abs(top.x - 50) < 0.001 && abs(top.y) < 0.001)
+
+        let star = Annotation.starVertices(points: 5, in: square)
+        #expect(star.count == 10)   // outer points alternating with inner
+        #expect(abs(star[0].x - 50) < 0.001 && abs(star[0].y) < 0.001)
+    }
+
+    @Test func bubbleTailFollowsItsSideAndKeepsCornerHandles() {
+        var bubble = make(.bubble, start: CGPoint(x: 0, y: 0),
+                          end: CGPoint(x: 120, y: 80))
+        bubble.bubbleTail = .left
+        // The tail tip reaches the rect's bottom corner on the chosen side.
+        #expect(bubble.hitTest(CGPoint(x: 1, y: 79), tolerance: 4))
+        bubble.bubbleTail = .right
+        #expect(bubble.hitTest(CGPoint(x: 119, y: 79), tolerance: 4))
+        #expect(!bubble.hitTest(CGPoint(x: 1, y: 79), tolerance: 4))
+
+        #expect(bubble.handles.map(\.0) ==
+                [.topLeft, .topRight, .bottomLeft, .bottomRight])
+    }
+
     @Test func blurAndTextHitAnywhereInside() {
         var blur = make(.blur, start: CGPoint(x: 10, y: 10), end: CGPoint(x: 60, y: 40))
         blur.blurStyle = .gaussian

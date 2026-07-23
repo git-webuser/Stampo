@@ -118,6 +118,8 @@ enum AnnotationRenderer {
             case .arrow: drawArrow(annotation, ctx: ctx)
             case .rect:  drawShape(annotation, isOval: false, ctx: ctx)
             case .oval:  drawShape(annotation, isOval: true, ctx: ctx)
+            case .roundedRect, .triangle, .polygon, .star, .bubble:
+                drawPathShape(annotation, ctx: ctx)
             case .text:  drawText(annotation, ctx: ctx)
             case .freehand: drawFreehand(annotation, ctx: ctx)
             case .step:  drawStep(annotation, ctx: ctx)
@@ -301,6 +303,24 @@ enum AnnotationRenderer {
         } else {
             ctx.stroke(a.rect)
         }
+    }
+
+    /// Path-outlined closed shapes (rounded rect, triangle, polygon, star,
+    /// bubble): the same fill-then-stroke as rect/oval, over the shared
+    /// outline path hit-testing uses. Round joins keep star and triangle
+    /// tips from throwing long miter spikes at acute angles.
+    private static func drawPathShape(_ a: Annotation, ctx: CGContext) {
+        guard let outline = a.pathShapeOutline else { return }
+        if a.fillOpacity > 0 {
+            ctx.setFillColor(a.color.multipliedAlpha(a.fillOpacity).cgColor)
+            ctx.addPath(outline)
+            ctx.fillPath()
+        }
+        ctx.setStrokeColor(a.color.cgColor)
+        ctx.setLineWidth(a.lineWidth)
+        ctx.setLineJoin(.round)
+        ctx.addPath(outline)
+        ctx.strokePath()
     }
 
     /// Outline path of a loupe body: an ellipse or a rounded rectangle. Used

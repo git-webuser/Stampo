@@ -3,7 +3,8 @@ import SwiftUI
 
 /// Active tool in the editor toolbar.
 enum EditorTool: Equatable, CaseIterable {
-    case select, line, arrow, rect, oval, text, drawing, eraser, blur, step, loupe, scan, crop
+    case select, line, arrow, rect, oval, roundedRect, triangle, polygon, star,
+         bubble, text, drawing, eraser, blur, step, loupe, scan, crop
 
     /// Drawing tools shown in the toolbar picker. Scan and Crop are transient
     /// modes driven by their own action buttons, not persistent drawing tools,
@@ -27,7 +28,10 @@ enum EditorTool: Equatable, CaseIterable {
         case .blur:   return (11, "B")
         case .step:   return (1, "S")
         case .loupe:  return (46, "M")
-        case .scan, .crop: return nil
+        // Popover-only shapes are low-frequency and stay shortcut-free;
+        // recognition and crop stay transient modes without shortcuts.
+        case .roundedRect, .triangle, .polygon, .star, .bubble,
+             .scan, .crop: return nil
         }
     }
 
@@ -42,6 +46,11 @@ enum EditorTool: Equatable, CaseIterable {
         case .arrow:  return "arrow.up.right"
         case .rect:   return "rectangle"
         case .oval:   return "oval"
+        case .roundedRect: return "app"
+        case .triangle: return "triangle"
+        case .polygon:  return "hexagon"
+        case .star:     return "star"
+        case .bubble:   return "bubble.right"
         case .text:   return "textformat"
         case .drawing:return "pencil.tip"
         case .eraser: return "eraser"
@@ -60,6 +69,11 @@ enum EditorTool: Equatable, CaseIterable {
         case .arrow:  return "Arrow"
         case .rect:   return "Rectangle"
         case .oval:   return "Oval"
+        case .roundedRect: return "Rounded Rectangle"
+        case .triangle: return "Triangle"
+        case .polygon:  return "Polygon"
+        case .star:     return "Star"
+        case .bubble:   return "Bubble"
         case .text:   return "Text"
         case .drawing:return "Drawing"
         case .eraser: return "Eraser"
@@ -112,6 +126,12 @@ struct ToolStyle {
     var lineStyle: LineStyle = .solid
     /// Fill opacity (0…1) for new rect/oval; 0 is outline-only.
     var fillOpacity: CGFloat = 0
+    /// Sides for new polygons (ShapeCounts.polygonSides).
+    var polygonSides: Int = ShapeCounts.defaultPolygonSides
+    /// Points for new stars (ShapeCounts.starPoints).
+    var starPoints: Int = ShapeCounts.defaultStarPoints
+    /// Tail side for new bubbles.
+    var bubbleTail: BubbleTailDirection = .right
     /// nil = image-relative automatic size at placement.
     var fontSize: CGFloat?
     var fontPreset: AnnotationFontPreset = .system
@@ -686,6 +706,9 @@ struct EditorCanvasView: View {
                     annotation.arrowHeadPlacement = style.arrowHeadPlacement
                     annotation.lineStyle = style.lineStyle
                     annotation.fillOpacity = style.fillOpacity
+                    annotation.polygonSides = style.polygonSides
+                    annotation.starPoints = style.starPoints
+                    annotation.bubbleTail = style.bubbleTail
                     annotation.loupeScale = style.loupeScale
                     annotation.loupeShape = style.loupeShape
                     annotation.loupeRevealsOriginal = style.loupeRevealsOriginal
@@ -914,7 +937,8 @@ struct EditorCanvasView: View {
             document.beginChange()
             document.eraseFreehand(from: p, to: p, diameter: style.eraserDiameter)
             return .erasing(last: p)
-        case .line, .arrow, .rect, .oval, .blur, .step, .loupe:
+        case .line, .arrow, .rect, .oval, .roundedRect, .triangle, .polygon,
+             .star, .bubble, .blur, .step, .loupe:
             // Dragging the selected annotation's body moves it even with a
             // shape tool active; empty space starts a new shape on drag.
             if let selected = document.selectedAnnotation,
@@ -1001,6 +1025,11 @@ struct EditorCanvasView: View {
         case .arrow: return .arrow
         case .rect:  return .rect
         case .oval:  return .oval
+        case .roundedRect: return .roundedRect
+        case .triangle: return .triangle
+        case .polygon:  return .polygon
+        case .star:     return .star
+        case .bubble:   return .bubble
         case .blur:  return .blur
         case .loupe: return .loupe
         case .select, .text, .drawing, .eraser, .step, .scan, .crop: return nil
@@ -1032,8 +1061,10 @@ struct EditorCanvasView: View {
         switch kind {
         case .line, .arrow:
             return Annotation.snappedArrowEnd(from: start, to: point)
-        case .rect, .oval, .loupe:
-            // Shift makes a loupe's oval a circle (its rounded rect a square).
+        case .rect, .oval, .roundedRect, .triangle, .polygon, .star, .bubble,
+             .loupe:
+            // Shift makes a loupe's oval a circle (its rounded rect a square,
+            // a polygon or star regular).
             return Annotation.aspectLockedEnd(from: start, to: point)
         case .text, .freehand, .blur, .step:
             return point

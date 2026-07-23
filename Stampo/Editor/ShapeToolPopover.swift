@@ -27,7 +27,9 @@ struct ShapeToolButton: View {
     /// Outline shapes first; the two special-interior region tools live after a
     /// divider — the same "grid, divider, special options" idiom as macOS
     /// Markup's own popovers.
-    static let outlineShapes: [EditorTool] = [.rect, .oval]
+    static let outlineShapes: [EditorTool] = [
+        .rect, .roundedRect, .oval, .triangle, .polygon, .star, .bubble
+    ]
     static let regionTools:   [EditorTool] = [.blur, .loupe]
     static var family: [EditorTool] { outlineShapes + regionTools }
 
@@ -71,18 +73,28 @@ private struct ShapePopoverContent: View {
     let current: EditorTool
     let onPick: (EditorTool) -> Void
 
+    /// Cells per grid row. The odd outline count leaves one empty slot at the
+    /// end — reserved for the family's next shape.
+    private static let columns = 2
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            row(ShapeToolButton.outlineShapes)
+            grid(ShapeToolButton.outlineShapes)
             Divider()
-            row(ShapeToolButton.regionTools)
+            grid(ShapeToolButton.regionTools)
         }
         .padding(10)
     }
 
-    private func row(_ tools: [EditorTool]) -> some View {
-        HStack(spacing: 6) {
-            ForEach(tools, id: \.self) { cell($0) }
+    private func grid(_ tools: [EditorTool]) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(Array(stride(from: 0, to: tools.count, by: Self.columns)),
+                    id: \.self) { rowStart in
+                HStack(spacing: 6) {
+                    ForEach(tools[rowStart..<min(rowStart + Self.columns, tools.count)],
+                            id: \.self) { cell($0) }
+                }
+            }
         }
     }
 

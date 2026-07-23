@@ -8,11 +8,40 @@ enum AnnotationKind: Equatable {
     case arrow
     case rect
     case oval
+    case roundedRect
+    case triangle
+    case polygon
+    case star
+    case bubble
     case text
     case freehand
     case blur
     case step
     case loupe
+
+    /// Closed-region shapes whose outline is a computed `CGPath` over the
+    /// bounding rect (unlike rect/oval, which stroke CG primitives directly).
+    /// They share the family's corner handles, resize, and fill semantics.
+    var isPathShape: Bool {
+        switch self {
+        case .roundedRect, .triangle, .polygon, .star, .bubble: return true
+        default: return false
+        }
+    }
+}
+
+/// Which side of a `.bubble` speech balloon carries the tail.
+enum BubbleTailDirection: String, Equatable, CaseIterable {
+    case left
+    case right
+}
+
+/// Detented counts shared by the toolbar steppers and the path builders.
+nonisolated enum ShapeCounts {
+    static let polygonSides = 3...12
+    static let defaultPolygonSides = 6
+    static let starPoints = 4...10
+    static let defaultStarPoints = 5
 }
 
 /// Visual variant of a straight `.line` annotation.
@@ -322,6 +351,12 @@ struct Annotation: Identifiable, Equatable {
     var blurLevel: Int = BlurIntensity.defaultLevel
     /// 0 is outline-only; rect and oval use a translucent fill above 0.
     var fillOpacity: CGFloat = 0
+    /// Number of sides of a `.polygon` (ShapeCounts.polygonSides).
+    var polygonSides: Int = ShapeCounts.defaultPolygonSides
+    /// Number of points of a `.star` (ShapeCounts.starPoints).
+    var starPoints: Int = ShapeCounts.defaultStarPoints
+    /// Which side of a `.bubble` carries the tail.
+    var bubbleTail: BubbleTailDirection = .right
     /// Visual variant for `.arrow`.
     var arrowStyle: ArrowStyle = .filled
     /// Endpoint(s) that receive a filled arrowhead.
@@ -525,12 +560,127 @@ struct Annotation: Identifiable, Equatable {
                       height: abs(end.y - start.y))
     }
 
+    // MARK: Path-shape outlines (pure — unit-testable)
+
+    /// Outline path of a path-shape kind over its bounding rect; nil for
+    /// other kinds. Shared by rendering and hit-testing so they always agree.
+    var pathShapeOutline: CGPath? {
+        let r = rect
+        switch kind {
+        case .roundedRect:
+            let radius = Self.shapeCornerRadius(for: r)
+            return CGPath(roundedRect: r, cornerWidth: radius,
+                          cornerHeight: radius, transform: nil)
+        case .triangle:
+            return Self.closedPath([CGPoint(x: r.midX, y: r.minY),
+                                    CGPoint(x: r.maxX, y: r.maxY),
+                                    CGPoint(x: r.minX, y: r.maxY)])
+        case .polygon:
+            return Self.closedPath(Self.polygonVertices(sides: polygonSides, in: r))
+        case .star:
+            return Self.closedPath(Self.starVertices(points: starPoints, in: r))
+        case .bubble:
+            return Self.bubblePath(tail: bubbleTail, in: r)
+        default:
+            return nil
+        }
+    }
+
+    /// Corner rounding of a rounded rect or bubble body: the loupe's 20%
+    /// proportion, capped so large regions keep a crisp, UI-like radius.
+    static func shapeCornerRadius(for r: CGRect) -> CGFloat {
+        min(min(r.width, r.height) * 0.2, 40)
+    }
+
+    /// Vertices of a regular n-gon inscribed in the rect's ellipse, first
+    /// vertex at the top (image space, y grows downward).
+    static func polygonVertices(sides: Int, in r: CGRect) -> [CGPoint] {
+        let n = max(3, sides)
+        return (0..<n).map { index in
+            let angle = -CGFloat.pi / 2 + 2 * .pi * CGFloat(index) / CGFloat(n)
+            return CGPoint(x: r.midX + r.width / 2 * cos(angle),
+                           y: r.midY + r.height / 2 * sin(angle))
+        }
+    }
+
+    /// Vertices of an n-pointed star: outer points on the rect's ellipse
+    /// alternating with inner points at a fixed radius ratio, first point at
+    /// the top. 0.4 approximates the classic pentagram's inner radius.
+    static func starVertices(points: Int, in r: CGRect) -> [CGPoint] {
+        let n = max(2, points)
+        return (0..<(2 * n)).map { index in
+            let angle = -CGFloat.pi / 2 + .pi * CGFloat(index) / CGFloat(n)
+            let k: CGFloat = index.isMultiple(of: 2) ? 1 : 0.4
+            return CGPoint(x: r.midX + r.width / 2 * k * cos(angle),
+                           y: r.midY + r.height / 2 * k * sin(angle))
+        }
+    }
+
+    private static func closedPath(_ vertices: [CGPoint]) -> CGPath {
+        let path = CGMutablePath()
+        guard let first = vertices.first else { return path }
+        path.move(to: first)
+        for vertex in vertices.dropFirst() { path.addLine(to: vertex) }
+        path.closeSubpath()
+        return path
+    }
+
+    /// Speech balloon: a rounded-rect body over the top of the rect with a
+    /// flag-like tail whose outer edge continues the chosen side straight
+    /// down to the rect's bottom corner — the same silhouette as SF Symbols'
+    /// bubble.left/right, so the popover icon predicts the drawn shape.
+    static func bubblePath(tail: BubbleTailDirection, in r: CGRect) -> CGPath {
+        let tailSize = min(r.height * 0.25, r.width * 0.3, 56)
+        let body = CGRect(x: r.minX, y: r.minY,
+                          width: r.width, height: max(1, r.height - tailSize))
+        let radius = min(Self.shapeCornerRadius(for: body),
+                         body.width / 2, body.height / 2)
+        let path = CGMutablePath()
+        switch tail {
+        case .right:
+            path.move(to: CGPoint(x: body.minX + radius, y: body.minY))
+            path.addLine(to: CGPoint(x: body.maxX - radius, y: body.minY))
+            path.addArc(tangent1End: CGPoint(x: body.maxX, y: body.minY),
+                        tangent2End: CGPoint(x: body.maxX, y: body.minY + radius),
+                        radius: radius)
+            path.addLine(to: CGPoint(x: body.maxX, y: r.maxY))          // tail tip
+            path.addLine(to: CGPoint(x: body.maxX - tailSize, y: body.maxY))
+            path.addLine(to: CGPoint(x: body.minX + radius, y: body.maxY))
+            path.addArc(tangent1End: CGPoint(x: body.minX, y: body.maxY),
+                        tangent2End: CGPoint(x: body.minX, y: body.maxY - radius),
+                        radius: radius)
+            path.addLine(to: CGPoint(x: body.minX, y: body.minY + radius))
+            path.addArc(tangent1End: CGPoint(x: body.minX, y: body.minY),
+                        tangent2End: CGPoint(x: body.minX + radius, y: body.minY),
+                        radius: radius)
+        case .left:
+            path.move(to: CGPoint(x: body.minX + radius, y: body.minY))
+            path.addLine(to: CGPoint(x: body.maxX - radius, y: body.minY))
+            path.addArc(tangent1End: CGPoint(x: body.maxX, y: body.minY),
+                        tangent2End: CGPoint(x: body.maxX, y: body.minY + radius),
+                        radius: radius)
+            path.addLine(to: CGPoint(x: body.maxX, y: body.maxY - radius))
+            path.addArc(tangent1End: CGPoint(x: body.maxX, y: body.maxY),
+                        tangent2End: CGPoint(x: body.maxX - radius, y: body.maxY),
+                        radius: radius)
+            path.addLine(to: CGPoint(x: body.minX + tailSize, y: body.maxY))
+            path.addLine(to: CGPoint(x: body.minX, y: r.maxY))          // tail tip
+            path.addLine(to: CGPoint(x: body.minX, y: body.minY + radius))
+            path.addArc(tangent1End: CGPoint(x: body.minX, y: body.minY),
+                        tangent2End: CGPoint(x: body.minX + radius, y: body.minY),
+                        radius: radius)
+        }
+        path.closeSubpath()
+        return path
+    }
+
     /// True when the annotation is too small to be meaningful (accidental click).
     var isDegenerate: Bool {
         switch kind {
         case .line, .arrow:
             return hypot(end.x - start.x, end.y - start.y) < 4
-        case .rect, .oval, .blur, .loupe:
+        case .rect, .oval, .roundedRect, .triangle, .polygon, .star, .bubble,
+             .blur, .loupe:
             return rect.width < 4 || rect.height < 4
         case .text:
             return text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -572,6 +722,17 @@ struct Annotation: Identifiable, Equatable {
             let tol = (tolerance + lineWidth / 2) / min(rx, ry)
             if fillOpacity > 0 { return d <= 1 + tol }
             return abs(d - 1.0) <= tol
+        case .roundedRect, .triangle, .polygon, .star, .bubble:
+            // On the stroked outline (or anywhere inside when filled) — the
+            // same path the renderer draws, inflated by the tolerance.
+            guard let outline = pathShapeOutline else { return false }
+            let stroked = outline.copy(strokingWithWidth: lineWidth + tolerance * 2,
+                                       lineCap: .round, lineJoin: .round,
+                                       miterLimit: 10)
+            if fillOpacity > 0 {
+                return outline.contains(p) || stroked.contains(p)
+            }
+            return stroked.contains(p)
         case .text, .blur:
             return rect.insetBy(dx: -tolerance, dy: -tolerance).contains(p)
         case .freehand:
@@ -653,7 +814,8 @@ struct Annotation: Identifiable, Equatable {
             return [(.start, start), (.end, end), (.control, control)]
         case .line:
             return [(.start, start), (.end, end)]
-        case .rect, .oval, .blur, .loupe:
+        case .rect, .oval, .roundedRect, .triangle, .polygon, .star, .bubble,
+             .blur, .loupe:
             var result = Self.corners(of: rect,
                                       (.topLeft, .topRight, .bottomLeft, .bottomRight))
             if let sourceRect = loupeSourceRect {
@@ -789,9 +951,10 @@ struct Annotation: Identifiable, Equatable {
             }
             start = anchor
             // Shift locks the aspect for area shapes (a loupe's oval becomes
-            // a circle, its rounded rect a square).
+            // a circle, its rounded rect a square, a polygon/star regular).
             let lockAspect = aspectLocked
-                && (kind == .rect || kind == .oval || kind == .loupe)
+                && (kind == .rect || kind == .oval || kind == .loupe
+                    || kind.isPathShape)
             end = lockAspect ? Self.aspectLockedEnd(from: anchor, to: p) : p
         case .sourceTopLeft, .sourceTopRight, .sourceBottomLeft, .sourceBottomRight:
             applySourceResize(handle: handle, to: p, aspectLocked: aspectLocked)

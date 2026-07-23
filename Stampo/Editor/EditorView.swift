@@ -26,6 +26,8 @@ struct EditorView: View {
     @State private var panOffset: CGSize = .zero
     /// Pending crop rectangle (image-pixel space) while the crop tool is active.
     @State private var cropRect: CGRect?
+    /// ⌥ held over the rotate button — flips its icon to preview direction.
+    @State private var rotateOptionHeld = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -193,8 +195,31 @@ struct EditorView: View {
                 colorSwatches
                 lineStylePicker
                 thicknessSlider
-            case .rect, .oval:
+            case .rect, .oval, .roundedRect, .triangle:
                 colorSwatches
+                thicknessSlider
+                fillSlider
+            case .polygon:
+                colorSwatches
+                thicknessSlider
+                fillSlider
+                settingStepper("Sides", systemImage: "hexagon",
+                               value: polygonSidesBinding,
+                               range: CGFloat(ShapeCounts.polygonSides.lowerBound)
+                                   ... CGFloat(ShapeCounts.polygonSides.upperBound),
+                               step: 1)
+            case .star:
+                colorSwatches
+                thicknessSlider
+                fillSlider
+                settingStepper("Points", systemImage: "star",
+                               value: starPointsBinding,
+                               range: CGFloat(ShapeCounts.starPoints.lowerBound)
+                                   ... CGFloat(ShapeCounts.starPoints.upperBound),
+                               step: 1)
+            case .bubble:
+                colorSwatches
+                bubbleTailPicker
                 thicknessSlider
                 fillSlider
             case .arrow:
@@ -222,6 +247,11 @@ struct EditorView: View {
         case .arrow:  return .arrow
         case .rect:   return .rect
         case .oval:   return .oval
+        case .roundedRect: return .roundedRect
+        case .triangle: return .triangle
+        case .polygon:  return .polygon
+        case .star:     return .star
+        case .bubble:   return .bubble
         case .text:   return .text
         case .drawing:return .freehand
         case .blur:   return .blur
@@ -301,6 +331,19 @@ struct EditorView: View {
         .labelsHidden()
         .frame(width: 76)
         .hoverTip("Loupe Mode")
+    }
+
+    /// Which side of a bubble carries the tail — the same icon-only segmented
+    /// pattern as the loupe pickers.
+    private var bubbleTailPicker: some View {
+        Picker("Tail Side", selection: bubbleTailBinding) {
+            Image(systemName: "bubble.left").tag(BubbleTailDirection.left)
+            Image(systemName: "bubble.right").tag(BubbleTailDirection.right)
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .frame(width: 76)
+        .hoverTip("Tail Side")
     }
 
     private var documentHasBlur: Bool {
@@ -927,8 +970,13 @@ struct EditorView: View {
         )
     }
 
+    /// Closed shapes with a colorable interior — the whole outline family.
+    private static func isFillable(_ kind: AnnotationKind) -> Bool {
+        kind == .rect || kind == .oval || kind.isPathShape
+    }
+
     private var isFillableSelection: Bool {
-        document.selectedAnnotation?.kind == .rect || document.selectedAnnotation?.kind == .oval
+        document.selectedAnnotation.map { Self.isFillable($0.kind) } ?? false
     }
 
     /// Fill opacity as a 0…100 percentage for the slider; model stores 0…1.
@@ -945,8 +993,56 @@ struct EditorView: View {
                 let opacity = percent / 100
                 style.fillOpacity = opacity
                 document.updateSelected {
-                    if $0.kind == .rect || $0.kind == .oval { $0.fillOpacity = opacity }
+                    if Self.isFillable($0.kind) { $0.fillOpacity = opacity }
                 }
+            }
+        )
+    }
+
+    /// Stepper bridge: the sides of a `.polygon` as CGFloat detents.
+    private var polygonSidesBinding: Binding<CGFloat> {
+        Binding(
+            get: {
+                CGFloat(document.selectedAnnotation?.kind == .polygon
+                    ? (document.selectedAnnotation?.polygonSides ?? style.polygonSides)
+                    : style.polygonSides)
+            },
+            set: { newValue in
+                let sides = min(ShapeCounts.polygonSides.upperBound,
+                                max(ShapeCounts.polygonSides.lowerBound, Int(newValue)))
+                style.polygonSides = sides
+                applyToSelection { if $0.kind == .polygon { $0.polygonSides = sides } }
+            }
+        )
+    }
+
+    /// Stepper bridge: the points of a `.star` as CGFloat detents.
+    private var starPointsBinding: Binding<CGFloat> {
+        Binding(
+            get: {
+                CGFloat(document.selectedAnnotation?.kind == .star
+                    ? (document.selectedAnnotation?.starPoints ?? style.starPoints)
+                    : style.starPoints)
+            },
+            set: { newValue in
+                let points = min(ShapeCounts.starPoints.upperBound,
+                                 max(ShapeCounts.starPoints.lowerBound, Int(newValue)))
+                style.starPoints = points
+                applyToSelection { if $0.kind == .star { $0.starPoints = points } }
+            }
+        )
+    }
+
+    private var bubbleTailBinding: Binding<BubbleTailDirection> {
+        Binding(
+            get: {
+                document.selectedAnnotation?.kind == .bubble
+                    ? (document.selectedAnnotation?.bubbleTail ?? style.bubbleTail)
+                    : style.bubbleTail
+            },
+            set: { newValue in
+                style.bubbleTail = newValue
+                applyToSelection { if $0.kind == .bubble { $0.bubbleTail = newValue } }
             }
         )
     }
@@ -1066,16 +1162,25 @@ struct EditorView: View {
 
     /// One rotate button instead of a mirrored pair: plain click rotates
     /// right, ⌥-click rotates left. The modifier is read at click time, the
-    /// same way the canvas reads shift/option during drags.
+    /// same way the canvas reads shift/option during drags; while ⌥ is held
+    /// over the button, the icon and tooltip flip to preview the direction —
+    /// a local SwiftUI observation, so no Input Monitoring involved.
     private var rotateButtons: some View {
         Button {
             rotate(clockwise: !NSEvent.modifierFlags.contains(.option))
         } label: {
-            Image(systemName: "rotate.right").frame(width: 24, height: 22)
+            Image(systemName: rotateOptionHeld ? "rotate.left" : "rotate.right")
+                .frame(width: 24, height: 22)
         }
         .buttonStyle(.borderless)
         .disabled(textEditingActive)
-        .hoverTip("Rotate Right", shortcut: "⌥ — " + LocaleManager.shared.string("Rotate Left"))
+        .onModifierKeysChanged(mask: .option) { _, new in
+            rotateOptionHeld = !new.isEmpty
+        }
+        .hoverTip(rotateOptionHeld ? "Rotate Left" : "Rotate Right",
+                  shortcut: rotateOptionHeld
+                      ? nil
+                      : "⌥ — " + LocaleManager.shared.string("Rotate Left"))
     }
 
     /// Rotates the image, and — if a crop frame is active — rotates that frame
