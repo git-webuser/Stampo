@@ -184,13 +184,15 @@ struct EditorView: View {
                 colorSwatches
                 loupeShapePicker
                 loupeModePicker
+                // Grouped with the other segmented pickers, ahead of the
+                // sliders; only offered while the document has a blur.
+                if documentHasBlur {
+                    loupeSourcePicker
+                }
                 thicknessSlider
                 settingSlider("Magnification", systemImage: "plus.magnifyingglass",
                               value: loupeScaleBinding, range: 1.5...4, step: 0.5,
                               format: { String(format: "×%.1f", $0) })
-                if documentHasBlur {
-                    loupeSourcePicker
-                }
             case .line:
                 colorSwatches
                 lineStylePicker

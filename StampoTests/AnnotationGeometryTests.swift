@@ -69,6 +69,55 @@ import Testing
         #expect(oval.hitTest(CGPoint(x: 50, y: 50), tolerance: 0))
     }
 
+    // MARK: collapse edge cases (minimum size)
+
+    @Test func loupeBodiesNeverCollapse() {
+        // In-place loupe: compressing a corner all the way onto the anchor
+        // stops at the minimum size instead of vanishing.
+        var inPlace = make(.loupe, start: CGPoint(x: 10, y: 10),
+                           end: CGPoint(x: 90, y: 90))
+        inPlace.apply(handle: .topLeft, to: CGPoint(x: 90, y: 90))
+        #expect(inPlace.rect.size == CGSize(width: Annotation.minimumShapeSize,
+                                            height: Annotation.minimumShapeSize))
+
+        // Callout magnifier: the collapsing drag clamps (no mirroring for a
+        // loupe), and the coupled source marker keeps a nonzero size too.
+        var callout = make(.loupe, start: CGPoint(x: 100, y: 100),
+                           end: CGPoint(x: 180, y: 180))
+        callout.loupeSource = CGPoint(x: 40, y: 40)
+        callout.loupeSourceSize = CGSize(width: 40, height: 40)
+        let handle = callout.apply(handle: .topLeft, to: CGPoint(x: 500, y: 500))
+        #expect(handle == .topLeft)   // no mirrored handle for a loupe
+        #expect(callout.rect.size == CGSize(width: Annotation.minimumShapeSize,
+                                            height: Annotation.minimumShapeSize))
+        #expect((callout.loupeSourceSize?.width ?? 0) >= Annotation.minimumShapeSize)
+
+        // Source marker: same guarantee from the other body's corners, with
+        // the magnifier scaled in step but floored at the minimum.
+        var c2 = make(.loupe, start: CGPoint(x: 100, y: 100),
+                      end: CGPoint(x: 180, y: 180))
+        c2.loupeSource = CGPoint(x: 40, y: 40)
+        c2.loupeSourceSize = CGSize(width: 40, height: 40)
+        c2.apply(handle: .sourceTopLeft, to: CGPoint(x: 60, y: 60))
+        #expect(c2.loupeSourceSize == CGSize(width: Annotation.minimumShapeSize,
+                                             height: Annotation.minimumShapeSize))
+        #expect(c2.rect.width >= Annotation.minimumShapeSize)
+        #expect(c2.rect.height >= Annotation.minimumShapeSize)
+    }
+
+    @Test func pathShapesStayValidAtMinimumSize() {
+        for kind in [AnnotationKind.roundedRect, .polygon, .star, .bubble] {
+            var a = make(kind, start: CGPoint(x: 12, y: 12),
+                         end: CGPoint(x: 12 + Annotation.minimumShapeSize,
+                                      y: 12 + Annotation.minimumShapeSize))
+            a.polygonSides = ShapeCounts.polygonSides.lowerBound
+            a.starPoints = ShapeCounts.starPoints.upperBound
+            let outline = a.pathShapeOutline
+            #expect(outline != nil && !(outline?.isEmpty ?? true))
+            #expect(a.hitTest(CGPoint(x: 16, y: 16), tolerance: 4))
+        }
+    }
+
     // MARK: path shapes (rounded rect, polygon, star, bubble)
 
     @Test func triangularPolygonHitsPathInteriorNotBoundingBox() {

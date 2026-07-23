@@ -1059,6 +1059,17 @@ struct Annotation: Identifiable, Equatable {
         return result
     }
 
+    /// Clamps a dragged corner to the grabbed side of its anchor, at least
+    /// minimumShapeSize away — a loupe body never collapses or mirrors (a
+    /// mirrored magnifier is meaningless, unlike a flipped polygon).
+    private static func clampedCorner(_ p: CGPoint, anchor: CGPoint,
+                                      direction: CGPoint) -> CGPoint {
+        CGPoint(x: anchor.x + direction.x * max(minimumShapeSize,
+                                                direction.x * (p.x - anchor.x)),
+                y: anchor.y + direction.y * max(minimumShapeSize,
+                                                direction.y * (p.y - anchor.y)))
+    }
+
     /// Resizes the magnifier from one of its corners, scaling the source
     /// marker by the same factors so the two frames keep their size ratio
     /// ("both drag together"). The magnifier re-anchors on its opposite
@@ -1067,17 +1078,27 @@ struct Annotation: Identifiable, Equatable {
                                              aspectLocked: Bool) {
         let old = rect
         let anchor: CGPoint
+        let direction: CGPoint
         switch handle {
-        case .topLeft:     anchor = CGPoint(x: old.maxX, y: old.maxY)
-        case .topRight:    anchor = CGPoint(x: old.minX, y: old.maxY)
-        case .bottomLeft:  anchor = CGPoint(x: old.maxX, y: old.minY)
-        case .bottomRight: anchor = CGPoint(x: old.minX, y: old.minY)
+        case .topLeft:
+            anchor = CGPoint(x: old.maxX, y: old.maxY)
+            direction = CGPoint(x: -1, y: -1)
+        case .topRight:
+            anchor = CGPoint(x: old.minX, y: old.maxY)
+            direction = CGPoint(x: 1, y: -1)
+        case .bottomLeft:
+            anchor = CGPoint(x: old.maxX, y: old.minY)
+            direction = CGPoint(x: -1, y: 1)
+        case .bottomRight:
+            anchor = CGPoint(x: old.minX, y: old.minY)
+            direction = CGPoint(x: 1, y: 1)
         default: return
         }
         start = anchor
         let lockAspect = aspectLocked
             && (kind == .rect || kind == .oval || kind == .loupe)
-        end = lockAspect ? Self.aspectLockedEnd(from: anchor, to: p) : p
+        let target = lockAspect ? Self.aspectLockedEnd(from: anchor, to: p) : p
+        end = Self.clampedCorner(target, anchor: anchor, direction: direction)
         scaleLoupeSource(byWidth: old.width, height: old.height, from: rect)
     }
 
@@ -1089,37 +1110,51 @@ struct Annotation: Identifiable, Equatable {
                                             aspectLocked: Bool) {
         guard kind == .loupe, let sourceRect = loupeSourceRect else { return }
         let anchor: CGPoint
+        let direction: CGPoint
         switch handle {
-        case .sourceTopLeft:     anchor = CGPoint(x: sourceRect.maxX, y: sourceRect.maxY)
-        case .sourceTopRight:    anchor = CGPoint(x: sourceRect.minX, y: sourceRect.maxY)
-        case .sourceBottomLeft:  anchor = CGPoint(x: sourceRect.maxX, y: sourceRect.minY)
-        case .sourceBottomRight: anchor = CGPoint(x: sourceRect.minX, y: sourceRect.minY)
+        case .sourceTopLeft:
+            anchor = CGPoint(x: sourceRect.maxX, y: sourceRect.maxY)
+            direction = CGPoint(x: -1, y: -1)
+        case .sourceTopRight:
+            anchor = CGPoint(x: sourceRect.minX, y: sourceRect.maxY)
+            direction = CGPoint(x: 1, y: -1)
+        case .sourceBottomLeft:
+            anchor = CGPoint(x: sourceRect.maxX, y: sourceRect.minY)
+            direction = CGPoint(x: -1, y: 1)
+        case .sourceBottomRight:
+            anchor = CGPoint(x: sourceRect.minX, y: sourceRect.minY)
+            direction = CGPoint(x: 1, y: 1)
         default: return
         }
-        let corner = aspectLocked ? Self.aspectLockedEnd(from: anchor, to: p) : p
+        let locked = aspectLocked ? Self.aspectLockedEnd(from: anchor, to: p) : p
+        let corner = Self.clampedCorner(locked, anchor: anchor, direction: direction)
         let newSource = CGRect(x: min(anchor.x, corner.x), y: min(anchor.y, corner.y),
                                width: abs(corner.x - anchor.x),
                                height: abs(corner.y - anchor.y))
         loupeSource = CGPoint(x: newSource.midX, y: newSource.midY)
         loupeSourceSize = newSource.size
-        // Grow the magnifier by the same factors, about its own center.
+        // Grow the magnifier by the same factors, about its own center,
+        // never below the minimum size.
         let displayCenter = CGPoint(x: rect.midX, y: rect.midY)
         let kw = sourceRect.width > 0 ? newSource.width / sourceRect.width : 1
         let kh = sourceRect.height > 0 ? newSource.height / sourceRect.height : 1
-        let half = CGSize(width: rect.width * kw / 2, height: rect.height * kh / 2)
+        let half = CGSize(width: max(Self.minimumShapeSize, rect.width * kw) / 2,
+                          height: max(Self.minimumShapeSize, rect.height * kh) / 2)
         start = CGPoint(x: displayCenter.x - half.width, y: displayCenter.y - half.height)
         end = CGPoint(x: displayCenter.x + half.width, y: displayCenter.y + half.height)
     }
 
     /// Scales the source marker by the width/height factors implied by the
     /// magnifier changing from `oldW`×`oldH` to `new`, keeping the marker
-    /// centered where it is. No-op for an in-place loupe.
+    /// centered where it is and never below the minimum size. No-op for an
+    /// in-place loupe.
     private mutating func scaleLoupeSource(byWidth oldW: CGFloat, height oldH: CGFloat,
                                            from new: CGRect) {
         guard let size = loupeSourceSize else { return }
         let kw = oldW > 0 ? new.width / oldW : 1
         let kh = oldH > 0 ? new.height / oldH : 1
-        loupeSourceSize = CGSize(width: size.width * kw, height: size.height * kh)
+        loupeSourceSize = CGSize(width: max(Self.minimumShapeSize, size.width * kw),
+                                 height: max(Self.minimumShapeSize, size.height * kh))
     }
 
     // MARK: Arrow geometry (pure — unit-testable)
