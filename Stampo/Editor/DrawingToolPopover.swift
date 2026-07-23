@@ -16,6 +16,8 @@ struct DrawingToolButton: View {
     @Binding var drawingMode: DrawingMode
     /// Current tool color; tints the brush traces in the popover.
     let strokeColor: Color
+    /// Current marker nib — the marker's trace renders with its real cap.
+    let markerTip: MarkerTip
     /// Selection is routed through the same path the inline tool buttons use.
     let select: (EditorTool) -> Void
 
@@ -54,7 +56,8 @@ struct DrawingToolButton: View {
             DrawingPopoverContent(
                 activeBrush: tool == .drawing ? drawingMode : nil,
                 eraserActive: tool == .eraser,
-                strokeColor: strokeColor
+                strokeColor: strokeColor,
+                markerTip: markerTip
             ) { picked in
                 switch picked {
                 case .brush(let mode):
@@ -81,6 +84,7 @@ private struct DrawingPopoverContent: View {
     let activeBrush: DrawingMode?
     let eraserActive: Bool
     let strokeColor: Color
+    let markerTip: MarkerTip
     let onPick: (DrawingToolButton.Pick) -> Void
 
     var body: some View {
@@ -102,7 +106,8 @@ private struct DrawingPopoverContent: View {
                                                     : "ToolBrushMarker",
                             fallbackSymbol: mode == .pen ? "pencil.tip"
                                                          : "highlighter")
-            StrokeTrace(style: mode.freehandStyle, color: strokeColor)
+            StrokeTrace(style: mode.freehandStyle, color: strokeColor,
+                        tip: markerTip)
         }
     }
 
@@ -175,6 +180,8 @@ private struct InstrumentImage: View {
 struct StrokeTrace: View {
     let style: FreehandStyle
     let color: Color
+    /// Marker nib; pens always draw round.
+    var tip: MarkerTip = .round
     var fadesOut = false
 
     var body: some View {
@@ -192,6 +199,7 @@ struct StrokeTrace: View {
             path.addLine(to: points[points.count - 1])
 
             let width: CGFloat = style == .marker ? 8 : 3.5
+            let squareTip = style == .marker && tip == .square
             let base = color.opacity(style.opacity)
             let shading: GraphicsContext.Shading = fadesOut
                 ? .linearGradient(Gradient(colors: [base, base.opacity(0)]),
@@ -200,7 +208,8 @@ struct StrokeTrace: View {
                 : .color(base)
             context.stroke(path, with: shading,
                            style: StrokeStyle(lineWidth: width,
-                                              lineCap: .round, lineJoin: .round))
+                                              lineCap: squareTip ? .square : .round,
+                                              lineJoin: .round))
         }
         .frame(height: 18)
     }

@@ -1697,6 +1697,23 @@
         }
       }
     },
+    "Erase All" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Erase All"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Стереть всё"
+          }
+        }
+      }
+    },
     "Eraser" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2531,7 +2548,7 @@
       }
     },
     "Marker Size" : {
-      "extractionState" : "stale",
+      "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -2543,6 +2560,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Размер маркера"
+          }
+        }
+      }
+    },
+    "Marker Tip" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Marker Tip"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Наконечник маркера"
           }
         }
       }

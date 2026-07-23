@@ -87,6 +87,7 @@ struct EditorView: View {
             toolButton(.text)
             DrawingToolButton(tool: $tool, drawingMode: $style.drawingMode,
                               strokeColor: Color(nsColor: style.color.nsColor),
+                              markerTip: style.markerTip,
                               select: selectTool)
             toolButton(.step)
         }
@@ -135,6 +136,7 @@ struct EditorView: View {
                 settingSlider("Eraser Size", systemImage: "eraser",
                               value: eraserDiameterBinding,
                               range: 8...80, step: 4)
+                eraseAllButton
             } else {
                 contextControls
             }
@@ -165,6 +167,9 @@ struct EditorView: View {
                 // The pen/marker choice lives in the drawing popover — one
                 // parameter, one home; the row keeps the per-brush settings.
                 colorSwatches
+                if effectiveDrawingMode == .marker {
+                    markerTipPicker
+                }
                 let range: ClosedRange<CGFloat> = effectiveDrawingMode == .marker
                     ? 8...64 : 2...32
                 settingSlider("Brush Size", systemImage: "lineweight",
@@ -348,6 +353,34 @@ struct EditorView: View {
 
     private var documentHasBlur: Bool {
         document.annotations.contains { $0.kind == .blur }
+    }
+
+    /// Marker nib shape — the same icon-only segmented pattern as the loupe
+    /// pickers. Offered only while the marker is the effective brush.
+    private var markerTipPicker: some View {
+        Picker("Marker Tip", selection: markerTipBinding) {
+            Image(systemName: "circle.fill").tag(MarkerTip.round)
+            Image(systemName: "square.fill").tag(MarkerTip.square)
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .frame(width: 76)
+        .hoverTip("Marker Tip")
+    }
+
+    /// Deletes every freehand stroke as one undo step; the eraser only ever
+    /// touches freehand, so the button scope matches the tool's.
+    private var eraseAllButton: some View {
+        Button {
+            document.eraseAllFreehand()
+        } label: {
+            Label("Erase All", systemImage: "trash")
+                .font(.system(size: 11))
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+        .disabled(!document.annotations.contains { $0.kind == .freehand })
+        .hoverTip("Erase All")
     }
 
     private var fillSlider: some View {
@@ -630,6 +663,28 @@ struct EditorView: View {
             return DrawingMode(selected.freehandStyle)
         }
         return style.drawingMode
+    }
+
+    /// Like the width slider, the tip applies to the style and to a selected
+    /// marker stroke — it's a stroke attribute, not an instrument switch.
+    private var markerTipBinding: Binding<MarkerTip> {
+        Binding(
+            get: {
+                if let selected = document.selectedAnnotation,
+                   selected.kind == .freehand, selected.freehandStyle == .marker {
+                    return selected.markerTip
+                }
+                return style.markerTip
+            },
+            set: { newValue in
+                style.markerTip = newValue
+                document.updateSelected {
+                    if $0.kind == .freehand, $0.freehandStyle == .marker {
+                        $0.markerTip = newValue
+                    }
+                }
+            }
+        )
     }
 
     private var drawingWidthBinding: Binding<CGFloat> {

@@ -250,6 +250,33 @@ import Testing
         #expect(doc.annotations.filter { $0.kind == .freehand }.count == 4)
     }
 
+    @Test func eraseAllFreehandIsOneUndoStepAndSparesOtherKinds() {
+        let doc = makeDocument()
+        var pen = Annotation(kind: .freehand, start: .zero,
+                             end: CGPoint(x: 100, y: 0), color: .red, lineWidth: 4)
+        pen.freehandPoints = [.zero, CGPoint(x: 100, y: 0)]
+        let marker = pen.duplicated(offset: CGPoint(x: 0, y: 20))
+        let rect = Annotation(kind: .rect, start: .zero,
+                              end: CGPoint(x: 40, y: 40), color: .blue, lineWidth: 4)
+        doc.annotations = [pen, marker, rect]
+        doc.selectedID = pen.id
+
+        doc.eraseAllFreehand()
+        #expect(doc.annotations.map(\.kind) == [.rect])
+        #expect(doc.selectedID == nil)         // selection died with its stroke
+        #expect(doc.undoStack.count == 1)      // one step, self-bracketed
+
+        doc.undo()
+        #expect(doc.annotations.count == 3)
+
+        // Without any freehand strokes the action is a no-op — no empty
+        // undo entries.
+        let empty = makeDocument()
+        empty.annotations = [rect]
+        empty.eraseAllFreehand()
+        #expect(empty.annotations == [rect] && empty.undoStack.isEmpty)
+    }
+
     @Test func rotateTransformsEveryFreehandPoint() {
         let doc = makeDocument()
         var stroke = Annotation(kind: .freehand, start: CGPoint(x: 1, y: 2),

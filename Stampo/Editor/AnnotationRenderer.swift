@@ -164,18 +164,22 @@ enum AnnotationRenderer {
     private static func drawFreehand(_ a: Annotation, ctx: CGContext) {
         guard let first = a.freehandPoints.first else { return }
         let color = a.color.multipliedAlpha(a.freehandStyle.opacity)
+        // A square marker nib lays flat stroke caps (chisel-highlighter);
+        // joins stay round so the smoothed path doesn't grow corners.
+        let squareTip = a.freehandStyle == .marker && a.markerTip == .square
 
         ctx.saveGState()
         ctx.setStrokeColor(color.cgColor)
         ctx.setFillColor(color.cgColor)
         ctx.setLineWidth(a.lineWidth)
-        ctx.setLineCap(.round)
+        ctx.setLineCap(squareTip ? .square : .round)
         ctx.setLineJoin(.round)
 
         if a.freehandPoints.count == 1 {
             let radius = a.lineWidth / 2
-            ctx.fillEllipse(in: CGRect(x: first.x - radius, y: first.y - radius,
-                                       width: a.lineWidth, height: a.lineWidth))
+            let dot = CGRect(x: first.x - radius, y: first.y - radius,
+                             width: a.lineWidth, height: a.lineWidth)
+            if squareTip { ctx.fill(dot) } else { ctx.fillEllipse(in: dot) }
             ctx.restoreGState()
             return
         }

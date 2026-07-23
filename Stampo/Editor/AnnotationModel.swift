@@ -80,6 +80,13 @@ enum FreehandStyle: String, Equatable, CaseIterable {
     }
 }
 
+/// Tip of the marker nib: round lays soft stroke caps, square flat ones —
+/// the classic chisel-highlighter look. The pen always draws round.
+enum MarkerTip: String, Equatable, CaseIterable {
+    case round
+    case square
+}
+
 /// Active instrument of the shared Drawing tool. Destructive erasing is a
 /// separate top-level editor tool rather than a drawable annotation style.
 enum DrawingMode: String, Equatable, CaseIterable {
@@ -382,6 +389,8 @@ struct Annotation: Identifiable, Equatable {
     var freehandPoints: [CGPoint] = []
     /// Rendering strategy for a `.freehand` annotation.
     var freehandStyle: FreehandStyle = .pen
+    /// Nib shape of a `.freehand` marker stroke; pens ignore it.
+    var markerTip: MarkerTip = .round
     /// Magnification factor of a `.loupe`.
     var loupeScale: CGFloat = 2
     /// Outline of a `.loupe`.
@@ -1437,6 +1446,18 @@ struct DocumentSnapshot: Equatable {
             self.selectedID = nil
         }
         return didChange
+    }
+
+    /// Removes every freehand stroke in one undoable step — the eraser's
+    /// "erase all". Other annotation kinds are untouched.
+    func eraseAllFreehand() {
+        guard annotations.contains(where: { $0.kind == .freehand }) else { return }
+        beginChange()
+        annotations.removeAll { $0.kind == .freehand }
+        if let selectedID, !annotations.contains(where: { $0.id == selectedID }) {
+            self.selectedID = nil
+        }
+        commitChange()
     }
 
     // MARK: Undo / redo (snapshot stack of value types)

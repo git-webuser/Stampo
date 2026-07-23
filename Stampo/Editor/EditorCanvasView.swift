@@ -154,6 +154,8 @@ struct ToolStyle {
     /// Whether new loupes reveal the original (unredacted) pixels.
     var loupeRevealsOriginal = false
     var drawingMode: DrawingMode = .pen
+    /// Nib shape for new marker strokes.
+    var markerTip: MarkerTip = .round
     var penWidth: CGFloat = 6
     var markerWidth: CGFloat = 24
     var eraserDiameter: CGFloat = 32
@@ -935,6 +937,7 @@ struct EditorCanvasView: View {
             var annotation = Annotation(kind: .freehand, start: p, end: p,
                                         color: style.color, lineWidth: width)
             annotation.freehandStyle = style.drawingMode.freehandStyle
+            annotation.markerTip = style.markerTip
             annotation.appendFreehandPoint(p, minimumDistance: 0)
             document.annotations.append(annotation)
             document.selectedID = annotation.id
