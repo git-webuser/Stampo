@@ -733,6 +733,9 @@ struct EditorCanvasView: View {
                     dragMode = .movingLoupePart(id, part, last: p)
 
                 case .resizing(let id, let handle):
+                    // A corner pushed through the opposite edge mirrors the
+                    // shape; the drag continues with the mirrored handle.
+                    var continuedHandle = handle
                     update(id) { annotation in
                         // Curve control: dragging near the straight start–end
                         // segment snaps the arrow back to straight, so bending
@@ -757,8 +760,12 @@ struct EditorCanvasView: View {
                                 break
                             }
                         } else {
-                            annotation.apply(handle: handle, to: p, aspectLocked: isShiftHeld)
+                            continuedHandle = annotation.apply(
+                                handle: handle, to: p, aspectLocked: isShiftHeld)
                         }
+                    }
+                    if continuedHandle != handle {
+                        dragMode = .resizing(id, continuedHandle)
                     }
 
                 case .recognitionSelecting(let start, _):

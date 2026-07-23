@@ -356,8 +356,8 @@ struct Annotation: Identifiable, Equatable {
     /// Number of points of a `.star` (ShapeCounts.starPoints).
     var starPoints: Int = ShapeCounts.defaultStarPoints
     /// Vertically asymmetric shapes (polygon, star) drawn apex-down (funnel).
-    /// Set from the drag direction while drawing; resizing never changes it —
-    /// handles clamp at the opposite edge instead of flipping through it.
+    /// Set from the drag direction while drawing; a resize toggles it only on
+    /// a decisive push through the opposite edge (see `apply(handle:)`).
     var flippedVertically: Bool = false
     /// Which side of a `.bubble` carries the tail.
     var bubbleTail: BubbleTailDirection = .right
@@ -960,9 +960,16 @@ struct Annotation: Identifiable, Equatable {
     /// keeps a compressed shape a shape instead of a degenerate line.
     static let minimumShapeSize: CGFloat = 8
 
-    /// Drags one handle to a new position. Corner handles re-anchor
-    /// start/end so the opposite corner stays fixed.
-    mutating func apply(handle: Handle, to p: CGPoint, aspectLocked: Bool = false) {
+    /// Drags one handle to a new position, returning the handle the drag
+    /// should continue with. Corner handles re-anchor start/end so the
+    /// opposite corner stays fixed; within ±minimumShapeSize of the anchor
+    /// they sit in a dead zone at the minimum size (jitter can't flip the
+    /// shape), while a decisive push through the opposite edge mirrors the
+    /// geometry — the grabbed corner takes the mirrored handle's role and a
+    /// polygon/star flips its apex.
+    @discardableResult
+    mutating func apply(handle: Handle, to p: CGPoint,
+                        aspectLocked: Bool = false) -> Handle {
         switch handle {
         case .start: start = p
         case .end:   end = p
@@ -973,7 +980,7 @@ struct Annotation: Identifiable, Equatable {
             // plain shapes just re-anchor on the opposite corner.
             if kind == .loupe, loupeSourceRect != nil {
                 applyDisplayResize(handle: handle, to: p, aspectLocked: aspectLocked)
-                return
+                return handle
             }
             let r = rect
             let anchor: CGPoint
@@ -991,7 +998,7 @@ struct Annotation: Identifiable, Equatable {
             case .bottomRight:
                 anchor = CGPoint(x: r.minX, y: r.minY)
                 direction = CGPoint(x: 1, y: 1)
-            default: return
+            default: return handle
             }
             start = anchor
             // Shift locks the aspect for area shapes (a loupe's oval becomes
@@ -1000,19 +1007,56 @@ struct Annotation: Identifiable, Equatable {
                 && (kind == .rect || kind == .oval || kind == .loupe
                     || kind.isPathShape)
             let target = lockAspect ? Self.aspectLockedEnd(from: anchor, to: p) : p
-            // The dragged corner stays on its side of the anchor, at least
-            // minimumShapeSize away: compressing an area shape can't collapse
-            // it into a line, and the corner can't push through the opposite
-            // edge (which used to re-anchor mid-drag and, for polygon/star,
-            // arbitrarily toggle the apex direction).
-            end = CGPoint(
-                x: anchor.x + direction.x * max(Self.minimumShapeSize,
-                                                direction.x * (target.x - anchor.x)),
-                y: anchor.y + direction.y * max(Self.minimumShapeSize,
-                                                direction.y * (target.y - anchor.y)))
+            let (dx, crossedX) = Self.resolvedDelta(raw: target.x - anchor.x,
+                                                    side: direction.x)
+            let (dy, crossedY) = Self.resolvedDelta(raw: target.y - anchor.y,
+                                                    side: direction.y)
+            end = CGPoint(x: anchor.x + dx, y: anchor.y + dy)
+            if crossedY { flippedVertically.toggle() }
+            return Self.mirroredCorner(handle, acrossX: crossedX, acrossY: crossedY)
         case .sourceTopLeft, .sourceTopRight, .sourceBottomLeft, .sourceBottomRight:
             applySourceResize(handle: handle, to: p, aspectLocked: aspectLocked)
         }
+        return handle
+    }
+
+    /// One axis of a corner resize. `side` is the grabbed corner's side of
+    /// the anchor (±1). Within ±minimumShapeSize of the anchor the corner
+    /// clamps to the minimum size on its original side — a dead zone that
+    /// keeps a shape from degenerating into a line and jitter from flipping
+    /// it; beyond that the delta passes through and reports the crossing.
+    private static func resolvedDelta(raw: CGFloat, side: CGFloat)
+        -> (delta: CGFloat, crossed: Bool) {
+        let along = raw * side
+        if along >= minimumShapeSize { return (raw, false) }
+        if along > -minimumShapeSize { return (side * minimumShapeSize, false) }
+        return (raw, true)
+    }
+
+    /// The handle whose geometric role the grabbed corner assumes after the
+    /// resize mirrored the shape across the anchor.
+    private static func mirroredCorner(_ handle: Handle,
+                                       acrossX: Bool, acrossY: Bool) -> Handle {
+        var result = handle
+        if acrossX {
+            switch result {
+            case .topLeft:     result = .topRight
+            case .topRight:    result = .topLeft
+            case .bottomLeft:  result = .bottomRight
+            case .bottomRight: result = .bottomLeft
+            default: break
+            }
+        }
+        if acrossY {
+            switch result {
+            case .topLeft:     result = .bottomLeft
+            case .bottomLeft:  result = .topLeft
+            case .topRight:    result = .bottomRight
+            case .bottomRight: result = .topRight
+            default: break
+            }
+        }
+        return result
     }
 
     /// Resizes the magnifier from one of its corners, scaling the source

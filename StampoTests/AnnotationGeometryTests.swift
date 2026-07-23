@@ -126,28 +126,37 @@ import Testing
         #expect(!funnel.hitTest(CGPoint(x: 3, y: 95), tolerance: 4))   // outside old apex corner
     }
 
-    @Test func resizeKeepsOrientationAndClampsAtMinimumSize() {
+    @Test func resizeDeadZoneHoldsOrientationDecisiveCrossingFlipsIt() {
         var funnel = make(.polygon, start: CGPoint(x: 0, y: 100),
                           end: CGPoint(x: 100, y: 0))
         funnel.polygonSides = 3
         funnel.updateCreationOrientation()
-
-        // Grabbing any corner no longer toggles the stored orientation.
-        funnel.apply(handle: .bottomRight, to: CGPoint(x: 120, y: 120))
         #expect(funnel.flippedVertically)
+
+        // Ordinary resize: same handle back, orientation untouched.
+        var handle = funnel.apply(handle: .bottomRight, to: CGPoint(x: 120, y: 120))
+        #expect(handle == .bottomRight && funnel.flippedVertically)
         #expect(funnel.rect == CGRect(x: 0, y: 0, width: 120, height: 120))
-        funnel.apply(handle: .topLeft, to: CGPoint(x: 10, y: 10))
-        #expect(funnel.flippedVertically)
 
-        // Compressing past the opposite edge clamps at the minimum size on
-        // the corner's own side instead of crossing (no degenerate line, no
-        // re-anchor mid-drag).
-        var a = make(.rect, start: CGPoint(x: 10, y: 10), end: CGPoint(x: 110, y: 90))
-        a.apply(handle: .topLeft, to: CGPoint(x: 200, y: 200))
-        #expect(a.rect == CGRect(x: 110 - Annotation.minimumShapeSize,
-                                 y: 90 - Annotation.minimumShapeSize,
-                                 width: Annotation.minimumShapeSize,
-                                 height: Annotation.minimumShapeSize))
+        // Within ±minimumShapeSize of the anchor: the shape sits at the
+        // minimum size on its original side — jitter can't flip it.
+        handle = funnel.apply(handle: .bottomRight, to: CGPoint(x: 120, y: -4))
+        #expect(handle == .bottomRight && funnel.flippedVertically)
+        #expect(funnel.rect == CGRect(x: 0, y: 0, width: 120,
+                                      height: Annotation.minimumShapeSize))
+
+        // A decisive push through the opposite edge mirrors the shape: the
+        // apex flips and the drag continues with the mirrored handle.
+        handle = funnel.apply(handle: .bottomRight, to: CGPoint(x: 120, y: -40))
+        #expect(handle == .topRight)
+        #expect(!funnel.flippedVertically)
+        #expect(funnel.rect == CGRect(x: 0, y: -40, width: 120, height: 40))
+
+        // The continued drag with the mirrored handle keeps the same fixed
+        // anchor and doesn't re-flip.
+        handle = funnel.apply(handle: handle, to: CGPoint(x: 120, y: -60))
+        #expect(handle == .topRight && !funnel.flippedVertically)
+        #expect(funnel.rect == CGRect(x: 0, y: -60, width: 120, height: 60))
     }
 
     @Test func bubbleTailFollowsItsSideAndKeepsCornerHandles() {
