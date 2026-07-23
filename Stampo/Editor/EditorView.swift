@@ -17,9 +17,6 @@ struct EditorView: View {
     var saveHandler: ((EditorDocument) -> Bool)?
 
     @State private var tool: EditorTool = .select
-    /// Last shape picked from the collapsed shape-family popover; drives the
-    /// shapes button emblem while another tool is active.
-    @State private var lastShape: EditorTool = .rect
     @State private var style = ToolStyle()
     @State private var editingTextID: UUID?
     @State private var zoomFactor: CGFloat = 1
@@ -86,7 +83,7 @@ struct EditorView: View {
             toolButton(.select)
             toolButton(.line)
             toolButton(.arrow)
-            ShapeToolButton(tool: $tool, lastShape: $lastShape, select: selectTool)
+            ShapeToolButton(tool: $tool, select: selectTool)
             toolButton(.text)
             toolButton(.drawing)
             toolButton(.eraser)

@@ -15,14 +15,17 @@ import SwiftUI
 /// declutters the toolbar — it does not remove direct access.
 struct ShapeToolButton: View {
     @Binding var tool: EditorTool
-    /// Remembers the last shape chosen so the button emblem still reflects the
-    /// family's current pick while an unrelated tool is active.
-    @Binding var lastShape: EditorTool
     /// Selection is routed through the same path the inline tool buttons use,
     /// so blur-source preparation and selection clearing stay identical.
     let select: (EditorTool) -> Void
 
     @State private var showPopover = false
+
+    /// Family emblem shown while no shape tool is active. The button state
+    /// mirrors the actual tool, never a remembered pick: showing the last
+    /// shape would promise something a click doesn't deliver (activating a
+    /// shape always goes through the popover).
+    private static let familyGlyph = "capsule.on.rectangle"
 
     /// Outline shapes first; the two special-interior region tools live after a
     /// divider — the same "grid, divider, special options" idiom as macOS
@@ -34,14 +37,11 @@ struct ShapeToolButton: View {
     static var family: [EditorTool] { outlineShapes + regionTools }
 
     private var isActive: Bool { Self.family.contains(tool) }
-    /// While a shape tool is active the button shows it; otherwise it shows the
-    /// last shape, so the emblem always says what a click-through would draw.
-    private var displayed: EditorTool { isActive ? tool : lastShape }
 
     var body: some View {
         Button { showPopover = true } label: {
             HStack(spacing: 3) {
-                Image(systemName: displayed.systemImage)
+                Image(systemName: isActive ? tool.systemImage : Self.familyGlyph)
                     .font(.system(size: 13, weight: .medium))
                 Image(systemName: "chevron.down")
                     .font(.system(size: 7, weight: .bold))
@@ -57,8 +57,9 @@ struct ShapeToolButton: View {
         .foregroundStyle(isActive ? Color.accentColor : Color.primary)
         .hoverTip("Shapes")
         .popover(isPresented: $showPopover, arrowEdge: .bottom) {
-            ShapePopoverContent(current: displayed) { picked in
-                lastShape = picked
+            // Highlight only the actually active shape — nothing on first
+            // open or after another tool reset the family.
+            ShapePopoverContent(current: isActive ? tool : nil) { picked in
                 select(picked)
                 showPopover = false
             }
@@ -70,7 +71,10 @@ struct ShapeToolButton: View {
 /// names surface as hover tooltips (the same `hoverTip` the toolbar uses), and
 /// the current pick is highlighted.
 private struct ShapePopoverContent: View {
-    let current: EditorTool
+    /// The active shape tool, or nil when the family isn't active — then no
+    /// cell is highlighted, matching the fact that picking still takes a
+    /// click.
+    let current: EditorTool?
     let onPick: (EditorTool) -> Void
 
     /// Cells per grid row. (A triangle is the 3-sided polygon, so it isn't a
