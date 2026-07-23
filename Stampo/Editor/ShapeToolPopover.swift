@@ -24,8 +24,9 @@ struct ShapeToolButton: View {
     /// Family emblem shown while no shape tool is active. The button state
     /// mirrors the actual tool, never a remembered pick: showing the last
     /// shape would promise something a click doesn't deliver (activating a
-    /// shape always goes through the popover).
-    private static let familyGlyph = "capsule.on.rectangle"
+    /// shape always goes through the popover). (circle.on.square reads the
+    /// same but ships only with macOS 26; this twin exists on 15.7.)
+    private static let familyGlyph = "square.on.circle"
 
     /// Outline shapes first; the two special-interior region tools live after a
     /// divider — the same "grid, divider, special options" idiom as macOS
