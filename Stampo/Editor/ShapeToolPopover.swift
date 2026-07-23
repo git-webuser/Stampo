@@ -64,50 +64,45 @@ struct ShapeToolButton: View {
     }
 }
 
-/// Popover body: two rows of shape cells split by a divider. Each cell shows an
-/// SF Symbol identity plus a caption, and the current pick is highlighted.
+/// Popover body: two rows of icon-only shape cells split by a divider. Cell
+/// names surface as hover tooltips (the same `hoverTip` the toolbar uses), and
+/// the current pick is highlighted.
 private struct ShapePopoverContent: View {
     let current: EditorTool
     let onPick: (EditorTool) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 8) {
             row(ShapeToolButton.outlineShapes)
             Divider()
             row(ShapeToolButton.regionTools)
         }
-        .padding(12)
-        .frame(width: 168)
+        .padding(10)
     }
 
     private func row(_ tools: [EditorTool]) -> some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 6) {
             ForEach(tools, id: \.self) { cell($0) }
         }
     }
 
     private func cell(_ t: EditorTool) -> some View {
         Button { onPick(t) } label: {
-            VStack(spacing: 5) {
-                Image(systemName: t.systemImage)
-                    .font(.system(size: 18, weight: .regular))
-                    .frame(height: 22)
-                Text(LocaleManager.shared.string(t.labelKey))
-                    .font(.system(size: 10))
-                    .lineLimit(1)
-            }
-            .frame(width: 66, height: 52)
-            .background(
-                RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .fill(t == current ? Color.accentColor.opacity(0.18)
-                                       : Color.primary.opacity(0.05))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .strokeBorder(t == current ? Color.accentColor : .clear, lineWidth: 1.5)
-            )
-            .foregroundStyle(t == current ? Color.accentColor : Color.primary)
+            Image(systemName: t.systemImage)
+                .font(.system(size: 17, weight: .regular))
+                .frame(width: 44, height: 34)
+                .background(
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .fill(t == current ? Color.accentColor.opacity(0.18)
+                                           : Color.primary.opacity(0.05))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .strokeBorder(t == current ? Color.accentColor : .clear, lineWidth: 1.5)
+                )
+                .foregroundStyle(t == current ? Color.accentColor : Color.primary)
         }
         .buttonStyle(.plain)
+        .hoverTip(t.labelKey, shortcut: t.shortcut?.label)
     }
 }

@@ -2411,6 +2411,23 @@
         }
       }
     },
+    "Loupe" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Loupe"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Лупа"
+          }
+        }
+      }
+    },
     "Loupe Mode" : {
       "extractionState" : "manual",
       "localizations" : {
