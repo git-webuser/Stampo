@@ -1064,22 +1064,18 @@ struct EditorView: View {
         .hoverTip("Zoom to Fit")
     }
 
+    /// One rotate button instead of a mirrored pair: plain click rotates
+    /// right, ⌥-click rotates left. The modifier is read at click time, the
+    /// same way the canvas reads shift/option during drags.
     private var rotateButtons: some View {
-        HStack(spacing: 2) {
-            Button { rotate(clockwise: false) } label: {
-                Image(systemName: "rotate.left").frame(width: 24, height: 22)
-            }
-            .buttonStyle(.borderless)
-            .disabled(textEditingActive)
-            .hoverTip("Rotate Left")
-
-            Button { rotate(clockwise: true) } label: {
-                Image(systemName: "rotate.right").frame(width: 24, height: 22)
-            }
-            .buttonStyle(.borderless)
-            .disabled(textEditingActive)
-            .hoverTip("Rotate Right")
+        Button {
+            rotate(clockwise: !NSEvent.modifierFlags.contains(.option))
+        } label: {
+            Image(systemName: "rotate.right").frame(width: 24, height: 22)
         }
+        .buttonStyle(.borderless)
+        .disabled(textEditingActive)
+        .hoverTip("Rotate Right", shortcut: "⌥ — " + LocaleManager.shared.string("Rotate Left"))
     }
 
     /// Rotates the image, and — if a crop frame is active — rotates that frame
