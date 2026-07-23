@@ -369,17 +369,21 @@ struct EditorView: View {
     }
 
     /// Deletes every freehand stroke as one undo step; the eraser only ever
-    /// touches freehand, so the button scope matches the tool's.
+    /// touches freehand, so the button scope matches the tool's. Icon-only
+    /// and sized to sit level with the row's segmented controls.
+    /// (`eraser.badge.xmark` reads best but ships only with macOS 26;
+    /// `eraser.line.dashed` is the closest glyph on 15.7.)
     private var eraseAllButton: some View {
         Button {
             document.eraseAllFreehand()
         } label: {
-            Label("Erase All", systemImage: "trash")
-                .font(.system(size: 11))
+            Image(systemName: "eraser.line.dashed")
+                .font(.system(size: 12))
+                .frame(width: 34, height: 22)
         }
         .buttonStyle(.bordered)
-        .controlSize(.small)
         .disabled(!document.annotations.contains { $0.kind == .freehand })
+        .accessibilityLabel("Erase All")
         .hoverTip("Erase All")
     }
 
