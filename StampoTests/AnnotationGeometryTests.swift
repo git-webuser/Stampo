@@ -43,19 +43,20 @@ import Testing
         #expect(line.handles.map(\.0) == [.start, .end])
     }
 
-    @Test func rectHitsBorderNotInterior() {
+    @Test func rectHitsInteriorEvenUnfilled() {
+        // 0% fill still reads as the shape's body (Fitts): the interior
+        // selects and drags without sniping the outline.
         let a = make(.rect, start: CGPoint(x: 10, y: 10), end: CGPoint(x: 110, y: 90))
         #expect(a.hitTest(CGPoint(x: 60, y: 11), tolerance: 4))   // top edge
-        #expect(a.hitTest(CGPoint(x: 109, y: 50), tolerance: 4))  // right edge
-        #expect(!a.hitTest(CGPoint(x: 60, y: 50), tolerance: 4))  // deep inside
+        #expect(a.hitTest(CGPoint(x: 60, y: 50), tolerance: 4))   // deep inside
         #expect(!a.hitTest(CGPoint(x: 200, y: 50), tolerance: 4)) // far outside
     }
 
-    @Test func ovalHitsOutline() {
+    @Test func ovalHitsEllipseInteriorNotCorners() {
         let a = make(.oval, start: CGPoint(x: 0, y: 0), end: CGPoint(x: 100, y: 100))
         #expect(a.hitTest(CGPoint(x: 50, y: 1), tolerance: 4))    // top of circle
-        #expect(a.hitTest(CGPoint(x: 99, y: 50), tolerance: 4))   // right of circle
-        #expect(!a.hitTest(CGPoint(x: 50, y: 50), tolerance: 4))  // center
+        #expect(a.hitTest(CGPoint(x: 50, y: 50), tolerance: 4))   // center
+        #expect(!a.hitTest(CGPoint(x: 3, y: 3), tolerance: 4))    // bounding-box corner
     }
 
     @Test func filledShapesHitTheirInterior() {
@@ -70,18 +71,15 @@ import Testing
 
     // MARK: path shapes (rounded rect, polygon, star, bubble)
 
-    @Test func triangularPolygonHitsOutlineNotInteriorUntilFilled() {
+    @Test func triangularPolygonHitsPathInteriorNotBoundingBox() {
         var triangle = make(.polygon, start: CGPoint(x: 0, y: 0),
                             end: CGPoint(x: 100, y: 100))
         triangle.polygonSides = 3
         #expect(triangle.hitTest(CGPoint(x: 50, y: 1), tolerance: 4))    // apex
         #expect(triangle.hitTest(CGPoint(x: 50, y: 99), tolerance: 4))   // base
-        #expect(!triangle.hitTest(CGPoint(x: 50, y: 60), tolerance: 4))  // inside
-        #expect(!triangle.hitTest(CGPoint(x: 3, y: 5), tolerance: 4))    // outside
-
-        var filled = triangle
-        filled.fillOpacity = 0.3
-        #expect(filled.hitTest(CGPoint(x: 50, y: 60), tolerance: 0))
+        #expect(triangle.hitTest(CGPoint(x: 50, y: 60), tolerance: 4))   // inside
+        // Inside the bounding rect but outside the triangle: still a miss.
+        #expect(!triangle.hitTest(CGPoint(x: 3, y: 5), tolerance: 4))
     }
 
     @Test func polygonAndStarVerticesFollowTheirCounts() {
@@ -111,10 +109,9 @@ import Testing
         }
     }
 
-    @Test func upwardDragFlipsPolygonApexDownward() {
-        // Drawing (or resizing) with end above start turns the apex downward —
-        // the funnel case. The sign lives in the raw endpoints, which `rect`
-        // normalizes away.
+    @Test func upwardCreationDragFlipsPolygonApexDownward() {
+        // Drawing upward points the apex down — the funnel case. Orientation
+        // is stored, set from the drag while creating.
         let flipped = Annotation.polygonVertices(
             sides: 3, in: CGRect(x: 0, y: 0, width: 100, height: 100),
             flippedVertically: true)
@@ -123,29 +120,34 @@ import Testing
         var funnel = make(.polygon, start: CGPoint(x: 0, y: 100),
                           end: CGPoint(x: 100, y: 0))
         funnel.polygonSides = 3
-        #expect(funnel.hitTest(CGPoint(x: 50, y: 99), tolerance: 4))   // apex now at bottom
-        #expect(funnel.hitTest(CGPoint(x: 50, y: 1), tolerance: 4))    // top side
+        funnel.updateCreationOrientation()
+        #expect(funnel.flippedVertically)
+        #expect(funnel.hitTest(CGPoint(x: 50, y: 99), tolerance: 4))   // apex at bottom
         #expect(!funnel.hitTest(CGPoint(x: 3, y: 95), tolerance: 4))   // outside old apex corner
     }
 
-    @Test func selectedBodyAcceptsInteriorOfUnfilledShapes() {
-        // A selected shape drags from anywhere inside its outline even with
-        // 0% fill; the plain hitTest stays outline-only for clicks.
-        let rect = make(.rect, start: CGPoint(x: 10, y: 10), end: CGPoint(x: 110, y: 90))
-        #expect(!rect.hitTest(CGPoint(x: 60, y: 50), tolerance: 4))
-        #expect(rect.selectedBodyHitTest(CGPoint(x: 60, y: 50), tolerance: 4))
-        #expect(!rect.selectedBodyHitTest(CGPoint(x: 200, y: 50), tolerance: 4))
+    @Test func resizeKeepsOrientationAndClampsAtMinimumSize() {
+        var funnel = make(.polygon, start: CGPoint(x: 0, y: 100),
+                          end: CGPoint(x: 100, y: 0))
+        funnel.polygonSides = 3
+        funnel.updateCreationOrientation()
 
-        var triangle = make(.polygon, start: CGPoint(x: 0, y: 0),
-                            end: CGPoint(x: 100, y: 100))
-        triangle.polygonSides = 3
-        #expect(triangle.selectedBodyHitTest(CGPoint(x: 50, y: 60), tolerance: 4))
-        // Outside the triangle but inside its bounding rect: still a miss.
-        #expect(!triangle.selectedBodyHitTest(CGPoint(x: 5, y: 20), tolerance: 4))
+        // Grabbing any corner no longer toggles the stored orientation.
+        funnel.apply(handle: .bottomRight, to: CGPoint(x: 120, y: 120))
+        #expect(funnel.flippedVertically)
+        #expect(funnel.rect == CGRect(x: 0, y: 0, width: 120, height: 120))
+        funnel.apply(handle: .topLeft, to: CGPoint(x: 10, y: 10))
+        #expect(funnel.flippedVertically)
 
-        let oval = make(.oval, start: CGPoint(x: 0, y: 0), end: CGPoint(x: 100, y: 100))
-        #expect(oval.selectedBodyHitTest(CGPoint(x: 50, y: 50), tolerance: 4))
-        #expect(!oval.selectedBodyHitTest(CGPoint(x: 3, y: 3), tolerance: 4))
+        // Compressing past the opposite edge clamps at the minimum size on
+        // the corner's own side instead of crossing (no degenerate line, no
+        // re-anchor mid-drag).
+        var a = make(.rect, start: CGPoint(x: 10, y: 10), end: CGPoint(x: 110, y: 90))
+        a.apply(handle: .topLeft, to: CGPoint(x: 200, y: 200))
+        #expect(a.rect == CGRect(x: 110 - Annotation.minimumShapeSize,
+                                 y: 90 - Annotation.minimumShapeSize,
+                                 width: Annotation.minimumShapeSize,
+                                 height: Annotation.minimumShapeSize))
     }
 
     @Test func bubbleTailFollowsItsSideAndKeepsCornerHandles() {

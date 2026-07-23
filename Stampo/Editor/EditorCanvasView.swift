@@ -711,6 +711,7 @@ struct EditorCanvasView: View {
                     annotation.loupeShape = style.loupeShape
                     annotation.loupeRevealsOriginal = style.loupeRevealsOriginal
                     annotation.end = constrainedEndpoint(p, from: startPixel, kind: kind)
+                    annotation.updateCreationOrientation()
                     document.annotations.append(annotation)
                     document.selectedID = annotation.id
                     dragMode = .creating(annotation.id)
@@ -718,6 +719,7 @@ struct EditorCanvasView: View {
                 case .creating(let id):
                     update(id) {
                         $0.end = constrainedEndpoint(p, from: $0.start, kind: $0.kind)
+                        $0.updateCreationOrientation()
                     }
 
                 case .moving(let id, let last):
@@ -908,15 +910,6 @@ struct EditorCanvasView: View {
                 }
                 return .moving(hit.id, last: p)
             }
-            // Nothing outline-hit: the current selection still offers its
-            // whole interior for dragging (an unfilled shape would otherwise
-            // be grabbable only by its outline). Checked after the outline
-            // pass so annotations framed by the selection stay clickable.
-            if let selected = document.selectedAnnotation,
-               selected.selectedBodyHitTest(p, tolerance: tolerancePx) {
-                document.beginChange()
-                return .moving(selected.id, last: p)
-            }
             // Empty space: a click deselects (in handleClick), a drag pans.
             return .undecided(pixelPoint: p)
         case .text:
@@ -947,10 +940,9 @@ struct EditorCanvasView: View {
         case .line, .arrow, .rect, .oval, .roundedRect, .polygon,
              .star, .bubble, .blur, .step, .loupe:
             // Dragging the selected annotation's body moves it even with a
-            // shape tool active — anywhere inside a closed outline, filled or
-            // not; empty space starts a new shape on drag.
+            // shape tool active; empty space starts a new shape on drag.
             if let selected = document.selectedAnnotation,
-               selected.selectedBodyHitTest(p, tolerance: tolerancePx) {
+               selected.hitTest(p, tolerance: tolerancePx) {
                 document.beginChange()
                 if let part = selected.loupePart(at: p, tolerance: tolerancePx) {
                     return .movingLoupePart(selected.id, part, last: p)

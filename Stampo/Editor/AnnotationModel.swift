@@ -355,6 +355,10 @@ struct Annotation: Identifiable, Equatable {
     var polygonSides: Int = ShapeCounts.defaultPolygonSides
     /// Number of points of a `.star` (ShapeCounts.starPoints).
     var starPoints: Int = ShapeCounts.defaultStarPoints
+    /// Vertically asymmetric shapes (polygon, star) drawn apex-down (funnel).
+    /// Set from the drag direction while drawing; resizing never changes it —
+    /// handles clamp at the opposite edge instead of flipping through it.
+    var flippedVertically: Bool = false
     /// Which side of a `.bubble` carries the tail.
     var bubbleTail: BubbleTailDirection = .right
     /// Visual variant for `.arrow`.
@@ -573,10 +577,10 @@ struct Annotation: Identifiable, Equatable {
                           cornerHeight: radius, transform: nil)
         case .polygon:
             return Self.closedPath(Self.polygonVertices(
-                sides: polygonSides, in: r, flippedVertically: isFlippedVertically))
+                sides: polygonSides, in: r, flippedVertically: flippedVertically))
         case .star:
             return Self.closedPath(Self.starVertices(
-                points: starPoints, in: r, flippedVertically: isFlippedVertically))
+                points: starPoints, in: r, flippedVertically: flippedVertically))
         case .bubble:
             return Self.bubblePath(tail: bubbleTail, in: r)
         default:
@@ -584,11 +588,13 @@ struct Annotation: Identifiable, Equatable {
         }
     }
 
-    /// Vertically asymmetric shapes (polygon, star) honor the drag's sign:
-    /// pulling a corner handle through the opposite edge — or drawing the
-    /// shape upward — turns the apex downward (funnel). `rect` normalizes
-    /// this sign away, so it's read off the raw endpoints.
-    private var isFlippedVertically: Bool { end.y < start.y }
+    /// While drawing, vertically asymmetric shapes follow the drag: pulling
+    /// upward points the apex down (funnel). Called by the canvas on every
+    /// creation update; once the shape exists the orientation is fixed.
+    mutating func updateCreationOrientation() {
+        guard kind == .polygon || kind == .star else { return }
+        flippedVertically = end.y < start.y
+    }
 
     /// Corner rounding of a rounded rect or bubble body: the loupe's 20%
     /// proportion, capped so large regions keep a crisp, UI-like radius.
@@ -734,34 +740,30 @@ struct Annotation: Identifiable, Equatable {
             }
             return Self.distance(from: p, toSegment: start, end) <= distance
         case .rect:
-            // On the stroked border (inflate/deflate by tolerance).
-            let outer = rect.insetBy(dx: -tolerance - lineWidth / 2, dy: -tolerance - lineWidth / 2)
-            if fillOpacity > 0 { return outer.contains(p) }
-            let inner = rect.insetBy(dx: tolerance + lineWidth / 2, dy: tolerance + lineWidth / 2)
-            return outer.contains(p) && !(inner.width > 0 && inner.height > 0 && inner.contains(p))
+            // Whole interior, filled or not: 0% fill still reads as the
+            // shape's body, so selecting doesn't require sniping the outline
+            // (Fitts). The cost — a frame drawn atop other annotations
+            // swallows clicks inside it — follows z-order, topmost first.
+            return rect.insetBy(dx: -tolerance - lineWidth / 2,
+                                dy: -tolerance - lineWidth / 2).contains(p)
         case .oval:
-            // Near the ellipse outline: compare normalized radial distance to 1.
+            // Inside the ellipse (plus tolerance): interior counts as body
+            // even without a fill — same Fitts rationale as .rect.
             let r = rect
             guard r.width > 0, r.height > 0 else { return false }
-            let cx = r.midX, cy = r.midY
             let rx = r.width / 2, ry = r.height / 2
-            let nx = (p.x - cx) / rx, ny = (p.y - cy) / ry
-            let d = sqrt(nx * nx + ny * ny)
+            let nx = (p.x - r.midX) / rx, ny = (p.y - r.midY) / ry
             // Convert tolerance to normalized units using the smaller radius.
             let tol = (tolerance + lineWidth / 2) / min(rx, ry)
-            if fillOpacity > 0 { return d <= 1 + tol }
-            return abs(d - 1.0) <= tol
+            return sqrt(nx * nx + ny * ny) <= 1 + tol
         case .roundedRect, .polygon, .star, .bubble:
-            // On the stroked outline (or anywhere inside when filled) — the
-            // same path the renderer draws, inflated by the tolerance.
+            // The full path interior, or near the stroked outline — the same
+            // path the renderer draws, inflated by the tolerance.
             guard let outline = pathShapeOutline else { return false }
-            let stroked = outline.copy(strokingWithWidth: lineWidth + tolerance * 2,
-                                       lineCap: .round, lineJoin: .round,
-                                       miterLimit: 10)
-            if fillOpacity > 0 {
-                return outline.contains(p) || stroked.contains(p)
-            }
-            return stroked.contains(p)
+            if outline.contains(p) { return true }
+            return outline.copy(strokingWithWidth: lineWidth + tolerance * 2,
+                                lineCap: .round, lineJoin: .round,
+                                miterLimit: 10).contains(p)
         case .text, .blur:
             return rect.insetBy(dx: -tolerance, dy: -tolerance).contains(p)
         case .freehand:
@@ -786,29 +788,6 @@ struct Annotation: Identifiable, Equatable {
                 return Self.shapeContains(p, in: sourceRect, shape: loupeShape,
                                           tolerance: tolerance)
             }
-            return false
-        }
-    }
-
-    /// Hit test for dragging an already-selected annotation's body: a closed
-    /// outline accepts its whole interior even with no fill, so the selection
-    /// can be grabbed anywhere inside. Plain clicks keep the stricter
-    /// outline-only `hitTest`, which lets annotations framed by an unfilled
-    /// shape stay clickable.
-    func selectedBodyHitTest(_ p: CGPoint, tolerance: CGFloat) -> Bool {
-        if hitTest(p, tolerance: tolerance) { return true }
-        switch kind {
-        case .rect:
-            return rect.contains(p)
-        case .oval:
-            let r = rect
-            guard r.width > 0, r.height > 0 else { return false }
-            let nx = (p.x - r.midX) / (r.width / 2)
-            let ny = (p.y - r.midY) / (r.height / 2)
-            return nx * nx + ny * ny <= 1
-        case .roundedRect, .polygon, .star, .bubble:
-            return pathShapeOutline?.contains(p) ?? false
-        default:
             return false
         }
     }
@@ -977,6 +956,10 @@ struct Annotation: Identifiable, Equatable {
         return copy
     }
 
+    /// Smallest edge an area shape can be resized down to (image pixels) —
+    /// keeps a compressed shape a shape instead of a degenerate line.
+    static let minimumShapeSize: CGFloat = 8
+
     /// Drags one handle to a new position. Corner handles re-anchor
     /// start/end so the opposite corner stays fixed.
     mutating func apply(handle: Handle, to p: CGPoint, aspectLocked: Bool = false) {
@@ -994,11 +977,20 @@ struct Annotation: Identifiable, Equatable {
             }
             let r = rect
             let anchor: CGPoint
+            let direction: CGPoint   // the grabbed corner's side of the anchor
             switch handle {
-            case .topLeft:     anchor = CGPoint(x: r.maxX, y: r.maxY)
-            case .topRight:    anchor = CGPoint(x: r.minX, y: r.maxY)
-            case .bottomLeft:  anchor = CGPoint(x: r.maxX, y: r.minY)
-            case .bottomRight: anchor = CGPoint(x: r.minX, y: r.minY)
+            case .topLeft:
+                anchor = CGPoint(x: r.maxX, y: r.maxY)
+                direction = CGPoint(x: -1, y: -1)
+            case .topRight:
+                anchor = CGPoint(x: r.minX, y: r.maxY)
+                direction = CGPoint(x: 1, y: -1)
+            case .bottomLeft:
+                anchor = CGPoint(x: r.maxX, y: r.minY)
+                direction = CGPoint(x: -1, y: 1)
+            case .bottomRight:
+                anchor = CGPoint(x: r.minX, y: r.minY)
+                direction = CGPoint(x: 1, y: 1)
             default: return
             }
             start = anchor
@@ -1007,7 +999,17 @@ struct Annotation: Identifiable, Equatable {
             let lockAspect = aspectLocked
                 && (kind == .rect || kind == .oval || kind == .loupe
                     || kind.isPathShape)
-            end = lockAspect ? Self.aspectLockedEnd(from: anchor, to: p) : p
+            let target = lockAspect ? Self.aspectLockedEnd(from: anchor, to: p) : p
+            // The dragged corner stays on its side of the anchor, at least
+            // minimumShapeSize away: compressing an area shape can't collapse
+            // it into a line, and the corner can't push through the opposite
+            // edge (which used to re-anchor mid-drag and, for polygon/star,
+            // arbitrarily toggle the apex direction).
+            end = CGPoint(
+                x: anchor.x + direction.x * max(Self.minimumShapeSize,
+                                                direction.x * (target.x - anchor.x)),
+                y: anchor.y + direction.y * max(Self.minimumShapeSize,
+                                                direction.y * (target.y - anchor.y)))
         case .sourceTopLeft, .sourceTopRight, .sourceBottomLeft, .sourceBottomRight:
             applySourceResize(handle: handle, to: p, aspectLocked: aspectLocked)
         }
