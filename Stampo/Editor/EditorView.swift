@@ -237,8 +237,11 @@ struct EditorView: View {
                 // Select tool with nothing selected: there is nothing to
                 // restyle, so the row offers a hint instead of orphaned
                 // controls.
+                // `cursorarrow.rays` (a pointer with selection rays) reads as
+                // "select", distinct from the arrow tool's plain arrow.
+                // pointer.arrow.rays would be closer but is macOS 26-only.
                 Label("Select an annotation to edit its style",
-                      systemImage: "cursorarrow.click")
+                      systemImage: "cursorarrow.rays")
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
         }
