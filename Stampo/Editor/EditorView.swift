@@ -73,11 +73,11 @@ struct EditorView: View {
         .padding(.vertical, 8)
     }
 
-    /// Toolbar tools, left to right. The shape family (rectangle, oval, blur,
-    /// loupe) is collapsed behind one popover button between the high-frequency
-    /// line/arrow tools and text — the rest stay inline. Their keyboard
-    /// shortcuts still work through the canvas handler, so this only declutters
-    /// the row.
+    /// Toolbar tools, left to right. Two low-frequency families are collapsed
+    /// behind popover buttons — shapes (rectangle, oval, polygon, star,
+    /// bubble, blur, loupe) and drawing (pen, marker, eraser) — the rest stay
+    /// inline. Their keyboard shortcuts still work through the canvas
+    /// handler, so this only declutters the row.
     private var toolPicker: some View {
         HStack(spacing: 2) {
             toolButton(.select)
@@ -85,8 +85,9 @@ struct EditorView: View {
             toolButton(.arrow)
             ShapeToolButton(tool: $tool, select: selectTool)
             toolButton(.text)
-            toolButton(.drawing)
-            toolButton(.eraser)
+            DrawingToolButton(tool: $tool, drawingMode: $style.drawingMode,
+                              strokeColor: Color(nsColor: style.color.nsColor),
+                              select: selectTool)
             toolButton(.step)
         }
     }
@@ -161,7 +162,8 @@ struct EditorView: View {
                 Divider().frame(height: 18)
                 textControls
             case .freehand:
-                drawingModePicker
+                // The pen/marker choice lives in the drawing popover — one
+                // parameter, one home; the row keeps the per-brush settings.
                 colorSwatches
                 let range: ClosedRange<CGFloat> = effectiveDrawingMode == .marker
                     ? 8...64 : 2...32
@@ -346,21 +348,6 @@ struct EditorView: View {
 
     private var documentHasBlur: Bool {
         document.annotations.contains { $0.kind == .blur }
-    }
-
-    private var drawingModePicker: some View {
-        IconSegmentedPicker(
-            segments: [
-                .init("Pen", systemImage: "pencil.tip",
-                      value: DrawingMode.pen),
-                .init("Marker", systemImage: "highlighter",
-                      value: DrawingMode.marker)
-            ],
-            selection: drawingModeBinding
-        )
-        .fixedSize()
-        .accessibilityLabel("Drawing Instrument")
-        .hoverTip("Drawing Instrument")
     }
 
     private var fillSlider: some View {
@@ -643,21 +630,6 @@ struct EditorView: View {
             return DrawingMode(selected.freehandStyle)
         }
         return style.drawingMode
-    }
-
-    private var drawingModeBinding: Binding<DrawingMode> {
-        Binding(
-            get: { effectiveDrawingMode },
-            set: { newValue in
-                style.drawingMode = newValue
-                tool = .drawing
-                cropRect = nil
-                // Pen and Marker choose the next drawing gesture. Switching
-                // instruments must not mutate a previously selected stroke or
-                // register an unexpected undo operation.
-                document.selectedID = nil
-            }
-        )
     }
 
     private var drawingWidthBinding: Binding<CGFloat> {
