@@ -28,7 +28,7 @@ struct ShapeToolButton: View {
     /// divider — the same "grid, divider, special options" idiom as macOS
     /// Markup's own popovers.
     static let outlineShapes: [EditorTool] = [
-        .rect, .roundedRect, .oval, .triangle, .polygon, .star, .bubble
+        .rect, .roundedRect, .oval, .polygon, .star, .bubble
     ]
     static let regionTools:   [EditorTool] = [.blur, .loupe]
     static var family: [EditorTool] { outlineShapes + regionTools }
@@ -73,8 +73,8 @@ private struct ShapePopoverContent: View {
     let current: EditorTool
     let onPick: (EditorTool) -> Void
 
-    /// Cells per grid row. The odd outline count leaves one empty slot at the
-    /// end — reserved for the family's next shape.
+    /// Cells per grid row. (A triangle is the 3-sided polygon, so it isn't a
+    /// separate cell.)
     private static let columns = 2
 
     var body: some View {

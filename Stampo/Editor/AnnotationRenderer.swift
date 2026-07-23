@@ -118,7 +118,7 @@ enum AnnotationRenderer {
             case .arrow: drawArrow(annotation, ctx: ctx)
             case .rect:  drawShape(annotation, isOval: false, ctx: ctx)
             case .oval:  drawShape(annotation, isOval: true, ctx: ctx)
-            case .roundedRect, .triangle, .polygon, .star, .bubble:
+            case .roundedRect, .polygon, .star, .bubble:
                 drawPathShape(annotation, ctx: ctx)
             case .text:  drawText(annotation, ctx: ctx)
             case .freehand: drawFreehand(annotation, ctx: ctx)

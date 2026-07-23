@@ -5081,23 +5081,6 @@
         }
       }
     },
-    "Triangle" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Triangle"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Треугольник"
-          }
-        }
-      }
-    },
     "Turned it on but nothing happened? The permission takes effect after Stampo restarts." : {
       "extractionState" : "manual",
       "localizations" : {

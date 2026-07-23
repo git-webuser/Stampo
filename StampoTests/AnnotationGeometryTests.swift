@@ -68,11 +68,12 @@ import Testing
         #expect(oval.hitTest(CGPoint(x: 50, y: 50), tolerance: 0))
     }
 
-    // MARK: path shapes (rounded rect, triangle, polygon, star, bubble)
+    // MARK: path shapes (rounded rect, polygon, star, bubble)
 
-    @Test func triangleHitsOutlineNotInteriorUntilFilled() {
-        let triangle = make(.triangle, start: CGPoint(x: 0, y: 0),
+    @Test func triangularPolygonHitsOutlineNotInteriorUntilFilled() {
+        var triangle = make(.polygon, start: CGPoint(x: 0, y: 0),
                             end: CGPoint(x: 100, y: 100))
+        triangle.polygonSides = 3
         #expect(triangle.hitTest(CGPoint(x: 50, y: 1), tolerance: 4))    // apex
         #expect(triangle.hitTest(CGPoint(x: 50, y: 99), tolerance: 4))   // base
         #expect(!triangle.hitTest(CGPoint(x: 50, y: 60), tolerance: 4))  // inside
@@ -93,6 +94,58 @@ import Testing
         let star = Annotation.starVertices(points: 5, in: square)
         #expect(star.count == 10)   // outer points alternating with inner
         #expect(abs(star[0].x - 50) < 0.001 && abs(star[0].y) < 0.001)
+    }
+
+    @Test func polygonVerticesFillTheirBoundingRect() {
+        // Fit-to-rect: no gap between flat sides and the bounds — a triangle's
+        // base sits exactly on the bottom edge, corners at the rect corners.
+        let square = CGRect(x: 0, y: 0, width: 100, height: 100)
+        let triangle = Annotation.polygonVertices(sides: 3, in: square)
+        let xs = triangle.map(\.x), ys = triangle.map(\.y)
+        #expect(abs(xs.min()!) < 0.001 && abs(xs.max()! - 100) < 0.001)
+        #expect(abs(ys.min()!) < 0.001 && abs(ys.max()! - 100) < 0.001)
+
+        for count in ShapeCounts.starPoints {
+            let ys = Annotation.starVertices(points: count, in: square).map(\.y)
+            #expect(abs(ys.min()!) < 0.001 && abs(ys.max()! - 100) < 0.001)
+        }
+    }
+
+    @Test func upwardDragFlipsPolygonApexDownward() {
+        // Drawing (or resizing) with end above start turns the apex downward —
+        // the funnel case. The sign lives in the raw endpoints, which `rect`
+        // normalizes away.
+        let flipped = Annotation.polygonVertices(
+            sides: 3, in: CGRect(x: 0, y: 0, width: 100, height: 100),
+            flippedVertically: true)
+        #expect(abs(flipped[0].x - 50) < 0.001 && abs(flipped[0].y - 100) < 0.001)
+
+        var funnel = make(.polygon, start: CGPoint(x: 0, y: 100),
+                          end: CGPoint(x: 100, y: 0))
+        funnel.polygonSides = 3
+        #expect(funnel.hitTest(CGPoint(x: 50, y: 99), tolerance: 4))   // apex now at bottom
+        #expect(funnel.hitTest(CGPoint(x: 50, y: 1), tolerance: 4))    // top side
+        #expect(!funnel.hitTest(CGPoint(x: 3, y: 95), tolerance: 4))   // outside old apex corner
+    }
+
+    @Test func selectedBodyAcceptsInteriorOfUnfilledShapes() {
+        // A selected shape drags from anywhere inside its outline even with
+        // 0% fill; the plain hitTest stays outline-only for clicks.
+        let rect = make(.rect, start: CGPoint(x: 10, y: 10), end: CGPoint(x: 110, y: 90))
+        #expect(!rect.hitTest(CGPoint(x: 60, y: 50), tolerance: 4))
+        #expect(rect.selectedBodyHitTest(CGPoint(x: 60, y: 50), tolerance: 4))
+        #expect(!rect.selectedBodyHitTest(CGPoint(x: 200, y: 50), tolerance: 4))
+
+        var triangle = make(.polygon, start: CGPoint(x: 0, y: 0),
+                            end: CGPoint(x: 100, y: 100))
+        triangle.polygonSides = 3
+        #expect(triangle.selectedBodyHitTest(CGPoint(x: 50, y: 60), tolerance: 4))
+        // Outside the triangle but inside its bounding rect: still a miss.
+        #expect(!triangle.selectedBodyHitTest(CGPoint(x: 5, y: 20), tolerance: 4))
+
+        let oval = make(.oval, start: CGPoint(x: 0, y: 0), end: CGPoint(x: 100, y: 100))
+        #expect(oval.selectedBodyHitTest(CGPoint(x: 50, y: 50), tolerance: 4))
+        #expect(!oval.selectedBodyHitTest(CGPoint(x: 3, y: 3), tolerance: 4))
     }
 
     @Test func bubbleTailFollowsItsSideAndKeepsCornerHandles() {

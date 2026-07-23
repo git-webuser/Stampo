@@ -195,7 +195,7 @@ struct EditorView: View {
                 colorSwatches
                 lineStylePicker
                 thicknessSlider
-            case .rect, .oval, .roundedRect, .triangle:
+            case .rect, .oval, .roundedRect:
                 colorSwatches
                 thicknessSlider
                 fillSlider
@@ -248,7 +248,6 @@ struct EditorView: View {
         case .rect:   return .rect
         case .oval:   return .oval
         case .roundedRect: return .roundedRect
-        case .triangle: return .triangle
         case .polygon:  return .polygon
         case .star:     return .star
         case .bubble:   return .bubble

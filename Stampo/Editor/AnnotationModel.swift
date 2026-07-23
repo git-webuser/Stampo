@@ -9,7 +9,6 @@ enum AnnotationKind: Equatable {
     case rect
     case oval
     case roundedRect
-    case triangle
     case polygon
     case star
     case bubble
@@ -22,9 +21,10 @@ enum AnnotationKind: Equatable {
     /// Closed-region shapes whose outline is a computed `CGPath` over the
     /// bounding rect (unlike rect/oval, which stroke CG primitives directly).
     /// They share the family's corner handles, resize, and fill semantics.
+    /// A triangle is the 3-sided polygon, not a separate kind.
     var isPathShape: Bool {
         switch self {
-        case .roundedRect, .triangle, .polygon, .star, .bubble: return true
+        case .roundedRect, .polygon, .star, .bubble: return true
         default: return false
         }
     }
@@ -571,14 +571,12 @@ struct Annotation: Identifiable, Equatable {
             let radius = Self.shapeCornerRadius(for: r)
             return CGPath(roundedRect: r, cornerWidth: radius,
                           cornerHeight: radius, transform: nil)
-        case .triangle:
-            return Self.closedPath([CGPoint(x: r.midX, y: r.minY),
-                                    CGPoint(x: r.maxX, y: r.maxY),
-                                    CGPoint(x: r.minX, y: r.maxY)])
         case .polygon:
-            return Self.closedPath(Self.polygonVertices(sides: polygonSides, in: r))
+            return Self.closedPath(Self.polygonVertices(
+                sides: polygonSides, in: r, flippedVertically: isFlippedVertically))
         case .star:
-            return Self.closedPath(Self.starVertices(points: starPoints, in: r))
+            return Self.closedPath(Self.starVertices(
+                points: starPoints, in: r, flippedVertically: isFlippedVertically))
         case .bubble:
             return Self.bubblePath(tail: bubbleTail, in: r)
         default:
@@ -586,33 +584,64 @@ struct Annotation: Identifiable, Equatable {
         }
     }
 
+    /// Vertically asymmetric shapes (polygon, star) honor the drag's sign:
+    /// pulling a corner handle through the opposite edge — or drawing the
+    /// shape upward — turns the apex downward (funnel). `rect` normalizes
+    /// this sign away, so it's read off the raw endpoints.
+    private var isFlippedVertically: Bool { end.y < start.y }
+
     /// Corner rounding of a rounded rect or bubble body: the loupe's 20%
     /// proportion, capped so large regions keep a crisp, UI-like radius.
     static func shapeCornerRadius(for r: CGRect) -> CGFloat {
         min(min(r.width, r.height) * 0.2, 40)
     }
 
-    /// Vertices of a regular n-gon inscribed in the rect's ellipse, first
-    /// vertex at the top (image space, y grows downward).
-    static func polygonVertices(sides: Int, in r: CGRect) -> [CGPoint] {
+    /// Vertices of a regular n-gon, first vertex centered on the top edge
+    /// (image space, y grows downward). A triangle is the 3-sided case.
+    static func polygonVertices(sides: Int, in r: CGRect,
+                                flippedVertically: Bool = false) -> [CGPoint] {
         let n = max(3, sides)
-        return (0..<n).map { index in
+        let unit = (0..<n).map { index -> CGPoint in
             let angle = -CGFloat.pi / 2 + 2 * .pi * CGFloat(index) / CGFloat(n)
-            return CGPoint(x: r.midX + r.width / 2 * cos(angle),
-                           y: r.midY + r.height / 2 * sin(angle))
+            return CGPoint(x: cos(angle), y: sin(angle))
         }
+        return Self.fitUnitPoints(unit, in: r, flippedVertically: flippedVertically)
     }
 
-    /// Vertices of an n-pointed star: outer points on the rect's ellipse
-    /// alternating with inner points at a fixed radius ratio, first point at
-    /// the top. 0.4 approximates the classic pentagram's inner radius.
-    static func starVertices(points: Int, in r: CGRect) -> [CGPoint] {
+    /// Vertices of an n-pointed star: outer points alternating with inner
+    /// points at a fixed radius ratio, first point at the top. 0.4
+    /// approximates the classic pentagram's inner radius.
+    static func starVertices(points: Int, in r: CGRect,
+                             flippedVertically: Bool = false) -> [CGPoint] {
         let n = max(2, points)
-        return (0..<(2 * n)).map { index in
+        let unit = (0..<(2 * n)).map { index -> CGPoint in
             let angle = -CGFloat.pi / 2 + .pi * CGFloat(index) / CGFloat(n)
             let k: CGFloat = index.isMultiple(of: 2) ? 1 : 0.4
-            return CGPoint(x: r.midX + r.width / 2 * k * cos(angle),
-                           y: r.midY + r.height / 2 * k * sin(angle))
+            return CGPoint(x: k * cos(angle), y: k * sin(angle))
+        }
+        return Self.fitUnitPoints(unit, in: r, flippedVertically: flippedVertically)
+    }
+
+    /// Maps unit-circle samples into the rect so their bounding box exactly
+    /// fills it. Inscribing the vertices directly would leave gaps on flat
+    /// sides (a triangle inscribed in the rect's ellipse floats a quarter of
+    /// the height above the bottom edge) and make the occupied area vary
+    /// with the side/point count.
+    private static func fitUnitPoints(_ unit: [CGPoint], in r: CGRect,
+                                      flippedVertically: Bool) -> [CGPoint] {
+        guard let first = unit.first else { return [] }
+        var minX = first.x, maxX = first.x, minY = first.y, maxY = first.y
+        for point in unit.dropFirst() {
+            minX = min(minX, point.x); maxX = max(maxX, point.x)
+            minY = min(minY, point.y); maxY = max(maxY, point.y)
+        }
+        let spanX = max(maxX - minX, 0.0001)
+        let spanY = max(maxY - minY, 0.0001)
+        return unit.map { point in
+            let nx = (point.x - minX) / spanX
+            let ny = (point.y - minY) / spanY
+            return CGPoint(x: r.minX + nx * r.width,
+                           y: r.minY + (flippedVertically ? 1 - ny : ny) * r.height)
         }
     }
 
@@ -679,7 +708,7 @@ struct Annotation: Identifiable, Equatable {
         switch kind {
         case .line, .arrow:
             return hypot(end.x - start.x, end.y - start.y) < 4
-        case .rect, .oval, .roundedRect, .triangle, .polygon, .star, .bubble,
+        case .rect, .oval, .roundedRect, .polygon, .star, .bubble,
              .blur, .loupe:
             return rect.width < 4 || rect.height < 4
         case .text:
@@ -722,7 +751,7 @@ struct Annotation: Identifiable, Equatable {
             let tol = (tolerance + lineWidth / 2) / min(rx, ry)
             if fillOpacity > 0 { return d <= 1 + tol }
             return abs(d - 1.0) <= tol
-        case .roundedRect, .triangle, .polygon, .star, .bubble:
+        case .roundedRect, .polygon, .star, .bubble:
             // On the stroked outline (or anywhere inside when filled) — the
             // same path the renderer draws, inflated by the tolerance.
             guard let outline = pathShapeOutline else { return false }
@@ -757,6 +786,29 @@ struct Annotation: Identifiable, Equatable {
                 return Self.shapeContains(p, in: sourceRect, shape: loupeShape,
                                           tolerance: tolerance)
             }
+            return false
+        }
+    }
+
+    /// Hit test for dragging an already-selected annotation's body: a closed
+    /// outline accepts its whole interior even with no fill, so the selection
+    /// can be grabbed anywhere inside. Plain clicks keep the stricter
+    /// outline-only `hitTest`, which lets annotations framed by an unfilled
+    /// shape stay clickable.
+    func selectedBodyHitTest(_ p: CGPoint, tolerance: CGFloat) -> Bool {
+        if hitTest(p, tolerance: tolerance) { return true }
+        switch kind {
+        case .rect:
+            return rect.contains(p)
+        case .oval:
+            let r = rect
+            guard r.width > 0, r.height > 0 else { return false }
+            let nx = (p.x - r.midX) / (r.width / 2)
+            let ny = (p.y - r.midY) / (r.height / 2)
+            return nx * nx + ny * ny <= 1
+        case .roundedRect, .polygon, .star, .bubble:
+            return pathShapeOutline?.contains(p) ?? false
+        default:
             return false
         }
     }
@@ -814,7 +866,7 @@ struct Annotation: Identifiable, Equatable {
             return [(.start, start), (.end, end), (.control, control)]
         case .line:
             return [(.start, start), (.end, end)]
-        case .rect, .oval, .roundedRect, .triangle, .polygon, .star, .bubble,
+        case .rect, .oval, .roundedRect, .polygon, .star, .bubble,
              .blur, .loupe:
             var result = Self.corners(of: rect,
                                       (.topLeft, .topRight, .bottomLeft, .bottomRight))

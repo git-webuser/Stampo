@@ -3,7 +3,7 @@ import SwiftUI
 
 /// Active tool in the editor toolbar.
 enum EditorTool: Equatable, CaseIterable {
-    case select, line, arrow, rect, oval, roundedRect, triangle, polygon, star,
+    case select, line, arrow, rect, oval, roundedRect, polygon, star,
          bubble, text, drawing, eraser, blur, step, loupe, scan, crop
 
     /// Drawing tools shown in the toolbar picker. Scan and Crop are transient
@@ -30,7 +30,7 @@ enum EditorTool: Equatable, CaseIterable {
         case .loupe:  return (46, "M")
         // Popover-only shapes are low-frequency and stay shortcut-free;
         // recognition and crop stay transient modes without shortcuts.
-        case .roundedRect, .triangle, .polygon, .star, .bubble,
+        case .roundedRect, .polygon, .star, .bubble,
              .scan, .crop: return nil
         }
     }
@@ -47,7 +47,6 @@ enum EditorTool: Equatable, CaseIterable {
         case .rect:   return "rectangle"
         case .oval:   return "oval"
         case .roundedRect: return "app"
-        case .triangle: return "triangle"
         case .polygon:  return "hexagon"
         case .star:     return "star"
         case .bubble:   return "bubble.right"
@@ -70,7 +69,6 @@ enum EditorTool: Equatable, CaseIterable {
         case .rect:   return "Rectangle"
         case .oval:   return "Oval"
         case .roundedRect: return "Rounded Rectangle"
-        case .triangle: return "Triangle"
         case .polygon:  return "Polygon"
         case .star:     return "Star"
         case .bubble:   return "Bubble"
@@ -910,6 +908,15 @@ struct EditorCanvasView: View {
                 }
                 return .moving(hit.id, last: p)
             }
+            // Nothing outline-hit: the current selection still offers its
+            // whole interior for dragging (an unfilled shape would otherwise
+            // be grabbable only by its outline). Checked after the outline
+            // pass so annotations framed by the selection stay clickable.
+            if let selected = document.selectedAnnotation,
+               selected.selectedBodyHitTest(p, tolerance: tolerancePx) {
+                document.beginChange()
+                return .moving(selected.id, last: p)
+            }
             // Empty space: a click deselects (in handleClick), a drag pans.
             return .undecided(pixelPoint: p)
         case .text:
@@ -937,12 +944,13 @@ struct EditorCanvasView: View {
             document.beginChange()
             document.eraseFreehand(from: p, to: p, diameter: style.eraserDiameter)
             return .erasing(last: p)
-        case .line, .arrow, .rect, .oval, .roundedRect, .triangle, .polygon,
+        case .line, .arrow, .rect, .oval, .roundedRect, .polygon,
              .star, .bubble, .blur, .step, .loupe:
             // Dragging the selected annotation's body moves it even with a
-            // shape tool active; empty space starts a new shape on drag.
+            // shape tool active — anywhere inside a closed outline, filled or
+            // not; empty space starts a new shape on drag.
             if let selected = document.selectedAnnotation,
-               selected.hitTest(p, tolerance: tolerancePx) {
+               selected.selectedBodyHitTest(p, tolerance: tolerancePx) {
                 document.beginChange()
                 if let part = selected.loupePart(at: p, tolerance: tolerancePx) {
                     return .movingLoupePart(selected.id, part, last: p)
@@ -1026,7 +1034,6 @@ struct EditorCanvasView: View {
         case .rect:  return .rect
         case .oval:  return .oval
         case .roundedRect: return .roundedRect
-        case .triangle: return .triangle
         case .polygon:  return .polygon
         case .star:     return .star
         case .bubble:   return .bubble
@@ -1061,7 +1068,7 @@ struct EditorCanvasView: View {
         switch kind {
         case .line, .arrow:
             return Annotation.snappedArrowEnd(from: start, to: point)
-        case .rect, .oval, .roundedRect, .triangle, .polygon, .star, .bubble,
+        case .rect, .oval, .roundedRect, .polygon, .star, .bubble,
              .loupe:
             // Shift makes a loupe's oval a circle (its rounded rect a square,
             // a polygon or star regular).
