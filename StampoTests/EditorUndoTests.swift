@@ -602,7 +602,7 @@ import Testing
                    end: CGPoint(x: 200, y: 200), color: .blue, lineWidth: 4)
     }
 
-    @Test func bindingAnEndpointSnapsToCardinalAnchorInOneUndoStep() {
+    @Test func bindingAnEndpointSnapsToReferenceAnchorInOneUndoStep() {
         let doc = makeDocument()
         let rect = bindTarget()
         let arrow = Annotation(kind: .arrow, start: CGPoint(x: 0, y: 150),
@@ -618,9 +618,8 @@ import Testing
         #expect(doc.undoStack.count == 1)
         let bound = doc.annotations.first { $0.kind == .arrow }!
         #expect(bound.endBinding?.targetID == rect.id)
-        #expect(bound.endBinding?.anchor == .cardinal(.west))
-        // The west reference point is the left-edge midpoint, regardless of
-        // where the other end points.
+        // The left-edge midpoint of a 100×100 rect at (100,100) → unit (0,0.5).
+        #expect(bound.endBinding?.anchor == .fixed(unit: CGPoint(x: 0, y: 0.5)))
         #expect(bound.resolvedEnd(in: doc.annotations) == CGPoint(x: 100, y: 150))
 
         doc.undo()
@@ -652,7 +651,7 @@ import Testing
         let rect = bindTarget()
         var arrow = Annotation(kind: .arrow, start: CGPoint(x: 0, y: 150),
                                end: CGPoint(x: 120, y: 150), color: .red, lineWidth: 4)
-        arrow.endBinding = EndpointBinding(targetID: rect.id, anchor: .cardinal(.west),
+        arrow.endBinding = EndpointBinding(targetID: rect.id, anchor: .fixed(unit: CGPoint(x: 0, y: 0.5)),
                                            fallback: CGPoint(x: 120, y: 150))
         doc.annotations = [rect, arrow]
 
@@ -670,7 +669,7 @@ import Testing
         // the arrow would snap there when the rect is deleted.
         var arrow = Annotation(kind: .arrow, start: CGPoint(x: 0, y: 150),
                                end: CGPoint(x: 300, y: 150), color: .red, lineWidth: 4)
-        arrow.endBinding = EndpointBinding(targetID: rect.id, anchor: .cardinal(.west),
+        arrow.endBinding = EndpointBinding(targetID: rect.id, anchor: .fixed(unit: CGPoint(x: 0, y: 0.5)),
                                            fallback: CGPoint(x: 300, y: 150))
         doc.annotations = [rect, arrow]
         // While the target exists the tip sits on its left edge.

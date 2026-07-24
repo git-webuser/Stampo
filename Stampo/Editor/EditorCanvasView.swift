@@ -626,20 +626,28 @@ struct EditorCanvasView: View {
         }) else { return }
         let snapped = shape.nearestBindingAnchor(to: tip)
 
-        for (cardinal, point) in shape.referenceAnchors() {
+        func draw(_ point: CGPoint, active: Bool) {
             let c = CGPoint(x: point.x * fitScale + offset.x,
                             y: point.y * fitScale + offset.y)
-            let isActive = cardinal == snapped
-            let radius: CGFloat = isActive ? 6 : 4.5
+            let radius: CGFloat = active ? 6 : 4.5
             let dot = Path(ellipseIn: CGRect(x: c.x - radius, y: c.y - radius,
                                              width: radius * 2, height: radius * 2))
-            if isActive {
+            if active {
                 context.fill(dot, with: .color(.blue))
                 context.stroke(dot, with: .color(.white), lineWidth: 1.5)
             } else {
                 context.fill(dot, with: .color(.white))
                 context.stroke(dot, with: .color(.blue.opacity(0.7)), lineWidth: 1.5)
             }
+        }
+
+        // Visible anchors (edge midpoints) always show; the vertex anchors stay
+        // hidden unless one is the active snap target.
+        for candidate in shape.referenceAnchors() where candidate.isVisible {
+            draw(candidate.point, active: candidate == snapped)
+        }
+        if let snapped, !snapped.isVisible {
+            draw(snapped.point, active: true)
         }
     }
 

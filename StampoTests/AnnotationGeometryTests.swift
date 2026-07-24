@@ -783,20 +783,28 @@ import Testing
         #expect(free.handle(at: CGPoint(x: 100, y: 0), tolerance: 5, in: [free]) == .end)
     }
 
-    @Test func referenceAnchorsAreCardinalOutlinePointsWithFreeCenter() {
+    /// True when some anchor sits within `tol` of `p`.
+    private func hasAnchor(_ anchors: [ReferenceAnchor], at p: CGPoint,
+                           visible: Bool? = nil, tol: CGFloat = 0.5) -> Bool {
+        anchors.contains {
+            abs($0.point.x - p.x) <= tol && abs($0.point.y - p.y) <= tol
+                && (visible == nil || $0.isVisible == visible)
+        }
+    }
+
+    @Test func ovalExposesFourVisibleAnchorsWithFreeCenter() {
         // Wide oval centered (200,150), half-axes 100×50.
         let oval = make(.oval, start: CGPoint(x: 100, y: 100),
                         end: CGPoint(x: 300, y: 200))
-        let anchors = Dictionary(uniqueKeysWithValues: oval.referenceAnchors().map {
-            ($0.cardinal, $0.point)
-        })
-        #expect(approx(anchors[.north]!, CGPoint(x: 200, y: 100)))
-        #expect(approx(anchors[.south]!, CGPoint(x: 200, y: 200)))
-        #expect(approx(anchors[.west]!, CGPoint(x: 100, y: 150)))
-        #expect(approx(anchors[.east]!, CGPoint(x: 300, y: 150)))
-        // A drop toward an edge snaps to that side…
-        #expect(oval.nearestBindingAnchor(to: CGPoint(x: 200, y: 105)) == .north)
-        #expect(oval.nearestBindingAnchor(to: CGPoint(x: 295, y: 150)) == .east)
+        let anchors = oval.referenceAnchors()
+        #expect(anchors.count == 4 && anchors.allSatisfy(\.isVisible))
+        #expect(hasAnchor(anchors, at: CGPoint(x: 200, y: 100)))   // top
+        #expect(hasAnchor(anchors, at: CGPoint(x: 200, y: 200)))   // bottom
+        #expect(hasAnchor(anchors, at: CGPoint(x: 100, y: 150)))   // left
+        #expect(hasAnchor(anchors, at: CGPoint(x: 300, y: 150)))   // right
+        // A drop toward an edge snaps to it…
+        #expect(oval.nearestBindingAnchor(to: CGPoint(x: 200, y: 105))?.point
+                == CGPoint(x: 200, y: 100))
         // …while a drop in the interior stays free (nil).
         #expect(oval.nearestBindingAnchor(to: CGPoint(x: 200, y: 150)) == nil)
         // Non-bindable kinds expose no anchors.
@@ -804,18 +812,34 @@ import Testing
             .referenceAnchors().isEmpty)
     }
 
-    @Test func cardinalAnchorFollowsTheOutlinePerShape() {
-        // Triangle apex-up in (0,0)…(100,100): N=apex, S=base mid, E/W on the
-        // slanted sides (x=75/25 at mid-height), never the bbox corners.
+    @Test func rectAnchorsAreVisibleEdgeMidsAndHiddenCorners() {
+        let rect = make(.rect, start: .zero, end: CGPoint(x: 100, y: 60))
+        let anchors = rect.referenceAnchors()
+        #expect(anchors.filter(\.isVisible).count == 4)
+        #expect(anchors.filter { !$0.isVisible }.count == 4)
+        // Edge midpoints are the visible anchors.
+        #expect(hasAnchor(anchors, at: CGPoint(x: 50, y: 0), visible: true))
+        #expect(hasAnchor(anchors, at: CGPoint(x: 0, y: 30), visible: true))
+        // Corners are hidden vertex anchors, still snappable.
+        #expect(hasAnchor(anchors, at: CGPoint(x: 0, y: 0), visible: false))
+        #expect(hasAnchor(anchors, at: CGPoint(x: 100, y: 60), visible: false))
+        // A drop into a corner snaps to that (hidden) vertex.
+        #expect(rect.nearestBindingAnchor(to: CGPoint(x: 6, y: 6))?.point == .zero)
+    }
+
+    @Test func polygonAnchorsRecomputePerSideCount() {
+        // Triangle apex-up in (0,0)…(100,100): 3 hidden vertices (apex + base
+        // corners) and 3 visible edge midpoints, all on the real outline.
         var triangle = make(.polygon, start: .zero, end: CGPoint(x: 100, y: 100))
         triangle.polygonSides = 3
-        let anchors = Dictionary(uniqueKeysWithValues: triangle.referenceAnchors().map {
-            ($0.cardinal, $0.point)
-        })
-        #expect(approx(anchors[.north]!, CGPoint(x: 50, y: 0)))
-        #expect(approx(anchors[.south]!, CGPoint(x: 50, y: 100)))
-        #expect(approx(anchors[.east]!, CGPoint(x: 75, y: 50)))
-        #expect(approx(anchors[.west]!, CGPoint(x: 25, y: 50)))
+        let anchors = triangle.referenceAnchors()
+        #expect(anchors.filter { !$0.isVisible }.count == 3)   // vertices
+        #expect(anchors.filter(\.isVisible).count == 3)        // edge mids
+        #expect(hasAnchor(anchors, at: CGPoint(x: 50, y: 0), visible: false))    // apex
+        #expect(hasAnchor(anchors, at: CGPoint(x: 50, y: 100), visible: true))   // base mid
+        // Six-sided polygon recomputes to 6 + 6.
+        triangle.polygonSides = 6
+        #expect(triangle.referenceAnchors().count == 12)
     }
 
     @Test func fixedAnchorPlacesOnNormalizedBoundingRect() {
