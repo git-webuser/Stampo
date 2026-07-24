@@ -210,30 +210,28 @@ enum AnnotationRenderer {
         // resolves to its raw point, so unbound arrows are unaffected.
         let start = a.resolvedStart(in: annotations)
         let end = a.resolvedEnd(in: annotations)
-        let shaftWidth = a.lineWidth
-        let headWidth = a.lineWidth
-        let headLength = Annotation.arrowheadLength(lineWidth: headWidth)
-        let overlap = headLength * 0.6
+        let width = a.lineWidth
+        // Pull a headed shaft end back by half the stroke so its round cap
+        // lands at the tip rather than poking past the open arrowhead. A tail
+        // without a head keeps its endpoint (and round cap) as is.
+        let capInset = width / 2
 
-        // Curved shaft: stroke the Bézier, then paint the heads over its ends.
-        // Each headed end is pulled back along its tangent so the round cap
-        // hides under the triangle instead of poking a nub past the tip;
-        // a tail without a head keeps its endpoint (and round cap) as is.
+        ctx.setStrokeColor(a.color.cgColor)
+        ctx.setLineWidth(width)
+        ctx.setLineCap(.round)
+        ctx.setLineJoin(.round)
+
+        // Curved shaft: stroke the Bézier, then the open chevron heads over
+        // its ends (pulled back along the tangent by the cap inset).
         if let control = a.curveControl {
             let curveStart = a.arrowHeadPlacement.includesStart
-                ? Self.insetTowardControl(start, control: control, by: overlap)
+                ? Self.insetTowardControl(start, control: control, by: capInset)
                 : start
             let curveEnd = a.arrowHeadPlacement.includesEnd
-                ? Self.insetTowardControl(end, control: control, by: overlap)
+                ? Self.insetTowardControl(end, control: control, by: capInset)
                 : end
-
-            ctx.setStrokeColor(a.color.cgColor)
-            ctx.setFillColor(a.color.cgColor)
-            ctx.setLineWidth(shaftWidth)
-            ctx.setLineCap(.round)
-            ctx.setLineJoin(.round)
             if a.arrowStyle == .dashed {
-                let dash = max(6, shaftWidth * 2.4)
+                let dash = max(6, width * 2.4)
                 ctx.setLineDash(phase: 0, lengths: [dash, dash * 0.8])
             }
             ctx.move(to: curveStart)
@@ -242,42 +240,28 @@ enum AnnotationRenderer {
             ctx.setLineDash(phase: 0, lengths: [])
 
             if a.arrowHeadPlacement.includesStart {
-                drawArrowhead(from: a.arrowheadAnchor(towardTip: start, opposite: end),
-                              tip: start, lineWidth: headWidth, ctx: ctx)
+                drawChevron(from: a.arrowheadAnchor(towardTip: start, opposite: end),
+                            tip: start, lineWidth: width, ctx: ctx)
             }
             if a.arrowHeadPlacement.includesEnd {
-                drawArrowhead(from: a.arrowheadAnchor(towardTip: end, opposite: start),
-                              tip: end, lineWidth: headWidth, ctx: ctx)
+                drawChevron(from: a.arrowheadAnchor(towardTip: end, opposite: start),
+                            tip: end, lineWidth: width, ctx: ctx)
             }
             return
         }
 
         let angle = atan2(end.y - start.y, end.x - start.x)
-        let shaftLength = hypot(end.x - start.x, end.y - start.y)
-        let headCount = (a.arrowHeadPlacement.includesStart ? 1 : 0)
-            + (a.arrowHeadPlacement.includesEnd ? 1 : 0)
-        let inset = min(overlap, headCount > 0 ? shaftLength / CGFloat(headCount) : 0)
-        // Pull each shaft endpoint under its filled head. With two heads this
-        // keeps the dashed/solid shaft visually centered between them. The
-        // inset is capped so heads on a very short arrow never cross the shaft.
         let shaftStart = a.arrowHeadPlacement.includesStart
-            ? CGPoint(x: start.x + inset * cos(angle),
-                      y: start.y + inset * sin(angle))
+            ? CGPoint(x: start.x + capInset * cos(angle),
+                      y: start.y + capInset * sin(angle))
             : start
         let shaftEnd = a.arrowHeadPlacement.includesEnd
-            ? CGPoint(x: end.x - inset * cos(angle),
-                      y: end.y - inset * sin(angle))
+            ? CGPoint(x: end.x - capInset * cos(angle),
+                      y: end.y - capInset * sin(angle))
             : end
 
-        ctx.setStrokeColor(a.color.cgColor)
-        ctx.setFillColor(a.color.cgColor)
-        ctx.setLineWidth(shaftWidth)
-        ctx.setLineCap(.round)
-        ctx.setLineJoin(.round)
-
-        // Shaft.
         if a.arrowStyle == .dashed {
-            let dash = max(6, shaftWidth * 2.4)
+            let dash = max(6, width * 2.4)
             ctx.setLineDash(phase: 0, lengths: [dash, dash * 0.8])
         }
         ctx.move(to: shaftStart)
@@ -285,12 +269,12 @@ enum AnnotationRenderer {
         ctx.strokePath()
         ctx.setLineDash(phase: 0, lengths: [])
 
-        // Filled triangle heads point outwards at their respective endpoints.
+        // Open chevron heads point outwards at their respective endpoints.
         if a.arrowHeadPlacement.includesStart {
-            drawArrowhead(from: end, tip: start, lineWidth: headWidth, ctx: ctx)
+            drawChevron(from: end, tip: start, lineWidth: width, ctx: ctx)
         }
         if a.arrowHeadPlacement.includesEnd {
-            drawArrowhead(from: start, tip: end, lineWidth: headWidth, ctx: ctx)
+            drawChevron(from: start, tip: end, lineWidth: width, ctx: ctx)
         }
     }
 
@@ -308,14 +292,19 @@ enum AnnotationRenderer {
                        y: endpoint.y - dy / length * d)
     }
 
-    private static func drawArrowhead(from: CGPoint, tip: CGPoint,
-                                      lineWidth: CGFloat, ctx: CGContext) {
+    /// An open "chevron" arrowhead — two strokes meeting at the tip
+    /// (Figma-style), drawn in the shaft's own weight instead of a filled
+    /// triangle. Round caps and join keep the point clean.
+    private static func drawChevron(from: CGPoint, tip: CGPoint,
+                                    lineWidth: CGFloat, ctx: CGContext) {
         let (b1, b2) = Annotation.arrowheadBarbs(from: from, tip: tip, lineWidth: lineWidth)
-        ctx.move(to: tip)
-        ctx.addLine(to: b1)
+        ctx.setLineWidth(lineWidth)
+        ctx.setLineCap(.round)
+        ctx.setLineJoin(.round)
+        ctx.move(to: b1)
+        ctx.addLine(to: tip)
         ctx.addLine(to: b2)
-        ctx.closePath()
-        ctx.fillPath()
+        ctx.strokePath()
     }
 
     private static func drawShape(_ a: Annotation, isOval: Bool, ctx: CGContext) {

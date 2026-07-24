@@ -105,11 +105,13 @@ enum DrawingMode: String, Equatable, CaseIterable {
     }
 }
 
-/// Visual variant of an `.arrow`. `filled` is the default. (Weight is the
-/// thickness slider's job, so there's no separate "bold" style.)
+/// Visual variant of an `.arrow`: the shaft is solid or dashed, both with the
+/// same open (chevron) arrowhead. `filled` is the default. (Weight is the
+/// thickness slider's job, so there's no separate "bold" style. The case name
+/// is historical — the head is a stroked chevron, not a filled triangle.)
 enum ArrowStyle: String, Equatable, CaseIterable {
-    case filled   // solid shaft, filled triangle head   (→)
-    case dashed   // dashed shaft, filled head           (⇢)
+    case filled   // solid shaft, open chevron head   (→)
+    case dashed   // dashed shaft, open chevron head  (⇢)
 }
 
 /// Backing plate drawn behind `.text` for legibility over busy images.

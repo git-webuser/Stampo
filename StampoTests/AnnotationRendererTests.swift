@@ -119,6 +119,20 @@ enum TestImages {
         #expect(headInked)
     }
 
+    @Test func arrowheadIsAnOpenChevronNotAFilledTriangle() {
+        // Head at (110,40); barbs run to ~(93.8, 47.8)/(93.8, 32.2). The two
+        // strokes and the shaft are inked, but the triangle's interior between
+        // the shaft and a barb stays white — a filled head would fill it.
+        let base = TestImages.make(width: 120, height: 80)   // all white
+        let arrow = Annotation(kind: .arrow, start: CGPoint(x: 10, y: 40),
+                               end: CGPoint(x: 110, y: 40), color: .black, lineWidth: 3)
+        let rep = AnnotationRenderer.renderBitmap(base: base, annotations: [arrow])!
+        #expect((rep.colorAt(x: 60, y: 40)?.brightnessComponent ?? 1) < 0.5)  // shaft
+        #expect((rep.colorAt(x: 94, y: 47)?.brightnessComponent ?? 1) < 0.6)  // lower barb
+        // Interior gap between shaft and lower barb — white for an open head.
+        #expect((rep.colorAt(x: 95, y: 44)?.brightnessComponent ?? 0) > 0.9)
+    }
+
     @Test(arguments: ArrowHeadPlacement.allCases, ArrowStyle.allCases)
     func arrowHeadsRenderAtConfiguredEndpoints(placement: ArrowHeadPlacement,
                                                style: ArrowStyle) {
