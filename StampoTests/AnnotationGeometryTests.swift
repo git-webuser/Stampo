@@ -831,14 +831,14 @@ import Testing
         // The hidden center anchor sits at the middle and binds dynamically.
         #expect(centerAnchor(anchors)?.point == CGPoint(x: 200, y: 150))
         // A drop toward an edge snaps to it…
-        #expect(oval.nearestBindingAnchor(to: CGPoint(x: 200, y: 105))?.point
+        #expect(oval.nearestBindingAnchor(to: CGPoint(x: 200, y: 105), magnet: 14)?.point
                 == CGPoint(x: 200, y: 100))
         // …a drop in the ring between center and edge stays free…
-        #expect(oval.nearestBindingAnchor(to: CGPoint(x: 200, y: 128)) == nil)
+        #expect(oval.nearestBindingAnchor(to: CGPoint(x: 200, y: 128), magnet: 14) == nil)
         // …and a drop at the center snaps to the center connector (tip lands
         // there, bound to the shape).
-        #expect(oval.nearestBindingAnchor(to: CGPoint(x: 200, y: 150))?.isCenter == true)
-        #expect(oval.nearestBindingAnchor(to: CGPoint(x: 200, y: 150))?.spec
+        #expect(oval.nearestBindingAnchor(to: CGPoint(x: 200, y: 150), magnet: 14)?.isCenter == true)
+        #expect(oval.nearestBindingAnchor(to: CGPoint(x: 200, y: 150), magnet: 14)?.spec
                 == .fixed(unit: CGPoint(x: 0.5, y: 0.5)))
         // Non-bindable kinds expose no anchors.
         #expect(make(.arrow, start: .zero, end: CGPoint(x: 10, y: 10))
@@ -857,7 +857,7 @@ import Testing
         #expect(hasAnchor(anchors, at: CGPoint(x: 0, y: 0), visible: false))
         #expect(hasAnchor(anchors, at: CGPoint(x: 100, y: 60), visible: false))
         // A drop into a corner snaps to that (hidden) vertex.
-        #expect(rect.nearestBindingAnchor(to: CGPoint(x: 6, y: 6))?.point == .zero)
+        #expect(rect.nearestBindingAnchor(to: CGPoint(x: 6, y: 6), magnet: 14)?.point == .zero)
     }
 
     @Test func polygonAnchorsRecomputePerSideCount() {
@@ -874,6 +874,30 @@ import Testing
         // Six-sided polygon recomputes to 6 + 6 + center.
         triangle.polygonSides = 6
         #expect(triangle.referenceAnchors().count == 13)
+    }
+
+    @Test func outlineMagnetSnapsNearContourBetweenReferences() {
+        // rect (0,0)…(100,60). A drop just outside the top edge, away from any
+        // reference, magnets to the nearest contour point.
+        let rect = make(.rect, start: .zero, end: CGPoint(x: 100, y: 60))
+        let snap = rect.nearestBindingAnchor(to: CGPoint(x: 25, y: -8), magnet: 14)
+        #expect(snap?.point == CGPoint(x: 25, y: 0))          // foot on the edge
+        #expect(snap?.spec == .fixed(unit: CGPoint(x: 0.25, y: 0)))
+        #expect(snap?.isVisible == false && snap?.isCenter == false)
+    }
+
+    @Test func referencesOutrankTheOutlineMagnet() {
+        // Near the top-edge midpoint reference: it wins even though the raw
+        // nearest-contour point (44,0) is closer than the reference (50,0).
+        let rect = make(.rect, start: .zero, end: CGPoint(x: 100, y: 60))
+        #expect(rect.nearestBindingAnchor(to: CGPoint(x: 44, y: -8), magnet: 14)?.point
+                == CGPoint(x: 50, y: 0))
+    }
+
+    @Test func magnetReleasesBeyondItsBand() {
+        // Too far outside the outline (and every reference) → free.
+        let rect = make(.rect, start: .zero, end: CGPoint(x: 100, y: 60))
+        #expect(rect.nearestBindingAnchor(to: CGPoint(x: 25, y: -20), magnet: 14) == nil)
     }
 
     @Test func arrowheadHasAVisibleFloorOnThinStrokesButGrowsWhenThick() {

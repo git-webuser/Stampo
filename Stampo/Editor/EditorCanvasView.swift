@@ -244,6 +244,10 @@ struct EditorCanvasView: View {
     /// Handle grab radius in view points (converted to pixels per gesture).
     private let handleGrabPt: CGFloat = 8
     private let hitTolerancePt: CGFloat = 6
+    /// Catch distance (view points) for snapping an arrow endpoint to a shape:
+    /// the reach of the reference anchors and the outline magnet, plus how far
+    /// outside a shape the magnet still grabs.
+    private let bindMagnetPt: CGFloat = 14
 
     var body: some View {
         GeometryReader { geo in
@@ -375,14 +379,11 @@ struct EditorCanvasView: View {
                 drawSelection(for: selected, context: context, fitScale: fitScale, offset: offset)
             }
 
-            // While dragging an arrow/line endpoint over a shape, show that
-            // shape's cardinal reference points and highlight the one the drop
-            // will snap to (none highlighted = releasing here leaves it free).
-            if case let .resizing(id, handle) = dragMode,
-               handle == .start || handle == .end,
-               let arrow = document.annotations.first(where: { $0.id == id }),
-               arrow.kind == .arrow || arrow.kind == .line {
-                let tip = handle == .start ? arrow.start : arrow.end
+            // While dragging an arrow/line endpoint — either resizing an
+            // existing one or drawing a new one — show the shape's magnetic
+            // anchors and highlight the one the drop will snap to (none
+            // highlighted = releasing here leaves the endpoint free).
+            if let (id, tip) = bindingDragEndpoint {
                 drawBindingCandidates(near: tip, excluding: id, context: context,
                                       fitScale: fitScale, offset: offset)
             }
@@ -613,18 +614,39 @@ struct EditorCanvasView: View {
         }
     }
 
-    /// The cardinal reference dots of the shape under a dragged endpoint. The
-    /// dot the drop would snap to is filled; the rest are hollow. Nothing draws
-    /// when the endpoint isn't over a bindable shape.
+    /// The moving endpoint whose binding candidates should be shown, if a drag
+    /// is placing an arrow/line endpoint (resizing an existing one or drawing a
+    /// new one). nil for every other drag.
+    private var bindingDragEndpoint: (id: UUID, tip: CGPoint)? {
+        func endpoint(_ id: UUID, _ handle: Annotation.Handle?) -> (UUID, CGPoint)? {
+            guard let a = document.annotations.first(where: { $0.id == id }),
+                  a.kind == .arrow || a.kind == .line else { return nil }
+            return (id, handle == .start ? a.start : a.end)
+        }
+        switch dragMode {
+        case let .resizing(id, handle) where handle == .start || handle == .end:
+            return endpoint(id, handle)
+        case let .creating(id):
+            return endpoint(id, .end)
+        default:
+            return nil
+        }
+    }
+
+    /// The magnetic anchors of the shape under a dragged endpoint. The dot the
+    /// drop would snap to is filled; visible ones are hollow. Nothing draws when
+    /// the endpoint isn't near a bindable shape.
     private func drawBindingCandidates(near tip: CGPoint, excluding id: UUID,
                                        context: GraphicsContext,
                                        fitScale: CGFloat, offset: CGPoint) {
         let tolerancePx = hitTolerancePt / fitScale
+        let magnetPx = bindMagnetPt / fitScale
         guard let shape = document.annotations.last(where: {
             $0.id != id && $0.isBindableTarget
-                && $0.hitTest(tip, tolerance: tolerancePx, in: document.annotations)
+                && ($0.hitTest(tip, tolerance: tolerancePx, in: document.annotations)
+                    || $0.nearestBindingAnchor(to: tip, magnet: magnetPx) != nil)
         }) else { return }
-        let snapped = shape.nearestBindingAnchor(to: tip)
+        let snapped = shape.nearestBindingAnchor(to: tip, magnet: magnetPx)
 
         func draw(_ point: CGPoint, active: Bool) {
             let c = CGPoint(x: point.x * fitScale + offset.x,
@@ -901,6 +923,19 @@ struct EditorCanvasView: View {
                             $0.start = CGPoint(x: display.minX, y: display.minY)
                             $0.end = CGPoint(x: display.maxX, y: display.maxY)
                         }
+                        // A freshly drawn arrow/line binds whichever endpoints
+                        // landed on (or near) a shape, so drawing one straight
+                        // onto a shape connects it — same undo step.
+                        if let a = document.annotations.first(where: { $0.id == id }),
+                           a.kind == .arrow || a.kind == .line {
+                            let tolerancePx = hitTolerancePt / fitScale
+                            let magnetPx = bindMagnetPt / fitScale
+                            document.bindEndpoint(.start, of: id, releasedAt: a.start,
+                                                  tolerance: tolerancePx, magnet: magnetPx)
+                            document.bindEndpoint(.end, of: id, releasedAt: a.end,
+                                                  tolerance: tolerancePx, magnet: magnetPx)
+                            document.refreshBindingFallbacks()
+                        }
                         document.commitChange()
                     }
                 case .drawing(let id):
@@ -927,12 +962,12 @@ struct EditorCanvasView: View {
                     document.refreshBindingFallbacks()
                     document.commitChange()
                 case .resizing(let id, let handle):
-                    // Dropping an arrow/line endpoint over a shape binds it;
-                    // over empty space clears any prior binding. Part of the
-                    // same undo step as the drag.
-                    let tolerancePx = hitTolerancePt / fitScale
+                    // Dropping an arrow/line endpoint over (or near) a shape
+                    // binds it; empty space clears any prior binding. Part of
+                    // the same undo step as the drag.
                     document.bindEndpoint(handle, of: id, releasedAt: p,
-                                          tolerance: tolerancePx)
+                                          tolerance: hitTolerancePt / fitScale,
+                                          magnet: bindMagnetPt / fitScale)
                     document.refreshBindingFallbacks()
                     document.commitChange()
                 case .recognitionSelecting(let start, _):

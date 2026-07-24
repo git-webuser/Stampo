@@ -1377,13 +1377,62 @@ struct Annotation: Identifiable, Equatable {
         return result
     }
 
-    /// The reference anchor `p` snaps to: a small central bullseye picks the
-    /// hidden center anchor (whole-shape connection); otherwise the nearest
-    /// edge/vertex anchor that is closer to `p` than the center is — so a drop
-    /// toward an edge snaps there while the ring between center and edges stays
-    /// free (unbound). nil when nothing snaps (the endpoint keeps its raw
-    /// position inside the shape).
-    func nearestBindingAnchor(to p: CGPoint) -> ReferenceAnchor? {
+    /// A flattened, closed polyline of this shape's outline — for
+    /// nearest-point snapping. Empty for non-bindable kinds.
+    func outlinePolyline() -> [CGPoint] {
+        guard isBindableTarget else { return [] }
+        let r = rect
+        guard r.width > 0, r.height > 0 else { return [] }
+        switch kind {
+        case .rect:
+            return [CGPoint(x: r.minX, y: r.minY), CGPoint(x: r.maxX, y: r.minY),
+                    CGPoint(x: r.maxX, y: r.maxY), CGPoint(x: r.minX, y: r.maxY),
+                    CGPoint(x: r.minX, y: r.minY)]
+        case .oval:
+            let steps = 48
+            var points = (0..<steps).map { index -> CGPoint in
+                let t = 2 * .pi * CGFloat(index) / CGFloat(steps)
+                return CGPoint(x: r.midX + r.width / 2 * cos(t),
+                               y: r.midY + r.height / 2 * sin(t))
+            }
+            if let first = points.first { points.append(first) }
+            return points
+        default:
+            return pathShapeOutline.map { Self.flatten($0) } ?? []
+        }
+    }
+
+    /// The point on this shape's outline nearest to `p`. nil for non-bindable
+    /// kinds.
+    func nearestOutlinePoint(to p: CGPoint) -> CGPoint? {
+        let polyline = outlinePolyline()
+        guard polyline.count >= 2 else { return nil }
+        var best: (point: CGPoint, distance: CGFloat)?
+        for (a, b) in zip(polyline, polyline.dropFirst()) {
+            let q = Self.closestPoint(on: a, b, to: p)
+            let distance = hypot(p.x - q.x, p.y - q.y)
+            if best == nil || distance < best!.distance { best = (q, distance) }
+        }
+        return best?.point
+    }
+
+    /// The closest point to `p` on segment a→b (clamped to the segment).
+    static func closestPoint(on a: CGPoint, _ b: CGPoint, to p: CGPoint) -> CGPoint {
+        let dx = b.x - a.x, dy = b.y - a.y
+        let lengthSq = dx * dx + dy * dy
+        guard lengthSq > 0 else { return a }
+        let t = max(0, min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / lengthSq))
+        return CGPoint(x: a.x + t * dx, y: a.y + t * dy)
+    }
+
+    /// The anchor `p` snaps to, given a `magnet` catch distance:
+    /// 1. a small central bullseye → the hidden center connector;
+    /// 2. else the nearest edge/vertex reference within `magnet` — references
+    ///    are the strongest snap;
+    /// 3. else, within `magnet` of the outline, the nearest contour point (a
+    ///    weaker whole-outline magnet that also reaches just outside the shape);
+    /// 4. else nil — the interior between center and contour stays free.
+    func nearestBindingAnchor(to p: CGPoint, magnet: CGFloat) -> ReferenceAnchor? {
         let anchors = referenceAnchors()
         guard !anchors.isEmpty else { return nil }
         let r = rect
@@ -1391,16 +1440,23 @@ struct Annotation: Identifiable, Equatable {
         if centerDistance <= min(r.width, r.height) * 0.16 {
             return anchors.first { $0.isCenter }
         }
-        var best: (anchor: ReferenceAnchor, distance: CGFloat)?
-        for candidate in anchors {
-            if candidate.isCenter { continue }   // center handled above
+        var bestReference: (anchor: ReferenceAnchor, distance: CGFloat)?
+        for candidate in anchors where !candidate.isCenter {
             let distance = hypot(p.x - candidate.point.x, p.y - candidate.point.y)
-            guard distance < centerDistance else { continue }
-            if best == nil || distance < best!.distance {
-                best = (candidate, distance)
+            guard distance <= magnet else { continue }
+            if bestReference == nil || distance < bestReference!.distance {
+                bestReference = (candidate, distance)
             }
         }
-        return best?.anchor
+        if let bestReference { return bestReference.anchor }
+        if let near = nearestOutlinePoint(to: p),
+           hypot(p.x - near.x, p.y - near.y) <= magnet {
+            let unit = CGPoint(x: (near.x - r.minX) / r.width,
+                               y: (near.y - r.minY) / r.height)
+            return ReferenceAnchor(spec: .fixed(unit: unit), point: near,
+                                   isVisible: false)
+        }
+        return nil
     }
 
     /// A non-recursive stand-in for an endpoint: the center of its bound
@@ -1815,18 +1871,23 @@ struct DocumentSnapshot: Equatable {
     /// it). Called inside the resize gesture's open change, so the bind is part
     /// of the same undo step as the endpoint drag.
     func bindEndpoint(_ handle: Annotation.Handle, of id: UUID,
-                      releasedAt p: CGPoint, tolerance: CGFloat) {
+                      releasedAt p: CGPoint, tolerance: CGFloat, magnet: CGFloat) {
         guard handle == .start || handle == .end,
               let idx = annotations.firstIndex(where: { $0.id == id }),
               annotations[idx].kind == .arrow || annotations[idx].kind == .line
         else { return }
-        let target = annotations.last {
-            $0.id != id && $0.isBindableTarget
-                && $0.hitTest(p, tolerance: tolerance, in: annotations)
+        // Capture a shape when the drop is inside it or within the magnet band
+        // of its outline. A deep-interior drop still captures (so it doesn't
+        // fall through to a shape behind) but yields no anchor → free tip.
+        let target = annotations.last { shape in
+            shape.id != id && shape.isBindableTarget
+                && (shape.hitTest(p, tolerance: tolerance, in: annotations)
+                    || shape.nearestBindingAnchor(to: p, magnet: magnet) != nil)
         }
         let raw = handle == .start ? annotations[idx].start : annotations[idx].end
         let binding = target.flatMap { shape -> EndpointBinding? in
-            guard let anchor = shape.nearestBindingAnchor(to: p) else { return nil }
+            guard let anchor = shape.nearestBindingAnchor(to: p, magnet: magnet)
+            else { return nil }
             return EndpointBinding(targetID: shape.id,
                                    anchor: anchor.spec, fallback: raw)
         }

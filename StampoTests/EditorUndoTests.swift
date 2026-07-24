@@ -612,7 +612,7 @@ import Testing
         // The gesture: an open change wraps a drop toward the rect's left edge.
         doc.beginChange()
         doc.bindEndpoint(.end, of: arrow.id, releasedAt: CGPoint(x: 105, y: 150),
-                         tolerance: 4)
+                         tolerance: 4, magnet: 14)
         doc.commitChange()
 
         #expect(doc.undoStack.count == 1)
@@ -640,7 +640,7 @@ import Testing
 
         doc.beginChange()
         doc.bindEndpoint(.end, of: arrow.id, releasedAt: CGPoint(x: 150, y: 128),
-                         tolerance: 4)
+                         tolerance: 4, magnet: 14)
         doc.commitChange()
         let a = doc.annotations.first { $0.kind == .arrow }!
         #expect(a.endBinding == nil)
@@ -656,7 +656,7 @@ import Testing
 
         doc.beginChange()
         doc.bindEndpoint(.end, of: arrow.id, releasedAt: CGPoint(x: 150, y: 150),
-                         tolerance: 4)
+                         tolerance: 4, magnet: 14)
         doc.commitChange()
         let a = doc.annotations.first { $0.kind == .arrow }!
         // The center connector: tip lands at the shape center and follows it.
@@ -675,7 +675,7 @@ import Testing
 
         doc.beginChange()
         doc.bindEndpoint(.end, of: arrow.id, releasedAt: CGPoint(x: 10, y: 10),
-                         tolerance: 4)
+                         tolerance: 4, magnet: 14)
         doc.commitChange()
         #expect(doc.annotations.first { $0.kind == .arrow }?.endBinding == nil)
     }
