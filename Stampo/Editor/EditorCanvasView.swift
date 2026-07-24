@@ -375,6 +375,18 @@ struct EditorCanvasView: View {
                 drawSelection(for: selected, context: context, fitScale: fitScale, offset: offset)
             }
 
+            // While dragging an arrow/line endpoint over a shape, show that
+            // shape's cardinal reference points and highlight the one the drop
+            // will snap to (none highlighted = releasing here leaves it free).
+            if case let .resizing(id, handle) = dragMode,
+               handle == .start || handle == .end,
+               let arrow = document.annotations.first(where: { $0.id == id }),
+               arrow.kind == .arrow || arrow.kind == .line {
+                let tip = handle == .start ? arrow.start : arrow.end
+                drawBindingCandidates(near: tip, excluding: id, context: context,
+                                      fitScale: fitScale, offset: offset)
+            }
+
             // Marquee for the unified scanner tool.
             if case let .recognitionSelecting(start, current) = dragMode {
                 drawRecognitionMarquee(from: start, to: current, context: context,
@@ -598,6 +610,36 @@ struct EditorCanvasView: View {
             let circle = Path(ellipseIn: handleRect)
             context.fill(circle, with: .color(.white))
             context.stroke(circle, with: .color(.blue), lineWidth: 1.5)
+        }
+    }
+
+    /// The cardinal reference dots of the shape under a dragged endpoint. The
+    /// dot the drop would snap to is filled; the rest are hollow. Nothing draws
+    /// when the endpoint isn't over a bindable shape.
+    private func drawBindingCandidates(near tip: CGPoint, excluding id: UUID,
+                                       context: GraphicsContext,
+                                       fitScale: CGFloat, offset: CGPoint) {
+        let tolerancePx = hitTolerancePt / fitScale
+        guard let shape = document.annotations.last(where: {
+            $0.id != id && $0.isBindableTarget
+                && $0.hitTest(tip, tolerance: tolerancePx, in: document.annotations)
+        }) else { return }
+        let snapped = shape.nearestBindingAnchor(to: tip)
+
+        for (cardinal, point) in shape.referenceAnchors() {
+            let c = CGPoint(x: point.x * fitScale + offset.x,
+                            y: point.y * fitScale + offset.y)
+            let isActive = cardinal == snapped
+            let radius: CGFloat = isActive ? 6 : 4.5
+            let dot = Path(ellipseIn: CGRect(x: c.x - radius, y: c.y - radius,
+                                             width: radius * 2, height: radius * 2))
+            if isActive {
+                context.fill(dot, with: .color(.blue))
+                context.stroke(dot, with: .color(.white), lineWidth: 1.5)
+            } else {
+                context.fill(dot, with: .color(.white))
+                context.stroke(dot, with: .color(.blue.opacity(0.7)), lineWidth: 1.5)
+            }
         }
     }
 

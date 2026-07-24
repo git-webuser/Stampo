@@ -783,6 +783,41 @@ import Testing
         #expect(free.handle(at: CGPoint(x: 100, y: 0), tolerance: 5, in: [free]) == .end)
     }
 
+    @Test func referenceAnchorsAreCardinalOutlinePointsWithFreeCenter() {
+        // Wide oval centered (200,150), half-axes 100×50.
+        let oval = make(.oval, start: CGPoint(x: 100, y: 100),
+                        end: CGPoint(x: 300, y: 200))
+        let anchors = Dictionary(uniqueKeysWithValues: oval.referenceAnchors().map {
+            ($0.cardinal, $0.point)
+        })
+        #expect(approx(anchors[.north]!, CGPoint(x: 200, y: 100)))
+        #expect(approx(anchors[.south]!, CGPoint(x: 200, y: 200)))
+        #expect(approx(anchors[.west]!, CGPoint(x: 100, y: 150)))
+        #expect(approx(anchors[.east]!, CGPoint(x: 300, y: 150)))
+        // A drop toward an edge snaps to that side…
+        #expect(oval.nearestBindingAnchor(to: CGPoint(x: 200, y: 105)) == .north)
+        #expect(oval.nearestBindingAnchor(to: CGPoint(x: 295, y: 150)) == .east)
+        // …while a drop in the interior stays free (nil).
+        #expect(oval.nearestBindingAnchor(to: CGPoint(x: 200, y: 150)) == nil)
+        // Non-bindable kinds expose no anchors.
+        #expect(make(.arrow, start: .zero, end: CGPoint(x: 10, y: 10))
+            .referenceAnchors().isEmpty)
+    }
+
+    @Test func cardinalAnchorFollowsTheOutlinePerShape() {
+        // Triangle apex-up in (0,0)…(100,100): N=apex, S=base mid, E/W on the
+        // slanted sides (x=75/25 at mid-height), never the bbox corners.
+        var triangle = make(.polygon, start: .zero, end: CGPoint(x: 100, y: 100))
+        triangle.polygonSides = 3
+        let anchors = Dictionary(uniqueKeysWithValues: triangle.referenceAnchors().map {
+            ($0.cardinal, $0.point)
+        })
+        #expect(approx(anchors[.north]!, CGPoint(x: 50, y: 0)))
+        #expect(approx(anchors[.south]!, CGPoint(x: 50, y: 100)))
+        #expect(approx(anchors[.east]!, CGPoint(x: 75, y: 50)))
+        #expect(approx(anchors[.west]!, CGPoint(x: 25, y: 50)))
+    }
+
     @Test func fixedAnchorPlacesOnNormalizedBoundingRect() {
         let target = make(.rect, start: CGPoint(x: 100, y: 100),
                           end: CGPoint(x: 200, y: 300))   // 100×200

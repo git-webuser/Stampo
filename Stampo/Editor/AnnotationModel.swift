@@ -323,14 +323,35 @@ struct AnnotationColor: Equatable {
     static let presets: [AnnotationColor] = [.red, .orange, .yellow, .green, .blue, .black, .white]
 }
 
+/// One of the four cardinal reference points on a shape's outline — the
+/// discrete anchors an arrow endpoint magnetizes to (N/S/E/W), like FigJam.
+enum Cardinal: Equatable, CaseIterable {
+    case north, south, east, west
+
+    /// Unit direction from the shape's center to this point (image space,
+    /// where y grows downward, so north is −y).
+    var direction: CGPoint {
+        switch self {
+        case .north: return CGPoint(x: 0, y: -1)
+        case .south: return CGPoint(x: 0, y: 1)
+        case .east:  return CGPoint(x: 1, y: 0)
+        case .west:  return CGPoint(x: -1, y: 0)
+        }
+    }
+}
+
 /// How a bound arrow endpoint places itself on its target's outline.
 enum AnchorSpec: Equatable {
     /// The point on the target's outline along the ray toward the arrow's
-    /// other end — the "smart" FigJam default (reuses ray-to-edge geometry).
+    /// other end. Follows the other endpoint; used where a "smart" whole-shape
+    /// connection is wanted rather than a fixed reference point.
     case dynamic
     /// A fixed point on the target's bounding rect, normalized 0…1 in each
-    /// axis (0,0 top-left … 1,1 bottom-right). Opt-in, layered on later.
+    /// axis (0,0 top-left … 1,1 bottom-right).
     case fixed(unit: CGPoint)
+    /// A cardinal reference point (N/S/E/W) on the outline — the default the
+    /// binding gesture creates, so endpoints snap to discrete anchors.
+    case cardinal(Cardinal)
 }
 
 /// Binds one endpoint of an `.arrow`/`.line` to a target annotation so the
@@ -1281,7 +1302,47 @@ struct Annotation: Identifiable, Equatable {
             let r = target.rect
             return CGPoint(x: r.minX + unit.x * r.width,
                            y: r.minY + unit.y * r.height)
+        case .cardinal(let cardinal):
+            return target.outlinePoint(toward: target.cardinalExternal(cardinal))
         }
+    }
+
+    /// A point one unit from this shape's center in `cardinal`'s direction —
+    /// the aim for `outlinePoint`, which shoots a ray there and returns where
+    /// it meets the outline.
+    private func cardinalExternal(_ cardinal: Cardinal) -> CGPoint {
+        let r = rect
+        return CGPoint(x: r.midX + cardinal.direction.x,
+                       y: r.midY + cardinal.direction.y)
+    }
+
+    /// The four cardinal reference points on this shape's outline (N/S/E/W) —
+    /// the discrete anchors an endpoint snaps to. Empty for non-bindable kinds.
+    func referenceAnchors() -> [(cardinal: Cardinal, point: CGPoint)] {
+        guard isBindableTarget else { return [] }
+        return Cardinal.allCases.map {
+            ($0, outlinePoint(toward: cardinalExternal($0)))
+        }
+    }
+
+    /// The reference point nearest `p`, but only when `p` is closer to it than
+    /// to the shape's center — so a drop toward an edge snaps to that side
+    /// while a drop in the interior stays free (unbound). nil when nothing
+    /// snaps (the endpoint keeps its raw position inside the shape).
+    func nearestBindingAnchor(to p: CGPoint) -> Cardinal? {
+        let anchors = referenceAnchors()
+        guard !anchors.isEmpty else { return nil }
+        let r = rect
+        let centerDistance = hypot(p.x - r.midX, p.y - r.midY)
+        var best: (cardinal: Cardinal, distance: CGFloat)?
+        for (cardinal, point) in anchors {
+            let distance = hypot(p.x - point.x, p.y - point.y)
+            guard distance < centerDistance else { continue }
+            if best == nil || distance < best!.distance {
+                best = (cardinal, distance)
+            }
+        }
+        return best?.cardinal
     }
 
     /// A non-recursive stand-in for an endpoint: the center of its bound
@@ -1687,12 +1748,14 @@ struct DocumentSnapshot: Equatable {
 
     // MARK: Arrow binding
 
-    /// Binds (or unbinds) one endpoint of an arrow/line to a bindable shape at
-    /// the release point `p`: a shape under `p` (topmost, excluding the arrow
-    /// itself) becomes a `.dynamic` target; empty space clears the binding. The
-    /// fallback is the endpoint's current raw point (where the drag left it).
-    /// Called inside the resize gesture's open change, so the bind is part of
-    /// the same undo step as the endpoint drag.
+    /// Binds (or unbinds) one endpoint of an arrow/line at the release point
+    /// `p`. A shape under `p` (topmost, excluding the arrow itself) snaps the
+    /// endpoint to its nearest cardinal reference point — but only when `p` is
+    /// toward that edge; a drop in the shape's interior (or on empty space)
+    /// leaves the endpoint free, so an arrow can still point *inside* a shape.
+    /// The fallback is the endpoint's current raw point (where the drag left
+    /// it). Called inside the resize gesture's open change, so the bind is part
+    /// of the same undo step as the endpoint drag.
     func bindEndpoint(_ handle: Annotation.Handle, of id: UUID,
                       releasedAt p: CGPoint, tolerance: CGFloat) {
         guard handle == .start || handle == .end,
@@ -1704,8 +1767,10 @@ struct DocumentSnapshot: Equatable {
                 && $0.hitTest(p, tolerance: tolerance, in: annotations)
         }
         let raw = handle == .start ? annotations[idx].start : annotations[idx].end
-        let binding = target.map {
-            EndpointBinding(targetID: $0.id, anchor: .dynamic, fallback: raw)
+        let binding = target.flatMap { shape -> EndpointBinding? in
+            guard let cardinal = shape.nearestBindingAnchor(to: p) else { return nil }
+            return EndpointBinding(targetID: shape.id,
+                                   anchor: .cardinal(cardinal), fallback: raw)
         }
         if handle == .start { annotations[idx].startBinding = binding }
         else { annotations[idx].endBinding = binding }
