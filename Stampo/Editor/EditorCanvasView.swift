@@ -607,10 +607,14 @@ struct EditorCanvasView: View {
                 let leg = (route[index], route[index + 1])
                 let isVertical = abs(leg.0.x - leg.1.x) < 0.01
                 let c = toView(midpoint)
+                let long = Self.routeSliderLength / 2
+                let thin = Self.routeSliderThickness / 2
                 let bar = isVertical
-                    ? CGRect(x: c.x - 3.5, y: c.y - 9, width: 7, height: 18)
-                    : CGRect(x: c.x - 9, y: c.y - 3.5, width: 18, height: 7)
-                let shape = Path(roundedRect: bar, cornerRadius: 3.5)
+                    ? CGRect(x: c.x - thin, y: c.y - long,
+                             width: Self.routeSliderThickness, height: Self.routeSliderLength)
+                    : CGRect(x: c.x - long, y: c.y - thin,
+                             width: Self.routeSliderLength, height: Self.routeSliderThickness)
+                let shape = Path(roundedRect: bar, cornerRadius: thin)
                 context.fill(shape, with: .color(.blue))
                 context.stroke(shape, with: .color(.white.opacity(0.9)), lineWidth: 1)
             }
@@ -633,8 +637,14 @@ struct EditorCanvasView: View {
         }
     }
 
-    /// Grid step (image pixels) the elbow leg sliders quantize to.
-    private static let routeGrid: CGFloat = 8
+    /// Length and thickness of an elbow leg's slider bar, in view points.
+    private static let routeSliderLength: CGFloat = 18
+    private static let routeSliderThickness: CGFloat = 7
+
+    /// Grid step (image pixels) the elbow leg sliders quantize to. Kept at or
+    /// above the slider's own length so a leg can never be shorter than its
+    /// slider — consecutive sliders stay separated without hiding any.
+    private static let routeGrid: CGFloat = routeSliderLength + 6
 
     /// Index of the elbow-route leg whose slider is within `tolerance` of `p`,
     /// or nil. Endpoint legs included — dragging one buds a new corner.
