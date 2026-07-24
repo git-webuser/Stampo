@@ -212,7 +212,7 @@ enum AnnotationRenderer {
         let end = a.resolvedEnd(in: annotations)
         let shaftWidth = a.lineWidth
         let headWidth = a.lineWidth
-        let headLength = max(12, headWidth * 4)
+        let headLength = Annotation.arrowheadLength(lineWidth: headWidth)
         let overlap = headLength * 0.6
 
         // Curved shaft: stroke the Bézier, then paint the heads over its ends.

@@ -628,12 +628,29 @@ import Testing
         #expect(free.resolvedEnd(in: doc.annotations) == CGPoint(x: 300, y: 150))
     }
 
-    @Test func droppingAnEndpointInTheInteriorLeavesItFree() {
+    @Test func droppingAnEndpointInTheFreeRingLeavesItFree() {
         // Regression guard for the "can't point inside a shape" complaint: a
-        // drop near the center binds nothing, so the tip stays where dropped.
+        // drop in the ring between center and edges binds nothing, so the tip
+        // stays where dropped. (rect centered (150,150); (150,128) is ring.)
         let doc = makeDocument()
         let rect = bindTarget()
-        var arrow = Annotation(kind: .arrow, start: CGPoint(x: 0, y: 150),
+        let arrow = Annotation(kind: .arrow, start: CGPoint(x: 0, y: 150),
+                               end: CGPoint(x: 150, y: 128), color: .red, lineWidth: 4)
+        doc.annotations = [rect, arrow]
+
+        doc.beginChange()
+        doc.bindEndpoint(.end, of: arrow.id, releasedAt: CGPoint(x: 150, y: 128),
+                         tolerance: 4)
+        doc.commitChange()
+        let a = doc.annotations.first { $0.kind == .arrow }!
+        #expect(a.endBinding == nil)
+        #expect(a.resolvedEnd(in: doc.annotations) == CGPoint(x: 150, y: 128))
+    }
+
+    @Test func droppingAtTheCenterBindsWholeShapeDynamically() {
+        let doc = makeDocument()
+        let rect = bindTarget()
+        let arrow = Annotation(kind: .arrow, start: CGPoint(x: 0, y: 150),
                                end: CGPoint(x: 150, y: 150), color: .red, lineWidth: 4)
         doc.annotations = [rect, arrow]
 
@@ -642,8 +659,9 @@ import Testing
                          tolerance: 4)
         doc.commitChange()
         let a = doc.annotations.first { $0.kind == .arrow }!
-        #expect(a.endBinding == nil)
-        #expect(a.resolvedEnd(in: doc.annotations) == CGPoint(x: 150, y: 150))
+        #expect(a.endBinding?.anchor == .dynamic)
+        // Dynamic → the tip rides the outline toward the free start on the left.
+        #expect(a.resolvedEnd(in: doc.annotations) == CGPoint(x: 100, y: 150))
     }
 
     @Test func droppingAnEndpointOnEmptySpaceClearsItsBinding() {

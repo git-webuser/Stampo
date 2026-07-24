@@ -337,11 +337,12 @@ enum AnchorSpec: Equatable {
 }
 
 /// A reference point on a shape an endpoint can snap to. Edge midpoints are
-/// `visible` (drawn while dragging); vertices are hidden snap targets. `unit`
-/// is the bbox-relative position stored in the binding; `point` is its current
-/// world position (for snapping and drawing).
+/// `visible` (drawn while dragging); vertices and the center are hidden snap
+/// targets. `spec` is the binding this anchor creates (a `.fixed(unit:)` for
+/// an edge/vertex, `.dynamic` for the center — a whole-shape connection);
+/// `point` is its current world position (for snapping and drawing).
 struct ReferenceAnchor: Equatable {
-    var unit: CGPoint
+    var spec: AnchorSpec
     var point: CGPoint
     var isVisible: Bool
 }
@@ -1210,13 +1211,21 @@ struct Annotation: Identifiable, Equatable {
 
     // MARK: Arrow geometry (pure — unit-testable)
 
+    /// Length of the filled arrowhead for a stroke width. A generous floor
+    /// keeps the head clearly readable on thin arrows without scaling the whole
+    /// annotation, while it still grows with thicker strokes. Shared by the
+    /// barb geometry and the renderer's shaft inset so they stay consistent.
+    static func arrowheadLength(lineWidth: CGFloat) -> CGFloat {
+        max(18, lineWidth * 3.5)
+    }
+
     /// The two barb points of the arrowhead for a shaft from `from` to `tip`.
     /// Head size scales with line width so thick arrows look proportionate.
     static func arrowheadBarbs(from: CGPoint, tip: CGPoint, lineWidth: CGFloat)
         -> (CGPoint, CGPoint)
     {
         let angle = atan2(tip.y - from.y, tip.x - from.x)
-        let headLength = max(10, lineWidth * 3.5)
+        let headLength = arrowheadLength(lineWidth: lineWidth)
         let spread: CGFloat = .pi / 7
         let b1 = CGPoint(x: tip.x - headLength * cos(angle - spread),
                          y: tip.y - headLength * sin(angle - spread))
@@ -1316,25 +1325,26 @@ struct Annotation: Identifiable, Equatable {
         let r = rect
         guard r.width > 0, r.height > 0 else { return [] }
         func anchor(_ unit: CGPoint, visible: Bool) -> ReferenceAnchor {
-            ReferenceAnchor(unit: unit,
+            ReferenceAnchor(spec: .fixed(unit: unit),
                             point: CGPoint(x: r.minX + unit.x * r.width,
                                            y: r.minY + unit.y * r.height),
                             isVisible: visible)
         }
+        var result: [ReferenceAnchor]
         switch kind {
         case .oval:
             // No edges or vertices: the four extreme points, all shown.
-            return [anchor(CGPoint(x: 0.5, y: 0), visible: true),
-                    anchor(CGPoint(x: 0.5, y: 1), visible: true),
-                    anchor(CGPoint(x: 0, y: 0.5), visible: true),
-                    anchor(CGPoint(x: 1, y: 0.5), visible: true)]
+            result = [anchor(CGPoint(x: 0.5, y: 0), visible: true),
+                      anchor(CGPoint(x: 0.5, y: 1), visible: true),
+                      anchor(CGPoint(x: 0, y: 0.5), visible: true),
+                      anchor(CGPoint(x: 1, y: 0.5), visible: true)]
         case .rect, .roundedRect, .bubble:
             // Edge midpoints visible; the four corners are hidden vertices.
             let midpoints = [CGPoint(x: 0.5, y: 0), CGPoint(x: 0.5, y: 1),
                              CGPoint(x: 0, y: 0.5), CGPoint(x: 1, y: 0.5)]
             let corners = [CGPoint(x: 0, y: 0), CGPoint(x: 1, y: 0),
                            CGPoint(x: 1, y: 1), CGPoint(x: 0, y: 1)]
-            return midpoints.map { anchor($0, visible: true) }
+            result = midpoints.map { anchor($0, visible: true) }
                 + corners.map { anchor($0, visible: false) }
         case .polygon, .star:
             let vertices = kind == .polygon
@@ -1346,7 +1356,7 @@ struct Annotation: Identifiable, Equatable {
             func unit(_ p: CGPoint) -> CGPoint {
                 CGPoint(x: (p.x - r.minX) / r.width, y: (p.y - r.minY) / r.height)
             }
-            var result: [ReferenceAnchor] = []
+            result = []
             for (index, vertex) in vertices.enumerated() {
                 let next = vertices[(index + 1) % vertices.count]
                 let midpoint = CGPoint(x: (vertex.x + next.x) / 2,
@@ -1354,23 +1364,35 @@ struct Annotation: Identifiable, Equatable {
                 result.append(anchor(unit(vertex), visible: false))  // vertex
                 result.append(anchor(unit(midpoint), visible: true)) // edge mid
             }
-            return result
         default:
             return []
         }
+        // A hidden center anchor: dropping on it binds the whole shape
+        // (.dynamic — the endpoint rides the outline toward the other end).
+        result.append(ReferenceAnchor(spec: .dynamic,
+                                      point: CGPoint(x: r.midX, y: r.midY),
+                                      isVisible: false))
+        return result
     }
 
-    /// The reference anchor nearest `p`, but only when `p` is closer to it than
-    /// to the shape's center — so a drop toward an edge/vertex snaps there while
-    /// a drop in the interior stays free (unbound). nil when nothing snaps (the
-    /// endpoint keeps its raw position inside the shape).
+    /// The reference anchor `p` snaps to: a small central bullseye picks the
+    /// hidden center anchor (whole-shape connection); otherwise the nearest
+    /// edge/vertex anchor that is closer to `p` than the center is — so a drop
+    /// toward an edge snaps there while the ring between center and edges stays
+    /// free (unbound). nil when nothing snaps (the endpoint keeps its raw
+    /// position inside the shape).
     func nearestBindingAnchor(to p: CGPoint) -> ReferenceAnchor? {
         let anchors = referenceAnchors()
         guard !anchors.isEmpty else { return nil }
         let r = rect
         let centerDistance = hypot(p.x - r.midX, p.y - r.midY)
+        if centerDistance <= min(r.width, r.height) * 0.16 {
+            return anchors.first { if case .dynamic = $0.spec { return true }
+                                   else { return false } }
+        }
         var best: (anchor: ReferenceAnchor, distance: CGFloat)?
         for candidate in anchors {
+            if case .dynamic = candidate.spec { continue }   // center handled above
             let distance = hypot(p.x - candidate.point.x, p.y - candidate.point.y)
             guard distance < centerDistance else { continue }
             if best == nil || distance < best!.distance {
@@ -1805,7 +1827,7 @@ struct DocumentSnapshot: Equatable {
         let binding = target.flatMap { shape -> EndpointBinding? in
             guard let anchor = shape.nearestBindingAnchor(to: p) else { return nil }
             return EndpointBinding(targetID: shape.id,
-                                   anchor: .fixed(unit: anchor.unit), fallback: raw)
+                                   anchor: anchor.spec, fallback: raw)
         }
         if handle == .start { annotations[idx].startBinding = binding }
         else { annotations[idx].endBinding = binding }

@@ -813,31 +813,40 @@ import Testing
         }
     }
 
-    @Test func ovalExposesFourVisibleAnchorsWithFreeCenter() {
+    /// The hidden center anchor (a `.dynamic` whole-shape connection).
+    private func centerAnchor(_ anchors: [ReferenceAnchor]) -> ReferenceAnchor? {
+        anchors.first { if case .dynamic = $0.spec { return true } else { return false } }
+    }
+
+    @Test func ovalExposesFourVisibleAnchorsPlusHiddenCenter() {
         // Wide oval centered (200,150), half-axes 100×50.
         let oval = make(.oval, start: CGPoint(x: 100, y: 100),
                         end: CGPoint(x: 300, y: 200))
         let anchors = oval.referenceAnchors()
-        #expect(anchors.count == 4 && anchors.allSatisfy(\.isVisible))
+        #expect(anchors.filter(\.isVisible).count == 4)
         #expect(hasAnchor(anchors, at: CGPoint(x: 200, y: 100)))   // top
         #expect(hasAnchor(anchors, at: CGPoint(x: 200, y: 200)))   // bottom
         #expect(hasAnchor(anchors, at: CGPoint(x: 100, y: 150)))   // left
         #expect(hasAnchor(anchors, at: CGPoint(x: 300, y: 150)))   // right
+        // The hidden center anchor sits at the middle and binds dynamically.
+        #expect(centerAnchor(anchors)?.point == CGPoint(x: 200, y: 150))
         // A drop toward an edge snaps to it…
         #expect(oval.nearestBindingAnchor(to: CGPoint(x: 200, y: 105))?.point
                 == CGPoint(x: 200, y: 100))
-        // …while a drop in the interior stays free (nil).
-        #expect(oval.nearestBindingAnchor(to: CGPoint(x: 200, y: 150)) == nil)
+        // …a drop in the ring between center and edge stays free…
+        #expect(oval.nearestBindingAnchor(to: CGPoint(x: 200, y: 128)) == nil)
+        // …and a drop at the center snaps to the dynamic whole-shape anchor.
+        #expect(oval.nearestBindingAnchor(to: CGPoint(x: 200, y: 150))?.spec == .dynamic)
         // Non-bindable kinds expose no anchors.
         #expect(make(.arrow, start: .zero, end: CGPoint(x: 10, y: 10))
             .referenceAnchors().isEmpty)
     }
 
-    @Test func rectAnchorsAreVisibleEdgeMidsAndHiddenCorners() {
+    @Test func rectAnchorsAreVisibleEdgeMidsAndHiddenCornersPlusCenter() {
         let rect = make(.rect, start: .zero, end: CGPoint(x: 100, y: 60))
         let anchors = rect.referenceAnchors()
-        #expect(anchors.filter(\.isVisible).count == 4)
-        #expect(anchors.filter { !$0.isVisible }.count == 4)
+        #expect(anchors.filter(\.isVisible).count == 4)        // edge midpoints
+        #expect(anchors.filter { !$0.isVisible }.count == 5)   // 4 corners + center
         // Edge midpoints are the visible anchors.
         #expect(hasAnchor(anchors, at: CGPoint(x: 50, y: 0), visible: true))
         #expect(hasAnchor(anchors, at: CGPoint(x: 0, y: 30), visible: true))
@@ -850,17 +859,26 @@ import Testing
 
     @Test func polygonAnchorsRecomputePerSideCount() {
         // Triangle apex-up in (0,0)…(100,100): 3 hidden vertices (apex + base
-        // corners) and 3 visible edge midpoints, all on the real outline.
+        // corners) and 3 visible edge midpoints, all on the real outline, plus
+        // the hidden center.
         var triangle = make(.polygon, start: .zero, end: CGPoint(x: 100, y: 100))
         triangle.polygonSides = 3
         let anchors = triangle.referenceAnchors()
-        #expect(anchors.filter { !$0.isVisible }.count == 3)   // vertices
+        #expect(anchors.filter { !$0.isVisible }.count == 4)   // 3 vertices + center
         #expect(anchors.filter(\.isVisible).count == 3)        // edge mids
         #expect(hasAnchor(anchors, at: CGPoint(x: 50, y: 0), visible: false))    // apex
         #expect(hasAnchor(anchors, at: CGPoint(x: 50, y: 100), visible: true))   // base mid
-        // Six-sided polygon recomputes to 6 + 6.
+        // Six-sided polygon recomputes to 6 + 6 + center.
         triangle.polygonSides = 6
-        #expect(triangle.referenceAnchors().count == 12)
+        #expect(triangle.referenceAnchors().count == 13)
+    }
+
+    @Test func arrowheadHasAVisibleFloorOnThinStrokesButGrowsWhenThick() {
+        // Thin strokes keep a generous head instead of a near-invisible one…
+        #expect(Annotation.arrowheadLength(lineWidth: 1) == 18)
+        #expect(Annotation.arrowheadLength(lineWidth: 4) == 18)
+        // …and a thick stroke still scales past the floor.
+        #expect(Annotation.arrowheadLength(lineWidth: 10) == 35)
     }
 
     @Test func fixedAnchorPlacesOnNormalizedBoundingRect() {
