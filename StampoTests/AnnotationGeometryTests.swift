@@ -1016,6 +1016,36 @@ import Testing
                 == [CGPoint(x: 101, y: 7), CGPoint(x: 101, y: 203)])
     }
 
+    @Test func enteringElbowSquaresUpANearlyAlignedArrow() {
+        // Ends 3 px apart in x: without squaring up the route must jog between
+        // them, so the arrow could never be straight.
+        var arrow = make(.arrow, start: CGPoint(x: 100, y: 10),
+                         end: CGPoint(x: 103, y: 200))
+        arrow.arrowStyle = .elbow
+        #expect(arrow.elbowRoute(start: arrow.start, end: arrow.end).count > 2)
+        arrow.alignForElbow()
+        #expect(arrow.end.x == 100)
+        #expect(arrow.elbowRoute(start: arrow.start, end: arrow.end)
+                == [CGPoint(x: 100, y: 10), CGPoint(x: 100, y: 200)])
+
+        // A bound endpoint belongs to its shape, so the free end moves instead.
+        var bound = make(.arrow, start: CGPoint(x: 100, y: 10),
+                         end: CGPoint(x: 103, y: 200))
+        bound.arrowStyle = .elbow
+        bound.endBinding = EndpointBinding(targetID: UUID(),
+                                           anchor: .fixed(unit: CGPoint(x: 0.5, y: 0)),
+                                           fallback: .zero)
+        bound.alignForElbow()
+        #expect(bound.end == CGPoint(x: 103, y: 200))   // untouched
+        #expect(bound.start.x == 103)
+
+        // A genuinely diagonal arrow is left alone.
+        var diagonal = make(.arrow, start: .zero, end: CGPoint(x: 100, y: 80))
+        diagonal.arrowStyle = .elbow
+        diagonal.alignForElbow()
+        #expect(diagonal.end == CGPoint(x: 100, y: 80))
+    }
+
     @Test func slidingALegSnapsToTheGridAndLeavesOthersAlone() {
         var arrow = make(.arrow, start: .zero, end: CGPoint(x: 100, y: 60))
         arrow.arrowStyle = .elbow

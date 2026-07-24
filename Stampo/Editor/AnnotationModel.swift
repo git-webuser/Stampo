@@ -1377,6 +1377,25 @@ struct Annotation: Identifiable, Equatable {
         return Self.simplifiedRoute([s] + head + elbowWaypoints + tail.reversed() + [e])
     }
 
+    /// Squares a nearly axis-aligned elbow arrow onto its axis by nudging a
+    /// *free* endpoint, and drops stale waypoints. Without this an arrow whose
+    /// ends differ by a few pixels can never render straight — the route has to
+    /// jog between them — which reads as a permanent zigzag. Bound endpoints
+    /// are left alone (their position belongs to the shape).
+    mutating func alignForElbow(tolerance: CGFloat = 12) {
+        guard kind == .arrow, arrowStyle.isElbow else { return }
+        elbowWaypoints = []
+        let dx = end.x - start.x, dy = end.y - start.y
+        // Square up along whichever axis is already the near-aligned one.
+        if abs(dx) <= tolerance, abs(dx) > 0, abs(dy) > abs(dx) {
+            if endBinding == nil { end.x = start.x }
+            else if startBinding == nil { start.x = end.x }
+        } else if abs(dy) <= tolerance, abs(dy) > 0, abs(dx) > abs(dy) {
+            if endBinding == nil { end.y = start.y }
+            else if startBinding == nil { start.y = end.y }
+        }
+    }
+
     /// Midpoint of each leg of `route` — where the parallel-move sliders sit.
     static func routeSegmentMidpoints(_ route: [CGPoint]) -> [CGPoint] {
         zip(route, route.dropFirst()).map { a, b in

@@ -1089,7 +1089,13 @@ struct EditorView: View {
             },
             set: { newValue in
                 style.arrowStyle = newValue
-                applyToSelection { if $0.kind == .arrow { $0.arrowStyle = newValue } }
+                applyToSelection {
+                    guard $0.kind == .arrow else { return }
+                    $0.arrowStyle = newValue
+                    // Switching into elbow squares up a near-aligned arrow so
+                    // it can be straight instead of jogging between its ends.
+                    $0.alignForElbow()
+                }
             }
         )
     }

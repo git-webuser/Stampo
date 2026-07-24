@@ -641,10 +641,12 @@ struct EditorCanvasView: View {
     private static let routeSliderLength: CGFloat = 18
     private static let routeSliderThickness: CGFloat = 7
 
-    /// Grid step (image pixels) the elbow leg sliders quantize to. Kept at or
-    /// above the slider's own length so a leg can never be shorter than its
-    /// slider — consecutive sliders stay separated without hiding any.
-    private static let routeGrid: CGFloat = routeSliderLength + 6
+    /// Grid step the elbow leg sliders quantize to, in **view points** —
+    /// converted through the current zoom at drag time so the step (and the
+    /// half-step alignment window) feels identical however the image is
+    /// scaled. Kept at or above the slider's own length so a leg can never be
+    /// shorter than its slider and consecutive sliders stay separated.
+    private static let routeGridPt: CGFloat = routeSliderLength + 6
 
     /// Index of the elbow-route leg whose slider is within `tolerance` of `p`,
     /// or nil. Endpoint legs included — dragging one buds a new corner.
@@ -914,7 +916,8 @@ struct EditorCanvasView: View {
                     else { break }
                     let route = arrow.elbowRoute(in: document.annotations)
                     let waypoints = Annotation.movingRouteSegment(
-                        route, index: index, to: p, grid: Self.routeGrid)
+                        route, index: index, to: p,
+                        grid: Self.routeGridPt / fitScale)
                     update(id) { $0.elbowWaypoints = waypoints }
 
                 case .recognitionSelecting(let start, _):
@@ -991,6 +994,9 @@ struct EditorCanvasView: View {
                             $0.start = CGPoint(x: display.minX, y: display.minY)
                             $0.end = CGPoint(x: display.maxX, y: display.maxY)
                         }
+                        // A freshly drawn elbow arrow squares up onto its axis
+                        // when it was drawn nearly straight.
+                        update(id) { $0.alignForElbow(tolerance: 12 / fitScale) }
                         // A freshly drawn arrow/line binds whichever endpoints
                         // landed on (or near) a shape, so drawing one straight
                         // onto a shape connects it — same undo step.
