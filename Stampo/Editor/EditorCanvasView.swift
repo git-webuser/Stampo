@@ -877,6 +877,17 @@ struct EditorCanvasView: View {
                         }
                         break
                     }
+                    // An elbow arrow's endpoints ride the same lattice as its
+                    // legs (anchored at the opposite end), so adjusting one
+                    // can't leave the route jittering by sub-step amounts.
+                    var target = p
+                    if handle == .start || handle == .end,
+                       let a = document.annotations.first(where: { $0.id == id }),
+                       a.kind == .arrow, a.arrowStyle.isElbow {
+                        target = Annotation.snappedToGrid(
+                            p, origin: handle == .start ? a.end : a.start,
+                            grid: Self.routeGridPt / fitScale)
+                    }
                     // A corner pushed through the opposite edge mirrors the
                     // shape; the drag continues with the mirrored handle.
                     var continuedHandle = handle
@@ -893,15 +904,15 @@ struct EditorCanvasView: View {
                            annotation.kind == .line || annotation.kind == .arrow {
                             switch handle {
                             case .start:
-                                annotation.start = Annotation.snappedArrowEnd(from: annotation.end, to: p)
+                                annotation.start = Annotation.snappedArrowEnd(from: annotation.end, to: target)
                             case .end:
-                                annotation.end = Annotation.snappedArrowEnd(from: annotation.start, to: p)
+                                annotation.end = Annotation.snappedArrowEnd(from: annotation.start, to: target)
                             default:
                                 break
                             }
                         } else {
                             continuedHandle = annotation.apply(
-                                handle: handle, to: p, aspectLocked: isShiftHeld)
+                                handle: handle, to: target, aspectLocked: isShiftHeld)
                         }
                     }
                     if continuedHandle != handle {

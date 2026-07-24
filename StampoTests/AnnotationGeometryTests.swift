@@ -1046,6 +1046,25 @@ import Testing
         #expect(diagonal.end == CGPoint(x: 100, y: 80))
     }
 
+    @Test func elbowEndpointsShareTheLegsLattice() {
+        // The lattice is anchored at the opposite endpoint, so a dragged end
+        // lands on exact multiples from it — no sub-step offset to jitter, and
+        // a zero offset on an axis means perfectly aligned.
+        let origin = CGPoint(x: 101, y: 7)
+        let snapped = Annotation.snappedToGrid(CGPoint(x: 148, y: 61),
+                                               origin: origin, grid: 24)
+        #expect(snapped == CGPoint(x: 149, y: 55))   // origin + 48 / +48
+        #expect((snapped.x - origin.x).truncatingRemainder(dividingBy: 24) == 0)
+        #expect((snapped.y - origin.y).truncatingRemainder(dividingBy: 24) == 0)
+        // Within half a step of the origin's axis it lands exactly on it, so
+        // the arrow can be made perfectly straight.
+        #expect(Annotation.snappedToGrid(CGPoint(x: 105, y: 200),
+                                         origin: origin, grid: 24).x == 101)
+        // A degenerate grid leaves the point untouched.
+        #expect(Annotation.snappedToGrid(CGPoint(x: 3, y: 4), origin: .zero,
+                                         grid: 1) == CGPoint(x: 3, y: 4))
+    }
+
     @Test func slidingALegSnapsToTheGridAndLeavesOthersAlone() {
         var arrow = make(.arrow, start: .zero, end: CGPoint(x: 100, y: 60))
         arrow.arrowStyle = .elbow

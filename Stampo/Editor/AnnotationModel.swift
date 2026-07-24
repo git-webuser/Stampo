@@ -1377,6 +1377,17 @@ struct Annotation: Identifiable, Equatable {
         return Self.simplifiedRoute([s] + head + elbowWaypoints + tail.reversed() + [e])
     }
 
+    /// Quantizes `p` onto the lattice anchored at `origin`. Elbow endpoints use
+    /// the *other* endpoint as the origin, so both ends and every leg share one
+    /// lattice: a zero offset on an axis means exactly aligned, and adjusting an
+    /// end can't leave sub-step jitter in the route.
+    static func snappedToGrid(_ p: CGPoint, origin: CGPoint,
+                              grid: CGFloat) -> CGPoint {
+        guard grid > 1 else { return p }
+        return CGPoint(x: origin.x + ((p.x - origin.x) / grid).rounded() * grid,
+                       y: origin.y + ((p.y - origin.y) / grid).rounded() * grid)
+    }
+
     /// Squares a nearly axis-aligned elbow arrow onto its axis by nudging a
     /// *free* endpoint, and drops stale waypoints. Without this an arrow whose
     /// ends differ by a few pixels can never render straight — the route has to
