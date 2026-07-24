@@ -338,13 +338,15 @@ enum AnchorSpec: Equatable {
 
 /// A reference point on a shape an endpoint can snap to. Edge midpoints are
 /// `visible` (drawn while dragging); vertices and the center are hidden snap
-/// targets. `spec` is the binding this anchor creates (a `.fixed(unit:)` for
-/// an edge/vertex, `.dynamic` for the center — a whole-shape connection);
-/// `point` is its current world position (for snapping and drawing).
+/// targets. `spec` is the binding this anchor creates (all are `.fixed(unit:)`
+/// — edge, vertex, or the shape center); `point` is its current world position
+/// (for snapping and drawing). `isCenter` marks the central connector, which
+/// snaps within a small bullseye rather than by nearest-edge distance.
 struct ReferenceAnchor: Equatable {
     var spec: AnchorSpec
     var point: CGPoint
     var isVisible: Bool
+    var isCenter: Bool = false
 }
 
 /// Binds one endpoint of an `.arrow`/`.line` to a target annotation so the
@@ -1367,11 +1369,11 @@ struct Annotation: Identifiable, Equatable {
         default:
             return []
         }
-        // A hidden center anchor: dropping on it binds the whole shape
-        // (.dynamic — the endpoint rides the outline toward the other end).
-        result.append(ReferenceAnchor(spec: .dynamic,
+        // A hidden center connector: the endpoint lands on the shape's center
+        // (bound, so it follows the shape) — an arrow pointing inside it.
+        result.append(ReferenceAnchor(spec: .fixed(unit: CGPoint(x: 0.5, y: 0.5)),
                                       point: CGPoint(x: r.midX, y: r.midY),
-                                      isVisible: false))
+                                      isVisible: false, isCenter: true))
         return result
     }
 
@@ -1387,12 +1389,11 @@ struct Annotation: Identifiable, Equatable {
         let r = rect
         let centerDistance = hypot(p.x - r.midX, p.y - r.midY)
         if centerDistance <= min(r.width, r.height) * 0.16 {
-            return anchors.first { if case .dynamic = $0.spec { return true }
-                                   else { return false } }
+            return anchors.first { $0.isCenter }
         }
         var best: (anchor: ReferenceAnchor, distance: CGFloat)?
         for candidate in anchors {
-            if case .dynamic = candidate.spec { continue }   // center handled above
+            if candidate.isCenter { continue }   // center handled above
             let distance = hypot(p.x - candidate.point.x, p.y - candidate.point.y)
             guard distance < centerDistance else { continue }
             if best == nil || distance < best!.distance {

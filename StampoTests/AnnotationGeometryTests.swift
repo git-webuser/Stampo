@@ -813,9 +813,9 @@ import Testing
         }
     }
 
-    /// The hidden center anchor (a `.dynamic` whole-shape connection).
+    /// The hidden center connector anchor.
     private func centerAnchor(_ anchors: [ReferenceAnchor]) -> ReferenceAnchor? {
-        anchors.first { if case .dynamic = $0.spec { return true } else { return false } }
+        anchors.first { $0.isCenter }
     }
 
     @Test func ovalExposesFourVisibleAnchorsPlusHiddenCenter() {
@@ -835,8 +835,11 @@ import Testing
                 == CGPoint(x: 200, y: 100))
         // …a drop in the ring between center and edge stays free…
         #expect(oval.nearestBindingAnchor(to: CGPoint(x: 200, y: 128)) == nil)
-        // …and a drop at the center snaps to the dynamic whole-shape anchor.
-        #expect(oval.nearestBindingAnchor(to: CGPoint(x: 200, y: 150))?.spec == .dynamic)
+        // …and a drop at the center snaps to the center connector (tip lands
+        // there, bound to the shape).
+        #expect(oval.nearestBindingAnchor(to: CGPoint(x: 200, y: 150))?.isCenter == true)
+        #expect(oval.nearestBindingAnchor(to: CGPoint(x: 200, y: 150))?.spec
+                == .fixed(unit: CGPoint(x: 0.5, y: 0.5)))
         // Non-bindable kinds expose no anchors.
         #expect(make(.arrow, start: .zero, end: CGPoint(x: 10, y: 10))
             .referenceAnchors().isEmpty)

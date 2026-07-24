@@ -647,9 +647,9 @@ import Testing
         #expect(a.resolvedEnd(in: doc.annotations) == CGPoint(x: 150, y: 128))
     }
 
-    @Test func droppingAtTheCenterBindsWholeShapeDynamically() {
+    @Test func droppingAtTheCenterPointsTheTipAtTheShapeCenter() {
         let doc = makeDocument()
-        let rect = bindTarget()
+        let rect = bindTarget()          // centered (150,150)
         let arrow = Annotation(kind: .arrow, start: CGPoint(x: 0, y: 150),
                                end: CGPoint(x: 150, y: 150), color: .red, lineWidth: 4)
         doc.annotations = [rect, arrow]
@@ -659,9 +659,9 @@ import Testing
                          tolerance: 4)
         doc.commitChange()
         let a = doc.annotations.first { $0.kind == .arrow }!
-        #expect(a.endBinding?.anchor == .dynamic)
-        // Dynamic → the tip rides the outline toward the free start on the left.
-        #expect(a.resolvedEnd(in: doc.annotations) == CGPoint(x: 100, y: 150))
+        // The center connector: tip lands at the shape center and follows it.
+        #expect(a.endBinding?.anchor == .fixed(unit: CGPoint(x: 0.5, y: 0.5)))
+        #expect(a.resolvedEnd(in: doc.annotations) == CGPoint(x: 150, y: 150))
     }
 
     @Test func droppingAnEndpointOnEmptySpaceClearsItsBinding() {
