@@ -1079,6 +1079,36 @@ import Testing
         #expect(isOrthogonal(updated))
     }
 
+    @Test func draggingALegFromAFixedBaselineIsStableAcrossFrames() {
+        // Regression: the canvas used to re-derive the route every frame and
+        // index into it, but a move adds corners — so the index pointed at a
+        // different leg next frame and the leg oscillated between two places.
+        // From a fixed baseline the result is a pure function of the pointer.
+        var arrow = make(.arrow, start: CGPoint(x: 100, y: 0),
+                         end: CGPoint(x: 100, y: 200))
+        arrow.arrowRoute = .elbowed
+        let baseline = arrow.elbowRoute(start: arrow.start, end: arrow.end)
+
+        // Several frames of one drag, all measured from the same baseline.
+        for x in stride(from: CGFloat(124), through: 196, by: 24) {
+            arrow.elbowWaypoints = Annotation.movingRouteSegment(
+                baseline, index: 0, to: CGPoint(x: x, y: 100), grid: 24)
+            let route = arrow.elbowRoute(start: arrow.start, end: arrow.end)
+            // The dragged leg is the vertical one, and it sits exactly where
+            // the pointer put it — never a frame behind or beside it.
+            #expect(route.count == 4)
+            #expect(route[1] == CGPoint(x: x, y: 0))
+            #expect(route[2] == CGPoint(x: x, y: 200))
+            #expect(isOrthogonal(route))
+        }
+        // Re-applying the same frame is idempotent.
+        let once = Annotation.movingRouteSegment(baseline, index: 0,
+                                                 to: CGPoint(x: 148, y: 100), grid: 24)
+        let twice = Annotation.movingRouteSegment(baseline, index: 0,
+                                                  to: CGPoint(x: 148, y: 100), grid: 24)
+        #expect(once == twice)
+    }
+
     @Test func aLegCollapsedToZeroLengthDisappears() {
         // Sliding the mid-line back onto the start's x removes the corner
         // pair, collapsing the Z back to a plain L.
