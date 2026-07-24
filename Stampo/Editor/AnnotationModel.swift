@@ -1225,6 +1225,16 @@ struct Annotation: Identifiable, Equatable {
         return (b1, b2)
     }
 
+    /// The curve control for a bend drag to `p`: nil (straight) when the drag
+    /// lands within `snapDistance` of the straight start–end chord — a wide
+    /// alignment band so a nearly-straight bend snaps flat — or when
+    /// `forceStraight` (Shift) is held; otherwise `p`. Pure for testing.
+    static func bentControl(forDrag p: CGPoint, start: CGPoint, end: CGPoint,
+                            snapDistance: CGFloat, forceStraight: Bool) -> CGPoint? {
+        if forceStraight { return nil }
+        return distance(from: p, toSegment: start, end) <= snapDistance ? nil : p
+    }
+
     /// Snaps an arrow endpoint to its nearest 45-degree ray from `from`.
     static func snappedArrowEnd(from: CGPoint, to point: CGPoint) -> CGPoint {
         let dx = point.x - from.x, dy = point.y - from.y

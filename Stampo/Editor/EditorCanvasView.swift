@@ -797,16 +797,15 @@ struct EditorCanvasView: View {
                             if handle == .start { annotation.startBinding = nil }
                             else { annotation.endBinding = nil }
                         }
-                        // Curve control: dragging near the straight start–end
-                        // segment snaps the arrow back to straight, so bending
-                        // is fully reversible without any extra UI.
+                        // Curve control: a wide alignment band (≈9 pt) snaps a
+                        // near-straight bend flat, and Shift forces it straight
+                        // outright — so bending is fully reversible with no
+                        // extra UI.
                         if handle == .control, annotation.kind == .arrow {
-                            let snapDistance = 4 / fitScale
-                            let straightDistance = Annotation.distance(
-                                from: p, toSegment: annotation.start, annotation.end
-                            )
-                            annotation.curveControl =
-                                straightDistance <= snapDistance ? nil : p
+                            annotation.curveControl = Annotation.bentControl(
+                                forDrag: p, start: annotation.start,
+                                end: annotation.end, snapDistance: 9 / fitScale,
+                                forceStraight: isShiftHeld)
                             return
                         }
                         if isShiftHeld,

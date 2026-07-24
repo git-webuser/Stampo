@@ -490,6 +490,27 @@ import Testing
         #expect(points.contains { abs($0.x - 50) < 0.001 && abs($0.y - 25) < 0.001 })
     }
 
+    @Test func bendControlAlignsToStraightWithinBandOrWithShift() {
+        let start = CGPoint.zero, end = CGPoint(x: 100, y: 0)
+        // A clear bend keeps the drag point as the control.
+        #expect(Annotation.bentControl(forDrag: CGPoint(x: 50, y: 40),
+                                       start: start, end: end,
+                                       snapDistance: 9, forceStraight: false)
+                == CGPoint(x: 50, y: 40))
+        // Within the alignment band of the chord → snaps straight (nil).
+        #expect(Annotation.bentControl(forDrag: CGPoint(x: 50, y: 6),
+                                       start: start, end: end,
+                                       snapDistance: 9, forceStraight: false) == nil)
+        // Just outside the band still bends.
+        #expect(Annotation.bentControl(forDrag: CGPoint(x: 50, y: 12),
+                                       start: start, end: end,
+                                       snapDistance: 9, forceStraight: false) != nil)
+        // Shift forces straight regardless of deviation.
+        #expect(Annotation.bentControl(forDrag: CGPoint(x: 50, y: 40),
+                                       start: start, end: end,
+                                       snapDistance: 9, forceStraight: true) == nil)
+    }
+
     @Test func arrowEndpointSnapsToNearest45DegreeRay() {
         let origin = CGPoint(x: 10, y: 10)
         let horizontal = Annotation.snappedArrowEnd(from: origin, to: CGPoint(x: 60, y: 8))
