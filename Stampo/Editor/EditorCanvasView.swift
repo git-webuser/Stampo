@@ -232,6 +232,8 @@ struct EditorCanvasView: View {
         case moving(UUID, last: CGPoint)
         case movingLoupePart(UUID, Annotation.LoupePart, last: CGPoint)
         case resizing(UUID, Annotation.Handle)
+        /// Sliding one leg of an elbow arrow's route parallel to itself.
+        case routeSegment(UUID, index: Int)
         case panning(last: CGPoint)
         case recognitionSelecting(start: CGPoint, current: CGPoint)
         case cropCreating(start: CGPoint)
@@ -597,6 +599,23 @@ struct EditorCanvasView: View {
                            style: StrokeStyle(lineWidth: 1, dash: [4, 3], dashPhase: 3.5))
         }
 
+        // An elbow arrow shows a slider on each leg: a short bar lying across
+        // the leg, dragged to slide that leg parallel to itself.
+        if a.kind == .arrow, a.arrowStyle.isElbow {
+            let route = a.elbowRoute(in: document.annotations)
+            for (index, midpoint) in Annotation.routeSegmentMidpoints(route).enumerated() {
+                let leg = (route[index], route[index + 1])
+                let isVertical = abs(leg.0.x - leg.1.x) < 0.01
+                let c = toView(midpoint)
+                let bar = isVertical
+                    ? CGRect(x: c.x - 3.5, y: c.y - 9, width: 7, height: 18)
+                    : CGRect(x: c.x - 9, y: c.y - 3.5, width: 18, height: 7)
+                let shape = Path(roundedRect: bar, cornerRadius: 3.5)
+                context.fill(shape, with: .color(.blue))
+                context.stroke(shape, with: .color(.white.opacity(0.9)), lineWidth: 1)
+            }
+        }
+
         var selectionPoints = a.handles(in: document.annotations).map(\.1)
         if a.kind == .freehand, let first = a.freehandPoints.first {
             selectionPoints = [first]
@@ -611,6 +630,21 @@ struct EditorCanvasView: View {
             let circle = Path(ellipseIn: handleRect)
             context.fill(circle, with: .color(.white))
             context.stroke(circle, with: .color(.blue), lineWidth: 1.5)
+        }
+    }
+
+    /// Grid step (image pixels) the elbow leg sliders quantize to.
+    private static let routeGrid: CGFloat = 8
+
+    /// Index of the elbow-route leg whose slider is within `tolerance` of `p`,
+    /// or nil. Endpoint legs included — dragging one buds a new corner.
+    private func routeSegmentSlider(of a: Annotation, at p: CGPoint,
+                                    tolerance: CGFloat) -> Int? {
+        guard a.kind == .arrow, a.arrowStyle.isElbow else { return nil }
+        let route = a.elbowRoute(in: document.annotations)
+        guard route.count >= 2 else { return nil }
+        return Annotation.routeSegmentMidpoints(route).firstIndex {
+            hypot($0.x - p.x, $0.y - p.y) <= tolerance
         }
     }
 
@@ -862,6 +896,17 @@ struct EditorCanvasView: View {
                         dragMode = .resizing(id, continuedHandle)
                     }
 
+                case .routeSegment(let id, let index):
+                    // Slide this leg parallel to itself; the route is rebuilt
+                    // from the resolved geometry each frame, and legs that
+                    // collapse to zero length drop out.
+                    guard let arrow = document.annotations.first(where: { $0.id == id })
+                    else { break }
+                    let route = arrow.elbowRoute(in: document.annotations)
+                    let waypoints = Annotation.movingRouteSegment(
+                        route, index: index, to: p, grid: Self.routeGrid)
+                    update(id) { $0.elbowWaypoints = waypoints }
+
                 case .recognitionSelecting(let start, _):
                     dragMode = .recognitionSelecting(start: start, current: p)
 
@@ -968,6 +1013,8 @@ struct EditorCanvasView: View {
                     }
                 case .erasing:
                     document.commitChange()
+                case .routeSegment:
+                    document.commitChange()
                 case .moving, .movingLoupePart:
                     // A moved/resized shape can carry bound arrows with it;
                     // refresh their fallbacks so a later delete freezes them
@@ -1007,6 +1054,13 @@ struct EditorCanvasView: View {
            let handle = selected.handle(at: p, tolerance: grabPx, in: document.annotations) {
             document.beginChange()
             return .resizing(selected.id, handle)
+        }
+
+        // An elbow arrow's per-leg sliders sit below the endpoint handles.
+        if let selected = document.selectedAnnotation,
+           let index = routeSegmentSlider(of: selected, at: p, tolerance: grabPx) {
+            document.beginChange()
+            return .routeSegment(selected.id, index: index)
         }
 
         // Option-drag duplicates any annotation body under the cursor, even

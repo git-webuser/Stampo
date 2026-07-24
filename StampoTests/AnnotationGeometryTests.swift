@@ -973,6 +973,67 @@ import Testing
         #expect(arrow.handles.map(\.0) == [.start, .end])
     }
 
+    @Test func slidingAStraightArrowsLegBudsCornersOnBothEnds() {
+        // The straight vertical arrow of the screenshots: sliding its single
+        // leg sideways turns it into a Z with a vertical mid-line at that x —
+        // the endpoints stay anchored, so a corner buds at each end.
+        var arrow = make(.arrow, start: CGPoint(x: 100, y: 0),
+                         end: CGPoint(x: 100, y: 200))
+        arrow.arrowStyle = .elbow
+        let route = arrow.elbowRoute(start: arrow.start, end: arrow.end)
+        #expect(route == [CGPoint(x: 100, y: 0), CGPoint(x: 100, y: 200)])
+
+        // Dragged to x = 148, which the grid snaps to 152.
+        arrow.elbowWaypoints = Annotation.movingRouteSegment(
+            route, index: 0, to: CGPoint(x: 148, y: 100), grid: 8)
+        #expect(arrow.elbowWaypoints == [CGPoint(x: 152, y: 0), CGPoint(x: 152, y: 200)])
+        let bent = arrow.elbowRoute(start: arrow.start, end: arrow.end)
+        #expect(bent == [CGPoint(x: 100, y: 0), CGPoint(x: 152, y: 0),
+                         CGPoint(x: 152, y: 200), CGPoint(x: 100, y: 200)])
+        #expect(isOrthogonal(bent))
+    }
+
+    @Test func slidingALegSnapsToTheGridAndLeavesOthersAlone() {
+        var arrow = make(.arrow, start: .zero, end: CGPoint(x: 100, y: 60))
+        arrow.arrowStyle = .elbow
+        let route = arrow.elbowRoute(start: arrow.start, end: arrow.end)
+        // The middle leg is vertical at x = 50; slide it to a non-grid x.
+        let moved = Annotation.movingRouteSegment(route, index: 1,
+                                                  to: CGPoint(x: 71, y: 30), grid: 8)
+        #expect(moved.allSatisfy { $0.x == 72 })          // snapped to the grid
+        arrow.elbowWaypoints = moved
+        let updated = arrow.elbowRoute(start: arrow.start, end: arrow.end)
+        #expect(updated.first == .zero && updated.last == CGPoint(x: 100, y: 60))
+        #expect(isOrthogonal(updated))
+    }
+
+    @Test func aLegCollapsedToZeroLengthDisappears() {
+        // Sliding the mid-line back onto the start's x removes the corner
+        // pair, collapsing the Z back to a plain L.
+        var arrow = make(.arrow, start: .zero, end: CGPoint(x: 100, y: 60))
+        arrow.arrowStyle = .elbow
+        let route = arrow.elbowRoute(start: arrow.start, end: arrow.end)
+        #expect(route.count == 4)
+        arrow.elbowWaypoints = Annotation.movingRouteSegment(
+            route, index: 1, to: .zero, grid: 8)
+        let collapsed = arrow.elbowRoute(start: arrow.start, end: arrow.end)
+        #expect(collapsed.count == 3)                     // one corner left
+        #expect(isOrthogonal(collapsed))
+    }
+
+    @Test func routeSlidersSitOnEveryLegAndWaypointsRideAMove() {
+        var arrow = make(.arrow, start: .zero, end: CGPoint(x: 100, y: 60))
+        arrow.arrowStyle = .elbow
+        let route = arrow.elbowRoute(start: arrow.start, end: arrow.end)
+        #expect(Annotation.routeSegmentMidpoints(route).count == route.count - 1)
+
+        arrow.elbowWaypoints = [CGPoint(x: 50, y: 0), CGPoint(x: 50, y: 60)]
+        arrow.move(by: CGPoint(x: 10, y: -5))
+        #expect(arrow.elbowWaypoints == [CGPoint(x: 60, y: -5), CGPoint(x: 60, y: 55)])
+        // And a duplicate carries them.
+        #expect(arrow.duplicated().elbowWaypoints == arrow.elbowWaypoints)
+    }
+
     // MARK: bound curved arrows (relative control)
 
     @Test func mapControlCarriesTheChordFrame() {

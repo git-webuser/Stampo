@@ -421,6 +421,10 @@ struct Annotation: Identifiable, Equatable {
     var arrowHeadPlacement: ArrowHeadPlacement = .end
     /// Quadratic Bézier control point for a curved `.arrow`; nil is straight.
     var curveControl: CGPoint? = nil
+    /// Interior corners of an `.elbow` arrow's route, in image pixels. Empty
+    /// means the route is auto-generated from the endpoints; dragging a leg's
+    /// slider materializes the corners so the user's routing is preserved.
+    var elbowWaypoints: [CGPoint] = []
     /// Binds the `start` endpoint of an `.arrow`/`.line` to a target shape;
     /// nil is a free endpoint (current behavior). Ignored on other kinds.
     var startBinding: EndpointBinding? = nil
@@ -951,6 +955,11 @@ struct Annotation: Identifiable, Equatable {
         if let source = loupeSource {
             loupeSource = CGPoint(x: source.x + delta.x, y: source.y + delta.y)
         }
+        if !elbowWaypoints.isEmpty {
+            elbowWaypoints = elbowWaypoints.map {
+                CGPoint(x: $0.x + delta.x, y: $0.y + delta.y)
+            }
+        }
         if kind == .freehand {
             freehandPoints = freehandPoints.map {
                 CGPoint(x: $0.x + delta.x, y: $0.y + delta.y)
@@ -1336,13 +1345,78 @@ struct Annotation: Identifiable, Equatable {
         return result
     }
 
-    /// This arrow's elbow route through the given endpoints, using each
-    /// binding's anchor for its exit direction. Empty unless the arrow is in
-    /// elbow style.
+    /// Connects `p` to `q` with axis-aligned legs, leaving `p` along `axis`
+    /// when a corner is needed. Returns the corner points between them.
+    private static func orthogonalJoin(_ p: CGPoint, _ q: CGPoint,
+                                       preferHorizontal: Bool) -> [CGPoint] {
+        if abs(p.x - q.x) < 0.01 || abs(p.y - q.y) < 0.01 { return [] }
+        return preferHorizontal ? [CGPoint(x: q.x, y: p.y)] : [CGPoint(x: p.x, y: q.y)]
+    }
+
+    /// This arrow's elbow route through the given endpoints. With no stored
+    /// waypoints the route is generated from the endpoints and their anchors;
+    /// otherwise it threads the user's corners, re-joining the (possibly moved)
+    /// endpoints orthogonally. Empty unless the arrow is in elbow style.
     func elbowRoute(start s: CGPoint, end e: CGPoint) -> [CGPoint] {
         guard kind == .arrow, arrowStyle.isElbow else { return [] }
-        return Self.elbowRoute(from: s, startDirection: Self.anchorDirection(startBinding),
-                               to: e, endDirection: Self.anchorDirection(endBinding))
+        let ds = Self.anchorDirection(startBinding)
+        let de = Self.anchorDirection(endBinding)
+        guard let first = elbowWaypoints.first,
+              let last = elbowWaypoints.last else {
+            return Self.elbowRoute(from: s, startDirection: ds,
+                                   to: e, endDirection: de)
+        }
+        // Re-attach each end to its nearest waypoint, leaving along the
+        // anchor's normal when it has one.
+        let head = Self.orthogonalJoin(s, first,
+                                       preferHorizontal: ds.map { $0.y == 0 }
+                                           ?? (abs(first.x - s.x) >= abs(first.y - s.y)))
+        let tail = Self.orthogonalJoin(e, last,
+                                       preferHorizontal: de.map { $0.y == 0 }
+                                           ?? (abs(last.x - e.x) >= abs(last.y - e.y)))
+        return Self.simplifiedRoute([s] + head + elbowWaypoints + tail.reversed() + [e])
+    }
+
+    /// Midpoint of each leg of `route` — where the parallel-move sliders sit.
+    static func routeSegmentMidpoints(_ route: [CGPoint]) -> [CGPoint] {
+        zip(route, route.dropFirst()).map { a, b in
+            CGPoint(x: (a.x + b.x) / 2, y: (a.y + b.y) / 2)
+        }
+    }
+
+    /// Slides leg `index` of `route` parallel to itself so it passes through
+    /// `p`, and returns the route's new interior corners (to store as
+    /// waypoints). The endpoints stay put — a leg touching an end grows a new
+    /// corner there — and legs that collapse to zero length disappear via
+    /// `simplifiedRoute`. `grid` quantizes the moved coordinate.
+    static func movingRouteSegment(_ route: [CGPoint], index: Int, to p: CGPoint,
+                                   grid: CGFloat = 1) -> [CGPoint] {
+        guard route.count >= 2, index >= 0, index < route.count - 1 else { return [] }
+        var points = route
+        var i = index
+        // Keep the anchored endpoints fixed by budding a new corner off them.
+        if i == 0 {
+            points.insert(points[0], at: 1)
+            i += 1
+        }
+        if i + 1 == points.count - 1 {
+            points.insert(points[points.count - 1], at: points.count - 1)
+        }
+        let a = points[i], b = points[i + 1]
+        let isVertical = abs(a.x - b.x) < 0.01
+        func snapped(_ value: CGFloat) -> CGFloat {
+            grid > 1 ? (value / grid).rounded() * grid : value
+        }
+        if isVertical {
+            let x = snapped(p.x)
+            points[i].x = x; points[i + 1].x = x
+        } else {
+            let y = snapped(p.y)
+            points[i].y = y; points[i + 1].y = y
+        }
+        let simplified = simplifiedRoute(points)
+        guard simplified.count > 2 else { return [] }
+        return Array(simplified.dropFirst().dropLast())
     }
 
     /// This arrow's elbow route in world space, with bound ends resolved.
@@ -1936,6 +2010,11 @@ struct DocumentSnapshot: Equatable {
             if let markerSize = a.loupeSourceSize {
                 a.loupeSourceSize = CGSize(width: markerSize.height,
                                            height: markerSize.width)
+            }
+            if !a.elbowWaypoints.isEmpty {
+                a.elbowWaypoints = a.elbowWaypoints.map {
+                    rotatePoint($0, in: size, clockwise: clockwise)
+                }
             }
             if a.kind == .freehand {
                 a.freehandPoints = a.freehandPoints.map {
