@@ -961,7 +961,7 @@ import Testing
 
     @Test func elbowArrowHitsItsRouteAndBoundsIt() {
         var arrow = make(.arrow, start: .zero, end: CGPoint(x: 100, y: 60))
-        arrow.arrowStyle = .elbow
+        arrow.arrowRoute = .elbowed
         let route = arrow.elbowRoute(start: arrow.start, end: arrow.end)
         #expect(route.count >= 3)
         // The mid-line leg is hittable; the straight chord between the ends
@@ -979,7 +979,7 @@ import Testing
         // the endpoints stay anchored, so a corner buds at each end.
         var arrow = make(.arrow, start: CGPoint(x: 100, y: 0),
                          end: CGPoint(x: 100, y: 200))
-        arrow.arrowStyle = .elbow
+        arrow.arrowRoute = .elbowed
         let route = arrow.elbowRoute(start: arrow.start, end: arrow.end)
         #expect(route == [CGPoint(x: 100, y: 0), CGPoint(x: 100, y: 200)])
 
@@ -999,7 +999,7 @@ import Testing
         // could never line the leg up with them, leaving a permanent jog.
         var arrow = make(.arrow, start: CGPoint(x: 101, y: 7),
                          end: CGPoint(x: 101, y: 203))
-        arrow.arrowStyle = .elbow
+        arrow.arrowRoute = .elbowed
         let straight = arrow.elbowRoute(start: arrow.start, end: arrow.end)
         arrow.elbowWaypoints = Annotation.movingRouteSegment(
             straight, index: 0, to: CGPoint(x: 173, y: 100), grid: 24)
@@ -1021,7 +1021,7 @@ import Testing
         // them, so the arrow could never be straight.
         var arrow = make(.arrow, start: CGPoint(x: 100, y: 10),
                          end: CGPoint(x: 103, y: 200))
-        arrow.arrowStyle = .elbow
+        arrow.arrowRoute = .elbowed
         #expect(arrow.elbowRoute(start: arrow.start, end: arrow.end).count > 2)
         arrow.alignForElbow()
         #expect(arrow.end.x == 100)
@@ -1031,7 +1031,7 @@ import Testing
         // A bound endpoint belongs to its shape, so the free end moves instead.
         var bound = make(.arrow, start: CGPoint(x: 100, y: 10),
                          end: CGPoint(x: 103, y: 200))
-        bound.arrowStyle = .elbow
+        bound.arrowRoute = .elbowed
         bound.endBinding = EndpointBinding(targetID: UUID(),
                                            anchor: .fixed(unit: CGPoint(x: 0.5, y: 0)),
                                            fallback: .zero)
@@ -1041,7 +1041,7 @@ import Testing
 
         // A genuinely diagonal arrow is left alone.
         var diagonal = make(.arrow, start: .zero, end: CGPoint(x: 100, y: 80))
-        diagonal.arrowStyle = .elbow
+        diagonal.arrowRoute = .elbowed
         diagonal.alignForElbow()
         #expect(diagonal.end == CGPoint(x: 100, y: 80))
     }
@@ -1067,7 +1067,7 @@ import Testing
 
     @Test func slidingALegSnapsToTheGridAndLeavesOthersAlone() {
         var arrow = make(.arrow, start: .zero, end: CGPoint(x: 100, y: 60))
-        arrow.arrowStyle = .elbow
+        arrow.arrowRoute = .elbowed
         let route = arrow.elbowRoute(start: arrow.start, end: arrow.end)
         // The middle leg is vertical at x = 50; slide it to a non-grid x.
         let moved = Annotation.movingRouteSegment(route, index: 1,
@@ -1083,7 +1083,7 @@ import Testing
         // Sliding the mid-line back onto the start's x removes the corner
         // pair, collapsing the Z back to a plain L.
         var arrow = make(.arrow, start: .zero, end: CGPoint(x: 100, y: 60))
-        arrow.arrowStyle = .elbow
+        arrow.arrowRoute = .elbowed
         let route = arrow.elbowRoute(start: arrow.start, end: arrow.end)
         #expect(route.count == 4)
         arrow.elbowWaypoints = Annotation.movingRouteSegment(
@@ -1095,7 +1095,7 @@ import Testing
 
     @Test func routeSlidersSitOnEveryLegAndWaypointsRideAMove() {
         var arrow = make(.arrow, start: .zero, end: CGPoint(x: 100, y: 60))
-        arrow.arrowStyle = .elbow
+        arrow.arrowRoute = .elbowed
         let route = arrow.elbowRoute(start: arrow.start, end: arrow.end)
         #expect(Annotation.routeSegmentMidpoints(route).count == route.count - 1)
 

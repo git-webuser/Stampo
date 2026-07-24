@@ -223,7 +223,7 @@ enum AnnotationRenderer {
 
         // Elbow: an axis-aligned route with rounded corners; heads point along
         // the first/last leg.
-        if a.arrowStyle.isElbow {
+        if a.isElbowed {
             let route = a.elbowRoute(in: annotations)
             guard route.count >= 2 else { return }
             let headStart = a.arrowHeadPlacement.includesStart

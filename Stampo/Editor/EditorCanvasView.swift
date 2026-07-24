@@ -120,6 +120,10 @@ struct ToolStyle {
     /// Intensity detent for new blur annotations (BlurIntensity.range).
     var blurLevel: Int = BlurIntensity.defaultLevel
     var arrowStyle: ArrowStyle = .filled
+    /// Routing of new arrows (bendable shaft vs. elbowed run).
+    var arrowRoute: ArrowRoute = .curved
+    /// Whether elbowed arrows quantize their legs and endpoints to the grid.
+    var snapsToGrid = true
     var arrowHeadPlacement: ArrowHeadPlacement = .end
     var lineStyle: LineStyle = .solid
     /// Fill opacity (0…1) for new rect/oval; 0 is outline-only.
@@ -601,7 +605,7 @@ struct EditorCanvasView: View {
 
         // An elbow arrow shows a slider on each leg: a short bar lying across
         // the leg, dragged to slide that leg parallel to itself.
-        if a.kind == .arrow, a.arrowStyle.isElbow {
+        if a.isElbowed {
             let route = a.elbowRoute(in: document.annotations)
             for (index, midpoint) in Annotation.routeSegmentMidpoints(route).enumerated() {
                 let leg = (route[index], route[index + 1])
@@ -641,18 +645,24 @@ struct EditorCanvasView: View {
     private static let routeSliderLength: CGFloat = 18
     private static let routeSliderThickness: CGFloat = 7
 
-    /// Grid step the elbow leg sliders quantize to, in **view points** —
+    /// Grid step the elbow legs and endpoints quantize to, in **view points** —
     /// converted through the current zoom at drag time so the step (and the
     /// half-step alignment window) feels identical however the image is
-    /// scaled. Kept at or above the slider's own length so a leg can never be
-    /// shorter than its slider and consecutive sliders stay separated.
-    private static let routeGridPt: CGFloat = routeSliderLength + 6
+    /// scaled. A multiple of the 4 pt layout unit, and at or above the slider's
+    /// own length so a leg can never be shorter than its slider.
+    private static let routeGridPt: CGFloat = 24     // 6 × 4 pt
+
+    /// The grid step to quantize with right now, in image pixels; 1 disables
+    /// quantization (free placement).
+    private func routeGrid(fitScale: CGFloat) -> CGFloat {
+        style.snapsToGrid ? Self.routeGridPt / fitScale : 1
+    }
 
     /// Index of the elbow-route leg whose slider is within `tolerance` of `p`,
     /// or nil. Endpoint legs included — dragging one buds a new corner.
     private func routeSegmentSlider(of a: Annotation, at p: CGPoint,
                                     tolerance: CGFloat) -> Int? {
-        guard a.kind == .arrow, a.arrowStyle.isElbow else { return nil }
+        guard a.isElbowed else { return nil }
         let route = a.elbowRoute(in: document.annotations)
         guard route.count >= 2 else { return nil }
         return Annotation.routeSegmentMidpoints(route).firstIndex {
@@ -821,6 +831,7 @@ struct EditorCanvasView: View {
                     annotation.blurStyle = style.blurStyle
                     annotation.blurLevel = style.blurLevel
                     annotation.arrowStyle = style.arrowStyle
+                    annotation.arrowRoute = style.arrowRoute
                     annotation.arrowHeadPlacement = style.arrowHeadPlacement
                     annotation.lineStyle = style.lineStyle
                     annotation.fillOpacity = style.fillOpacity
@@ -883,10 +894,10 @@ struct EditorCanvasView: View {
                     var target = p
                     if handle == .start || handle == .end,
                        let a = document.annotations.first(where: { $0.id == id }),
-                       a.kind == .arrow, a.arrowStyle.isElbow {
+                       a.isElbowed {
                         target = Annotation.snappedToGrid(
                             p, origin: handle == .start ? a.end : a.start,
-                            grid: Self.routeGridPt / fitScale)
+                            grid: routeGrid(fitScale: fitScale))
                     }
                     // A corner pushed through the opposite edge mirrors the
                     // shape; the drag continues with the mirrored handle.
@@ -928,7 +939,7 @@ struct EditorCanvasView: View {
                     let route = arrow.elbowRoute(in: document.annotations)
                     let waypoints = Annotation.movingRouteSegment(
                         route, index: index, to: p,
-                        grid: Self.routeGridPt / fitScale)
+                        grid: routeGrid(fitScale: fitScale))
                     update(id) { $0.elbowWaypoints = waypoints }
 
                 case .recognitionSelecting(let start, _):

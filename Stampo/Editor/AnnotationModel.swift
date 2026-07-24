@@ -112,11 +112,16 @@ enum DrawingMode: String, Equatable, CaseIterable {
 enum ArrowStyle: String, Equatable, CaseIterable {
     case filled   // solid shaft, open chevron head   (→)
     case dashed   // dashed shaft, open chevron head  (⇢)
-    case elbow    // axis-aligned route, rounded corners (⌐)
+}
 
-    /// Elbow arrows route orthogonally instead of drawing a straight/curved
-    /// shaft, so they ignore `curveControl` and hide the bend handle.
-    var isElbow: Bool { self == .elbow }
+/// How an `.arrow` gets from one end to the other — an axis independent of the
+/// stroke's appearance (`ArrowStyle`).
+enum ArrowRoute: String, Equatable, CaseIterable {
+    /// A straight shaft, bendable into a quadratic curve via `curveControl`.
+    case curved
+    /// An axis-aligned ("elbowed") route with rounded corners, whose legs are
+    /// slid on a grid; ignores `curveControl`.
+    case elbowed
 }
 
 /// Backing plate drawn behind `.text` for legibility over busy images.
@@ -417,11 +422,17 @@ struct Annotation: Identifiable, Equatable {
     var bubbleTail: BubbleTailDirection = .right
     /// Visual variant for `.arrow`.
     var arrowStyle: ArrowStyle = .filled
+    /// Routing of an `.arrow`: a straight/curved shaft or an elbowed run.
+    var arrowRoute: ArrowRoute = .curved
     /// Endpoint(s) that receive a filled arrowhead.
     var arrowHeadPlacement: ArrowHeadPlacement = .end
     /// Quadratic Bézier control point for a curved `.arrow`; nil is straight.
     var curveControl: CGPoint? = nil
-    /// Interior corners of an `.elbow` arrow's route, in image pixels. Empty
+    /// True for an arrow that routes orthogonally (so it ignores
+    /// `curveControl`, hides the bend handle, and offers per-leg sliders).
+    var isElbowed: Bool { kind == .arrow && arrowRoute == .elbowed }
+
+    /// Interior corners of an elbowed arrow's route, in image pixels. Empty
     /// means the route is auto-generated from the endpoints; dragging a leg's
     /// slider materializes the corners so the user's routing is preserved.
     var elbowWaypoints: [CGPoint] = []
@@ -604,7 +615,7 @@ struct Annotation: Identifiable, Equatable {
                           y: start.y - stepDiameter / 2,
                           width: stepDiameter, height: stepDiameter)
         }
-        if kind == .arrow, arrowStyle.isElbow {
+        if isElbowed {
             let route = elbowRoute(start: start, end: end)
             if route.count >= 2 {
                 let xs = route.map(\.x), ys = route.map(\.y)
@@ -806,7 +817,7 @@ struct Annotation: Identifiable, Equatable {
         switch kind {
         case .line, .arrow:
             let distance = tolerance + lineWidth / 2
-            if kind == .arrow, arrowStyle.isElbow {
+            if isElbowed {
                 let route = elbowRoute(start: start, end: end)
                 return zip(route, route.dropFirst()).contains { a, b in
                     Self.distance(from: p, toSegment: a, b) <= distance
@@ -919,7 +930,7 @@ struct Annotation: Identifiable, Equatable {
         switch kind {
         case .arrow:
             // An elbow arrow's shape comes from its route, not a bend.
-            if arrowStyle.isElbow { return [(.start, start), (.end, end)] }
+            if isElbowed { return [(.start, start), (.end, end)] }
             // Control last so endpoint grabs win on tiny arrows. A straight
             // arrow offers it at the midpoint — dragging it bends the shaft.
             let control = curveControl
@@ -1358,7 +1369,7 @@ struct Annotation: Identifiable, Equatable {
     /// otherwise it threads the user's corners, re-joining the (possibly moved)
     /// endpoints orthogonally. Empty unless the arrow is in elbow style.
     func elbowRoute(start s: CGPoint, end e: CGPoint) -> [CGPoint] {
-        guard kind == .arrow, arrowStyle.isElbow else { return [] }
+        guard isElbowed else { return [] }
         let ds = Self.anchorDirection(startBinding)
         let de = Self.anchorDirection(endBinding)
         guard let first = elbowWaypoints.first,
@@ -1394,7 +1405,7 @@ struct Annotation: Identifiable, Equatable {
     /// jog between them — which reads as a permanent zigzag. Bound endpoints
     /// are left alone (their position belongs to the shape).
     mutating func alignForElbow(tolerance: CGFloat = 12) {
-        guard kind == .arrow, arrowStyle.isElbow else { return }
+        guard isElbowed else { return }
         elbowWaypoints = []
         let dx = end.x - start.x, dy = end.y - start.y
         // Square up along whichever axis is already the near-aligned one.

@@ -230,8 +230,14 @@ struct EditorView: View {
                 fillSlider
             case .arrow:
                 colorSwatches
+                arrowRoutePicker
                 arrowStylePicker
                 arrowHeadPlacementPicker
+                // An elbowed arrow's legs and ends ride a grid; the toggle is
+                // only meaningful there.
+                if effectiveArrowRoute == .elbowed {
+                    snapPicker
+                }
                 thicknessSlider
             default:
                 // Select tool with nothing selected: there is nothing to
@@ -477,13 +483,48 @@ struct EditorView: View {
         Picker("Arrow Style", selection: arrowStyleBinding) {
             Text(verbatim: "→").tag(ArrowStyle.filled)
             Text(verbatim: "⇢").tag(ArrowStyle.dashed)
-            // Elbow: an axis-aligned route instead of a straight/curved shaft.
-            Image(systemName: "arrow.turn.right.down").tag(ArrowStyle.elbow)
         }
         .pickerStyle(.segmented)
         .labelsHidden()
-        .frame(width: 108)
+        .frame(width: 76)
         .hoverTip("Arrow Style")
+    }
+
+    /// Free placement vs. snapping to the layout grid. Elbowed arrows put
+    /// their legs and endpoints on this grid; free mode drops the quantization
+    /// for pixel-exact placement.
+    private var snapPicker: some View {
+        Picker("Snapping", selection: $style.snapsToGrid) {
+            Image(systemName: "arrow.up.and.down.and.arrow.left.and.right")
+                .tag(false)
+            Image(systemName: "grid").tag(true)
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .frame(width: 76)
+        .hoverTip("Snapping")
+    }
+
+    /// The route the arrow controls currently configure — the selection's when
+    /// an arrow is selected, otherwise the tool's.
+    private var effectiveArrowRoute: ArrowRoute {
+        document.selectedAnnotation?.kind == .arrow
+            ? (document.selectedAnnotation?.arrowRoute ?? style.arrowRoute)
+            : style.arrowRoute
+    }
+
+    /// How the arrow travels — a bendable shaft or an axis-aligned run. A
+    /// separate axis from the stroke's appearance, so it gets its own control.
+    private var arrowRoutePicker: some View {
+        Picker("Arrow Route", selection: arrowRouteBinding) {
+            Image(systemName: "point.topleft.down.to.point.bottomright.curvepath")
+                .tag(ArrowRoute.curved)
+            Image(systemName: "arrow.turn.right.down").tag(ArrowRoute.elbowed)
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .frame(width: 76)
+        .hoverTip("Arrow Route")
     }
 
     private var arrowHeadPlacementPicker: some View {
@@ -1089,10 +1130,24 @@ struct EditorView: View {
             },
             set: { newValue in
                 style.arrowStyle = newValue
+                applyToSelection { if $0.kind == .arrow { $0.arrowStyle = newValue } }
+            }
+        )
+    }
+
+    private var arrowRouteBinding: Binding<ArrowRoute> {
+        Binding(
+            get: {
+                document.selectedAnnotation?.kind == .arrow
+                    ? (document.selectedAnnotation?.arrowRoute ?? style.arrowRoute)
+                    : style.arrowRoute
+            },
+            set: { newValue in
+                style.arrowRoute = newValue
                 applyToSelection {
                     guard $0.kind == .arrow else { return }
-                    $0.arrowStyle = newValue
-                    // Switching into elbow squares up a near-aligned arrow so
+                    $0.arrowRoute = newValue
+                    // Switching into elbowed squares up a near-aligned arrow so
                     // it can be straight instead of jogging between its ends.
                     $0.alignForElbow()
                 }
