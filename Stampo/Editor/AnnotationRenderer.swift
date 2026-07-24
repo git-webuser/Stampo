@@ -221,6 +221,33 @@ enum AnnotationRenderer {
         ctx.setLineCap(.round)
         ctx.setLineJoin(.round)
 
+        // Elbow: an axis-aligned route with rounded corners; heads point along
+        // the first/last leg.
+        if a.arrowStyle.isElbow {
+            let route = a.elbowRoute(in: annotations)
+            guard route.count >= 2 else { return }
+            let headStart = a.arrowHeadPlacement.includesStart
+                ? Self.insetAlong(route[0], toward: route[1], by: capInset) : route[0]
+            let headEnd = a.arrowHeadPlacement.includesEnd
+                ? Self.insetAlong(route[route.count - 1],
+                                  toward: route[route.count - 2], by: capInset)
+                : route[route.count - 1]
+            var trimmed = route
+            trimmed[0] = headStart
+            trimmed[trimmed.count - 1] = headEnd
+            ctx.addPath(Self.roundedPolyline(trimmed, radius: max(6, width * 2)))
+            ctx.strokePath()
+
+            if a.arrowHeadPlacement.includesStart {
+                drawChevron(from: route[1], tip: route[0], lineWidth: width, ctx: ctx)
+            }
+            if a.arrowHeadPlacement.includesEnd {
+                drawChevron(from: route[route.count - 2], tip: route[route.count - 1],
+                            lineWidth: width, ctx: ctx)
+            }
+            return
+        }
+
         // Curved shaft: stroke the Bézier, then the open chevron heads over
         // its ends (pulled back along the tangent by the cap inset). The
         // control follows the resolved chord so a bound arrow's bend doesn't
@@ -295,6 +322,45 @@ enum AnnotationRenderer {
         let d = min(distance, length * 0.9)
         return CGPoint(x: endpoint.x - dx / length * d,
                        y: endpoint.y - dy / length * d)
+    }
+
+    /// Moves `point` toward `other` by up to `distance` (capped at 90% of the
+    /// gap) — pulls a headed route end back so its cap tucks under the head.
+    private static func insetAlong(_ point: CGPoint, toward other: CGPoint,
+                                   by distance: CGFloat) -> CGPoint {
+        let dx = other.x - point.x, dy = other.y - point.y
+        let length = hypot(dx, dy)
+        guard length > 0.001 else { return point }
+        let d = min(distance, length * 0.9)
+        return CGPoint(x: point.x + dx / length * d, y: point.y + dy / length * d)
+    }
+
+    /// A polyline with its corners rounded by arcs — the elbow connector's
+    /// look. Each radius is capped to half of the shorter adjacent leg so tight
+    /// corners stay clean.
+    private static func roundedPolyline(_ points: [CGPoint],
+                                        radius: CGFloat) -> CGPath {
+        let path = CGMutablePath()
+        guard let first = points.first else { return path }
+        path.move(to: first)
+        guard points.count >= 3 else {
+            for point in points.dropFirst() { path.addLine(to: point) }
+            return path
+        }
+        for index in 1..<(points.count - 1) {
+            let previous = points[index - 1], corner = points[index]
+            let next = points[index + 1]
+            let inLength = hypot(corner.x - previous.x, corner.y - previous.y)
+            let outLength = hypot(next.x - corner.x, next.y - corner.y)
+            let r = min(radius, inLength / 2, outLength / 2)
+            if r < 0.5 {
+                path.addLine(to: corner)
+            } else {
+                path.addArc(tangent1End: corner, tangent2End: next, radius: r)
+            }
+        }
+        path.addLine(to: points[points.count - 1])
+        return path
     }
 
     /// An open "chevron" arrowhead — two strokes meeting at the tip

@@ -908,6 +908,71 @@ import Testing
         #expect(Annotation.arrowheadLength(lineWidth: 10) == 35)
     }
 
+    // MARK: elbow routing
+
+    /// Every leg of a route is axis-aligned.
+    private func isOrthogonal(_ route: [CGPoint]) -> Bool {
+        zip(route, route.dropFirst()).allSatisfy { a, b in
+            abs(a.x - b.x) < 0.01 || abs(a.y - b.y) < 0.01
+        }
+    }
+
+    @Test func freeElbowRouteIsAnAxisAlignedZ() {
+        // No anchor directions: the ends turn immediately and meet on a shared
+        // mid-line — the classic snake.
+        let route = Annotation.elbowRoute(from: .zero, startDirection: nil,
+                                          to: CGPoint(x: 100, y: 60), endDirection: nil)
+        #expect(route.first == .zero)
+        #expect(route.last == CGPoint(x: 100, y: 60))
+        #expect(isOrthogonal(route))
+        // Horizontal-dominant delta → split on the mid X.
+        #expect(route.contains { abs($0.x - 50) < 0.01 })
+    }
+
+    @Test func collinearEndpointsRouteStraight() {
+        let route = Annotation.elbowRoute(from: .zero, startDirection: nil,
+                                          to: CGPoint(x: 100, y: 0), endDirection: nil)
+        #expect(route == [.zero, CGPoint(x: 100, y: 0)])   // no spurious corners
+    }
+
+    @Test func anchoredElbowRouteLeavesAlongItsAnchorNormal() {
+        // Bound end on a shape's east edge → the route steps out to the right
+        // (a stub) before turning, and every leg stays axis-aligned.
+        let east = EndpointBinding(targetID: UUID(),
+                                   anchor: .fixed(unit: CGPoint(x: 1, y: 0.5)),
+                                   fallback: .zero)
+        #expect(Annotation.anchorDirection(east) == CGPoint(x: 1, y: 0))
+        let route = Annotation.elbowRoute(from: .zero,
+                                          startDirection: CGPoint(x: 1, y: 0),
+                                          to: CGPoint(x: 100, y: 80),
+                                          endDirection: CGPoint(x: 0, y: -1))
+        #expect(route.first == .zero && route.last == CGPoint(x: 100, y: 80))
+        #expect(isOrthogonal(route))
+        #expect(route[1].x > 0 && route[1].y == 0)       // stub to the east
+        // A corner/center anchor picks no side (router falls back to geometry).
+        let corner = EndpointBinding(targetID: UUID(), anchor: .fixed(unit: .zero),
+                                     fallback: .zero)
+        #expect(Annotation.anchorDirection(corner) == nil)
+        let center = EndpointBinding(targetID: UUID(),
+                                     anchor: .fixed(unit: CGPoint(x: 0.5, y: 0.5)),
+                                     fallback: .zero)
+        #expect(Annotation.anchorDirection(center) == nil)
+    }
+
+    @Test func elbowArrowHitsItsRouteAndBoundsIt() {
+        var arrow = make(.arrow, start: .zero, end: CGPoint(x: 100, y: 60))
+        arrow.arrowStyle = .elbow
+        let route = arrow.elbowRoute(start: arrow.start, end: arrow.end)
+        #expect(route.count >= 3)
+        // The mid-line leg is hittable; the straight chord between the ends
+        // (which the route doesn't follow) is not.
+        #expect(arrow.hitTest(CGPoint(x: 50, y: 30), tolerance: 4))
+        #expect(!arrow.hitTest(CGPoint(x: 80, y: 20), tolerance: 4))
+        // Bounds span the route, and the bend handle is gone.
+        #expect(arrow.rect == CGRect(x: 0, y: 0, width: 100, height: 60))
+        #expect(arrow.handles.map(\.0) == [.start, .end])
+    }
+
     // MARK: bound curved arrows (relative control)
 
     @Test func mapControlCarriesTheChordFrame() {

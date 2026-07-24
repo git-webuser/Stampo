@@ -477,10 +477,12 @@ struct EditorView: View {
         Picker("Arrow Style", selection: arrowStyleBinding) {
             Text(verbatim: "→").tag(ArrowStyle.filled)
             Text(verbatim: "⇢").tag(ArrowStyle.dashed)
+            // Elbow: an axis-aligned route instead of a straight/curved shaft.
+            Image(systemName: "arrow.turn.right.down").tag(ArrowStyle.elbow)
         }
         .pickerStyle(.segmented)
         .labelsHidden()
-        .frame(width: 76)
+        .frame(width: 108)
         .hoverTip("Arrow Style")
     }
 

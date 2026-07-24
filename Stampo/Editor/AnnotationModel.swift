@@ -112,6 +112,11 @@ enum DrawingMode: String, Equatable, CaseIterable {
 enum ArrowStyle: String, Equatable, CaseIterable {
     case filled   // solid shaft, open chevron head   (→)
     case dashed   // dashed shaft, open chevron head  (⇢)
+    case elbow    // axis-aligned route, rounded corners (⌐)
+
+    /// Elbow arrows route orthogonally instead of drawing a straight/curved
+    /// shaft, so they ignore `curveControl` and hide the bend handle.
+    var isElbow: Bool { self == .elbow }
 }
 
 /// Backing plate drawn behind `.text` for legibility over busy images.
@@ -595,6 +600,15 @@ struct Annotation: Identifiable, Equatable {
                           y: start.y - stepDiameter / 2,
                           width: stepDiameter, height: stepDiameter)
         }
+        if kind == .arrow, arrowStyle.isElbow {
+            let route = elbowRoute(start: start, end: end)
+            if route.count >= 2 {
+                let xs = route.map(\.x), ys = route.map(\.y)
+                return CGRect(x: xs.min()!, y: ys.min()!,
+                              width: xs.max()! - xs.min()!,
+                              height: ys.max()! - ys.min()!)
+            }
+        }
         if kind == .arrow, let control = curveControl {
             let points = Self.quadraticPoints(from: start, control: control, to: end)
             let xs = points.map(\.x), ys = points.map(\.y)
@@ -788,6 +802,12 @@ struct Annotation: Identifiable, Equatable {
         switch kind {
         case .line, .arrow:
             let distance = tolerance + lineWidth / 2
+            if kind == .arrow, arrowStyle.isElbow {
+                let route = elbowRoute(start: start, end: end)
+                return zip(route, route.dropFirst()).contains { a, b in
+                    Self.distance(from: p, toSegment: a, b) <= distance
+                }
+            }
             if kind == .arrow, let control = curveControl {
                 let points = Self.quadraticPoints(from: start, control: control, to: end)
                 return zip(points, points.dropFirst()).contains { a, b in
@@ -894,6 +914,8 @@ struct Annotation: Identifiable, Equatable {
     var handles: [(Handle, CGPoint)] {
         switch kind {
         case .arrow:
+            // An elbow arrow's shape comes from its route, not a bend.
+            if arrowStyle.isElbow { return [(.start, start), (.end, end)] }
             // Control last so endpoint grabs win on tiny arrows. A straight
             // arrow offers it at the midpoint — dragging it bends the shaft.
             let control = curveControl
@@ -1236,6 +1258,97 @@ struct Annotation: Identifiable, Equatable {
         let b2 = CGPoint(x: tip.x - headLength * cos(angle + spread),
                          y: tip.y - headLength * sin(angle + spread))
         return (b1, b2)
+    }
+
+    // MARK: Elbow routing (pure — unit-testable)
+
+    /// Outward direction implied by a bound endpoint's anchor: the normal of
+    /// the bbox edge it sits on. nil when the anchor doesn't pick a side (a
+    /// corner/vertex, the center, `.dynamic`) or the endpoint is free — the
+    /// router then derives a direction from the geometry.
+    static func anchorDirection(_ binding: EndpointBinding?) -> CGPoint? {
+        guard let binding, case .fixed(let u) = binding.anchor else { return nil }
+        if u.x <= 0, u.y > 0, u.y < 1 { return CGPoint(x: -1, y: 0) }
+        if u.x >= 1, u.y > 0, u.y < 1 { return CGPoint(x: 1, y: 0) }
+        if u.y <= 0, u.x > 0, u.x < 1 { return CGPoint(x: 0, y: -1) }
+        if u.y >= 1, u.x > 0, u.x < 1 { return CGPoint(x: 0, y: 1) }
+        return nil
+    }
+
+    /// The dominant-axis direction from `from` toward `to` — the fallback exit
+    /// direction for an endpoint whose anchor doesn't imply a side.
+    private static func axisDirection(from: CGPoint, to: CGPoint) -> CGPoint {
+        let dx = to.x - from.x, dy = to.y - from.y
+        return abs(dx) >= abs(dy) ? CGPoint(x: dx < 0 ? -1 : 1, y: 0)
+                                  : CGPoint(x: 0, y: dy < 0 ? -1 : 1)
+    }
+
+    /// The axis-aligned ("snake") route between two endpoints: each end leaves
+    /// along its own direction, then the two runs meet on a shared mid-line.
+    /// A bound end gets a `stub` so it clears its shape before turning; a free
+    /// end turns immediately. Purely geometric — like Figma's elbow connector,
+    /// it does not route around obstacles.
+    static func elbowRoute(from s: CGPoint, startDirection ds: CGPoint?,
+                           to e: CGPoint, endDirection de: CGPoint?,
+                           stub: CGFloat = 24) -> [CGPoint] {
+        let dsr = ds ?? axisDirection(from: s, to: e)
+        let der = de ?? axisDirection(from: e, to: s)
+        // Only a side-anchored end steps out before turning.
+        let sStub = ds == nil ? 0 : stub
+        let eStub = de == nil ? 0 : stub
+        let p1 = CGPoint(x: s.x + dsr.x * sStub, y: s.y + dsr.y * sStub)
+        let p2 = CGPoint(x: e.x + der.x * eStub, y: e.y + der.y * eStub)
+
+        let startHorizontal = dsr.y == 0
+        let endHorizontal = der.y == 0
+        var middle: [CGPoint] = []
+        switch (startHorizontal, endHorizontal) {
+        case (true, true):
+            let mid = (p1.x + p2.x) / 2
+            middle = [CGPoint(x: mid, y: p1.y), CGPoint(x: mid, y: p2.y)]
+        case (false, false):
+            let mid = (p1.y + p2.y) / 2
+            middle = [CGPoint(x: p1.x, y: mid), CGPoint(x: p2.x, y: mid)]
+        case (true, false):
+            middle = [CGPoint(x: p2.x, y: p1.y)]
+        case (false, true):
+            middle = [CGPoint(x: p1.x, y: p2.y)]
+        }
+        return simplifiedRoute([s, p1] + middle + [p2, e])
+    }
+
+    /// Drops repeated and collinear points so the route has one point per
+    /// actual corner (corner rounding and hit-testing both rely on that).
+    private static func simplifiedRoute(_ points: [CGPoint]) -> [CGPoint] {
+        var result: [CGPoint] = []
+        for point in points {
+            if let last = result.last,
+               abs(last.x - point.x) < 0.01, abs(last.y - point.y) < 0.01 {
+                continue
+            }
+            if result.count >= 2 {
+                let a = result[result.count - 2], b = result[result.count - 1]
+                let cross = (b.x - a.x) * (point.y - a.y) - (b.y - a.y) * (point.x - a.x)
+                if abs(cross) < 0.01 { result.removeLast() }   // b is collinear
+            }
+            result.append(point)
+        }
+        return result
+    }
+
+    /// This arrow's elbow route through the given endpoints, using each
+    /// binding's anchor for its exit direction. Empty unless the arrow is in
+    /// elbow style.
+    func elbowRoute(start s: CGPoint, end e: CGPoint) -> [CGPoint] {
+        guard kind == .arrow, arrowStyle.isElbow else { return [] }
+        return Self.elbowRoute(from: s, startDirection: Self.anchorDirection(startBinding),
+                               to: e, endDirection: Self.anchorDirection(endBinding))
+    }
+
+    /// This arrow's elbow route in world space, with bound ends resolved.
+    func elbowRoute(in annotations: [Annotation]) -> [CGPoint] {
+        elbowRoute(start: resolvedStart(in: annotations),
+                   end: resolvedEnd(in: annotations))
     }
 
     /// Maps `c` through the similarity (translation + rotation + uniform scale)
