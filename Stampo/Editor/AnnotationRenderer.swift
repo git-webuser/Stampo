@@ -114,8 +114,8 @@ enum AnnotationRenderer {
         for annotation in annotations
             where annotation.id != skippedID && annotation.kind != .blur {
             switch annotation.kind {
-            case .line:  drawLine(annotation, ctx: ctx)
-            case .arrow: drawArrow(annotation, ctx: ctx)
+            case .line:  drawLine(annotation, in: annotations, ctx: ctx)
+            case .arrow: drawArrow(annotation, in: annotations, ctx: ctx)
             case .rect:  drawShape(annotation, isOval: false, ctx: ctx)
             case .oval:  drawShape(annotation, isOval: true, ctx: ctx)
             case .roundedRect, .polygon, .star, .bubble:
@@ -143,7 +143,10 @@ enum AnnotationRenderer {
         ctx.restoreGState()
     }
 
-    private static func drawLine(_ a: Annotation, ctx: CGContext) {
+    private static func drawLine(_ a: Annotation, in annotations: [Annotation],
+                                 ctx: CGContext) {
+        let start = a.resolvedStart(in: annotations)
+        let end = a.resolvedEnd(in: annotations)
         ctx.setStrokeColor(a.color.cgColor)
         ctx.setLineWidth(a.lineWidth)
         ctx.setLineCap(.round)
@@ -152,8 +155,8 @@ enum AnnotationRenderer {
             let dash = max(6, a.lineWidth * 2.4)
             ctx.setLineDash(phase: 0, lengths: [dash, dash * 0.8])
         }
-        ctx.move(to: a.start)
-        ctx.addLine(to: a.end)
+        ctx.move(to: start)
+        ctx.addLine(to: end)
         ctx.strokePath()
         ctx.setLineDash(phase: 0, lengths: [])
     }
@@ -201,7 +204,12 @@ enum AnnotationRenderer {
         ctx.restoreGState()
     }
 
-    private static func drawArrow(_ a: Annotation, ctx: CGContext) {
+    private static func drawArrow(_ a: Annotation, in annotations: [Annotation],
+                                  ctx: CGContext) {
+        // Bound endpoints resolve to their target's outline; a free endpoint
+        // resolves to its raw point, so unbound arrows are unaffected.
+        let start = a.resolvedStart(in: annotations)
+        let end = a.resolvedEnd(in: annotations)
         let shaftWidth = a.lineWidth
         let headWidth = a.lineWidth
         let headLength = max(12, headWidth * 4)
@@ -213,11 +221,11 @@ enum AnnotationRenderer {
         // a tail without a head keeps its endpoint (and round cap) as is.
         if let control = a.curveControl {
             let curveStart = a.arrowHeadPlacement.includesStart
-                ? Self.insetTowardControl(a.start, control: control, by: overlap)
-                : a.start
+                ? Self.insetTowardControl(start, control: control, by: overlap)
+                : start
             let curveEnd = a.arrowHeadPlacement.includesEnd
-                ? Self.insetTowardControl(a.end, control: control, by: overlap)
-                : a.end
+                ? Self.insetTowardControl(end, control: control, by: overlap)
+                : end
 
             ctx.setStrokeColor(a.color.cgColor)
             ctx.setFillColor(a.color.cgColor)
@@ -234,18 +242,18 @@ enum AnnotationRenderer {
             ctx.setLineDash(phase: 0, lengths: [])
 
             if a.arrowHeadPlacement.includesStart {
-                drawArrowhead(from: a.arrowheadAnchor(towardTip: a.start, opposite: a.end),
-                              tip: a.start, lineWidth: headWidth, ctx: ctx)
+                drawArrowhead(from: a.arrowheadAnchor(towardTip: start, opposite: end),
+                              tip: start, lineWidth: headWidth, ctx: ctx)
             }
             if a.arrowHeadPlacement.includesEnd {
-                drawArrowhead(from: a.arrowheadAnchor(towardTip: a.end, opposite: a.start),
-                              tip: a.end, lineWidth: headWidth, ctx: ctx)
+                drawArrowhead(from: a.arrowheadAnchor(towardTip: end, opposite: start),
+                              tip: end, lineWidth: headWidth, ctx: ctx)
             }
             return
         }
 
-        let angle = atan2(a.end.y - a.start.y, a.end.x - a.start.x)
-        let shaftLength = hypot(a.end.x - a.start.x, a.end.y - a.start.y)
+        let angle = atan2(end.y - start.y, end.x - start.x)
+        let shaftLength = hypot(end.x - start.x, end.y - start.y)
         let headCount = (a.arrowHeadPlacement.includesStart ? 1 : 0)
             + (a.arrowHeadPlacement.includesEnd ? 1 : 0)
         let inset = min(overlap, headCount > 0 ? shaftLength / CGFloat(headCount) : 0)
@@ -253,13 +261,13 @@ enum AnnotationRenderer {
         // keeps the dashed/solid shaft visually centered between them. The
         // inset is capped so heads on a very short arrow never cross the shaft.
         let shaftStart = a.arrowHeadPlacement.includesStart
-            ? CGPoint(x: a.start.x + inset * cos(angle),
-                      y: a.start.y + inset * sin(angle))
-            : a.start
+            ? CGPoint(x: start.x + inset * cos(angle),
+                      y: start.y + inset * sin(angle))
+            : start
         let shaftEnd = a.arrowHeadPlacement.includesEnd
-            ? CGPoint(x: a.end.x - inset * cos(angle),
-                      y: a.end.y - inset * sin(angle))
-            : a.end
+            ? CGPoint(x: end.x - inset * cos(angle),
+                      y: end.y - inset * sin(angle))
+            : end
 
         ctx.setStrokeColor(a.color.cgColor)
         ctx.setFillColor(a.color.cgColor)
@@ -279,10 +287,10 @@ enum AnnotationRenderer {
 
         // Filled triangle heads point outwards at their respective endpoints.
         if a.arrowHeadPlacement.includesStart {
-            drawArrowhead(from: a.end, tip: a.start, lineWidth: headWidth, ctx: ctx)
+            drawArrowhead(from: end, tip: start, lineWidth: headWidth, ctx: ctx)
         }
         if a.arrowHeadPlacement.includesEnd {
-            drawArrowhead(from: a.start, tip: a.end, lineWidth: headWidth, ctx: ctx)
+            drawArrowhead(from: start, tip: end, lineWidth: headWidth, ctx: ctx)
         }
     }
 

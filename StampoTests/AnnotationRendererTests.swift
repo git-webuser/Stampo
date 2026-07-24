@@ -159,6 +159,69 @@ enum TestImages {
         }
     }
 
+    // MARK: arrow binding (rendered from resolved endpoints)
+
+    @Test func boundArrowStopsAtShapeOutlineWithHeadOnBoundary() {
+        // Circle target r20 centered (60,60). The arrow comes straight down
+        // from above with its tip bound to the circle; it must stop at the
+        // top of the circle (y≈40), not run through to its raw end (60,110).
+        let base = TestImages.make(width: 120, height: 120)   // all white
+        let oval = Annotation(kind: .oval, start: CGPoint(x: 40, y: 40),
+                              end: CGPoint(x: 80, y: 80), color: .black, lineWidth: 2)
+        var arrow = Annotation(kind: .arrow, start: CGPoint(x: 60, y: 10),
+                               end: CGPoint(x: 60, y: 110), color: .black, lineWidth: 4)
+        arrow.endBinding = EndpointBinding(targetID: oval.id, anchor: .dynamic,
+                                           fallback: .zero)
+        let rep = AnnotationRenderer.renderBitmap(base: base,
+                                                  annotations: [oval, arrow])!
+        // Shaft inked above the shape.
+        #expect((rep.colorAt(x: 60, y: 25)?.brightnessComponent ?? 1) < 0.5)
+        // Circle interior stays clear — the arrow ended at the boundary rather
+        // than crossing to its stale raw end deep below.
+        #expect((rep.colorAt(x: 60, y: 60)?.brightnessComponent ?? 0) > 0.9)
+        #expect((rep.colorAt(x: 60, y: 72)?.brightnessComponent ?? 0) > 0.9)
+        // Arrowhead sits on the boundary: its barbs flank the tip off the
+        // 4px-wide shaft column.
+        #expect((rep.colorAt(x: 57, y: 30)?.brightnessComponent ?? 1) < 0.5)
+        #expect((rep.colorAt(x: 63, y: 30)?.brightnessComponent ?? 1) < 0.5)
+    }
+
+    @Test func boundArrowFallsBackToStoredPointWhenTargetMissing() {
+        // No target with this id exists, so the bound end degrades to its
+        // fallback (50,40): the arrow draws from (10,40) to there, and the
+        // region past the fallback toward the raw end stays white.
+        let base = TestImages.make(width: 100, height: 80)    // all white
+        var arrow = Annotation(kind: .arrow, start: CGPoint(x: 10, y: 40),
+                               end: CGPoint(x: 90, y: 40), color: .black, lineWidth: 4)
+        arrow.endBinding = EndpointBinding(targetID: UUID(), anchor: .dynamic,
+                                           fallback: CGPoint(x: 50, y: 40))
+        let rep = AnnotationRenderer.renderBitmap(base: base, annotations: [arrow])!
+        #expect((rep.colorAt(x: 30, y: 40)?.brightnessComponent ?? 1) < 0.5)  // shaft
+        #expect((rep.colorAt(x: 75, y: 40)?.brightnessComponent ?? 0) > 0.9)  // past fallback
+    }
+
+    @Test func movingTargetMovesBoundArrowTip() {
+        // The tip follows the target with no stored state: rendering the same
+        // arrow against a moved circle inks a different region.
+        let base = TestImages.make(width: 160, height: 80)    // all white
+        var oval = Annotation(kind: .oval, start: CGPoint(x: 40, y: 20),
+                              end: CGPoint(x: 80, y: 60), color: .black, lineWidth: 2)
+        var arrow = Annotation(kind: .arrow, start: CGPoint(x: 10, y: 40),
+                               end: CGPoint(x: 150, y: 40), color: .black, lineWidth: 4)
+        arrow.endBinding = EndpointBinding(targetID: oval.id, anchor: .dynamic,
+                                           fallback: .zero)
+        // Circle left edge at x=40 → tip stops near there; x=90 stays white.
+        let before = AnnotationRenderer.renderBitmap(base: base,
+                                                     annotations: [oval, arrow])!
+        #expect((before.colorAt(x: 90, y: 40)?.brightnessComponent ?? 0) > 0.9)
+        // Move the circle right by 60; its left edge is now x=100, so the
+        // shaft reaches x=90 where it was white before.
+        oval.move(by: CGPoint(x: 60, y: 0))
+        let after = AnnotationRenderer.renderBitmap(base: base,
+                                                    annotations: [oval, arrow])!
+        #expect((after.colorAt(x: 90, y: 40)?.brightnessComponent ?? 1) < 0.5)
+    }
+
     // MARK: loupe
 
     /// Solid-color image for deterministic loupe/blur source tests.
