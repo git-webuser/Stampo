@@ -584,7 +584,7 @@ struct EditorCanvasView: View {
                            style: StrokeStyle(lineWidth: 1, dash: [4, 3], dashPhase: 3.5))
         }
 
-        var selectionPoints = a.handles.map(\.1)
+        var selectionPoints = a.handles(in: document.annotations).map(\.1)
         if a.kind == .freehand, let first = a.freehandPoints.first {
             selectionPoints = [first]
             if let last = a.freehandPoints.last, last != first {
@@ -739,6 +739,14 @@ struct EditorCanvasView: View {
                     // shape; the drag continues with the mirrored handle.
                     var continuedHandle = handle
                     update(id) { annotation in
+                        // Dragging a bound endpoint detaches it: it follows the
+                        // cursor from its raw point live, and re-binds on release
+                        // only if dropped over a shape (in bindEndpoint).
+                        if (handle == .start || handle == .end),
+                           annotation.kind == .arrow || annotation.kind == .line {
+                            if handle == .start { annotation.startBinding = nil }
+                            else { annotation.endBinding = nil }
+                        }
                         // Curve control: dragging near the straight start–end
                         // segment snaps the arrow back to straight, so bending
                         // is fully reversible without any extra UI.
@@ -863,7 +871,20 @@ struct EditorCanvasView: View {
                     }
                 case .erasing:
                     document.commitChange()
-                case .moving, .movingLoupePart, .resizing:
+                case .moving, .movingLoupePart:
+                    // A moved/resized shape can carry bound arrows with it;
+                    // refresh their fallbacks so a later delete freezes them
+                    // at the right spot.
+                    document.refreshBindingFallbacks()
+                    document.commitChange()
+                case .resizing(let id, let handle):
+                    // Dropping an arrow/line endpoint over a shape binds it;
+                    // over empty space clears any prior binding. Part of the
+                    // same undo step as the drag.
+                    let tolerancePx = hitTolerancePt / fitScale
+                    document.bindEndpoint(handle, of: id, releasedAt: p,
+                                          tolerance: tolerancePx)
+                    document.refreshBindingFallbacks()
                     document.commitChange()
                 case .recognitionSelecting(let start, _):
                     let rect = CGRect(x: min(start.x, p.x), y: min(start.y, p.y),
@@ -883,9 +904,10 @@ struct EditorCanvasView: View {
         let grabPx = handleGrabPt / fitScale
         let tolerancePx = hitTolerancePt / fitScale
 
-        // Resize handles of the current selection win over everything.
+        // Resize handles of the current selection win over everything. Bound
+        // arrow endpoints are grabbed at their resolved (drawn) positions.
         if let selected = document.selectedAnnotation,
-           let handle = selected.handle(at: p, tolerance: grabPx) {
+           let handle = selected.handle(at: p, tolerance: grabPx, in: document.annotations) {
             document.beginChange()
             return .resizing(selected.id, handle)
         }
@@ -952,7 +974,7 @@ struct EditorCanvasView: View {
             // Dragging the selected annotation's body moves it even with a
             // shape tool active; empty space starts a new shape on drag.
             if let selected = document.selectedAnnotation,
-               selected.hitTest(p, tolerance: tolerancePx) {
+               selected.hitTest(p, tolerance: tolerancePx, in: document.annotations) {
                 document.beginChange()
                 if let part = selected.loupePart(at: p, tolerance: tolerancePx) {
                     return .movingLoupePart(selected.id, part, last: p)

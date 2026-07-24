@@ -761,6 +761,28 @@ import Testing
         #expect(approx(arrow.resolvedEnd(in: list), CGPoint(x: 400, y: 150)))
     }
 
+    @Test func boundArrowHitAndHandlesUseResolvedEndpoints() {
+        // Arrow from the left with its tip bound to a rect centered (150,150).
+        // Its raw end is off at (300,150), but interaction must happen where
+        // it's drawn: tip resolved to the left edge (100,150).
+        let rect = make(.rect, start: CGPoint(x: 100, y: 100),
+                        end: CGPoint(x: 200, y: 200))
+        var arrow = make(.arrow, start: CGPoint(x: 0, y: 150),
+                         end: CGPoint(x: 300, y: 150))
+        arrow.endBinding = EndpointBinding(targetID: rect.id, anchor: .dynamic,
+                                           fallback: .zero)
+        let list = [rect, arrow]
+        // Handle grab lands on the resolved tip, not the raw end.
+        #expect(arrow.handle(at: CGPoint(x: 100, y: 150), tolerance: 6, in: list) == .end)
+        #expect(arrow.handle(at: CGPoint(x: 300, y: 150), tolerance: 6, in: list) == nil)
+        // Hit-testing follows the drawn shaft (0…100), not the stale raw shaft.
+        #expect(arrow.hitTest(CGPoint(x: 50, y: 150), tolerance: 4, in: list))
+        #expect(!arrow.hitTest(CGPoint(x: 200, y: 150), tolerance: 4, in: list))
+        // With no bindings the resolved variants match the plain ones.
+        let free = make(.arrow, start: .zero, end: CGPoint(x: 100, y: 0))
+        #expect(free.handle(at: CGPoint(x: 100, y: 0), tolerance: 5, in: [free]) == .end)
+    }
+
     @Test func fixedAnchorPlacesOnNormalizedBoundingRect() {
         let target = make(.rect, start: CGPoint(x: 100, y: 100),
                           end: CGPoint(x: 200, y: 300))   // 100×200

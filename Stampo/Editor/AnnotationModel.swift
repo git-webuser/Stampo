@@ -1296,6 +1296,39 @@ struct Annotation: Identifiable, Equatable {
         return CGPoint(x: r.midX, y: r.midY)
     }
 
+    /// A copy of a bound arrow/line with its endpoints baked to their resolved
+    /// positions and the bindings cleared — so hit-testing and handle geometry
+    /// operate on where the arrow is actually drawn. nil for kinds/instances
+    /// without bindings (the caller uses the raw value directly).
+    private func resolvedForInteraction(in annotations: [Annotation]) -> Annotation? {
+        guard kind == .arrow || kind == .line,
+              startBinding != nil || endBinding != nil else { return nil }
+        var copy = self
+        copy.start = resolvedStart(in: annotations)
+        copy.end = resolvedEnd(in: annotations)
+        copy.startBinding = nil
+        copy.endBinding = nil
+        return copy
+    }
+
+    /// Hit-test that honors binding: a bound arrow/line is tested where it's
+    /// drawn (endpoints on their targets), not at its stale raw endpoints.
+    /// Unbound annotations fall through to the plain `hitTest`.
+    func hitTest(_ p: CGPoint, tolerance: CGFloat, in annotations: [Annotation]) -> Bool {
+        (resolvedForInteraction(in: annotations) ?? self).hitTest(p, tolerance: tolerance)
+    }
+
+    /// Draggable handles with bound endpoints at their resolved positions.
+    func handles(in annotations: [Annotation]) -> [(Handle, CGPoint)] {
+        (resolvedForInteraction(in: annotations) ?? self).handles
+    }
+
+    /// The handle near `p`, resolving bound endpoints first.
+    func handle(at p: CGPoint, tolerance: CGFloat,
+                in annotations: [Annotation]) -> Handle? {
+        (resolvedForInteraction(in: annotations) ?? self).handle(at: p, tolerance: tolerance)
+    }
+
     /// The point on this shape's outline along the ray from its center toward
     /// `external`. rect/ellipse use closed-form edge distance; path shapes
     /// (rounded rect, polygon, star, bubble) intersect the flattened outline —
@@ -1644,8 +1677,60 @@ struct DocumentSnapshot: Equatable {
     /// so a non-blur annotation over it wins the hit even when the blur was
     /// added later.
     func annotation(at p: CGPoint, tolerance: CGFloat) -> Annotation? {
-        annotations.reversed().first { $0.kind != .blur && $0.hitTest(p, tolerance: tolerance) }
-            ?? annotations.reversed().first { $0.kind == .blur && $0.hitTest(p, tolerance: tolerance) }
+        annotations.reversed().first {
+            $0.kind != .blur && $0.hitTest(p, tolerance: tolerance, in: annotations)
+        }
+            ?? annotations.reversed().first {
+                $0.kind == .blur && $0.hitTest(p, tolerance: tolerance, in: annotations)
+            }
+    }
+
+    // MARK: Arrow binding
+
+    /// Binds (or unbinds) one endpoint of an arrow/line to a bindable shape at
+    /// the release point `p`: a shape under `p` (topmost, excluding the arrow
+    /// itself) becomes a `.dynamic` target; empty space clears the binding. The
+    /// fallback is the endpoint's current raw point (where the drag left it).
+    /// Called inside the resize gesture's open change, so the bind is part of
+    /// the same undo step as the endpoint drag.
+    func bindEndpoint(_ handle: Annotation.Handle, of id: UUID,
+                      releasedAt p: CGPoint, tolerance: CGFloat) {
+        guard handle == .start || handle == .end,
+              let idx = annotations.firstIndex(where: { $0.id == id }),
+              annotations[idx].kind == .arrow || annotations[idx].kind == .line
+        else { return }
+        let target = annotations.last {
+            $0.id != id && $0.isBindableTarget
+                && $0.hitTest(p, tolerance: tolerance, in: annotations)
+        }
+        let raw = handle == .start ? annotations[idx].start : annotations[idx].end
+        let binding = target.map {
+            EndpointBinding(targetID: $0.id, anchor: .dynamic, fallback: raw)
+        }
+        if handle == .start { annotations[idx].startBinding = binding }
+        else { annotations[idx].endBinding = binding }
+    }
+
+    /// Freezes every live binding's fallback at its current resolved point, so
+    /// a target's removal leaves the arrow where it currently points instead of
+    /// snapping back to a stale drop location. A no-op for a binding whose
+    /// target is already gone (its resolve returns the existing fallback).
+    func refreshBindingFallbacks() {
+        for i in annotations.indices {
+            guard annotations[i].kind == .arrow || annotations[i].kind == .line
+            else { continue }
+            // Resolve into locals first: reading `annotations` on the RHS while
+            // mutating `annotations[i]` on the LHS of one statement is an
+            // exclusive-access violation.
+            if annotations[i].startBinding != nil {
+                let resolved = annotations[i].resolvedStart(in: annotations)
+                annotations[i].startBinding?.fallback = resolved
+            }
+            if annotations[i].endBinding != nil {
+                let resolved = annotations[i].resolvedEnd(in: annotations)
+                annotations[i].endBinding?.fallback = resolved
+            }
+        }
     }
 
     func updateSelected(_ mutate: (inout Annotation) -> Void) {
@@ -1745,6 +1830,11 @@ struct DocumentSnapshot: Equatable {
     func deleteSelected() {
         guard let selectedID else { return }
         beginChange()
+        // Freeze bound arrows at their current point before the target (which
+        // might be this selection) disappears, so they hold place rather than
+        // snapping to a stale fallback. Undo restores the target and the
+        // pre-freeze fallbacks together via the snapshot.
+        refreshBindingFallbacks()
         annotations.removeAll { $0.id == selectedID }
         self.selectedID = nil
         commitChange()

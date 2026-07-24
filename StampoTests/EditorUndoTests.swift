@@ -594,6 +594,86 @@ import Testing
         #expect(doc.annotations[0].curveControl == CGPoint(x: 8, y: 4))
     }
 
+    // MARK: Arrow binding
+
+    /// A rect target centered at (150,150), 100×100 — left edge x=100.
+    private func bindTarget() -> Annotation {
+        Annotation(kind: .rect, start: CGPoint(x: 100, y: 100),
+                   end: CGPoint(x: 200, y: 200), color: .blue, lineWidth: 4)
+    }
+
+    @Test func bindingAnEndpointIsOneUndoStepAndResolvesToOutline() {
+        let doc = makeDocument()
+        let rect = bindTarget()
+        let arrow = Annotation(kind: .arrow, start: CGPoint(x: 0, y: 150),
+                               end: CGPoint(x: 300, y: 150), color: .red, lineWidth: 4)
+        doc.annotations = [rect, arrow]
+
+        // The gesture: an open change wraps the endpoint drop over the rect.
+        doc.beginChange()
+        doc.bindEndpoint(.end, of: arrow.id, releasedAt: CGPoint(x: 150, y: 150),
+                         tolerance: 4)
+        doc.commitChange()
+
+        #expect(doc.undoStack.count == 1)
+        let bound = doc.annotations.first { $0.kind == .arrow }!
+        #expect(bound.endBinding?.targetID == rect.id)
+        // Aimed from the free start on the left → the rect's left-edge midpoint.
+        #expect(bound.resolvedEnd(in: doc.annotations) == CGPoint(x: 100, y: 150))
+
+        doc.undo()
+        let free = doc.annotations.first { $0.kind == .arrow }!
+        #expect(free.endBinding == nil)
+        #expect(free.resolvedEnd(in: doc.annotations) == CGPoint(x: 300, y: 150))
+    }
+
+    @Test func droppingAnEndpointOnEmptySpaceClearsItsBinding() {
+        let doc = makeDocument()
+        let rect = bindTarget()
+        var arrow = Annotation(kind: .arrow, start: CGPoint(x: 0, y: 150),
+                               end: CGPoint(x: 120, y: 150), color: .red, lineWidth: 4)
+        arrow.endBinding = EndpointBinding(targetID: rect.id, anchor: .dynamic,
+                                           fallback: CGPoint(x: 120, y: 150))
+        doc.annotations = [rect, arrow]
+
+        doc.beginChange()
+        doc.bindEndpoint(.end, of: arrow.id, releasedAt: CGPoint(x: 10, y: 10),
+                         tolerance: 4)
+        doc.commitChange()
+        #expect(doc.annotations.first { $0.kind == .arrow }?.endBinding == nil)
+    }
+
+    @Test func deletingTargetFreezesBoundArrowThenUndoReconnects() {
+        let doc = makeDocument()
+        let rect = bindTarget()
+        // A deliberately stale fallback (300,150): if the freeze didn't run,
+        // the arrow would snap there when the rect is deleted.
+        var arrow = Annotation(kind: .arrow, start: CGPoint(x: 0, y: 150),
+                               end: CGPoint(x: 300, y: 150), color: .red, lineWidth: 4)
+        arrow.endBinding = EndpointBinding(targetID: rect.id, anchor: .dynamic,
+                                           fallback: CGPoint(x: 300, y: 150))
+        doc.annotations = [rect, arrow]
+        // While the target exists the tip sits on its left edge.
+        #expect(doc.annotations[1].resolvedEnd(in: doc.annotations)
+                == CGPoint(x: 100, y: 150))
+
+        doc.selectedID = rect.id
+        doc.deleteSelected()
+
+        #expect(doc.undoStack.count == 1)
+        #expect(doc.annotations.count == 1)                    // rect gone
+        let frozen = doc.annotations[0]
+        #expect(frozen.endBinding != nil)                      // binding kept
+        // Held at its last on-shape point, not the stale (300,150) fallback.
+        #expect(frozen.resolvedEnd(in: doc.annotations) == CGPoint(x: 100, y: 150))
+
+        doc.undo()
+        #expect(doc.annotations.count == 2)                    // rect back
+        let reconnected = doc.annotations.first { $0.kind == .arrow }!
+        #expect(reconnected.endBinding?.targetID == rect.id)
+        #expect(reconnected.resolvedEnd(in: doc.annotations) == CGPoint(x: 100, y: 150))
+    }
+
     // MARK: Z-order
 
     @Test func bringForwardSwapsAdjacentAndUndoRestores() {
