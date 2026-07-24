@@ -222,8 +222,11 @@ enum AnnotationRenderer {
         ctx.setLineJoin(.round)
 
         // Curved shaft: stroke the Bézier, then the open chevron heads over
-        // its ends (pulled back along the tangent by the cap inset).
-        if let control = a.curveControl {
+        // its ends (pulled back along the tangent by the cap inset). The
+        // control follows the resolved chord so a bound arrow's bend doesn't
+        // drift. The head tangent anchors on the control (or the opposite end
+        // when the control sits on top of the tip).
+        if let control = a.resolvedControl(in: annotations) {
             let curveStart = a.arrowHeadPlacement.includesStart
                 ? Self.insetTowardControl(start, control: control, by: capInset)
                 : start
@@ -240,12 +243,14 @@ enum AnnotationRenderer {
             ctx.setLineDash(phase: 0, lengths: [])
 
             if a.arrowHeadPlacement.includesStart {
-                drawChevron(from: a.arrowheadAnchor(towardTip: start, opposite: end),
-                            tip: start, lineWidth: width, ctx: ctx)
+                let anchor = hypot(control.x - start.x, control.y - start.y) >= 1
+                    ? control : end
+                drawChevron(from: anchor, tip: start, lineWidth: width, ctx: ctx)
             }
             if a.arrowHeadPlacement.includesEnd {
-                drawChevron(from: a.arrowheadAnchor(towardTip: end, opposite: start),
-                            tip: end, lineWidth: width, ctx: ctx)
+                let anchor = hypot(control.x - end.x, control.y - end.y) >= 1
+                    ? control : start
+                drawChevron(from: anchor, tip: end, lineWidth: width, ctx: ctx)
             }
             return
         }

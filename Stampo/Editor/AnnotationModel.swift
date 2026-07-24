@@ -1238,6 +1238,28 @@ struct Annotation: Identifiable, Equatable {
         return (b1, b2)
     }
 
+    /// Maps `c` through the similarity (translation + rotation + uniform scale)
+    /// that carries segment `fromStart`→`fromEnd` onto `toStart`→`toEnd`. Used
+    /// to move a curved arrow's control with its resolved endpoints so the bend
+    /// keeps its shape relative to the chord instead of drifting. A degenerate
+    /// source chord falls back to translating by the start delta.
+    static func mapControl(_ c: CGPoint, fromStart: CGPoint, fromEnd: CGPoint,
+                           toStart: CGPoint, toEnd: CGPoint) -> CGPoint {
+        let w = CGPoint(x: fromEnd.x - fromStart.x, y: fromEnd.y - fromStart.y)
+        let denom = w.x * w.x + w.y * w.y
+        guard denom > 1e-9 else {
+            return CGPoint(x: c.x + (toStart.x - fromStart.x),
+                           y: c.y + (toStart.y - fromStart.y))
+        }
+        let w2 = CGPoint(x: toEnd.x - toStart.x, y: toEnd.y - toStart.y)
+        // Complex division w2 / w gives the scale-and-rotation factor.
+        let ax = (w2.x * w.x + w2.y * w.y) / denom
+        let ay = (w2.y * w.x - w2.x * w.y) / denom
+        let rel = CGPoint(x: c.x - fromStart.x, y: c.y - fromStart.y)
+        return CGPoint(x: toStart.x + ax * rel.x - ay * rel.y,
+                       y: toStart.y + ax * rel.y + ay * rel.x)
+    }
+
     /// The curve control for a bend drag to `p`: nil (straight) when the drag
     /// lands within `snapDistance` of the straight start–end chord — a wide
     /// alignment band so a nearly-straight bend snaps flat — or when
@@ -1473,14 +1495,28 @@ struct Annotation: Identifiable, Equatable {
         return CGPoint(x: r.midX, y: r.midY)
     }
 
-    /// A copy of a bound arrow/line with its endpoints baked to their resolved
-    /// positions and the bindings cleared — so hit-testing and handle geometry
-    /// operate on where the arrow is actually drawn. nil for kinds/instances
-    /// without bindings (the caller uses the raw value directly).
+    /// The curve control adjusted to the arrow's resolved endpoints. For an
+    /// unbound arrow this is the stored control unchanged; for a bound one it
+    /// rides the resolved chord (via `mapControl`) so the bend keeps its shape
+    /// instead of drifting as the target moves. nil for a straight arrow.
+    func resolvedControl(in annotations: [Annotation]) -> CGPoint? {
+        guard let control = curveControl else { return nil }
+        guard startBinding != nil || endBinding != nil else { return control }
+        return Self.mapControl(control, fromStart: start, fromEnd: end,
+                               toStart: resolvedStart(in: annotations),
+                               toEnd: resolvedEnd(in: annotations))
+    }
+
+    /// A copy of a bound arrow/line with its endpoints (and curve control)
+    /// baked to their resolved positions and the bindings cleared — so
+    /// hit-testing and handle geometry operate on where the arrow is actually
+    /// drawn. nil for kinds/instances without bindings (the caller uses the raw
+    /// value directly).
     private func resolvedForInteraction(in annotations: [Annotation]) -> Annotation? {
         guard kind == .arrow || kind == .line,
               startBinding != nil || endBinding != nil else { return nil }
         var copy = self
+        copy.curveControl = resolvedControl(in: annotations)
         copy.start = resolvedStart(in: annotations)
         copy.end = resolvedEnd(in: annotations)
         copy.startBinding = nil

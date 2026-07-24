@@ -908,6 +908,56 @@ import Testing
         #expect(Annotation.arrowheadLength(lineWidth: 10) == 35)
     }
 
+    // MARK: bound curved arrows (relative control)
+
+    @Test func mapControlCarriesTheChordFrame() {
+        // The endpoints map onto the target endpoints exactly…
+        #expect(Annotation.mapControl(.zero, fromStart: .zero,
+                                      fromEnd: CGPoint(x: 100, y: 0),
+                                      toStart: CGPoint(x: 10, y: 10),
+                                      toEnd: CGPoint(x: 10, y: 110))
+                == CGPoint(x: 10, y: 10))
+        #expect(Annotation.mapControl(CGPoint(x: 100, y: 0), fromStart: .zero,
+                                      fromEnd: CGPoint(x: 100, y: 0),
+                                      toStart: CGPoint(x: 10, y: 10),
+                                      toEnd: CGPoint(x: 10, y: 110))
+                == CGPoint(x: 10, y: 110))
+        // …and a mid-chord control follows the scale+rotation (×2, 90°).
+        #expect(Annotation.mapControl(CGPoint(x: 50, y: 0), fromStart: .zero,
+                                      fromEnd: CGPoint(x: 100, y: 0),
+                                      toStart: .zero, toEnd: CGPoint(x: 0, y: 200))
+                == CGPoint(x: 0, y: 100))
+        // A degenerate source chord falls back to a translation.
+        #expect(Annotation.mapControl(CGPoint(x: 5, y: 5), fromStart: .zero,
+                                      fromEnd: .zero, toStart: CGPoint(x: 10, y: 20),
+                                      toEnd: CGPoint(x: 30, y: 40))
+                == CGPoint(x: 15, y: 25))
+    }
+
+    @Test func boundCurvedArrowControlRidesTheResolvedChord() {
+        // Rect centered (100,60); the arrow's end binds to its center, so the
+        // resolved chord is (0,0)→(100,60) while the raw chord is (0,0)→(100,0).
+        let rect = make(.rect, start: CGPoint(x: 50, y: 10),
+                        end: CGPoint(x: 150, y: 110))
+        var arrow = make(.arrow, start: .zero, end: CGPoint(x: 100, y: 0))
+        arrow.curveControl = CGPoint(x: 50, y: -20)
+        arrow.endBinding = EndpointBinding(
+            targetID: rect.id, anchor: .fixed(unit: CGPoint(x: 0.5, y: 0.5)),
+            fallback: .zero)
+        let list = [rect, arrow]
+        #expect(arrow.resolvedEnd(in: list) == CGPoint(x: 100, y: 60))
+        // The control transforms with the chord, keeping the bend's shape.
+        #expect(arrow.resolvedControl(in: list) == CGPoint(x: 62, y: 10))
+        // The bend control handle shows at that resolved position.
+        #expect(arrow.handles(in: list).last?.1 == CGPoint(x: 62, y: 10))
+    }
+
+    @Test func unboundCurvedArrowControlIsUnchanged() {
+        var arrow = make(.arrow, start: .zero, end: CGPoint(x: 100, y: 0))
+        arrow.curveControl = CGPoint(x: 50, y: -20)
+        #expect(arrow.resolvedControl(in: [arrow]) == CGPoint(x: 50, y: -20))
+    }
+
     @Test func fixedAnchorPlacesOnNormalizedBoundingRect() {
         let target = make(.rect, start: CGPoint(x: 100, y: 100),
                           end: CGPoint(x: 200, y: 300))   // 100×200

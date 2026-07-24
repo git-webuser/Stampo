@@ -807,6 +807,30 @@ struct EditorCanvasView: View {
                     dragMode = .movingLoupePart(id, part, last: p)
 
                 case .resizing(let id, let handle):
+                    // Curve control: a wide alignment band (≈9 pt) snaps a
+                    // near-straight bend flat, and Shift forces it straight.
+                    // Snap against the resolved chord the user sees, then store
+                    // the control in the raw chord frame so a bound arrow's bend
+                    // follows its endpoints (an identity map when unbound).
+                    if handle == .control,
+                       let arrow = document.annotations.first(where: { $0.id == id }),
+                       arrow.kind == .arrow {
+                        let rs = arrow.resolvedStart(in: document.annotations)
+                        let re = arrow.resolvedEnd(in: document.annotations)
+                        let snapDistance = 9 / fitScale
+                        update(id) { annotation in
+                            if let bent = Annotation.bentControl(
+                                forDrag: p, start: rs, end: re,
+                                snapDistance: snapDistance, forceStraight: isShiftHeld) {
+                                annotation.curveControl = Annotation.mapControl(
+                                    bent, fromStart: rs, fromEnd: re,
+                                    toStart: annotation.start, toEnd: annotation.end)
+                            } else {
+                                annotation.curveControl = nil
+                            }
+                        }
+                        break
+                    }
                     // A corner pushed through the opposite edge mirrors the
                     // shape; the drag continues with the mirrored handle.
                     var continuedHandle = handle
@@ -818,17 +842,6 @@ struct EditorCanvasView: View {
                            annotation.kind == .arrow || annotation.kind == .line {
                             if handle == .start { annotation.startBinding = nil }
                             else { annotation.endBinding = nil }
-                        }
-                        // Curve control: a wide alignment band (≈9 pt) snaps a
-                        // near-straight bend flat, and Shift forces it straight
-                        // outright — so bending is fully reversible with no
-                        // extra UI.
-                        if handle == .control, annotation.kind == .arrow {
-                            annotation.curveControl = Annotation.bentControl(
-                                forDrag: p, start: annotation.start,
-                                end: annotation.end, snapDistance: 9 / fitScale,
-                                forceStraight: isShiftHeld)
-                            return
                         }
                         if isShiftHeld,
                            annotation.kind == .line || annotation.kind == .arrow {
