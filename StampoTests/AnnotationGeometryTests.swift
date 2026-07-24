@@ -983,14 +983,37 @@ import Testing
         let route = arrow.elbowRoute(start: arrow.start, end: arrow.end)
         #expect(route == [CGPoint(x: 100, y: 0), CGPoint(x: 100, y: 200)])
 
-        // Dragged to x = 148, which the grid snaps to 152.
+        // Dragged to x = 148: the grid steps from the arrow's own start
+        // (x = 100), so 48 rounds to 48 — six steps of 8.
         arrow.elbowWaypoints = Annotation.movingRouteSegment(
             route, index: 0, to: CGPoint(x: 148, y: 100), grid: 8)
-        #expect(arrow.elbowWaypoints == [CGPoint(x: 152, y: 0), CGPoint(x: 152, y: 200)])
+        #expect(arrow.elbowWaypoints == [CGPoint(x: 148, y: 0), CGPoint(x: 148, y: 200)])
         let bent = arrow.elbowRoute(start: arrow.start, end: arrow.end)
-        #expect(bent == [CGPoint(x: 100, y: 0), CGPoint(x: 152, y: 0),
-                         CGPoint(x: 152, y: 200), CGPoint(x: 100, y: 200)])
+        #expect(bent == [CGPoint(x: 100, y: 0), CGPoint(x: 148, y: 0),
+                         CGPoint(x: 148, y: 200), CGPoint(x: 100, y: 200)])
         #expect(isOrthogonal(bent))
+    }
+
+    @Test func aBentArrowCanBeStraightenedBackFromOffGridEndpoints() {
+        // Endpoints on deliberately off-grid coordinates: an absolute grid
+        // could never line the leg up with them, leaving a permanent jog.
+        var arrow = make(.arrow, start: CGPoint(x: 101, y: 7),
+                         end: CGPoint(x: 101, y: 203))
+        arrow.arrowStyle = .elbow
+        let straight = arrow.elbowRoute(start: arrow.start, end: arrow.end)
+        arrow.elbowWaypoints = Annotation.movingRouteSegment(
+            straight, index: 0, to: CGPoint(x: 173, y: 100), grid: 24)
+        #expect(arrow.elbowWaypoints.count == 2)          // bent into a Z
+
+        // Dragging the mid-line back near the endpoints' x aligns exactly and
+        // the corners collapse — the arrow is straight again.
+        let bent = arrow.elbowRoute(start: arrow.start, end: arrow.end)
+        let midIndex = bent.count / 2 - 1
+        arrow.elbowWaypoints = Annotation.movingRouteSegment(
+            bent, index: midIndex, to: CGPoint(x: 105, y: 100), grid: 24)
+        #expect(arrow.elbowWaypoints.isEmpty)
+        #expect(arrow.elbowRoute(start: arrow.start, end: arrow.end)
+                == [CGPoint(x: 101, y: 7), CGPoint(x: 101, y: 203)])
     }
 
     @Test func slidingALegSnapsToTheGridAndLeavesOthersAlone() {

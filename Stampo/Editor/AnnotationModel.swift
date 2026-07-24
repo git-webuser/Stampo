@@ -1388,10 +1388,17 @@ struct Annotation: Identifiable, Equatable {
     /// `p`, and returns the route's new interior corners (to store as
     /// waypoints). The endpoints stay put — a leg touching an end grows a new
     /// corner there — and legs that collapse to zero length disappear via
-    /// `simplifiedRoute`. `grid` quantizes the moved coordinate.
+    /// `simplifiedRoute`.
+    ///
+    /// `grid` is measured **from the arrow's own start**, not from absolute
+    /// image coordinates, and any position within half a step of an endpoint's
+    /// coordinate snaps exactly onto it. Otherwise the arrow could never be
+    /// straightened: its endpoints sit wherever they were drawn, so an absolute
+    /// grid would leave a permanent jog next to them.
     static func movingRouteSegment(_ route: [CGPoint], index: Int, to p: CGPoint,
                                    grid: CGFloat = 1) -> [CGPoint] {
         guard route.count >= 2, index >= 0, index < route.count - 1 else { return [] }
+        guard let first = route.first, let last = route.last else { return [] }
         var points = route
         var i = index
         // Keep the anchored endpoints fixed by budding a new corner off them.
@@ -1404,15 +1411,21 @@ struct Annotation: Identifiable, Equatable {
         }
         let a = points[i], b = points[i + 1]
         let isVertical = abs(a.x - b.x) < 0.01
-        func snapped(_ value: CGFloat) -> CGFloat {
-            grid > 1 ? (value / grid).rounded() * grid : value
+        let value = isVertical ? p.x : p.y
+        let origin = isVertical ? first.x : first.y
+        let opposite = isVertical ? last.x : last.y
+        // Align exactly with either endpoint when within half a step, so the
+        // leg can collapse; otherwise step on the grid measured from the start.
+        var snapped = origin + ((value - origin) / grid).rounded() * grid
+        for alignment in [origin, opposite]
+        where abs(value - alignment) <= grid / 2 {
+            snapped = alignment
+            break
         }
         if isVertical {
-            let x = snapped(p.x)
-            points[i].x = x; points[i + 1].x = x
+            points[i].x = snapped; points[i + 1].x = snapped
         } else {
-            let y = snapped(p.y)
-            points[i].y = y; points[i + 1].y = y
+            points[i].y = snapped; points[i + 1].y = snapped
         }
         let simplified = simplifiedRoute(points)
         guard simplified.count > 2 else { return [] }
