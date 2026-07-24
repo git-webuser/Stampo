@@ -645,17 +645,23 @@ struct EditorCanvasView: View {
     private static let routeSliderLength: CGFloat = 18
     private static let routeSliderThickness: CGFloat = 7
 
-    /// Grid step the elbow legs and endpoints quantize to, in **view points** —
-    /// converted through the current zoom at drag time so the step (and the
-    /// half-step alignment window) feels identical however the image is
-    /// scaled. A multiple of the 4 pt layout unit, and at or above the slider's
-    /// own length so a leg can never be shorter than its slider.
-    private static let routeGridPt: CGFloat = 24     // 6 × 4 pt
+    /// The editor's layout grid, in **image pixels** — deliberately not view
+    /// points, so the lattice is the same at every zoom and objects snapped at
+    /// different magnifications still line up with each other. A multiple of
+    /// the 4 pt layout unit.
+    static let gridStep: CGFloat = 24     // 6 × 4 pt
 
-    /// The grid step to quantize with right now, in image pixels; 1 disables
-    /// quantization (free placement).
-    private func routeGrid(fitScale: CGFloat) -> CGFloat {
-        style.snapsToGrid ? Self.routeGridPt / fitScale : 1
+    /// The grid step to quantize with right now; 1 disables quantization.
+    private var activeGrid: CGFloat {
+        style.snapsToGrid ? Self.gridStep : 1
+    }
+
+    /// A gesture point quantized to the layout grid, when snapping is on.
+    /// Freehand drawing and erasing never snap — a quantized brush is useless —
+    /// so those paths call this nowhere.
+    private func snapped(_ p: CGPoint) -> CGPoint {
+        guard style.snapsToGrid else { return p }
+        return Annotation.snappedToGrid(p, origin: .zero, grid: Self.gridStep)
     }
 
     /// Index of the elbow-route leg whose slider is within `tolerance` of `p`,
@@ -802,7 +808,7 @@ struct EditorCanvasView: View {
                         dragMode = .ignore
                         break
                     }
-                    dragMode = .moving(duplicateID, last: p)
+                    dragMode = .moving(duplicateID, last: snapped(p))
 
                 case .drawing(let id):
                     let sampleDistance = max(0.5, 1 / fitScale)
@@ -826,7 +832,8 @@ struct EditorCanvasView: View {
                         break
                     }
                     document.beginChange()
-                    var annotation = Annotation(kind: kind, start: startPixel, end: p,
+                    var annotation = Annotation(kind: kind, start: snapped(startPixel),
+                                                end: snapped(p),
                                                 color: style.color, lineWidth: style.lineWidth)
                     annotation.blurStyle = style.blurStyle
                     annotation.blurLevel = style.blurLevel
@@ -841,27 +848,36 @@ struct EditorCanvasView: View {
                     annotation.loupeScale = style.loupeScale
                     annotation.loupeShape = style.loupeShape
                     annotation.loupeRevealsOriginal = style.loupeRevealsOriginal
-                    annotation.end = constrainedEndpoint(p, from: startPixel, kind: kind)
+                    annotation.end = constrainedEndpoint(snapped(p), from: annotation.start,
+                                                         kind: kind)
                     annotation.updateCreationOrientation()
                     document.annotations.append(annotation)
                     document.selectedID = annotation.id
                     dragMode = .creating(annotation.id)
 
                 case .creating(let id):
+                    let target = snapped(p)
                     update(id) {
-                        $0.end = constrainedEndpoint(p, from: $0.start, kind: $0.kind)
+                        $0.end = constrainedEndpoint(target, from: $0.start, kind: $0.kind)
                         $0.updateCreationOrientation()
                     }
 
                 case .moving(let id, let last):
-                    let delta = CGPoint(x: p.x - last.x, y: p.y - last.y)
+                    // Snapping the pointer (not the raw delta) keeps a move in
+                    // whole grid steps, so an object created on the lattice
+                    // stays on it.
+                    let target = snapped(p)
+                    let delta = CGPoint(x: target.x - last.x, y: target.y - last.y)
+                    guard delta != .zero else { break }
                     update(id) { $0.move(by: delta) }
-                    dragMode = .moving(id, last: p)
+                    dragMode = .moving(id, last: target)
 
                 case .movingLoupePart(let id, let part, let last):
-                    let delta = CGPoint(x: p.x - last.x, y: p.y - last.y)
+                    let target = snapped(p)
+                    let delta = CGPoint(x: target.x - last.x, y: target.y - last.y)
+                    guard delta != .zero else { break }
                     update(id) { $0.moveLoupePart(part, by: delta) }
-                    dragMode = .movingLoupePart(id, part, last: p)
+                    dragMode = .movingLoupePart(id, part, last: target)
 
                 case .resizing(let id, let handle):
                     // Curve control: a wide alignment band (≈9 pt) snaps a
@@ -888,17 +904,9 @@ struct EditorCanvasView: View {
                         }
                         break
                     }
-                    // An elbow arrow's endpoints ride the same lattice as its
-                    // legs (anchored at the opposite end), so adjusting one
-                    // can't leave the route jittering by sub-step amounts.
-                    var target = p
-                    if handle == .start || handle == .end,
-                       let a = document.annotations.first(where: { $0.id == id }),
-                       a.isElbowed {
-                        target = Annotation.snappedToGrid(
-                            p, origin: handle == .start ? a.end : a.start,
-                            grid: routeGrid(fitScale: fitScale))
-                    }
+                    // Every resize rides the shared lattice, so corners and
+                    // endpoints land where other snapped objects already are.
+                    let target = snapped(p)
                     // A corner pushed through the opposite edge mirrors the
                     // shape; the drag continues with the mirrored handle.
                     var continuedHandle = handle
@@ -939,11 +947,33 @@ struct EditorCanvasView: View {
                     let route = arrow.elbowRoute(in: document.annotations)
                     let waypoints = Annotation.movingRouteSegment(
                         route, index: index, to: p,
-                        grid: routeGrid(fitScale: fitScale))
+                        grid: activeGrid)
                     update(id) { $0.elbowWaypoints = waypoints }
 
                 case .recognitionSelecting(let start, _):
                     dragMode = .recognitionSelecting(start: start, current: p)
+
+                case .cropCreating(let start) where style.snapsToGrid:
+                    let moved = hypot(value.translation.width, value.translation.height)
+                    if moved >= 3 {
+                        let a = snapped(start), b = snapped(p)
+                        let raw = CGRect(x: min(a.x, b.x), y: min(a.y, b.y),
+                                         width: abs(b.x - a.x), height: abs(b.y - a.y))
+                        cropRect = raw.intersection(CGRect(origin: .zero, size: pixel))
+                    }
+
+                case .cropMoving(let last) where style.snapsToGrid:
+                    let target = snapped(p)
+                    if let rect = cropRect, target != last {
+                        cropRect = movedCrop(rect, by: CGPoint(x: target.x - last.x,
+                                                               y: target.y - last.y))
+                        dragMode = .cropMoving(last: target)
+                    }
+
+                case .cropResizing(let handle) where style.snapsToGrid:
+                    if let rect = cropRect {
+                        cropRect = resizedCrop(rect, handle: handle, to: snapped(p))
+                    }
 
                 case .cropCreating(let start):
                     // Ignore a stray click (or the first sub-pixel of a drag) so
@@ -1126,9 +1156,9 @@ struct EditorCanvasView: View {
                 // A callout loupe's bodies drag independently; whole-
                 // annotation moves stay on the keyboard-nudge path.
                 if let part = hit.loupePart(at: p, tolerance: tolerancePx) {
-                    return .movingLoupePart(hit.id, part, last: p)
+                    return .movingLoupePart(hit.id, part, last: snapped(p))
                 }
-                return .moving(hit.id, last: p)
+                return .moving(hit.id, last: snapped(p))
             }
             // Empty space: a click deselects (in handleClick), a drag pans.
             return .undecided(pixelPoint: p)
@@ -1138,7 +1168,7 @@ struct EditorCanvasView: View {
             if let selected = document.selectedAnnotation,
                selected.kind == .text, selected.hitTest(p, tolerance: tolerancePx) {
                 document.beginChange()
-                return .moving(selected.id, last: p)
+                return .moving(selected.id, last: snapped(p))
             }
             return .undecided(pixelPoint: p)
         case .drawing:
@@ -1166,9 +1196,9 @@ struct EditorCanvasView: View {
                selected.hitTest(p, tolerance: tolerancePx, in: document.annotations) {
                 document.beginChange()
                 if let part = selected.loupePart(at: p, tolerance: tolerancePx) {
-                    return .movingLoupePart(selected.id, part, last: p)
+                    return .movingLoupePart(selected.id, part, last: snapped(p))
                 }
-                return .moving(selected.id, last: p)
+                return .moving(selected.id, last: snapped(p))
             }
             return .undecided(pixelPoint: p)
         }
@@ -1184,10 +1214,10 @@ struct EditorCanvasView: View {
         switch tool {
         case .text:
             if let hit, hit.kind == .text { document.selectedID = hit.id }
-            else { placeText(at: p) }        // new text opens straight into editing
+            else { placeText(at: snapped(p)) }        // new text opens straight into editing
         case .step:
             if let hit, hit.kind == .step { document.selectedID = hit.id }
-            else { placeStep(at: p) }
+            else { placeStep(at: snapped(p)) }
         default:
             document.selectedID = hit?.id
         }

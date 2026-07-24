@@ -233,11 +233,6 @@ struct EditorView: View {
                 arrowRoutePicker
                 arrowStylePicker
                 arrowHeadPlacementPicker
-                // An elbowed arrow's legs and ends ride a grid; the toggle is
-                // only meaningful there.
-                if effectiveArrowRoute == .elbowed {
-                    snapPicker
-                }
                 thicknessSlider
             default:
                 // Select tool with nothing selected: there is nothing to
@@ -246,6 +241,11 @@ struct EditorView: View {
                 // `cursorarrow.rays` (a pointer with selection rays) reads as
                 // "select", distinct from the arrow tool's plain arrow.
                 // pointer.arrow.rays would be closer but is macOS 26-only.
+                // Snapping is a document-wide rule (it governs every tool but
+                // freehand drawing), so it lives with the cursor rather than
+                // in any one annotation's controls.
+                snapPicker
+                Divider().frame(height: 18)
                 Label("Select an annotation to edit its style",
                       systemImage: "cursorarrow.rays")
                     .font(.system(size: 12))
@@ -503,14 +503,6 @@ struct EditorView: View {
         .labelsHidden()
         .frame(width: 76)
         .hoverTip("Snapping")
-    }
-
-    /// The route the arrow controls currently configure — the selection's when
-    /// an arrow is selected, otherwise the tool's.
-    private var effectiveArrowRoute: ArrowRoute {
-        document.selectedAnnotation?.kind == .arrow
-            ? (document.selectedAnnotation?.arrowRoute ?? style.arrowRoute)
-            : style.arrowRoute
     }
 
     /// How the arrow travels — a bendable shaft or an axis-aligned run. A
