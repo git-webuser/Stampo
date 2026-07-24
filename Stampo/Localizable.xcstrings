@@ -533,6 +533,23 @@
         }
       }
     },
+    "Arrow Route" : {
+      "comment" : "A picker choosing how an arrow travels: a curved shaft or an elbowed, axis-aligned route.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Arrow Route"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Маршрут стрелки"
+          }
+        }
+      }
+    },
     "Arrow Style" : {
       "localizations" : {
         "en" : {
@@ -544,7 +561,7 @@
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Стиль стрелки"
+            "value" : "Вид стрелки"
           }
         }
       }
@@ -4495,6 +4512,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Пропустить эту версию"
+          }
+        }
+      }
+    },
+    "Snapping" : {
+      "comment" : "A picker choosing free placement or snapping to the layout grid.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Snapping"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Привязка"
           }
         }
       }
