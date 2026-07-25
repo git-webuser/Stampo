@@ -25,7 +25,7 @@ struct AboutSettingsView: View {
                             .font(.title2.bold())
                         Text("Version \(appVersion)")
                             .foregroundStyle(.secondary)
-                        Text("Screenshot & color picker for any Mac")
+                        Text("Screenshots, scanning, editing, and files — all in Stampo.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
