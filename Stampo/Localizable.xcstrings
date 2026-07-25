@@ -395,6 +395,23 @@
         }
       }
     },
+    "Allow screen recording" : {
+      "comment" : "Onboarding permission step title",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Allow screen recording"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Разрешите запись экрана"
+          }
+        }
+      }
+    },
     "Already used by another Stampo action" : {
       "comment" : "Rejection: duplicate within Stampo",
       "extractionState" : "stale",
@@ -533,6 +550,23 @@
         }
       }
     },
+    "Arrow Route" : {
+      "comment" : "A picker choosing how an arrow travels: a curved shaft or an elbowed, axis-aligned route.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Arrow Route"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Маршрут стрелки"
+          }
+        }
+      }
+    },
     "Arrow Style" : {
       "localizations" : {
         "en" : {
@@ -544,7 +578,7 @@
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Стиль стрелки"
+            "value" : "Вид стрелки"
           }
         }
       }
@@ -720,6 +754,23 @@
         }
       }
     },
+    "Bubble" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bubble"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Выноска"
+          }
+        }
+      }
+    },
     "Cancel" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -863,23 +914,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Нажмите «Разрешить» в запросе."
-          }
-        }
-      }
-    },
-    "Click the notch — or the center of the menu bar on screens without one — to open the panel." : {
-      "comment" : "Onboarding tip: how to open the panel",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Click the notch — or the center of the menu bar on screens without one — to open the panel."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Кликните по челке — или по центру меню-бара на экранах без неё — чтобы открыть панель."
           }
         }
       }
@@ -1680,6 +1714,23 @@
         }
       }
     },
+    "Erase All" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Erase All"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Стереть всё"
+          }
+        }
+      }
+    },
     "Eraser" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2150,6 +2201,23 @@
         }
       }
     },
+    "Introduction" : {
+      "comment" : "General settings row that reopens the welcome tour",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Introduction"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Введение"
+          }
+        }
+      }
+    },
     "Intensity" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -2270,6 +2338,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Запуск при входе"
+          }
+        }
+      }
+    },
+    "Launch Stampo at login" : {
+      "comment" : "Onboarding checkbox to start Stampo automatically after signing in",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Launch Stampo at login"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Запускать Stampo при входе"
           }
         }
       }
@@ -2411,6 +2496,23 @@
         }
       }
     },
+    "Loupe" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Loupe"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Лупа"
+          }
+        }
+      }
+    },
     "Loupe Mode" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2497,7 +2599,7 @@
       }
     },
     "Marker Size" : {
-      "extractionState" : "stale",
+      "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -2509,6 +2611,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Размер маркера"
+          }
+        }
+      }
+    },
+    "Marker Tip" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Marker Tip"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Наконечник маркера"
           }
         }
       }
@@ -2631,6 +2750,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Никогда"
+          }
+        }
+      }
+    },
+    "For screenshots, scanning, and color picking" : {
+      "comment" : "Screen Recording permission explanation in onboarding and General settings",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "For screenshots, scanning, and color picking"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Для снимков, сканирования и пипетки"
           }
         }
       }
@@ -3022,6 +3158,23 @@
         }
       }
     },
+    "Open Settings…" : {
+      "comment" : "General settings button opening the macOS Screen Recording pane",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open Settings…"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Открыть настройки…"
+          }
+        }
+      }
+    },
     "Open System Settings" : {
       "comment" : "A button label that opens the system settings when tapped.",
       "extractionState" : "stale",
@@ -3375,6 +3528,40 @@
       "comment" : "A file format option in the capture settings.",
       "isCommentAutoGenerated" : true
     },
+    "Points" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Points"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Лучи"
+          }
+        }
+      }
+    },
+    "Polygon" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Polygon"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Многоугольник"
+          }
+        }
+      }
+    },
     "Press keys…" : {
       "comment" : "Recorder prompt while armed",
       "localizations" : {
@@ -3583,6 +3770,23 @@
         }
       }
     },
+    "Show the welcome again" : {
+      "comment" : "Description for the Introduction row in General settings",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show the welcome again"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Повторно показать приветствие"
+          }
+        }
+      }
+    },
     "Remove from tray" : {
       "localizations" : {
         "en" : {
@@ -3704,6 +3908,23 @@
         }
       }
     },
+    "Restarting Stampo" : {
+      "comment" : "Onboarding status shown while applying a newly granted permission",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restarting Stampo"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Перезапуск Stampo"
+          }
+        }
+      }
+    },
     "Restore Defaults" : {
       "comment" : "Button resetting all hotkeys to defaults",
       "extractionState" : "stale",
@@ -3771,6 +3992,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Повернуть вправо"
+          }
+        }
+      }
+    },
+    "Rounded Rectangle" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rounded Rectangle"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Скруглённый прямоугольник"
           }
         }
       }
@@ -4035,6 +4273,7 @@
     },
     "Screenshot and color picker\nthat lives in your menu bar." : {
       "comment" : "Onboarding header subtitle",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -4081,6 +4320,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Скриншот сохранён во временную папку"
+          }
+        }
+      }
+    },
+    "Screenshots, scanning, editing, and files — all in Stampo." : {
+      "comment" : "Onboarding subtitle summarizing Stampo's current feature set",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Screenshots, scanning, editing, and files — all in Stampo."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Снимки, сканирование, редактор и файлы — всё в Stampo."
           }
         }
       }
@@ -4172,7 +4428,7 @@
       }
     },
     "Set up…" : {
-      "comment" : "Button in General settings opening the permissions window",
+      "comment" : "Button in General settings opening the macOS Screen Recording pane",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -4274,6 +4530,23 @@
         }
       }
     },
+    "Show…" : {
+      "comment" : "Button in General settings that opens the introduction",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show…"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Показать…"
+          }
+        }
+      }
+    },
     "Show after capture" : {
       "localizations" : {
         "en" : {
@@ -4345,6 +4618,23 @@
         }
       }
     },
+    "Sides" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sides"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Стороны"
+          }
+        }
+      }
+    },
     "Skip This Version" : {
       "comment" : "Update alert skip button",
       "extractionState" : "stale",
@@ -4359,6 +4649,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Пропустить эту версию"
+          }
+        }
+      }
+    },
+    "Snapping" : {
+      "comment" : "A picker choosing free placement or snapping to the layout grid.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Snapping"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Привязка"
           }
         }
       }
@@ -4399,6 +4706,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Stampo не может сохранить скриншоты в \"%@\". Папка могла быть перемещена, переименована или доступ к ней был отозван. Выберите новую папку в Настройки → Захват."
+          }
+        }
+      }
+    },
+    "Star" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Star"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Звезда"
           }
         }
       }
@@ -4539,6 +4863,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Система"
+          }
+        }
+      }
+    },
+    "Tail Side" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tail Side"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сторона хвостика"
           }
         }
       }

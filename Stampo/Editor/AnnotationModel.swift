@@ -8,11 +8,40 @@ enum AnnotationKind: Equatable {
     case arrow
     case rect
     case oval
+    case roundedRect
+    case polygon
+    case star
+    case bubble
     case text
     case freehand
     case blur
     case step
     case loupe
+
+    /// Closed-region shapes whose outline is a computed `CGPath` over the
+    /// bounding rect (unlike rect/oval, which stroke CG primitives directly).
+    /// They share the family's corner handles, resize, and fill semantics.
+    /// A triangle is the 3-sided polygon, not a separate kind.
+    var isPathShape: Bool {
+        switch self {
+        case .roundedRect, .polygon, .star, .bubble: return true
+        default: return false
+        }
+    }
+}
+
+/// Which side of a `.bubble` speech balloon carries the tail.
+enum BubbleTailDirection: String, Equatable, CaseIterable {
+    case left
+    case right
+}
+
+/// Detented counts shared by the toolbar steppers and the path builders.
+nonisolated enum ShapeCounts {
+    static let polygonSides = 3...12
+    static let defaultPolygonSides = 6
+    static let starPoints = 4...10
+    static let defaultStarPoints = 5
 }
 
 /// Visual variant of a straight `.line` annotation.
@@ -51,6 +80,13 @@ enum FreehandStyle: String, Equatable, CaseIterable {
     }
 }
 
+/// Tip of the marker nib: round lays soft stroke caps, square flat ones —
+/// the classic chisel-highlighter look. The pen always draws round.
+enum MarkerTip: String, Equatable, CaseIterable {
+    case round
+    case square
+}
+
 /// Active instrument of the shared Drawing tool. Destructive erasing is a
 /// separate top-level editor tool rather than a drawable annotation style.
 enum DrawingMode: String, Equatable, CaseIterable {
@@ -69,11 +105,23 @@ enum DrawingMode: String, Equatable, CaseIterable {
     }
 }
 
-/// Visual variant of an `.arrow`. `filled` is the default.
+/// Visual variant of an `.arrow`: the shaft is solid or dashed, both with the
+/// same open (chevron) arrowhead. `filled` is the default. (Weight is the
+/// thickness slider's job, so there's no separate "bold" style. The case name
+/// is historical — the head is a stroked chevron, not a filled triangle.)
 enum ArrowStyle: String, Equatable, CaseIterable {
-    case filled   // solid shaft, filled triangle head   (→)
-    case dashed   // dashed shaft, filled head           (⇢)
-    case bold     // heavy shaft, oversized filled head  (⇨)
+    case filled   // solid shaft, open chevron head   (→)
+    case dashed   // dashed shaft, open chevron head  (⇢)
+}
+
+/// How an `.arrow` gets from one end to the other — an axis independent of the
+/// stroke's appearance (`ArrowStyle`).
+enum ArrowRoute: String, Equatable, CaseIterable {
+    /// A straight shaft, bendable into a quadratic curve via `curveControl`.
+    case curved
+    /// An axis-aligned ("elbowed") route with rounded corners, whose legs are
+    /// slid on a grid; ignores `curveControl`.
+    case elbowed
 }
 
 /// Backing plate drawn behind `.text` for legibility over busy images.
@@ -287,6 +335,42 @@ struct AnnotationColor: Equatable {
     static let presets: [AnnotationColor] = [.red, .orange, .yellow, .green, .blue, .black, .white]
 }
 
+/// How a bound arrow endpoint places itself on its target.
+enum AnchorSpec: Equatable {
+    /// A fixed point on the target's bounding rect, normalized 0…1 in each
+    /// axis (0,0 top-left … 1,1 bottom-right). Every snapped anchor — an edge
+    /// midpoint, a vertex, a point caught by the outline magnet, or the
+    /// center — is stored this way, so it tracks the shape through resize.
+    case fixed(unit: CGPoint)
+}
+
+/// A reference point on a shape an endpoint can snap to. Edge midpoints are
+/// `visible` (drawn while dragging); vertices and the center are hidden snap
+/// targets. `spec` is the binding this anchor creates (all are `.fixed(unit:)`
+/// — edge, vertex, or the shape center); `point` is its current world position
+/// (for snapping and drawing). `isCenter` marks the central connector, which
+/// snaps within a small bullseye rather than by nearest-edge distance.
+struct ReferenceAnchor: Equatable {
+    var spec: AnchorSpec
+    var point: CGPoint
+    var isVisible: Bool
+    var isCenter: Bool = false
+}
+
+/// Binds one endpoint of an `.arrow`/`.line` to a target annotation so the
+/// endpoint follows the target as it moves or resizes. Value data on the
+/// annotation itself — undo/redo/duplicate/rotate ride the existing snapshot
+/// mechanism with zero synchronization. See `Docs/ArrowBindingPlan.md`.
+struct EndpointBinding: Equatable {
+    /// Stable identity of the target shape.
+    var targetID: UUID
+    /// How the endpoint sits on the target's outline.
+    var anchor: AnchorSpec
+    /// Last successfully resolved point. Used when the target is gone
+    /// (deleted) so the arrow holds its place instead of collapsing.
+    var fallback: CGPoint
+}
+
 /// A single annotation. All geometry is in **image pixel coordinates**
 /// with a top-left origin (y grows downward) — the view converts to and
 /// from screen points through one fitScale factor, and export at native
@@ -322,12 +406,37 @@ struct Annotation: Identifiable, Equatable {
     var blurLevel: Int = BlurIntensity.defaultLevel
     /// 0 is outline-only; rect and oval use a translucent fill above 0.
     var fillOpacity: CGFloat = 0
+    /// Number of sides of a `.polygon` (ShapeCounts.polygonSides).
+    var polygonSides: Int = ShapeCounts.defaultPolygonSides
+    /// Number of points of a `.star` (ShapeCounts.starPoints).
+    var starPoints: Int = ShapeCounts.defaultStarPoints
+    /// Vertically asymmetric shapes (polygon, star) drawn apex-down (funnel).
+    /// Set from the drag direction while drawing; a resize toggles it only on
+    /// a decisive push through the opposite edge (see `apply(handle:)`).
+    var flippedVertically: Bool = false
+    /// Which side of a `.bubble` carries the tail.
+    var bubbleTail: BubbleTailDirection = .right
     /// Visual variant for `.arrow`.
     var arrowStyle: ArrowStyle = .filled
+    /// Routing of an `.arrow`: a straight/curved shaft or an elbowed run.
+    var arrowRoute: ArrowRoute = .curved
     /// Endpoint(s) that receive a filled arrowhead.
     var arrowHeadPlacement: ArrowHeadPlacement = .end
     /// Quadratic Bézier control point for a curved `.arrow`; nil is straight.
     var curveControl: CGPoint? = nil
+    /// True for an arrow that routes orthogonally (so it ignores
+    /// `curveControl`, hides the bend handle, and offers per-leg sliders).
+    var isElbowed: Bool { kind == .arrow && arrowRoute == .elbowed }
+
+    /// Interior corners of an elbowed arrow's route, in image pixels. Empty
+    /// means the route is auto-generated from the endpoints; dragging a leg's
+    /// slider materializes the corners so the user's routing is preserved.
+    var elbowWaypoints: [CGPoint] = []
+    /// Binds the `start` endpoint of an `.arrow`/`.line` to a target shape;
+    /// nil is a free endpoint (current behavior). Ignored on other kinds.
+    var startBinding: EndpointBinding? = nil
+    /// Binds the `end` endpoint of an `.arrow`/`.line` to a target shape.
+    var endBinding: EndpointBinding? = nil
     /// Visual variant for `.line`.
     var lineStyle: LineStyle = .solid
     /// Label rendered inside a `.step` marker. Auto-assigned as "1", "2", …
@@ -343,6 +452,8 @@ struct Annotation: Identifiable, Equatable {
     var freehandPoints: [CGPoint] = []
     /// Rendering strategy for a `.freehand` annotation.
     var freehandStyle: FreehandStyle = .pen
+    /// Nib shape of a `.freehand` marker stroke; pens ignore it.
+    var markerTip: MarkerTip = .round
     /// Magnification factor of a `.loupe`.
     var loupeScale: CGFloat = 2
     /// Outline of a `.loupe`.
@@ -500,6 +611,15 @@ struct Annotation: Identifiable, Equatable {
                           y: start.y - stepDiameter / 2,
                           width: stepDiameter, height: stepDiameter)
         }
+        if isElbowed {
+            let route = elbowRoute(start: start, end: end)
+            if route.count >= 2 {
+                let xs = route.map(\.x), ys = route.map(\.y)
+                return CGRect(x: xs.min()!, y: ys.min()!,
+                              width: xs.max()! - xs.min()!,
+                              height: ys.max()! - ys.min()!)
+            }
+        }
         if kind == .arrow, let control = curveControl {
             let points = Self.quadraticPoints(from: start, control: control, to: end)
             let xs = points.map(\.x), ys = points.map(\.y)
@@ -525,12 +645,158 @@ struct Annotation: Identifiable, Equatable {
                       height: abs(end.y - start.y))
     }
 
+    // MARK: Path-shape outlines (pure — unit-testable)
+
+    /// Outline path of a path-shape kind over its bounding rect; nil for
+    /// other kinds. Shared by rendering and hit-testing so they always agree.
+    var pathShapeOutline: CGPath? {
+        let r = rect
+        switch kind {
+        case .roundedRect:
+            let radius = Self.shapeCornerRadius(for: r)
+            return CGPath(roundedRect: r, cornerWidth: radius,
+                          cornerHeight: radius, transform: nil)
+        case .polygon:
+            return Self.closedPath(Self.polygonVertices(
+                sides: polygonSides, in: r, flippedVertically: flippedVertically))
+        case .star:
+            return Self.closedPath(Self.starVertices(
+                points: starPoints, in: r, flippedVertically: flippedVertically))
+        case .bubble:
+            return Self.bubblePath(tail: bubbleTail, in: r)
+        default:
+            return nil
+        }
+    }
+
+    /// While drawing, vertically asymmetric shapes follow the drag: pulling
+    /// upward points the apex down (funnel). Called by the canvas on every
+    /// creation update; once the shape exists the orientation is fixed.
+    mutating func updateCreationOrientation() {
+        guard kind == .polygon || kind == .star else { return }
+        flippedVertically = end.y < start.y
+    }
+
+    /// Corner rounding of a rounded rect or bubble body: the loupe's 20%
+    /// proportion, capped so large regions keep a crisp, UI-like radius.
+    static func shapeCornerRadius(for r: CGRect) -> CGFloat {
+        min(min(r.width, r.height) * 0.2, 40)
+    }
+
+    /// Vertices of a regular n-gon, first vertex centered on the top edge
+    /// (image space, y grows downward). A triangle is the 3-sided case.
+    static func polygonVertices(sides: Int, in r: CGRect,
+                                flippedVertically: Bool = false) -> [CGPoint] {
+        let n = max(3, sides)
+        let unit = (0..<n).map { index -> CGPoint in
+            let angle = -CGFloat.pi / 2 + 2 * .pi * CGFloat(index) / CGFloat(n)
+            return CGPoint(x: cos(angle), y: sin(angle))
+        }
+        return Self.fitUnitPoints(unit, in: r, flippedVertically: flippedVertically)
+    }
+
+    /// Vertices of an n-pointed star: outer points alternating with inner
+    /// points at a fixed radius ratio, first point at the top. 0.4
+    /// approximates the classic pentagram's inner radius.
+    static func starVertices(points: Int, in r: CGRect,
+                             flippedVertically: Bool = false) -> [CGPoint] {
+        let n = max(2, points)
+        let unit = (0..<(2 * n)).map { index -> CGPoint in
+            let angle = -CGFloat.pi / 2 + .pi * CGFloat(index) / CGFloat(n)
+            let k: CGFloat = index.isMultiple(of: 2) ? 1 : 0.4
+            return CGPoint(x: k * cos(angle), y: k * sin(angle))
+        }
+        return Self.fitUnitPoints(unit, in: r, flippedVertically: flippedVertically)
+    }
+
+    /// Maps unit-circle samples into the rect so their bounding box exactly
+    /// fills it. Inscribing the vertices directly would leave gaps on flat
+    /// sides (a triangle inscribed in the rect's ellipse floats a quarter of
+    /// the height above the bottom edge) and make the occupied area vary
+    /// with the side/point count.
+    private static func fitUnitPoints(_ unit: [CGPoint], in r: CGRect,
+                                      flippedVertically: Bool) -> [CGPoint] {
+        guard let first = unit.first else { return [] }
+        var minX = first.x, maxX = first.x, minY = first.y, maxY = first.y
+        for point in unit.dropFirst() {
+            minX = min(minX, point.x); maxX = max(maxX, point.x)
+            minY = min(minY, point.y); maxY = max(maxY, point.y)
+        }
+        let spanX = max(maxX - minX, 0.0001)
+        let spanY = max(maxY - minY, 0.0001)
+        return unit.map { point in
+            let nx = (point.x - minX) / spanX
+            let ny = (point.y - minY) / spanY
+            return CGPoint(x: r.minX + nx * r.width,
+                           y: r.minY + (flippedVertically ? 1 - ny : ny) * r.height)
+        }
+    }
+
+    private static func closedPath(_ vertices: [CGPoint]) -> CGPath {
+        let path = CGMutablePath()
+        guard let first = vertices.first else { return path }
+        path.move(to: first)
+        for vertex in vertices.dropFirst() { path.addLine(to: vertex) }
+        path.closeSubpath()
+        return path
+    }
+
+    /// Speech balloon: a rounded-rect body over the top of the rect with a
+    /// flag-like tail whose outer edge continues the chosen side straight
+    /// down to the rect's bottom corner — the same silhouette as SF Symbols'
+    /// bubble.left/right, so the popover icon predicts the drawn shape.
+    static func bubblePath(tail: BubbleTailDirection, in r: CGRect) -> CGPath {
+        let tailSize = min(r.height * 0.25, r.width * 0.3, 56)
+        let body = CGRect(x: r.minX, y: r.minY,
+                          width: r.width, height: max(1, r.height - tailSize))
+        let radius = min(Self.shapeCornerRadius(for: body),
+                         body.width / 2, body.height / 2)
+        let path = CGMutablePath()
+        switch tail {
+        case .right:
+            path.move(to: CGPoint(x: body.minX + radius, y: body.minY))
+            path.addLine(to: CGPoint(x: body.maxX - radius, y: body.minY))
+            path.addArc(tangent1End: CGPoint(x: body.maxX, y: body.minY),
+                        tangent2End: CGPoint(x: body.maxX, y: body.minY + radius),
+                        radius: radius)
+            path.addLine(to: CGPoint(x: body.maxX, y: r.maxY))          // tail tip
+            path.addLine(to: CGPoint(x: body.maxX - tailSize, y: body.maxY))
+            path.addLine(to: CGPoint(x: body.minX + radius, y: body.maxY))
+            path.addArc(tangent1End: CGPoint(x: body.minX, y: body.maxY),
+                        tangent2End: CGPoint(x: body.minX, y: body.maxY - radius),
+                        radius: radius)
+            path.addLine(to: CGPoint(x: body.minX, y: body.minY + radius))
+            path.addArc(tangent1End: CGPoint(x: body.minX, y: body.minY),
+                        tangent2End: CGPoint(x: body.minX + radius, y: body.minY),
+                        radius: radius)
+        case .left:
+            path.move(to: CGPoint(x: body.minX + radius, y: body.minY))
+            path.addLine(to: CGPoint(x: body.maxX - radius, y: body.minY))
+            path.addArc(tangent1End: CGPoint(x: body.maxX, y: body.minY),
+                        tangent2End: CGPoint(x: body.maxX, y: body.minY + radius),
+                        radius: radius)
+            path.addLine(to: CGPoint(x: body.maxX, y: body.maxY - radius))
+            path.addArc(tangent1End: CGPoint(x: body.maxX, y: body.maxY),
+                        tangent2End: CGPoint(x: body.maxX - radius, y: body.maxY),
+                        radius: radius)
+            path.addLine(to: CGPoint(x: body.minX + tailSize, y: body.maxY))
+            path.addLine(to: CGPoint(x: body.minX, y: r.maxY))          // tail tip
+            path.addLine(to: CGPoint(x: body.minX, y: body.minY + radius))
+            path.addArc(tangent1End: CGPoint(x: body.minX, y: body.minY),
+                        tangent2End: CGPoint(x: body.minX + radius, y: body.minY),
+                        radius: radius)
+        }
+        path.closeSubpath()
+        return path
+    }
+
     /// True when the annotation is too small to be meaningful (accidental click).
     var isDegenerate: Bool {
         switch kind {
         case .line, .arrow:
             return hypot(end.x - start.x, end.y - start.y) < 4
-        case .rect, .oval, .blur, .loupe:
+        case .rect, .oval, .roundedRect, .polygon, .star, .bubble,
+             .blur, .loupe:
             return rect.width < 4 || rect.height < 4
         case .text:
             return text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -547,6 +813,12 @@ struct Annotation: Identifiable, Equatable {
         switch kind {
         case .line, .arrow:
             let distance = tolerance + lineWidth / 2
+            if isElbowed {
+                let route = elbowRoute(start: start, end: end)
+                return zip(route, route.dropFirst()).contains { a, b in
+                    Self.distance(from: p, toSegment: a, b) <= distance
+                }
+            }
             if kind == .arrow, let control = curveControl {
                 let points = Self.quadraticPoints(from: start, control: control, to: end)
                 return zip(points, points.dropFirst()).contains { a, b in
@@ -555,23 +827,30 @@ struct Annotation: Identifiable, Equatable {
             }
             return Self.distance(from: p, toSegment: start, end) <= distance
         case .rect:
-            // On the stroked border (inflate/deflate by tolerance).
-            let outer = rect.insetBy(dx: -tolerance - lineWidth / 2, dy: -tolerance - lineWidth / 2)
-            if fillOpacity > 0 { return outer.contains(p) }
-            let inner = rect.insetBy(dx: tolerance + lineWidth / 2, dy: tolerance + lineWidth / 2)
-            return outer.contains(p) && !(inner.width > 0 && inner.height > 0 && inner.contains(p))
+            // Whole interior, filled or not: 0% fill still reads as the
+            // shape's body, so selecting doesn't require sniping the outline
+            // (Fitts). The cost — a frame drawn atop other annotations
+            // swallows clicks inside it — follows z-order, topmost first.
+            return rect.insetBy(dx: -tolerance - lineWidth / 2,
+                                dy: -tolerance - lineWidth / 2).contains(p)
         case .oval:
-            // Near the ellipse outline: compare normalized radial distance to 1.
+            // Inside the ellipse (plus tolerance): interior counts as body
+            // even without a fill — same Fitts rationale as .rect.
             let r = rect
             guard r.width > 0, r.height > 0 else { return false }
-            let cx = r.midX, cy = r.midY
             let rx = r.width / 2, ry = r.height / 2
-            let nx = (p.x - cx) / rx, ny = (p.y - cy) / ry
-            let d = sqrt(nx * nx + ny * ny)
+            let nx = (p.x - r.midX) / rx, ny = (p.y - r.midY) / ry
             // Convert tolerance to normalized units using the smaller radius.
             let tol = (tolerance + lineWidth / 2) / min(rx, ry)
-            if fillOpacity > 0 { return d <= 1 + tol }
-            return abs(d - 1.0) <= tol
+            return sqrt(nx * nx + ny * ny) <= 1 + tol
+        case .roundedRect, .polygon, .star, .bubble:
+            // The full path interior, or near the stroked outline — the same
+            // path the renderer draws, inflated by the tolerance.
+            guard let outline = pathShapeOutline else { return false }
+            if outline.contains(p) { return true }
+            return outline.copy(strokingWithWidth: lineWidth + tolerance * 2,
+                                lineCap: .round, lineJoin: .round,
+                                miterLimit: 10).contains(p)
         case .text, .blur:
             return rect.insetBy(dx: -tolerance, dy: -tolerance).contains(p)
         case .freehand:
@@ -646,6 +925,8 @@ struct Annotation: Identifiable, Equatable {
     var handles: [(Handle, CGPoint)] {
         switch kind {
         case .arrow:
+            // An elbow arrow's shape comes from its route, not a bend.
+            if isElbowed { return [(.start, start), (.end, end)] }
             // Control last so endpoint grabs win on tiny arrows. A straight
             // arrow offers it at the midpoint — dragging it bends the shaft.
             let control = curveControl
@@ -653,7 +934,8 @@ struct Annotation: Identifiable, Equatable {
             return [(.start, start), (.end, end), (.control, control)]
         case .line:
             return [(.start, start), (.end, end)]
-        case .rect, .oval, .blur, .loupe:
+        case .rect, .oval, .roundedRect, .polygon, .star, .bubble,
+             .blur, .loupe:
             var result = Self.corners(of: rect,
                                       (.topLeft, .topRight, .bottomLeft, .bottomRight))
             if let sourceRect = loupeSourceRect {
@@ -679,6 +961,11 @@ struct Annotation: Identifiable, Equatable {
         }
         if let source = loupeSource {
             loupeSource = CGPoint(x: source.x + delta.x, y: source.y + delta.y)
+        }
+        if !elbowWaypoints.isEmpty {
+            elbowWaypoints = elbowWaypoints.map {
+                CGPoint(x: $0.x + delta.x, y: $0.y + delta.y)
+            }
         }
         if kind == .freehand {
             freehandPoints = freehandPoints.map {
@@ -763,9 +1050,20 @@ struct Annotation: Identifiable, Equatable {
         return copy
     }
 
-    /// Drags one handle to a new position. Corner handles re-anchor
-    /// start/end so the opposite corner stays fixed.
-    mutating func apply(handle: Handle, to p: CGPoint, aspectLocked: Bool = false) {
+    /// Smallest edge an area shape can be resized down to (image pixels) —
+    /// keeps a compressed shape a shape instead of a degenerate line.
+    static let minimumShapeSize: CGFloat = 8
+
+    /// Drags one handle to a new position, returning the handle the drag
+    /// should continue with. Corner handles re-anchor start/end so the
+    /// opposite corner stays fixed; within ±minimumShapeSize of the anchor
+    /// they sit in a dead zone at the minimum size (jitter can't flip the
+    /// shape), while a decisive push through the opposite edge mirrors the
+    /// geometry — the grabbed corner takes the mirrored handle's role and a
+    /// polygon/star flips its apex.
+    @discardableResult
+    mutating func apply(handle: Handle, to p: CGPoint,
+                        aspectLocked: Bool = false) -> Handle {
         switch handle {
         case .start: start = p
         case .end:   end = p
@@ -776,26 +1074,94 @@ struct Annotation: Identifiable, Equatable {
             // plain shapes just re-anchor on the opposite corner.
             if kind == .loupe, loupeSourceRect != nil {
                 applyDisplayResize(handle: handle, to: p, aspectLocked: aspectLocked)
-                return
+                return handle
             }
             let r = rect
             let anchor: CGPoint
+            let direction: CGPoint   // the grabbed corner's side of the anchor
             switch handle {
-            case .topLeft:     anchor = CGPoint(x: r.maxX, y: r.maxY)
-            case .topRight:    anchor = CGPoint(x: r.minX, y: r.maxY)
-            case .bottomLeft:  anchor = CGPoint(x: r.maxX, y: r.minY)
-            case .bottomRight: anchor = CGPoint(x: r.minX, y: r.minY)
-            default: return
+            case .topLeft:
+                anchor = CGPoint(x: r.maxX, y: r.maxY)
+                direction = CGPoint(x: -1, y: -1)
+            case .topRight:
+                anchor = CGPoint(x: r.minX, y: r.maxY)
+                direction = CGPoint(x: 1, y: -1)
+            case .bottomLeft:
+                anchor = CGPoint(x: r.maxX, y: r.minY)
+                direction = CGPoint(x: -1, y: 1)
+            case .bottomRight:
+                anchor = CGPoint(x: r.minX, y: r.minY)
+                direction = CGPoint(x: 1, y: 1)
+            default: return handle
             }
             start = anchor
             // Shift locks the aspect for area shapes (a loupe's oval becomes
-            // a circle, its rounded rect a square).
+            // a circle, its rounded rect a square, a polygon/star regular).
             let lockAspect = aspectLocked
-                && (kind == .rect || kind == .oval || kind == .loupe)
-            end = lockAspect ? Self.aspectLockedEnd(from: anchor, to: p) : p
+                && (kind == .rect || kind == .oval || kind == .loupe
+                    || kind.isPathShape)
+            let target = lockAspect ? Self.aspectLockedEnd(from: anchor, to: p) : p
+            let (dx, crossedX) = Self.resolvedDelta(raw: target.x - anchor.x,
+                                                    side: direction.x)
+            let (dy, crossedY) = Self.resolvedDelta(raw: target.y - anchor.y,
+                                                    side: direction.y)
+            end = CGPoint(x: anchor.x + dx, y: anchor.y + dy)
+            if crossedY { flippedVertically.toggle() }
+            return Self.mirroredCorner(handle, acrossX: crossedX, acrossY: crossedY)
         case .sourceTopLeft, .sourceTopRight, .sourceBottomLeft, .sourceBottomRight:
             applySourceResize(handle: handle, to: p, aspectLocked: aspectLocked)
         }
+        return handle
+    }
+
+    /// One axis of a corner resize. `side` is the grabbed corner's side of
+    /// the anchor (±1). Within ±minimumShapeSize of the anchor the corner
+    /// clamps to the minimum size on its original side — a dead zone that
+    /// keeps a shape from degenerating into a line and jitter from flipping
+    /// it; beyond that the delta passes through and reports the crossing.
+    private static func resolvedDelta(raw: CGFloat, side: CGFloat)
+        -> (delta: CGFloat, crossed: Bool) {
+        let along = raw * side
+        if along >= minimumShapeSize { return (raw, false) }
+        if along > -minimumShapeSize { return (side * minimumShapeSize, false) }
+        return (raw, true)
+    }
+
+    /// The handle whose geometric role the grabbed corner assumes after the
+    /// resize mirrored the shape across the anchor.
+    private static func mirroredCorner(_ handle: Handle,
+                                       acrossX: Bool, acrossY: Bool) -> Handle {
+        var result = handle
+        if acrossX {
+            switch result {
+            case .topLeft:     result = .topRight
+            case .topRight:    result = .topLeft
+            case .bottomLeft:  result = .bottomRight
+            case .bottomRight: result = .bottomLeft
+            default: break
+            }
+        }
+        if acrossY {
+            switch result {
+            case .topLeft:     result = .bottomLeft
+            case .bottomLeft:  result = .topLeft
+            case .topRight:    result = .bottomRight
+            case .bottomRight: result = .topRight
+            default: break
+            }
+        }
+        return result
+    }
+
+    /// Clamps a dragged corner to the grabbed side of its anchor, at least
+    /// minimumShapeSize away — a loupe body never collapses or mirrors (a
+    /// mirrored magnifier is meaningless, unlike a flipped polygon).
+    private static func clampedCorner(_ p: CGPoint, anchor: CGPoint,
+                                      direction: CGPoint) -> CGPoint {
+        CGPoint(x: anchor.x + direction.x * max(minimumShapeSize,
+                                                direction.x * (p.x - anchor.x)),
+                y: anchor.y + direction.y * max(minimumShapeSize,
+                                                direction.y * (p.y - anchor.y)))
     }
 
     /// Resizes the magnifier from one of its corners, scaling the source
@@ -806,17 +1172,27 @@ struct Annotation: Identifiable, Equatable {
                                              aspectLocked: Bool) {
         let old = rect
         let anchor: CGPoint
+        let direction: CGPoint
         switch handle {
-        case .topLeft:     anchor = CGPoint(x: old.maxX, y: old.maxY)
-        case .topRight:    anchor = CGPoint(x: old.minX, y: old.maxY)
-        case .bottomLeft:  anchor = CGPoint(x: old.maxX, y: old.minY)
-        case .bottomRight: anchor = CGPoint(x: old.minX, y: old.minY)
+        case .topLeft:
+            anchor = CGPoint(x: old.maxX, y: old.maxY)
+            direction = CGPoint(x: -1, y: -1)
+        case .topRight:
+            anchor = CGPoint(x: old.minX, y: old.maxY)
+            direction = CGPoint(x: 1, y: -1)
+        case .bottomLeft:
+            anchor = CGPoint(x: old.maxX, y: old.minY)
+            direction = CGPoint(x: -1, y: 1)
+        case .bottomRight:
+            anchor = CGPoint(x: old.minX, y: old.minY)
+            direction = CGPoint(x: 1, y: 1)
         default: return
         }
         start = anchor
         let lockAspect = aspectLocked
             && (kind == .rect || kind == .oval || kind == .loupe)
-        end = lockAspect ? Self.aspectLockedEnd(from: anchor, to: p) : p
+        let target = lockAspect ? Self.aspectLockedEnd(from: anchor, to: p) : p
+        end = Self.clampedCorner(target, anchor: anchor, direction: direction)
         scaleLoupeSource(byWidth: old.width, height: old.height, from: rect)
     }
 
@@ -828,40 +1204,62 @@ struct Annotation: Identifiable, Equatable {
                                             aspectLocked: Bool) {
         guard kind == .loupe, let sourceRect = loupeSourceRect else { return }
         let anchor: CGPoint
+        let direction: CGPoint
         switch handle {
-        case .sourceTopLeft:     anchor = CGPoint(x: sourceRect.maxX, y: sourceRect.maxY)
-        case .sourceTopRight:    anchor = CGPoint(x: sourceRect.minX, y: sourceRect.maxY)
-        case .sourceBottomLeft:  anchor = CGPoint(x: sourceRect.maxX, y: sourceRect.minY)
-        case .sourceBottomRight: anchor = CGPoint(x: sourceRect.minX, y: sourceRect.minY)
+        case .sourceTopLeft:
+            anchor = CGPoint(x: sourceRect.maxX, y: sourceRect.maxY)
+            direction = CGPoint(x: -1, y: -1)
+        case .sourceTopRight:
+            anchor = CGPoint(x: sourceRect.minX, y: sourceRect.maxY)
+            direction = CGPoint(x: 1, y: -1)
+        case .sourceBottomLeft:
+            anchor = CGPoint(x: sourceRect.maxX, y: sourceRect.minY)
+            direction = CGPoint(x: -1, y: 1)
+        case .sourceBottomRight:
+            anchor = CGPoint(x: sourceRect.minX, y: sourceRect.minY)
+            direction = CGPoint(x: 1, y: 1)
         default: return
         }
-        let corner = aspectLocked ? Self.aspectLockedEnd(from: anchor, to: p) : p
+        let locked = aspectLocked ? Self.aspectLockedEnd(from: anchor, to: p) : p
+        let corner = Self.clampedCorner(locked, anchor: anchor, direction: direction)
         let newSource = CGRect(x: min(anchor.x, corner.x), y: min(anchor.y, corner.y),
                                width: abs(corner.x - anchor.x),
                                height: abs(corner.y - anchor.y))
         loupeSource = CGPoint(x: newSource.midX, y: newSource.midY)
         loupeSourceSize = newSource.size
-        // Grow the magnifier by the same factors, about its own center.
+        // Grow the magnifier by the same factors, about its own center,
+        // never below the minimum size.
         let displayCenter = CGPoint(x: rect.midX, y: rect.midY)
         let kw = sourceRect.width > 0 ? newSource.width / sourceRect.width : 1
         let kh = sourceRect.height > 0 ? newSource.height / sourceRect.height : 1
-        let half = CGSize(width: rect.width * kw / 2, height: rect.height * kh / 2)
+        let half = CGSize(width: max(Self.minimumShapeSize, rect.width * kw) / 2,
+                          height: max(Self.minimumShapeSize, rect.height * kh) / 2)
         start = CGPoint(x: displayCenter.x - half.width, y: displayCenter.y - half.height)
         end = CGPoint(x: displayCenter.x + half.width, y: displayCenter.y + half.height)
     }
 
     /// Scales the source marker by the width/height factors implied by the
     /// magnifier changing from `oldW`×`oldH` to `new`, keeping the marker
-    /// centered where it is. No-op for an in-place loupe.
+    /// centered where it is and never below the minimum size. No-op for an
+    /// in-place loupe.
     private mutating func scaleLoupeSource(byWidth oldW: CGFloat, height oldH: CGFloat,
                                            from new: CGRect) {
         guard let size = loupeSourceSize else { return }
         let kw = oldW > 0 ? new.width / oldW : 1
         let kh = oldH > 0 ? new.height / oldH : 1
-        loupeSourceSize = CGSize(width: size.width * kw, height: size.height * kh)
+        loupeSourceSize = CGSize(width: max(Self.minimumShapeSize, size.width * kw),
+                                 height: max(Self.minimumShapeSize, size.height * kh))
     }
 
     // MARK: Arrow geometry (pure — unit-testable)
+
+    /// Length of the filled arrowhead for a stroke width. A generous floor
+    /// keeps the head clearly readable on thin arrows without scaling the whole
+    /// annotation, while it still grows with thicker strokes. Shared by the
+    /// barb geometry and the renderer's shaft inset so they stay consistent.
+    static func arrowheadLength(lineWidth: CGFloat) -> CGFloat {
+        max(18, lineWidth * 3.5)
+    }
 
     /// The two barb points of the arrowhead for a shaft from `from` to `tip`.
     /// Head size scales with line width so thick arrows look proportionate.
@@ -869,13 +1267,244 @@ struct Annotation: Identifiable, Equatable {
         -> (CGPoint, CGPoint)
     {
         let angle = atan2(tip.y - from.y, tip.x - from.x)
-        let headLength = max(10, lineWidth * 3.5)
+        let headLength = arrowheadLength(lineWidth: lineWidth)
         let spread: CGFloat = .pi / 7
         let b1 = CGPoint(x: tip.x - headLength * cos(angle - spread),
                          y: tip.y - headLength * sin(angle - spread))
         let b2 = CGPoint(x: tip.x - headLength * cos(angle + spread),
                          y: tip.y - headLength * sin(angle + spread))
         return (b1, b2)
+    }
+
+    // MARK: Elbow routing (pure — unit-testable)
+
+    /// Outward direction implied by a bound endpoint's anchor: the normal of
+    /// the bbox edge it sits on. nil when the anchor doesn't pick a side (a
+    /// corner/vertex, or the center) or the endpoint is free — the
+    /// router then derives a direction from the geometry.
+    static func anchorDirection(_ binding: EndpointBinding?) -> CGPoint? {
+        guard let binding, case .fixed(let u) = binding.anchor else { return nil }
+        if u.x <= 0, u.y > 0, u.y < 1 { return CGPoint(x: -1, y: 0) }
+        if u.x >= 1, u.y > 0, u.y < 1 { return CGPoint(x: 1, y: 0) }
+        if u.y <= 0, u.x > 0, u.x < 1 { return CGPoint(x: 0, y: -1) }
+        if u.y >= 1, u.x > 0, u.x < 1 { return CGPoint(x: 0, y: 1) }
+        return nil
+    }
+
+    /// The dominant-axis direction from `from` toward `to` — the fallback exit
+    /// direction for an endpoint whose anchor doesn't imply a side.
+    private static func axisDirection(from: CGPoint, to: CGPoint) -> CGPoint {
+        let dx = to.x - from.x, dy = to.y - from.y
+        return abs(dx) >= abs(dy) ? CGPoint(x: dx < 0 ? -1 : 1, y: 0)
+                                  : CGPoint(x: 0, y: dy < 0 ? -1 : 1)
+    }
+
+    /// The axis-aligned ("snake") route between two endpoints: each end leaves
+    /// along its own direction, then the two runs meet on a shared mid-line.
+    /// A bound end gets a `stub` so it clears its shape before turning; a free
+    /// end turns immediately. Purely geometric — like Figma's elbow connector,
+    /// it does not route around obstacles.
+    static func elbowRoute(from s: CGPoint, startDirection ds: CGPoint?,
+                           to e: CGPoint, endDirection de: CGPoint?,
+                           stub: CGFloat = 24) -> [CGPoint] {
+        let dsr = ds ?? axisDirection(from: s, to: e)
+        let der = de ?? axisDirection(from: e, to: s)
+        // Only a side-anchored end steps out before turning.
+        let sStub = ds == nil ? 0 : stub
+        let eStub = de == nil ? 0 : stub
+        let p1 = CGPoint(x: s.x + dsr.x * sStub, y: s.y + dsr.y * sStub)
+        let p2 = CGPoint(x: e.x + der.x * eStub, y: e.y + der.y * eStub)
+
+        let startHorizontal = dsr.y == 0
+        let endHorizontal = der.y == 0
+        var middle: [CGPoint] = []
+        switch (startHorizontal, endHorizontal) {
+        case (true, true):
+            let mid = (p1.x + p2.x) / 2
+            middle = [CGPoint(x: mid, y: p1.y), CGPoint(x: mid, y: p2.y)]
+        case (false, false):
+            let mid = (p1.y + p2.y) / 2
+            middle = [CGPoint(x: p1.x, y: mid), CGPoint(x: p2.x, y: mid)]
+        case (true, false):
+            middle = [CGPoint(x: p2.x, y: p1.y)]
+        case (false, true):
+            middle = [CGPoint(x: p1.x, y: p2.y)]
+        }
+        return simplifiedRoute([s, p1] + middle + [p2, e])
+    }
+
+    /// Drops repeated and collinear points so the route has one point per
+    /// actual corner (corner rounding and hit-testing both rely on that).
+    private static func simplifiedRoute(_ points: [CGPoint]) -> [CGPoint] {
+        var result: [CGPoint] = []
+        for point in points {
+            if let last = result.last,
+               abs(last.x - point.x) < 0.01, abs(last.y - point.y) < 0.01 {
+                continue
+            }
+            if result.count >= 2 {
+                let a = result[result.count - 2], b = result[result.count - 1]
+                let cross = (b.x - a.x) * (point.y - a.y) - (b.y - a.y) * (point.x - a.x)
+                if abs(cross) < 0.01 { result.removeLast() }   // b is collinear
+            }
+            result.append(point)
+        }
+        return result
+    }
+
+    /// Connects `p` to `q` with axis-aligned legs, leaving `p` along `axis`
+    /// when a corner is needed. Returns the corner points between them.
+    private static func orthogonalJoin(_ p: CGPoint, _ q: CGPoint,
+                                       preferHorizontal: Bool) -> [CGPoint] {
+        if abs(p.x - q.x) < 0.01 || abs(p.y - q.y) < 0.01 { return [] }
+        return preferHorizontal ? [CGPoint(x: q.x, y: p.y)] : [CGPoint(x: p.x, y: q.y)]
+    }
+
+    /// This arrow's elbow route through the given endpoints. With no stored
+    /// waypoints the route is generated from the endpoints and their anchors;
+    /// otherwise it threads the user's corners, re-joining the (possibly moved)
+    /// endpoints orthogonally. Empty unless the arrow is in elbow style.
+    func elbowRoute(start s: CGPoint, end e: CGPoint) -> [CGPoint] {
+        guard isElbowed else { return [] }
+        let ds = Self.anchorDirection(startBinding)
+        let de = Self.anchorDirection(endBinding)
+        guard let first = elbowWaypoints.first,
+              let last = elbowWaypoints.last else {
+            return Self.elbowRoute(from: s, startDirection: ds,
+                                   to: e, endDirection: de)
+        }
+        // Re-attach each end to its nearest waypoint, leaving along the
+        // anchor's normal when it has one.
+        let head = Self.orthogonalJoin(s, first,
+                                       preferHorizontal: ds.map { $0.y == 0 }
+                                           ?? (abs(first.x - s.x) >= abs(first.y - s.y)))
+        let tail = Self.orthogonalJoin(e, last,
+                                       preferHorizontal: de.map { $0.y == 0 }
+                                           ?? (abs(last.x - e.x) >= abs(last.y - e.y)))
+        return Self.simplifiedRoute([s] + head + elbowWaypoints + tail.reversed() + [e])
+    }
+
+    /// Quantizes `p` onto the lattice anchored at `origin`. Elbow endpoints use
+    /// the *other* endpoint as the origin, so both ends and every leg share one
+    /// lattice: a zero offset on an axis means exactly aligned, and adjusting an
+    /// end can't leave sub-step jitter in the route.
+    static func snappedToGrid(_ p: CGPoint, origin: CGPoint,
+                              grid: CGFloat) -> CGPoint {
+        guard grid > 1 else { return p }
+        return CGPoint(x: origin.x + ((p.x - origin.x) / grid).rounded() * grid,
+                       y: origin.y + ((p.y - origin.y) / grid).rounded() * grid)
+    }
+
+    /// Squares a nearly axis-aligned elbow arrow onto its axis by nudging a
+    /// *free* endpoint, and drops stale waypoints. Without this an arrow whose
+    /// ends differ by a few pixels can never render straight — the route has to
+    /// jog between them — which reads as a permanent zigzag. Bound endpoints
+    /// are left alone (their position belongs to the shape).
+    mutating func alignForElbow(tolerance: CGFloat = 12) {
+        guard isElbowed else { return }
+        elbowWaypoints = []
+        let dx = end.x - start.x, dy = end.y - start.y
+        // Square up along whichever axis is already the near-aligned one.
+        if abs(dx) <= tolerance, abs(dx) > 0, abs(dy) > abs(dx) {
+            if endBinding == nil { end.x = start.x }
+            else if startBinding == nil { start.x = end.x }
+        } else if abs(dy) <= tolerance, abs(dy) > 0, abs(dx) > abs(dy) {
+            if endBinding == nil { end.y = start.y }
+            else if startBinding == nil { start.y = end.y }
+        }
+    }
+
+    /// Midpoint of each leg of `route` — where the parallel-move sliders sit.
+    static func routeSegmentMidpoints(_ route: [CGPoint]) -> [CGPoint] {
+        zip(route, route.dropFirst()).map { a, b in
+            CGPoint(x: (a.x + b.x) / 2, y: (a.y + b.y) / 2)
+        }
+    }
+
+    /// Slides leg `index` of `route` parallel to itself so it passes through
+    /// `p`, and returns the route's new interior corners (to store as
+    /// waypoints). The endpoints stay put — a leg touching an end grows a new
+    /// corner there — and legs that collapse to zero length disappear via
+    /// `simplifiedRoute`.
+    ///
+    /// `grid` is measured **from the arrow's own start**, not from absolute
+    /// image coordinates, and any position within half a step of an endpoint's
+    /// coordinate snaps exactly onto it. Otherwise the arrow could never be
+    /// straightened: its endpoints sit wherever they were drawn, so an absolute
+    /// grid would leave a permanent jog next to them.
+    static func movingRouteSegment(_ route: [CGPoint], index: Int, to p: CGPoint,
+                                   grid: CGFloat = 1) -> [CGPoint] {
+        guard route.count >= 2, index >= 0, index < route.count - 1 else { return [] }
+        guard let first = route.first, let last = route.last else { return [] }
+        var points = route
+        var i = index
+        // Keep the anchored endpoints fixed by budding a new corner off them.
+        if i == 0 {
+            points.insert(points[0], at: 1)
+            i += 1
+        }
+        if i + 1 == points.count - 1 {
+            points.insert(points[points.count - 1], at: points.count - 1)
+        }
+        let a = points[i], b = points[i + 1]
+        let isVertical = abs(a.x - b.x) < 0.01
+        let value = isVertical ? p.x : p.y
+        let origin = isVertical ? first.x : first.y
+        let opposite = isVertical ? last.x : last.y
+        // Align exactly with either endpoint when within half a step, so the
+        // leg can collapse; otherwise step on the grid measured from the start.
+        var snapped = origin + ((value - origin) / grid).rounded() * grid
+        for alignment in [origin, opposite]
+        where abs(value - alignment) <= grid / 2 {
+            snapped = alignment
+            break
+        }
+        if isVertical {
+            points[i].x = snapped; points[i + 1].x = snapped
+        } else {
+            points[i].y = snapped; points[i + 1].y = snapped
+        }
+        let simplified = simplifiedRoute(points)
+        guard simplified.count > 2 else { return [] }
+        return Array(simplified.dropFirst().dropLast())
+    }
+
+    /// This arrow's elbow route in world space, with bound ends resolved.
+    func elbowRoute(in annotations: [Annotation]) -> [CGPoint] {
+        elbowRoute(start: resolvedStart(in: annotations),
+                   end: resolvedEnd(in: annotations))
+    }
+
+    /// Maps `c` through the similarity (translation + rotation + uniform scale)
+    /// that carries segment `fromStart`→`fromEnd` onto `toStart`→`toEnd`. Used
+    /// to move a curved arrow's control with its resolved endpoints so the bend
+    /// keeps its shape relative to the chord instead of drifting. A degenerate
+    /// source chord falls back to translating by the start delta.
+    static func mapControl(_ c: CGPoint, fromStart: CGPoint, fromEnd: CGPoint,
+                           toStart: CGPoint, toEnd: CGPoint) -> CGPoint {
+        let w = CGPoint(x: fromEnd.x - fromStart.x, y: fromEnd.y - fromStart.y)
+        let denom = w.x * w.x + w.y * w.y
+        guard denom > 1e-9 else {
+            return CGPoint(x: c.x + (toStart.x - fromStart.x),
+                           y: c.y + (toStart.y - fromStart.y))
+        }
+        let w2 = CGPoint(x: toEnd.x - toStart.x, y: toEnd.y - toStart.y)
+        // Complex division w2 / w gives the scale-and-rotation factor.
+        let ax = (w2.x * w.x + w2.y * w.y) / denom
+        let ay = (w2.y * w.x - w2.x * w.y) / denom
+        let rel = CGPoint(x: c.x - fromStart.x, y: c.y - fromStart.y)
+        return CGPoint(x: toStart.x + ax * rel.x - ay * rel.y,
+                       y: toStart.y + ax * rel.y + ay * rel.x)
+    }
+
+    /// The curve control for a bend drag to `p`: nil (straight) when the drag
+    /// lands within `snapDistance` of the straight start–end chord — a wide
+    /// alignment band so a nearly-straight bend snaps flat — or when
+    /// `forceStraight` (Shift) is held; otherwise `p`. Pure for testing.
+    static func bentControl(forDrag p: CGPoint, start: CGPoint, end: CGPoint,
+                            snapDistance: CGFloat, forceStraight: Bool) -> CGPoint? {
+        if forceStraight { return nil }
+        return distance(from: p, toSegment: start, end) <= snapDistance ? nil : p
     }
 
     /// Snaps an arrow endpoint to its nearest 45-degree ray from `from`.
@@ -897,6 +1526,286 @@ struct Annotation: Identifiable, Equatable {
         guard side > 0 else { return point }
         return CGPoint(x: from.x + (dx < 0 ? -side : side),
                        y: from.y + (dy < 0 ? -side : side))
+    }
+
+    // MARK: Arrow binding (pure resolver — unit-testable)
+
+    /// Shapes an arrow endpoint can bind to. Closed regions with a meaningful
+    /// interior and outline; open/degenerate kinds (line, arrow, freehand,
+    /// text, step, blur, loupe) aren't binding targets.
+    var isBindableTarget: Bool {
+        switch kind {
+        case .rect, .oval, .roundedRect, .polygon, .star, .bubble: return true
+        default: return false
+        }
+    }
+
+    /// The resolved position of the `start` endpoint: the bound point on the
+    /// target, the binding's fallback if the target is gone, or the raw
+    /// `start` when unbound. Pure — computed fresh each render/gesture, so
+    /// moving a target makes the arrow follow with no stored derived state.
+    func resolvedStart(in annotations: [Annotation]) -> CGPoint {
+        resolved(binding: startBinding, rawSelf: start, in: annotations)
+    }
+
+    /// The resolved position of the `end` endpoint (the arrow's tip). See
+    /// `resolvedStart(in:)`.
+    func resolvedEnd(in annotations: [Annotation]) -> CGPoint {
+        resolved(binding: endBinding, rawSelf: end, in: annotations)
+    }
+
+    /// Resolves one endpoint: the anchor's bbox-relative point on the target,
+    /// so it follows the shape as it moves and resizes.
+    private func resolved(binding: EndpointBinding?, rawSelf: CGPoint,
+                          in annotations: [Annotation]) -> CGPoint {
+        guard let binding else { return rawSelf }
+        guard let target = annotations.first(where: { $0.id == binding.targetID }),
+              target.isBindableTarget else { return binding.fallback }
+        guard case .fixed(let unit) = binding.anchor else { return binding.fallback }
+        let r = target.rect
+        return CGPoint(x: r.minX + unit.x * r.width,
+                       y: r.minY + unit.y * r.height)
+    }
+
+    /// The reference points an endpoint can snap to. Edge midpoints are the
+    /// visible anchors; vertices are hidden snap targets. Derived from the real
+    /// shape geometry, so a polygon/star recomputes with its side/point count.
+    /// Empty for non-bindable kinds.
+    func referenceAnchors() -> [ReferenceAnchor] {
+        guard isBindableTarget else { return [] }
+        let r = rect
+        guard r.width > 0, r.height > 0 else { return [] }
+        func anchor(_ unit: CGPoint, visible: Bool) -> ReferenceAnchor {
+            ReferenceAnchor(spec: .fixed(unit: unit),
+                            point: CGPoint(x: r.minX + unit.x * r.width,
+                                           y: r.minY + unit.y * r.height),
+                            isVisible: visible)
+        }
+        var result: [ReferenceAnchor]
+        switch kind {
+        case .oval:
+            // No edges or vertices: the four extreme points, all shown.
+            result = [anchor(CGPoint(x: 0.5, y: 0), visible: true),
+                      anchor(CGPoint(x: 0.5, y: 1), visible: true),
+                      anchor(CGPoint(x: 0, y: 0.5), visible: true),
+                      anchor(CGPoint(x: 1, y: 0.5), visible: true)]
+        case .rect, .roundedRect, .bubble:
+            // Edge midpoints visible; the four corners are hidden vertices.
+            let midpoints = [CGPoint(x: 0.5, y: 0), CGPoint(x: 0.5, y: 1),
+                             CGPoint(x: 0, y: 0.5), CGPoint(x: 1, y: 0.5)]
+            let corners = [CGPoint(x: 0, y: 0), CGPoint(x: 1, y: 0),
+                           CGPoint(x: 1, y: 1), CGPoint(x: 0, y: 1)]
+            result = midpoints.map { anchor($0, visible: true) }
+                + corners.map { anchor($0, visible: false) }
+        case .polygon, .star:
+            let vertices = kind == .polygon
+                ? Self.polygonVertices(sides: polygonSides, in: r,
+                                       flippedVertically: flippedVertically)
+                : Self.starVertices(points: starPoints, in: r,
+                                    flippedVertically: flippedVertically)
+            guard vertices.count >= 2 else { return [] }
+            func unit(_ p: CGPoint) -> CGPoint {
+                CGPoint(x: (p.x - r.minX) / r.width, y: (p.y - r.minY) / r.height)
+            }
+            result = []
+            for (index, vertex) in vertices.enumerated() {
+                let next = vertices[(index + 1) % vertices.count]
+                let midpoint = CGPoint(x: (vertex.x + next.x) / 2,
+                                       y: (vertex.y + next.y) / 2)
+                result.append(anchor(unit(vertex), visible: false))  // vertex
+                result.append(anchor(unit(midpoint), visible: true)) // edge mid
+            }
+        default:
+            return []
+        }
+        // A hidden center connector: the endpoint lands on the shape's center
+        // (bound, so it follows the shape) — an arrow pointing inside it.
+        result.append(ReferenceAnchor(spec: .fixed(unit: CGPoint(x: 0.5, y: 0.5)),
+                                      point: CGPoint(x: r.midX, y: r.midY),
+                                      isVisible: false, isCenter: true))
+        return result
+    }
+
+    /// A flattened, closed polyline of this shape's outline — for
+    /// nearest-point snapping. Empty for non-bindable kinds.
+    func outlinePolyline() -> [CGPoint] {
+        guard isBindableTarget else { return [] }
+        let r = rect
+        guard r.width > 0, r.height > 0 else { return [] }
+        switch kind {
+        case .rect:
+            return [CGPoint(x: r.minX, y: r.minY), CGPoint(x: r.maxX, y: r.minY),
+                    CGPoint(x: r.maxX, y: r.maxY), CGPoint(x: r.minX, y: r.maxY),
+                    CGPoint(x: r.minX, y: r.minY)]
+        case .oval:
+            let steps = 48
+            var points = (0..<steps).map { index -> CGPoint in
+                let t = 2 * .pi * CGFloat(index) / CGFloat(steps)
+                return CGPoint(x: r.midX + r.width / 2 * cos(t),
+                               y: r.midY + r.height / 2 * sin(t))
+            }
+            if let first = points.first { points.append(first) }
+            return points
+        default:
+            return pathShapeOutline.map { Self.flatten($0) } ?? []
+        }
+    }
+
+    /// The point on this shape's outline nearest to `p`. nil for non-bindable
+    /// kinds.
+    func nearestOutlinePoint(to p: CGPoint) -> CGPoint? {
+        let polyline = outlinePolyline()
+        guard polyline.count >= 2 else { return nil }
+        var best: (point: CGPoint, distance: CGFloat)?
+        for (a, b) in zip(polyline, polyline.dropFirst()) {
+            let q = Self.closestPoint(on: a, b, to: p)
+            let distance = hypot(p.x - q.x, p.y - q.y)
+            if best == nil || distance < best!.distance { best = (q, distance) }
+        }
+        return best?.point
+    }
+
+    /// The closest point to `p` on segment a→b (clamped to the segment).
+    static func closestPoint(on a: CGPoint, _ b: CGPoint, to p: CGPoint) -> CGPoint {
+        let dx = b.x - a.x, dy = b.y - a.y
+        let lengthSq = dx * dx + dy * dy
+        guard lengthSq > 0 else { return a }
+        let t = max(0, min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / lengthSq))
+        return CGPoint(x: a.x + t * dx, y: a.y + t * dy)
+    }
+
+    /// The anchor `p` snaps to, given a `magnet` catch distance:
+    /// 1. a small central bullseye → the hidden center connector;
+    /// 2. else the nearest edge/vertex reference within `magnet` — references
+    ///    are the strongest snap;
+    /// 3. else, within `magnet` of the outline, the nearest contour point (a
+    ///    weaker whole-outline magnet that also reaches just outside the shape);
+    /// 4. else nil — the interior between center and contour stays free.
+    func nearestBindingAnchor(to p: CGPoint, magnet: CGFloat) -> ReferenceAnchor? {
+        let anchors = referenceAnchors()
+        guard !anchors.isEmpty else { return nil }
+        let r = rect
+        let centerDistance = hypot(p.x - r.midX, p.y - r.midY)
+        if centerDistance <= min(r.width, r.height) * 0.16 {
+            return anchors.first { $0.isCenter }
+        }
+        var bestReference: (anchor: ReferenceAnchor, distance: CGFloat)?
+        for candidate in anchors where !candidate.isCenter {
+            let distance = hypot(p.x - candidate.point.x, p.y - candidate.point.y)
+            guard distance <= magnet else { continue }
+            if bestReference == nil || distance < bestReference!.distance {
+                bestReference = (candidate, distance)
+            }
+        }
+        if let bestReference { return bestReference.anchor }
+        if let near = nearestOutlinePoint(to: p),
+           hypot(p.x - near.x, p.y - near.y) <= magnet {
+            let unit = CGPoint(x: (near.x - r.minX) / r.width,
+                               y: (near.y - r.minY) / r.height)
+            return ReferenceAnchor(spec: .fixed(unit: unit), point: near,
+                                   isVisible: false)
+        }
+        return nil
+    }
+
+    /// The curve control adjusted to the arrow's resolved endpoints. For an
+    /// unbound arrow this is the stored control unchanged; for a bound one it
+    /// rides the resolved chord (via `mapControl`) so the bend keeps its shape
+    /// instead of drifting as the target moves. nil for a straight arrow.
+    func resolvedControl(in annotations: [Annotation]) -> CGPoint? {
+        guard let control = curveControl else { return nil }
+        guard startBinding != nil || endBinding != nil else { return control }
+        return Self.mapControl(control, fromStart: start, fromEnd: end,
+                               toStart: resolvedStart(in: annotations),
+                               toEnd: resolvedEnd(in: annotations))
+    }
+
+    /// A copy of a bound arrow/line with its endpoints (and curve control)
+    /// baked to their resolved positions and the bindings cleared — so
+    /// hit-testing and handle geometry operate on where the arrow is actually
+    /// drawn. nil for kinds/instances without bindings (the caller uses the raw
+    /// value directly).
+    private func resolvedForInteraction(in annotations: [Annotation]) -> Annotation? {
+        guard kind == .arrow || kind == .line,
+              startBinding != nil || endBinding != nil else { return nil }
+        var copy = self
+        copy.curveControl = resolvedControl(in: annotations)
+        copy.start = resolvedStart(in: annotations)
+        copy.end = resolvedEnd(in: annotations)
+        copy.startBinding = nil
+        copy.endBinding = nil
+        return copy
+    }
+
+    /// Hit-test that honors binding: a bound arrow/line is tested where it's
+    /// drawn (endpoints on their targets), not at its stale raw endpoints.
+    /// Unbound annotations fall through to the plain `hitTest`.
+    func hitTest(_ p: CGPoint, tolerance: CGFloat, in annotations: [Annotation]) -> Bool {
+        (resolvedForInteraction(in: annotations) ?? self).hitTest(p, tolerance: tolerance)
+    }
+
+    /// Draggable handles with bound endpoints at their resolved positions.
+    func handles(in annotations: [Annotation]) -> [(Handle, CGPoint)] {
+        (resolvedForInteraction(in: annotations) ?? self).handles
+    }
+
+    /// The handle near `p`, resolving bound endpoints first.
+    func handle(at p: CGPoint, tolerance: CGFloat,
+                in annotations: [Annotation]) -> Handle? {
+        (resolvedForInteraction(in: annotations) ?? self).handle(at: p, tolerance: tolerance)
+    }
+
+    /// Flattens a CGPath into a polyline (curves subdivided, subpaths closed)
+    /// so ray intersection sees exactly the rendered silhouette. Arcs already
+    /// arrive as cubic curve elements from CoreGraphics.
+    static func flatten(_ path: CGPath, segments: Int = 12) -> [CGPoint] {
+        var points: [CGPoint] = []
+        var current = CGPoint.zero
+        var subpathStart = CGPoint.zero
+        path.applyWithBlock { elementPtr in
+            let element = elementPtr.pointee
+            switch element.type {
+            case .moveToPoint:
+                current = element.points[0]
+                subpathStart = current
+                points.append(current)
+            case .addLineToPoint:
+                current = element.points[0]
+                points.append(current)
+            case .addQuadCurveToPoint:
+                let control = element.points[0], end = element.points[1]
+                points.append(contentsOf:
+                    quadraticPoints(from: current, control: control, to: end,
+                                    segments: segments).dropFirst())
+                current = end
+            case .addCurveToPoint:
+                let c1 = element.points[0], c2 = element.points[1]
+                let end = element.points[2]
+                points.append(contentsOf:
+                    cubicPoints(from: current, control1: c1, control2: c2, to: end,
+                                segments: segments).dropFirst())
+                current = end
+            case .closeSubpath:
+                points.append(subpathStart)
+                current = subpathStart
+            @unknown default:
+                break
+            }
+        }
+        return points
+    }
+
+    /// Flattened polyline of a cubic Bézier — the cubic sibling of
+    /// `quadraticPoints`, used to flatten rounded-rect and bubble arcs.
+    static func cubicPoints(from: CGPoint, control1: CGPoint, control2: CGPoint,
+                            to: CGPoint, segments: Int = 16) -> [CGPoint] {
+        (0...segments).map { step in
+            let t = CGFloat(step) / CGFloat(segments)
+            let m = 1 - t
+            let a = m * m * m, b = 3 * m * m * t, c = 3 * m * t * t, d = t * t * t
+            return CGPoint(x: a * from.x + b * control1.x + c * control2.x + d * to.x,
+                           y: a * from.y + b * control1.y + c * control2.y + d * to.y)
+        }
     }
 }
 
@@ -1046,6 +1955,11 @@ struct DocumentSnapshot: Equatable {
                 a.loupeSourceSize = CGSize(width: markerSize.height,
                                            height: markerSize.width)
             }
+            if !a.elbowWaypoints.isEmpty {
+                a.elbowWaypoints = a.elbowWaypoints.map {
+                    rotatePoint($0, in: size, clockwise: clockwise)
+                }
+            }
             if a.kind == .freehand {
                 a.freehandPoints = a.freehandPoints.map {
                     rotatePoint($0, in: size, clockwise: clockwise)
@@ -1112,8 +2026,69 @@ struct DocumentSnapshot: Equatable {
     /// so a non-blur annotation over it wins the hit even when the blur was
     /// added later.
     func annotation(at p: CGPoint, tolerance: CGFloat) -> Annotation? {
-        annotations.reversed().first { $0.kind != .blur && $0.hitTest(p, tolerance: tolerance) }
-            ?? annotations.reversed().first { $0.kind == .blur && $0.hitTest(p, tolerance: tolerance) }
+        annotations.reversed().first {
+            $0.kind != .blur && $0.hitTest(p, tolerance: tolerance, in: annotations)
+        }
+            ?? annotations.reversed().first {
+                $0.kind == .blur && $0.hitTest(p, tolerance: tolerance, in: annotations)
+            }
+    }
+
+    // MARK: Arrow binding
+
+    /// Binds (or unbinds) one endpoint of an arrow/line at the release point
+    /// `p`. A shape under `p` (topmost, excluding the arrow itself) snaps the
+    /// endpoint to its nearest cardinal reference point — but only when `p` is
+    /// toward that edge; a drop in the shape's interior (or on empty space)
+    /// leaves the endpoint free, so an arrow can still point *inside* a shape.
+    /// The fallback is the endpoint's current raw point (where the drag left
+    /// it). Called inside the resize gesture's open change, so the bind is part
+    /// of the same undo step as the endpoint drag.
+    func bindEndpoint(_ handle: Annotation.Handle, of id: UUID,
+                      releasedAt p: CGPoint, tolerance: CGFloat, magnet: CGFloat) {
+        guard handle == .start || handle == .end,
+              let idx = annotations.firstIndex(where: { $0.id == id }),
+              annotations[idx].kind == .arrow || annotations[idx].kind == .line
+        else { return }
+        // Capture a shape when the drop is inside it or within the magnet band
+        // of its outline. A deep-interior drop still captures (so it doesn't
+        // fall through to a shape behind) but yields no anchor → free tip.
+        let target = annotations.last { shape in
+            shape.id != id && shape.isBindableTarget
+                && (shape.hitTest(p, tolerance: tolerance, in: annotations)
+                    || shape.nearestBindingAnchor(to: p, magnet: magnet) != nil)
+        }
+        let raw = handle == .start ? annotations[idx].start : annotations[idx].end
+        let binding = target.flatMap { shape -> EndpointBinding? in
+            guard let anchor = shape.nearestBindingAnchor(to: p, magnet: magnet)
+            else { return nil }
+            return EndpointBinding(targetID: shape.id,
+                                   anchor: anchor.spec, fallback: raw)
+        }
+        if handle == .start { annotations[idx].startBinding = binding }
+        else { annotations[idx].endBinding = binding }
+    }
+
+    /// Freezes every live binding's fallback at its current resolved point, so
+    /// a target's removal leaves the arrow where it currently points instead of
+    /// snapping back to a stale drop location. A no-op for a binding whose
+    /// target is already gone (its resolve returns the existing fallback).
+    func refreshBindingFallbacks() {
+        for i in annotations.indices {
+            guard annotations[i].kind == .arrow || annotations[i].kind == .line
+            else { continue }
+            // Resolve into locals first: reading `annotations` on the RHS while
+            // mutating `annotations[i]` on the LHS of one statement is an
+            // exclusive-access violation.
+            if annotations[i].startBinding != nil {
+                let resolved = annotations[i].resolvedStart(in: annotations)
+                annotations[i].startBinding?.fallback = resolved
+            }
+            if annotations[i].endBinding != nil {
+                let resolved = annotations[i].resolvedEnd(in: annotations)
+                annotations[i].endBinding?.fallback = resolved
+            }
+        }
     }
 
     func updateSelected(_ mutate: (inout Annotation) -> Void) {
@@ -1141,6 +2116,18 @@ struct DocumentSnapshot: Equatable {
             self.selectedID = nil
         }
         return didChange
+    }
+
+    /// Removes every freehand stroke in one undoable step — the eraser's
+    /// "erase all". Other annotation kinds are untouched.
+    func eraseAllFreehand() {
+        guard annotations.contains(where: { $0.kind == .freehand }) else { return }
+        beginChange()
+        annotations.removeAll { $0.kind == .freehand }
+        if let selectedID, !annotations.contains(where: { $0.id == selectedID }) {
+            self.selectedID = nil
+        }
+        commitChange()
     }
 
     // MARK: Undo / redo (snapshot stack of value types)
@@ -1201,6 +2188,11 @@ struct DocumentSnapshot: Equatable {
     func deleteSelected() {
         guard let selectedID else { return }
         beginChange()
+        // Freeze bound arrows at their current point before the target (which
+        // might be this selection) disappears, so they hold place rather than
+        // snapping to a stale fallback. Undo restores the target and the
+        // pre-freeze fallbacks together via the snapshot.
+        refreshBindingFallbacks()
         annotations.removeAll { $0.id == selectedID }
         self.selectedID = nil
         commitChange()

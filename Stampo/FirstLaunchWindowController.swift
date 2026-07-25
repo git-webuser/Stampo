@@ -3,6 +3,11 @@ import AppKit
 import CoreGraphics
 import Combine
 
+enum FirstLaunchPresentation {
+    case onboarding
+    case introduction
+}
+
 // MARK: - App icon helper
 
 extension NSImage {
@@ -22,7 +27,7 @@ final class FirstLaunchWindowController: NSObject, NSWindowDelegate {
     static let shared = FirstLaunchWindowController()
     private var window: NSWindow?
 
-    func show() {
+    func show(presentation: FirstLaunchPresentation = .onboarding) {
         // This window is the single permissions surface — mute the standalone
         // modal alerts that would otherwise stack on top of System Settings.
         UserFacingError.suppressPermissionAlerts = true
@@ -35,17 +40,34 @@ final class FirstLaunchWindowController: NSObject, NSWindowDelegate {
         // preferredContentSize, so when a step's content grows at runtime —
         // e.g. the Input Monitoring relaunch hint appearing — the window grows
         // with it instead of clipping the bottom padding.
-        let hosting = NSHostingController(rootView: FirstLaunchView().managedLocale())
+        let hosting = NSHostingController(
+            rootView: FirstLaunchView(presentation: presentation).managedLocale()
+        )
         hosting.sizingOptions = .preferredContentSize
 
         let win = NSWindow(contentViewController: hosting)
         win.styleMask = [.titled, .closable]
         win.title = LocaleManager.shared.string("Welcome to Stampo")
+        win.titleVisibility = .hidden
+        win.titlebarAppearsTransparent = true
+        win.backgroundColor = NSColor(name: nil) { appearance in
+            appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+                ? NSColor(
+                    srgbRed: 30.0 / 255.0,
+                    green: 30.0 / 255.0,
+                    blue: 30.0 / 255.0,
+                    alpha: 1
+                )
+                : .white
+        }
         win.isReleasedWhenClosed = false
-        win.center()
         // Normal level: the wizard must not sit on top of System Settings while
         // the user toggles a permission there. It auto-advances by polling, so
         // it doesn't need to stay visible during the grant.
+        // Keep the window transparent through its first SwiftUI layout pass.
+        // Its preferred height is not final until then; revealing it earlier
+        // causes a visible jump from AppKit's placeholder origin to the centre.
+        win.alphaValue = 0
         win.delegate = self
         win.makeKeyAndOrderFront(nil)
         // orderFrontRegardless raises it even when another app (e.g. the one the
@@ -53,6 +75,15 @@ final class FirstLaunchWindowController: NSObject, NSWindowDelegate {
         win.orderFrontRegardless()
         NSApp.activate(ignoringOtherApps: true)
         self.window = win
+        // preferredContentSize lands after the first layout pass. Centering
+        // before that uses the placeholder size and leaves the finished window
+        // shifted toward a corner or partly below the active display.
+        DispatchQueue.main.async { [weak self, weak win] in
+            guard let self, let win else { return }
+            win.contentView?.layoutSubtreeIfNeeded()
+            self.centerWindow(win)
+            win.alphaValue = 1
+        }
         // From here the window's existence (isWindowOpen) is the suppression
         // signal; the stored flag only had to cover the launch→show gap.
         UserFacingError.suppressPermissionAlerts = false
@@ -72,6 +103,50 @@ final class FirstLaunchWindowController: NSObject, NSWindowDelegate {
         // finishing without the Screen Recording relaunch, where no fresh
         // process would otherwise pick the deferral up.
         NotificationCenter.default.post(name: .onboardingWindowClosed, object: nil)
+    }
+
+    func windowDidResize(_ notification: Notification) {
+        guard let resizedWindow = notification.object as? NSWindow else { return }
+        keepWindowVisible(resizedWindow)
+    }
+
+    private func centerWindow(_ window: NSWindow) {
+        let mouseLocation = NSEvent.mouseLocation
+        let targetScreen = NSScreen.screens.first {
+            NSMouseInRect(mouseLocation, $0.frame, false)
+        } ?? NSScreen.main ?? window.screen
+        guard let visibleFrame = targetScreen?.visibleFrame else {
+            window.center()
+            return
+        }
+
+        let frame = window.frame
+        let origin = NSPoint(
+            x: visibleFrame.midX - frame.width / 2,
+            y: visibleFrame.midY - frame.height / 2
+        )
+        window.setFrameOrigin(origin)
+        keepWindowVisible(window, within: visibleFrame)
+    }
+
+    private func keepWindowVisible(
+        _ window: NSWindow,
+        within explicitVisibleFrame: NSRect? = nil
+    ) {
+        guard let visibleFrame = explicitVisibleFrame
+            ?? window.screen?.visibleFrame
+            ?? NSScreen.main?.visibleFrame
+        else { return }
+
+        var frame = window.frame
+        let maximumX = max(visibleFrame.minX, visibleFrame.maxX - frame.width)
+        let maximumY = max(visibleFrame.minY, visibleFrame.maxY - frame.height)
+        frame.origin.x = min(max(frame.minX, visibleFrame.minX), maximumX)
+        frame.origin.y = min(max(frame.minY, visibleFrame.minY), maximumY)
+
+        if frame.origin != window.frame.origin {
+            window.setFrameOrigin(frame.origin)
+        }
     }
 
     /// Relaunches the app: Screen Recording / Input Monitoring only take
@@ -108,6 +183,7 @@ extension Notification.Name {
 struct FirstLaunchView: View {
     private enum Step { case screenRecording, done }
 
+    private let presentation: FirstLaunchPresentation
     @State private var launchAtLogin = AppSettings.launchAtLoginEnabled
     @State private var step: Step
     @State private var screenRecordingGranted: Bool
@@ -125,83 +201,59 @@ struct FirstLaunchView: View {
 
     private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
-    init() {
+    init(presentation: FirstLaunchPresentation = .onboarding) {
+        self.presentation = presentation
         // Screen Recording is the only system permission left: notch clicks and
         // Esc run on permission-free NSEvent monitors / Carbon hotkeys, and the
         // save folder defaults to ~/Pictures/Stampo (outside the TCC set).
         let sr = CGPreflightScreenCaptureAccess()
         _screenRecordingGranted = State(initialValue: sr)
-        screenRecordingNeededGrant = !sr
-        _step = State(initialValue: sr ? .done : .screenRecording)
+        screenRecordingNeededGrant = presentation == .onboarding && !sr
+        _step = State(
+            initialValue: presentation == .introduction || sr ? .done : .screenRecording
+        )
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            headerSection
-                .padding(.bottom, 20)
+        VStack(spacing: 0) {
+            OnboardingVideoView()
+                .frame(maxWidth: .infinity)
 
-            notchTip
-                .padding(.bottom, 20)
+            VStack(spacing: 0) {
+                heroSection
+                    .padding(.bottom, 28)
 
-            switch step {
-            case .screenRecording:
-                stepCard(
-                    icon: "rectangle.dashed.badge.record",
-                    title: "Screen recording",
-                    description: "Lets Stampo take screenshots and sample colors from the screen.",
-                    hint: "Toggle Stampo on in the window macOS opens.",
-                    granted: screenRecordingGranted,
-                    grant: {
-                        screenRecordingRequested = true
-                        _ = CGRequestScreenCaptureAccess()
-                        openSecuritySettings("Privacy_ScreenCapture")
-                    }
-                )
-                // The grant may only register in a fresh process: if the user
-                // declined macOS's "Quit & Reopen" alert, the toggle is on but
-                // the step can't advance — a separate card offers the relaunch.
-                if screenRecordingRequested && !screenRecordingGranted {
-                    relaunchCard
-                        .padding(.top, 12)
+                switch step {
+                case .screenRecording:
+                    screenRecordingStep
+                case .done:
+                    doneCard
                 }
-            case .done:
-                doneCard
             }
+            .padding(.horizontal, 28)
+            .padding(.top, 28)
+            .padding(.bottom, 24)
+            .frame(maxWidth: .infinity)
+            .background(Color(nsColor: .windowBackgroundColor))
         }
-        .padding(28)
-        .frame(width: 540)
+        .frame(width: 620)
         // No system prompts fire at launch — the wizard opens each one only
         // when the user acts on that step, so they arrive one at a time.
         .onReceive(timer) { _ in advance() }
     }
 
-    private var headerSection: some View {
-        HStack(spacing: 14) {
-            Image(nsImage: .stampoAppIcon)
-                .resizable()
-                .frame(width: 64, height: 64)
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Welcome to Stampo")
-                    .font(.title2.bold())
-                Text("Screenshot and color picker\nthat lives in your menu bar.")
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+    private var heroSection: some View {
+        VStack(spacing: 6) {
+            Text("Welcome to Stampo")
+                .font(.title.bold())
+            Text("Screenshots, scanning, editing, and files — all in Stampo.")
+                .font(.body)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.9)
         }
-    }
-
-    private var notchTip: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "cursorarrow.click")
-                .font(.title3)
-                .foregroundStyle(.blue)
-                .frame(width: 28)
-            Text("Click the notch — or the center of the menu bar on screens without one — to open the panel.")
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 8).fill(Color.blue.opacity(0.08)))
+        .multilineTextAlignment(.center)
+        .frame(maxWidth: .infinity)
     }
 
     /// Polls the current grant and flips to the done card once it lands.
@@ -228,120 +280,91 @@ struct FirstLaunchView: View {
         }
     }
 
-    @ViewBuilder
-    private func stepCard(
-        icon: String,
-        title: LocalizedStringKey,
-        description: LocalizedStringKey,
-        hint: LocalizedStringKey,
-        granted: Bool,
-        grant: @escaping () -> Void
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .top, spacing: 12) {
-                Image(systemName: icon)
-                    .font(.system(size: 26))
-                    .foregroundStyle(granted ? .green : .blue)
-                    .frame(width: 34)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(title).font(.headline)
-                    Text(description)
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
+    private var screenRecordingStep: some View {
+        VStack(spacing: 14) {
+            Text("Allow screen recording")
+                .font(.title3.bold())
 
-            if granted {
-                Label("Granted — continuing…", systemImage: "checkmark.circle.fill")
-                    .foregroundStyle(.green)
-                    .font(.callout)
-            } else {
-                HStack(spacing: 10) {
-                    Button(action: grant) {
-                        Text("Grant Access")
-                            .frame(minWidth: Self.actionLabelMinWidth)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
-                    .keyboardShortcut(.defaultAction)
-                    Text(hint)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-        }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Color.primary.opacity(0.04)))
-    }
-
-    /// Shared minimum label width so the Grant and Relaunch buttons render
-    /// the same size even though their titles differ in length.
-    private static let actionLabelMinWidth: CGFloat = 150
-
-    /// Companion card under the permission step: the grant may only take
-    /// effect in a fresh process, so after the user acted in System Settings
-    /// this offers the restart macOS's own alert may have been declined for.
-    private var relaunchCard: some View {
-        HStack(spacing: 10) {
-            Button {
-                FirstLaunchWindowController.relaunch()
-            } label: {
-                Text("Relaunch")
-                    .frame(minWidth: Self.actionLabelMinWidth)
-            }
-            // Secondary: Grant is the step's one primary action; this is the
-            // recovery path, same footprint but not competing for attention.
-            .buttonStyle(.bordered)
-            .controlSize(.large)
-            Text("Turned it on but nothing happened? The permission takes effect after Stampo restarts.")
-                .font(.caption)
+            Text("For screenshots, scanning, and color picking")
+                .font(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-        }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Color.primary.opacity(0.04)))
-    }
 
-    private var doneCard: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack(spacing: 12) {
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 26))
-                    .foregroundStyle(.green)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("All set").font(.headline)
-                    Text(screenRecordingNeededGrant
-                         ? "Relaunching Stampo to activate screen recording…"
-                         : "Permissions granted. You're ready to go.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+            if screenRecordingRequested {
+                Text("Turned it on but nothing happened? The permission takes effect after Stampo restarts.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
-            Toggle("Launch at Login", isOn: $launchAtLogin)
-                .onChange(of: launchAtLogin) { _, v in
-                    AppSettings.setLaunchAtLogin(v)
-                    launchAtLogin = AppSettings.launchAtLoginEnabled
+            HStack(spacing: 12) {
+                Button {
+                    screenRecordingRequested = true
+                    _ = CGRequestScreenCaptureAccess()
+                    openSecuritySettings("Privacy_ScreenCapture")
+                } label: {
+                    Text("Open System Settings")
+                        .frame(minWidth: Self.actionLabelMinWidth)
                 }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .keyboardShortcut(.defaultAction)
 
-            HStack {
-                Spacer()
-                Button(screenRecordingNeededGrant ? "Relaunch Stampo" : "Get Started") {
+                if screenRecordingRequested {
+                    Button {
+                        FirstLaunchWindowController.relaunch()
+                    } label: {
+                        Text("Relaunch")
+                            .frame(minWidth: Self.actionLabelMinWidth)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.large)
+                }
+            }
+        }
+        .multilineTextAlignment(.center)
+        .frame(maxWidth: 420)
+        .frame(maxWidth: .infinity)
+    }
+
+    /// Shared minimum label width so the Settings and Relaunch buttons render
+    /// with the same visual weight.
+    private static let actionLabelMinWidth: CGFloat = 150
+
+    private var doneCard: some View {
+        VStack(spacing: 14) {
+            if screenRecordingNeededGrant {
+                Text("Restarting Stampo")
+                    .font(.headline)
+
+                Text("Relaunching Stampo to activate screen recording…")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            HStack(spacing: 20) {
+                Toggle("Launch Stampo at login", isOn: $launchAtLogin)
+                    .fixedSize()
+                    .onChange(of: launchAtLogin) { _, v in
+                        AppSettings.setLaunchAtLogin(v)
+                        launchAtLogin = AppSettings.launchAtLoginEnabled
+                    }
+
+                Spacer(minLength: 12)
+
+                Button(actionButtonTitle) {
                     finish(relaunch: screenRecordingNeededGrant)
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
                 .keyboardShortcut(.defaultAction)
             }
+            .frame(maxWidth: 500)
         }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Color.green.opacity(0.08)))
+        .multilineTextAlignment(.center)
+        .frame(maxWidth: 500)
+        .frame(maxWidth: .infinity)
         .onAppear {
             // The single relaunch at the end, fired automatically when a fresh
             // Screen Recording grant needs a new process to take effect.
@@ -351,5 +374,10 @@ struct FirstLaunchView: View {
                 }
             }
         }
+    }
+
+    private var actionButtonTitle: LocalizedStringKey {
+        if presentation == .introduction { return "Close" }
+        return screenRecordingNeededGrant ? "Relaunch Stampo" : "Get Started"
     }
 }

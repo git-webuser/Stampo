@@ -164,14 +164,11 @@ enum AppSettings {
         return try block(url)
     }
 
-    /// True while the onboarding wizard still owns the permission flow — first
-    /// launch, or any launch missing a required system permission (an ad-hoc
-    /// update or a TCC reset). Protected-folder access (the tray touching
-    /// ~/Downloads at launch) is deferred until this is false, so the tray
-    /// never fires the Downloads prompt ahead of the wizard's save-folder step.
+    /// True until the welcome flow is completed once. System permission state
+    /// is intentionally independent: resetting Screen Recording must not send
+    /// a returning user through onboarding again.
     static var onboardingPending: Bool {
         !UserDefaults.standard.bool(forKey: Keys.hasCompletedOnboarding)
-            || !CGPreflightScreenCaptureAccess()
     }
     static var filenamePreset: FilenamePreset {
         let raw = UserDefaults.standard.string(forKey: Keys.filenamePreset) ?? "compact"

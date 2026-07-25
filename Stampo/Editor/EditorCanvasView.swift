@@ -3,7 +3,8 @@ import SwiftUI
 
 /// Active tool in the editor toolbar.
 enum EditorTool: Equatable, CaseIterable {
-    case select, line, arrow, rect, oval, text, drawing, eraser, blur, step, loupe, scan, crop
+    case select, line, arrow, rect, oval, roundedRect, polygon, star,
+         bubble, text, drawing, eraser, blur, step, loupe, scan, crop
 
     /// Drawing tools shown in the toolbar picker. Scan and Crop are transient
     /// modes driven by their own action buttons, not persistent drawing tools,
@@ -27,7 +28,10 @@ enum EditorTool: Equatable, CaseIterable {
         case .blur:   return (11, "B")
         case .step:   return (1, "S")
         case .loupe:  return (46, "M")
-        case .scan, .crop: return nil
+        // Popover-only shapes are low-frequency and stay shortcut-free;
+        // recognition and crop stay transient modes without shortcuts.
+        case .roundedRect, .polygon, .star, .bubble,
+             .scan, .crop: return nil
         }
     }
 
@@ -42,6 +46,10 @@ enum EditorTool: Equatable, CaseIterable {
         case .arrow:  return "arrow.up.right"
         case .rect:   return "rectangle"
         case .oval:   return "oval"
+        case .roundedRect: return "app"
+        case .polygon:  return "hexagon"
+        case .star:     return "star"
+        case .bubble:   return "bubble.right"
         case .text:   return "textformat"
         case .drawing:return "pencil.tip"
         case .eraser: return "eraser"
@@ -60,6 +68,10 @@ enum EditorTool: Equatable, CaseIterable {
         case .arrow:  return "Arrow"
         case .rect:   return "Rectangle"
         case .oval:   return "Oval"
+        case .roundedRect: return "Rounded Rectangle"
+        case .polygon:  return "Polygon"
+        case .star:     return "Star"
+        case .bubble:   return "Bubble"
         case .text:   return "Text"
         case .drawing:return "Drawing"
         case .eraser: return "Eraser"
@@ -108,10 +120,20 @@ struct ToolStyle {
     /// Intensity detent for new blur annotations (BlurIntensity.range).
     var blurLevel: Int = BlurIntensity.defaultLevel
     var arrowStyle: ArrowStyle = .filled
+    /// Routing of new arrows (bendable shaft vs. elbowed run).
+    var arrowRoute: ArrowRoute = .curved
+    /// Whether elbowed arrows quantize their legs and endpoints to the grid.
+    var snapsToGrid = true
     var arrowHeadPlacement: ArrowHeadPlacement = .end
     var lineStyle: LineStyle = .solid
     /// Fill opacity (0…1) for new rect/oval; 0 is outline-only.
     var fillOpacity: CGFloat = 0
+    /// Sides for new polygons (ShapeCounts.polygonSides).
+    var polygonSides: Int = ShapeCounts.defaultPolygonSides
+    /// Points for new stars (ShapeCounts.starPoints).
+    var starPoints: Int = ShapeCounts.defaultStarPoints
+    /// Tail side for new bubbles.
+    var bubbleTail: BubbleTailDirection = .right
     /// nil = image-relative automatic size at placement.
     var fontSize: CGFloat?
     var fontPreset: AnnotationFontPreset = .system
@@ -136,6 +158,8 @@ struct ToolStyle {
     /// Whether new loupes reveal the original (unredacted) pixels.
     var loupeRevealsOriginal = false
     var drawingMode: DrawingMode = .pen
+    /// Nib shape for new marker strokes.
+    var markerTip: MarkerTip = .round
     var penWidth: CGFloat = 6
     var markerWidth: CGFloat = 24
     var eraserDiameter: CGFloat = 32
@@ -212,6 +236,12 @@ struct EditorCanvasView: View {
         case moving(UUID, last: CGPoint)
         case movingLoupePart(UUID, Annotation.LoupePart, last: CGPoint)
         case resizing(UUID, Annotation.Handle)
+        /// Sliding one leg of an elbow arrow's route parallel to itself. The
+        /// route as it was when the drag began travels with the mode: deriving
+        /// it afresh each frame would feed the gesture its own output, and
+        /// since the move adds or removes corners, the leg `index` refers to
+        /// would shift under it and the leg would oscillate.
+        case routeSegment(UUID, index: Int, baseline: [CGPoint])
         case panning(last: CGPoint)
         case recognitionSelecting(start: CGPoint, current: CGPoint)
         case cropCreating(start: CGPoint)
@@ -224,6 +254,10 @@ struct EditorCanvasView: View {
     /// Handle grab radius in view points (converted to pixels per gesture).
     private let handleGrabPt: CGFloat = 8
     private let hitTolerancePt: CGFloat = 6
+    /// Catch distance (view points) for snapping an arrow endpoint to a shape:
+    /// the reach of the reference anchors and the outline magnet, plus how far
+    /// outside a shape the magnet still grabs.
+    private let bindMagnetPt: CGFloat = 14
 
     var body: some View {
         GeometryReader { geo in
@@ -353,6 +387,15 @@ struct EditorCanvasView: View {
             // Selection chrome in view space (crisp at any zoom).
             if let selected = document.selectedAnnotation, selected.id != editingTextID {
                 drawSelection(for: selected, context: context, fitScale: fitScale, offset: offset)
+            }
+
+            // While dragging an arrow/line endpoint — either resizing an
+            // existing one or drawing a new one — show the shape's magnetic
+            // anchors and highlight the one the drop will snap to (none
+            // highlighted = releasing here leaves the endpoint free).
+            if let (id, tip) = bindingDragEndpoint {
+                drawBindingCandidates(near: tip, excluding: id, context: context,
+                                      fitScale: fitScale, offset: offset)
             }
 
             // Marquee for the unified scanner tool.
@@ -564,7 +607,28 @@ struct EditorCanvasView: View {
                            style: StrokeStyle(lineWidth: 1, dash: [4, 3], dashPhase: 3.5))
         }
 
-        var selectionPoints = a.handles.map(\.1)
+        // An elbow arrow shows a slider on each leg: a short bar lying across
+        // the leg, dragged to slide that leg parallel to itself.
+        if a.isElbowed {
+            let route = a.elbowRoute(in: document.annotations)
+            for (index, midpoint) in Annotation.routeSegmentMidpoints(route).enumerated() {
+                let leg = (route[index], route[index + 1])
+                let isVertical = abs(leg.0.x - leg.1.x) < 0.01
+                let c = toView(midpoint)
+                let long = Self.routeSliderLength / 2
+                let thin = Self.routeSliderThickness / 2
+                let bar = isVertical
+                    ? CGRect(x: c.x - thin, y: c.y - long,
+                             width: Self.routeSliderThickness, height: Self.routeSliderLength)
+                    : CGRect(x: c.x - long, y: c.y - thin,
+                             width: Self.routeSliderLength, height: Self.routeSliderThickness)
+                let shape = Path(roundedRect: bar, cornerRadius: thin)
+                context.fill(shape, with: .color(.blue))
+                context.stroke(shape, with: .color(.white.opacity(0.9)), lineWidth: 1)
+            }
+        }
+
+        var selectionPoints = a.handles(in: document.annotations).map(\.1)
         if a.kind == .freehand, let first = a.freehandPoints.first {
             selectionPoints = [first]
             if let last = a.freehandPoints.last, last != first {
@@ -578,6 +642,100 @@ struct EditorCanvasView: View {
             let circle = Path(ellipseIn: handleRect)
             context.fill(circle, with: .color(.white))
             context.stroke(circle, with: .color(.blue), lineWidth: 1.5)
+        }
+    }
+
+    /// Length and thickness of an elbow leg's slider bar, in view points.
+    private static let routeSliderLength: CGFloat = 18
+    private static let routeSliderThickness: CGFloat = 7
+
+    /// The editor's layout grid, in **image pixels** — deliberately not view
+    /// points, so the lattice is the same at every zoom and objects snapped at
+    /// different magnifications still line up with each other. A multiple of
+    /// the 4 pt layout unit.
+    static let gridStep: CGFloat = 24     // 6 × 4 pt
+
+    /// The grid step to quantize with right now; 1 disables quantization.
+    private var activeGrid: CGFloat {
+        style.snapsToGrid ? Self.gridStep : 1
+    }
+
+    /// A gesture point quantized to the layout grid, when snapping is on.
+    /// Freehand drawing and erasing never snap — a quantized brush is useless —
+    /// so those paths call this nowhere.
+    private func snapped(_ p: CGPoint) -> CGPoint {
+        guard style.snapsToGrid else { return p }
+        return Annotation.snappedToGrid(p, origin: .zero, grid: Self.gridStep)
+    }
+
+    /// Index of the elbow-route leg whose slider is within `tolerance` of `p`,
+    /// or nil. Endpoint legs included — dragging one buds a new corner.
+    private func routeSegmentSlider(of a: Annotation, at p: CGPoint,
+                                    tolerance: CGFloat) -> Int? {
+        guard a.isElbowed else { return nil }
+        let route = a.elbowRoute(in: document.annotations)
+        guard route.count >= 2 else { return nil }
+        return Annotation.routeSegmentMidpoints(route).firstIndex {
+            hypot($0.x - p.x, $0.y - p.y) <= tolerance
+        }
+    }
+
+    /// The moving endpoint whose binding candidates should be shown, if a drag
+    /// is placing an arrow/line endpoint (resizing an existing one or drawing a
+    /// new one). nil for every other drag.
+    private var bindingDragEndpoint: (id: UUID, tip: CGPoint)? {
+        func endpoint(_ id: UUID, _ handle: Annotation.Handle?) -> (UUID, CGPoint)? {
+            guard let a = document.annotations.first(where: { $0.id == id }),
+                  a.kind == .arrow || a.kind == .line else { return nil }
+            return (id, handle == .start ? a.start : a.end)
+        }
+        switch dragMode {
+        case let .resizing(id, handle) where handle == .start || handle == .end:
+            return endpoint(id, handle)
+        case let .creating(id):
+            return endpoint(id, .end)
+        default:
+            return nil
+        }
+    }
+
+    /// The magnetic anchors of the shape under a dragged endpoint. The dot the
+    /// drop would snap to is filled; visible ones are hollow. Nothing draws when
+    /// the endpoint isn't near a bindable shape.
+    private func drawBindingCandidates(near tip: CGPoint, excluding id: UUID,
+                                       context: GraphicsContext,
+                                       fitScale: CGFloat, offset: CGPoint) {
+        let tolerancePx = hitTolerancePt / fitScale
+        let magnetPx = bindMagnetPt / fitScale
+        guard let shape = document.annotations.last(where: {
+            $0.id != id && $0.isBindableTarget
+                && ($0.hitTest(tip, tolerance: tolerancePx, in: document.annotations)
+                    || $0.nearestBindingAnchor(to: tip, magnet: magnetPx) != nil)
+        }) else { return }
+        let snapped = shape.nearestBindingAnchor(to: tip, magnet: magnetPx)
+
+        func draw(_ point: CGPoint, active: Bool) {
+            let c = CGPoint(x: point.x * fitScale + offset.x,
+                            y: point.y * fitScale + offset.y)
+            let radius: CGFloat = active ? 6 : 4.5
+            let dot = Path(ellipseIn: CGRect(x: c.x - radius, y: c.y - radius,
+                                             width: radius * 2, height: radius * 2))
+            if active {
+                context.fill(dot, with: .color(.blue))
+                context.stroke(dot, with: .color(.white), lineWidth: 1.5)
+            } else {
+                context.fill(dot, with: .color(.white))
+                context.stroke(dot, with: .color(.blue.opacity(0.7)), lineWidth: 1.5)
+            }
+        }
+
+        // Visible anchors (edge midpoints) always show; the vertex anchors stay
+        // hidden unless one is the active snap target.
+        for candidate in shape.referenceAnchors() where candidate.isVisible {
+            draw(candidate.point, active: candidate == snapped)
+        }
+        if let snapped, !snapped.isVisible {
+            draw(snapped.point, active: true)
         }
     }
 
@@ -654,7 +812,7 @@ struct EditorCanvasView: View {
                         dragMode = .ignore
                         break
                     }
-                    dragMode = .moving(duplicateID, last: p)
+                    dragMode = .moving(duplicateID, last: snapped(p))
 
                 case .drawing(let id):
                     let sampleDistance = max(0.5, 1 / fitScale)
@@ -678,68 +836,144 @@ struct EditorCanvasView: View {
                         break
                     }
                     document.beginChange()
-                    var annotation = Annotation(kind: kind, start: startPixel, end: p,
+                    var annotation = Annotation(kind: kind, start: snapped(startPixel),
+                                                end: snapped(p),
                                                 color: style.color, lineWidth: style.lineWidth)
                     annotation.blurStyle = style.blurStyle
                     annotation.blurLevel = style.blurLevel
                     annotation.arrowStyle = style.arrowStyle
+                    annotation.arrowRoute = style.arrowRoute
                     annotation.arrowHeadPlacement = style.arrowHeadPlacement
                     annotation.lineStyle = style.lineStyle
                     annotation.fillOpacity = style.fillOpacity
+                    annotation.polygonSides = style.polygonSides
+                    annotation.starPoints = style.starPoints
+                    annotation.bubbleTail = style.bubbleTail
                     annotation.loupeScale = style.loupeScale
                     annotation.loupeShape = style.loupeShape
                     annotation.loupeRevealsOriginal = style.loupeRevealsOriginal
-                    annotation.end = constrainedEndpoint(p, from: startPixel, kind: kind)
+                    annotation.end = constrainedEndpoint(snapped(p), from: annotation.start,
+                                                         kind: kind)
+                    annotation.updateCreationOrientation()
                     document.annotations.append(annotation)
                     document.selectedID = annotation.id
                     dragMode = .creating(annotation.id)
 
                 case .creating(let id):
+                    let target = snapped(p)
                     update(id) {
-                        $0.end = constrainedEndpoint(p, from: $0.start, kind: $0.kind)
+                        $0.end = constrainedEndpoint(target, from: $0.start, kind: $0.kind)
+                        $0.updateCreationOrientation()
                     }
 
                 case .moving(let id, let last):
-                    let delta = CGPoint(x: p.x - last.x, y: p.y - last.y)
+                    // Snapping the pointer (not the raw delta) keeps a move in
+                    // whole grid steps, so an object created on the lattice
+                    // stays on it.
+                    let target = snapped(p)
+                    let delta = CGPoint(x: target.x - last.x, y: target.y - last.y)
+                    guard delta != .zero else { break }
                     update(id) { $0.move(by: delta) }
-                    dragMode = .moving(id, last: p)
+                    dragMode = .moving(id, last: target)
 
                 case .movingLoupePart(let id, let part, let last):
-                    let delta = CGPoint(x: p.x - last.x, y: p.y - last.y)
+                    let target = snapped(p)
+                    let delta = CGPoint(x: target.x - last.x, y: target.y - last.y)
+                    guard delta != .zero else { break }
                     update(id) { $0.moveLoupePart(part, by: delta) }
-                    dragMode = .movingLoupePart(id, part, last: p)
+                    dragMode = .movingLoupePart(id, part, last: target)
 
                 case .resizing(let id, let handle):
+                    // Curve control: a wide alignment band (≈9 pt) snaps a
+                    // near-straight bend flat, and Shift forces it straight.
+                    // Snap against the resolved chord the user sees, then store
+                    // the control in the raw chord frame so a bound arrow's bend
+                    // follows its endpoints (an identity map when unbound).
+                    if handle == .control,
+                       let arrow = document.annotations.first(where: { $0.id == id }),
+                       arrow.kind == .arrow {
+                        let rs = arrow.resolvedStart(in: document.annotations)
+                        let re = arrow.resolvedEnd(in: document.annotations)
+                        let snapDistance = 9 / fitScale
+                        update(id) { annotation in
+                            if let bent = Annotation.bentControl(
+                                forDrag: p, start: rs, end: re,
+                                snapDistance: snapDistance, forceStraight: isShiftHeld) {
+                                annotation.curveControl = Annotation.mapControl(
+                                    bent, fromStart: rs, fromEnd: re,
+                                    toStart: annotation.start, toEnd: annotation.end)
+                            } else {
+                                annotation.curveControl = nil
+                            }
+                        }
+                        break
+                    }
+                    // Every resize rides the shared lattice, so corners and
+                    // endpoints land where other snapped objects already are.
+                    let target = snapped(p)
+                    // A corner pushed through the opposite edge mirrors the
+                    // shape; the drag continues with the mirrored handle.
+                    var continuedHandle = handle
                     update(id) { annotation in
-                        // Curve control: dragging near the straight start–end
-                        // segment snaps the arrow back to straight, so bending
-                        // is fully reversible without any extra UI.
-                        if handle == .control, annotation.kind == .arrow {
-                            let snapDistance = 4 / fitScale
-                            let straightDistance = Annotation.distance(
-                                from: p, toSegment: annotation.start, annotation.end
-                            )
-                            annotation.curveControl =
-                                straightDistance <= snapDistance ? nil : p
-                            return
+                        // Dragging a bound endpoint detaches it: it follows the
+                        // cursor from its raw point live, and re-binds on release
+                        // only if dropped over a shape (in bindEndpoint).
+                        if (handle == .start || handle == .end),
+                           annotation.kind == .arrow || annotation.kind == .line {
+                            if handle == .start { annotation.startBinding = nil }
+                            else { annotation.endBinding = nil }
                         }
                         if isShiftHeld,
                            annotation.kind == .line || annotation.kind == .arrow {
                             switch handle {
                             case .start:
-                                annotation.start = Annotation.snappedArrowEnd(from: annotation.end, to: p)
+                                annotation.start = Annotation.snappedArrowEnd(from: annotation.end, to: target)
                             case .end:
-                                annotation.end = Annotation.snappedArrowEnd(from: annotation.start, to: p)
+                                annotation.end = Annotation.snappedArrowEnd(from: annotation.start, to: target)
                             default:
                                 break
                             }
                         } else {
-                            annotation.apply(handle: handle, to: p, aspectLocked: isShiftHeld)
+                            continuedHandle = annotation.apply(
+                                handle: handle, to: target, aspectLocked: isShiftHeld)
                         }
                     }
+                    if continuedHandle != handle {
+                        dragMode = .resizing(id, continuedHandle)
+                    }
+
+                case .routeSegment(let id, let index, let baseline):
+                    // Always slide from the gesture's fixed baseline, so the
+                    // result is a pure function of the pointer; legs that
+                    // collapse to zero length drop out.
+                    let waypoints = Annotation.movingRouteSegment(
+                        baseline, index: index, to: p, grid: activeGrid)
+                    update(id) { $0.elbowWaypoints = waypoints }
 
                 case .recognitionSelecting(let start, _):
                     dragMode = .recognitionSelecting(start: start, current: p)
+
+                case .cropCreating(let start) where style.snapsToGrid:
+                    let moved = hypot(value.translation.width, value.translation.height)
+                    if moved >= 3 {
+                        let a = snapped(start), b = snapped(p)
+                        let raw = CGRect(x: min(a.x, b.x), y: min(a.y, b.y),
+                                         width: abs(b.x - a.x), height: abs(b.y - a.y))
+                        cropRect = raw.intersection(CGRect(origin: .zero, size: pixel))
+                    }
+
+                case .cropMoving(let last) where style.snapsToGrid:
+                    let target = snapped(p)
+                    if let rect = cropRect, target != last {
+                        cropRect = movedCrop(rect, by: CGPoint(x: target.x - last.x,
+                                                               y: target.y - last.y))
+                        dragMode = .cropMoving(last: target)
+                    }
+
+                case .cropResizing(let handle) where style.snapsToGrid:
+                    if let rect = cropRect {
+                        cropRect = resizedCrop(rect, handle: handle, to: snapped(p))
+                    }
 
                 case .cropCreating(let start):
                     // Ignore a stray click (or the first sub-pixel of a drag) so
@@ -812,6 +1046,22 @@ struct EditorCanvasView: View {
                             $0.start = CGPoint(x: display.minX, y: display.minY)
                             $0.end = CGPoint(x: display.maxX, y: display.maxY)
                         }
+                        // A freshly drawn elbow arrow squares up onto its axis
+                        // when it was drawn nearly straight.
+                        update(id) { $0.alignForElbow(tolerance: 12 / fitScale) }
+                        // A freshly drawn arrow/line binds whichever endpoints
+                        // landed on (or near) a shape, so drawing one straight
+                        // onto a shape connects it — same undo step.
+                        if let a = document.annotations.first(where: { $0.id == id }),
+                           a.kind == .arrow || a.kind == .line {
+                            let tolerancePx = hitTolerancePt / fitScale
+                            let magnetPx = bindMagnetPt / fitScale
+                            document.bindEndpoint(.start, of: id, releasedAt: a.start,
+                                                  tolerance: tolerancePx, magnet: magnetPx)
+                            document.bindEndpoint(.end, of: id, releasedAt: a.end,
+                                                  tolerance: tolerancePx, magnet: magnetPx)
+                            document.refreshBindingFallbacks()
+                        }
                         document.commitChange()
                     }
                 case .drawing(let id):
@@ -831,7 +1081,22 @@ struct EditorCanvasView: View {
                     }
                 case .erasing:
                     document.commitChange()
-                case .moving, .movingLoupePart, .resizing:
+                case .routeSegment:
+                    document.commitChange()
+                case .moving, .movingLoupePart:
+                    // A moved/resized shape can carry bound arrows with it;
+                    // refresh their fallbacks so a later delete freezes them
+                    // at the right spot.
+                    document.refreshBindingFallbacks()
+                    document.commitChange()
+                case .resizing(let id, let handle):
+                    // Dropping an arrow/line endpoint over (or near) a shape
+                    // binds it; empty space clears any prior binding. Part of
+                    // the same undo step as the drag.
+                    document.bindEndpoint(handle, of: id, releasedAt: p,
+                                          tolerance: hitTolerancePt / fitScale,
+                                          magnet: bindMagnetPt / fitScale)
+                    document.refreshBindingFallbacks()
                     document.commitChange()
                 case .recognitionSelecting(let start, _):
                     let rect = CGRect(x: min(start.x, p.x), y: min(start.y, p.y),
@@ -851,11 +1116,21 @@ struct EditorCanvasView: View {
         let grabPx = handleGrabPt / fitScale
         let tolerancePx = hitTolerancePt / fitScale
 
-        // Resize handles of the current selection win over everything.
+        // Resize handles of the current selection win over everything. Bound
+        // arrow endpoints are grabbed at their resolved (drawn) positions.
         if let selected = document.selectedAnnotation,
-           let handle = selected.handle(at: p, tolerance: grabPx) {
+           let handle = selected.handle(at: p, tolerance: grabPx, in: document.annotations) {
             document.beginChange()
             return .resizing(selected.id, handle)
+        }
+
+        // An elbow arrow's per-leg sliders sit below the endpoint handles. The
+        // route is captured here and drives the whole drag.
+        if let selected = document.selectedAnnotation,
+           let index = routeSegmentSlider(of: selected, at: p, tolerance: grabPx) {
+            document.beginChange()
+            return .routeSegment(selected.id, index: index,
+                                 baseline: selected.elbowRoute(in: document.annotations))
         }
 
         // Option-drag duplicates any annotation body under the cursor, even
@@ -883,9 +1158,9 @@ struct EditorCanvasView: View {
                 // A callout loupe's bodies drag independently; whole-
                 // annotation moves stay on the keyboard-nudge path.
                 if let part = hit.loupePart(at: p, tolerance: tolerancePx) {
-                    return .movingLoupePart(hit.id, part, last: p)
+                    return .movingLoupePart(hit.id, part, last: snapped(p))
                 }
-                return .moving(hit.id, last: p)
+                return .moving(hit.id, last: snapped(p))
             }
             // Empty space: a click deselects (in handleClick), a drag pans.
             return .undecided(pixelPoint: p)
@@ -895,7 +1170,7 @@ struct EditorCanvasView: View {
             if let selected = document.selectedAnnotation,
                selected.kind == .text, selected.hitTest(p, tolerance: tolerancePx) {
                 document.beginChange()
-                return .moving(selected.id, last: p)
+                return .moving(selected.id, last: snapped(p))
             }
             return .undecided(pixelPoint: p)
         case .drawing:
@@ -905,6 +1180,7 @@ struct EditorCanvasView: View {
             var annotation = Annotation(kind: .freehand, start: p, end: p,
                                         color: style.color, lineWidth: width)
             annotation.freehandStyle = style.drawingMode.freehandStyle
+            annotation.markerTip = style.markerTip
             annotation.appendFreehandPoint(p, minimumDistance: 0)
             document.annotations.append(annotation)
             document.selectedID = annotation.id
@@ -914,16 +1190,17 @@ struct EditorCanvasView: View {
             document.beginChange()
             document.eraseFreehand(from: p, to: p, diameter: style.eraserDiameter)
             return .erasing(last: p)
-        case .line, .arrow, .rect, .oval, .blur, .step, .loupe:
+        case .line, .arrow, .rect, .oval, .roundedRect, .polygon,
+             .star, .bubble, .blur, .step, .loupe:
             // Dragging the selected annotation's body moves it even with a
             // shape tool active; empty space starts a new shape on drag.
             if let selected = document.selectedAnnotation,
-               selected.hitTest(p, tolerance: tolerancePx) {
+               selected.hitTest(p, tolerance: tolerancePx, in: document.annotations) {
                 document.beginChange()
                 if let part = selected.loupePart(at: p, tolerance: tolerancePx) {
-                    return .movingLoupePart(selected.id, part, last: p)
+                    return .movingLoupePart(selected.id, part, last: snapped(p))
                 }
-                return .moving(selected.id, last: p)
+                return .moving(selected.id, last: snapped(p))
             }
             return .undecided(pixelPoint: p)
         }
@@ -939,10 +1216,10 @@ struct EditorCanvasView: View {
         switch tool {
         case .text:
             if let hit, hit.kind == .text { document.selectedID = hit.id }
-            else { placeText(at: p) }        // new text opens straight into editing
+            else { placeText(at: snapped(p)) }        // new text opens straight into editing
         case .step:
             if let hit, hit.kind == .step { document.selectedID = hit.id }
-            else { placeStep(at: p) }
+            else { placeStep(at: snapped(p)) }
         default:
             document.selectedID = hit?.id
         }
@@ -1001,6 +1278,10 @@ struct EditorCanvasView: View {
         case .arrow: return .arrow
         case .rect:  return .rect
         case .oval:  return .oval
+        case .roundedRect: return .roundedRect
+        case .polygon:  return .polygon
+        case .star:     return .star
+        case .bubble:   return .bubble
         case .blur:  return .blur
         case .loupe: return .loupe
         case .select, .text, .drawing, .eraser, .step, .scan, .crop: return nil
@@ -1032,8 +1313,10 @@ struct EditorCanvasView: View {
         switch kind {
         case .line, .arrow:
             return Annotation.snappedArrowEnd(from: start, to: point)
-        case .rect, .oval, .loupe:
-            // Shift makes a loupe's oval a circle (its rounded rect a square).
+        case .rect, .oval, .roundedRect, .polygon, .star, .bubble,
+             .loupe:
+            // Shift makes a loupe's oval a circle (its rounded rect a square,
+            // a polygon or star regular).
             return Annotation.aspectLockedEnd(from: start, to: point)
         case .text, .freehand, .blur, .step:
             return point

@@ -1,4 +1,6 @@
 import SwiftUI
+import AppKit
+import CoreGraphics
 
 struct GeneralSettingsView: View {
     @AppStorage(AppSettings.Keys.showThumbnailHUD)      private var showThumbnailHUD      = true
@@ -11,6 +13,7 @@ struct GeneralSettingsView: View {
     @AppStorage(AppSettings.Keys.preferredLanguage)     private var preferredLanguage      = "system"
 
     @State private var launchAtLogin = AppSettings.launchAtLoginEnabled
+    @State private var screenRecordingGranted = CGPreflightScreenCaptureAccess()
 
     var body: some View {
         Form {
@@ -25,16 +28,34 @@ struct GeneralSettingsView: View {
                         }
                 }
 
-                // Notch clicks run on permission-free NSEvent monitors — there
-                // is no broken state left to surface, so the old status row
-                // (badge / Retry) is gone.
                 SettingRow(
                     icon: "lock.shield",
-                    title: "Permissions",
-                    description: "Screen recording"
+                    title: "Screen recording",
+                    description: "For screenshots, scanning, and color picking"
                 ) {
-                    Button("Set up…") {
-                        FirstLaunchWindowController.shared.show()
+                    HStack(spacing: 12) {
+                        Group {
+                            if screenRecordingGranted {
+                                Text("Granted")
+                            } else {
+                                Text("Permission required")
+                            }
+                        }
+                        .foregroundStyle(.secondary)
+
+                        Button("Set up…") {
+                            openScreenRecordingSettings()
+                        }
+                    }
+                }
+
+                SettingRow(
+                    icon: "sparkles",
+                    title: "Introduction",
+                    description: "Show the welcome again"
+                ) {
+                    Button("Show…") {
+                        FirstLaunchWindowController.shared.show(presentation: .introduction)
                     }
                 }
             }
@@ -133,5 +154,27 @@ struct GeneralSettingsView: View {
             }
         }
         .formStyle(.grouped)
+        .onAppear {
+            refreshScreenRecordingStatus()
+        }
+        .onReceive(NotificationCenter.default.publisher(
+            for: NSApplication.didBecomeActiveNotification
+        )) { _ in
+            refreshScreenRecordingStatus()
+        }
+    }
+
+    private func refreshScreenRecordingStatus() {
+        screenRecordingGranted = CGPreflightScreenCaptureAccess()
+    }
+
+    private func openScreenRecordingSettings() {
+        guard let url = URL(
+            string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"
+        ) else { return }
+        // Stampo's settings window floats above normal windows; close it so it
+        // cannot cover the System Settings pane the user is trying to change.
+        SettingsWindowController.shared.close()
+        NSWorkspace.shared.open(url)
     }
 }

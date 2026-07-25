@@ -43,19 +43,20 @@ import Testing
         #expect(line.handles.map(\.0) == [.start, .end])
     }
 
-    @Test func rectHitsBorderNotInterior() {
+    @Test func rectHitsInteriorEvenUnfilled() {
+        // 0% fill still reads as the shape's body (Fitts): the interior
+        // selects and drags without sniping the outline.
         let a = make(.rect, start: CGPoint(x: 10, y: 10), end: CGPoint(x: 110, y: 90))
         #expect(a.hitTest(CGPoint(x: 60, y: 11), tolerance: 4))   // top edge
-        #expect(a.hitTest(CGPoint(x: 109, y: 50), tolerance: 4))  // right edge
-        #expect(!a.hitTest(CGPoint(x: 60, y: 50), tolerance: 4))  // deep inside
+        #expect(a.hitTest(CGPoint(x: 60, y: 50), tolerance: 4))   // deep inside
         #expect(!a.hitTest(CGPoint(x: 200, y: 50), tolerance: 4)) // far outside
     }
 
-    @Test func ovalHitsOutline() {
+    @Test func ovalHitsEllipseInteriorNotCorners() {
         let a = make(.oval, start: CGPoint(x: 0, y: 0), end: CGPoint(x: 100, y: 100))
         #expect(a.hitTest(CGPoint(x: 50, y: 1), tolerance: 4))    // top of circle
-        #expect(a.hitTest(CGPoint(x: 99, y: 50), tolerance: 4))   // right of circle
-        #expect(!a.hitTest(CGPoint(x: 50, y: 50), tolerance: 4))  // center
+        #expect(a.hitTest(CGPoint(x: 50, y: 50), tolerance: 4))   // center
+        #expect(!a.hitTest(CGPoint(x: 3, y: 3), tolerance: 4))    // bounding-box corner
     }
 
     @Test func filledShapesHitTheirInterior() {
@@ -66,6 +67,159 @@ import Testing
         var oval = make(.oval, start: CGPoint(x: 10, y: 10), end: CGPoint(x: 90, y: 90))
         oval.fillOpacity = 0.2
         #expect(oval.hitTest(CGPoint(x: 50, y: 50), tolerance: 0))
+    }
+
+    // MARK: collapse edge cases (minimum size)
+
+    @Test func loupeBodiesNeverCollapse() {
+        // In-place loupe: compressing a corner all the way onto the anchor
+        // stops at the minimum size instead of vanishing.
+        var inPlace = make(.loupe, start: CGPoint(x: 10, y: 10),
+                           end: CGPoint(x: 90, y: 90))
+        inPlace.apply(handle: .topLeft, to: CGPoint(x: 90, y: 90))
+        #expect(inPlace.rect.size == CGSize(width: Annotation.minimumShapeSize,
+                                            height: Annotation.minimumShapeSize))
+
+        // Callout magnifier: the collapsing drag clamps (no mirroring for a
+        // loupe), and the coupled source marker keeps a nonzero size too.
+        var callout = make(.loupe, start: CGPoint(x: 100, y: 100),
+                           end: CGPoint(x: 180, y: 180))
+        callout.loupeSource = CGPoint(x: 40, y: 40)
+        callout.loupeSourceSize = CGSize(width: 40, height: 40)
+        let handle = callout.apply(handle: .topLeft, to: CGPoint(x: 500, y: 500))
+        #expect(handle == .topLeft)   // no mirrored handle for a loupe
+        #expect(callout.rect.size == CGSize(width: Annotation.minimumShapeSize,
+                                            height: Annotation.minimumShapeSize))
+        #expect((callout.loupeSourceSize?.width ?? 0) >= Annotation.minimumShapeSize)
+
+        // Source marker: same guarantee from the other body's corners, with
+        // the magnifier scaled in step but floored at the minimum.
+        var c2 = make(.loupe, start: CGPoint(x: 100, y: 100),
+                      end: CGPoint(x: 180, y: 180))
+        c2.loupeSource = CGPoint(x: 40, y: 40)
+        c2.loupeSourceSize = CGSize(width: 40, height: 40)
+        c2.apply(handle: .sourceTopLeft, to: CGPoint(x: 60, y: 60))
+        #expect(c2.loupeSourceSize == CGSize(width: Annotation.minimumShapeSize,
+                                             height: Annotation.minimumShapeSize))
+        #expect(c2.rect.width >= Annotation.minimumShapeSize)
+        #expect(c2.rect.height >= Annotation.minimumShapeSize)
+    }
+
+    @Test func pathShapesStayValidAtMinimumSize() {
+        for kind in [AnnotationKind.roundedRect, .polygon, .star, .bubble] {
+            var a = make(kind, start: CGPoint(x: 12, y: 12),
+                         end: CGPoint(x: 12 + Annotation.minimumShapeSize,
+                                      y: 12 + Annotation.minimumShapeSize))
+            a.polygonSides = ShapeCounts.polygonSides.lowerBound
+            a.starPoints = ShapeCounts.starPoints.upperBound
+            let outline = a.pathShapeOutline
+            #expect(outline != nil && !(outline?.isEmpty ?? true))
+            #expect(a.hitTest(CGPoint(x: 16, y: 16), tolerance: 4))
+        }
+    }
+
+    // MARK: path shapes (rounded rect, polygon, star, bubble)
+
+    @Test func triangularPolygonHitsPathInteriorNotBoundingBox() {
+        var triangle = make(.polygon, start: CGPoint(x: 0, y: 0),
+                            end: CGPoint(x: 100, y: 100))
+        triangle.polygonSides = 3
+        #expect(triangle.hitTest(CGPoint(x: 50, y: 1), tolerance: 4))    // apex
+        #expect(triangle.hitTest(CGPoint(x: 50, y: 99), tolerance: 4))   // base
+        #expect(triangle.hitTest(CGPoint(x: 50, y: 60), tolerance: 4))   // inside
+        // Inside the bounding rect but outside the triangle: still a miss.
+        #expect(!triangle.hitTest(CGPoint(x: 3, y: 5), tolerance: 4))
+    }
+
+    @Test func polygonAndStarVerticesFollowTheirCounts() {
+        let square = CGRect(x: 0, y: 0, width: 100, height: 100)
+        #expect(Annotation.polygonVertices(sides: 6, in: square).count == 6)
+        // First vertex sits at the top center.
+        let top = Annotation.polygonVertices(sides: 5, in: square)[0]
+        #expect(abs(top.x - 50) < 0.001 && abs(top.y) < 0.001)
+
+        let star = Annotation.starVertices(points: 5, in: square)
+        #expect(star.count == 10)   // outer points alternating with inner
+        #expect(abs(star[0].x - 50) < 0.001 && abs(star[0].y) < 0.001)
+    }
+
+    @Test func polygonVerticesFillTheirBoundingRect() {
+        // Fit-to-rect: no gap between flat sides and the bounds — a triangle's
+        // base sits exactly on the bottom edge, corners at the rect corners.
+        let square = CGRect(x: 0, y: 0, width: 100, height: 100)
+        let triangle = Annotation.polygonVertices(sides: 3, in: square)
+        let xs = triangle.map(\.x), ys = triangle.map(\.y)
+        #expect(abs(xs.min()!) < 0.001 && abs(xs.max()! - 100) < 0.001)
+        #expect(abs(ys.min()!) < 0.001 && abs(ys.max()! - 100) < 0.001)
+
+        for count in ShapeCounts.starPoints {
+            let ys = Annotation.starVertices(points: count, in: square).map(\.y)
+            #expect(abs(ys.min()!) < 0.001 && abs(ys.max()! - 100) < 0.001)
+        }
+    }
+
+    @Test func upwardCreationDragFlipsPolygonApexDownward() {
+        // Drawing upward points the apex down — the funnel case. Orientation
+        // is stored, set from the drag while creating.
+        let flipped = Annotation.polygonVertices(
+            sides: 3, in: CGRect(x: 0, y: 0, width: 100, height: 100),
+            flippedVertically: true)
+        #expect(abs(flipped[0].x - 50) < 0.001 && abs(flipped[0].y - 100) < 0.001)
+
+        var funnel = make(.polygon, start: CGPoint(x: 0, y: 100),
+                          end: CGPoint(x: 100, y: 0))
+        funnel.polygonSides = 3
+        funnel.updateCreationOrientation()
+        #expect(funnel.flippedVertically)
+        #expect(funnel.hitTest(CGPoint(x: 50, y: 99), tolerance: 4))   // apex at bottom
+        #expect(!funnel.hitTest(CGPoint(x: 3, y: 95), tolerance: 4))   // outside old apex corner
+    }
+
+    @Test func resizeDeadZoneHoldsOrientationDecisiveCrossingFlipsIt() {
+        var funnel = make(.polygon, start: CGPoint(x: 0, y: 100),
+                          end: CGPoint(x: 100, y: 0))
+        funnel.polygonSides = 3
+        funnel.updateCreationOrientation()
+        #expect(funnel.flippedVertically)
+
+        // Ordinary resize: same handle back, orientation untouched.
+        var handle = funnel.apply(handle: .bottomRight, to: CGPoint(x: 120, y: 120))
+        #expect(handle == .bottomRight && funnel.flippedVertically)
+        #expect(funnel.rect == CGRect(x: 0, y: 0, width: 120, height: 120))
+
+        // Within ±minimumShapeSize of the anchor: the shape sits at the
+        // minimum size on its original side — jitter can't flip it.
+        handle = funnel.apply(handle: .bottomRight, to: CGPoint(x: 120, y: -4))
+        #expect(handle == .bottomRight && funnel.flippedVertically)
+        #expect(funnel.rect == CGRect(x: 0, y: 0, width: 120,
+                                      height: Annotation.minimumShapeSize))
+
+        // A decisive push through the opposite edge mirrors the shape: the
+        // apex flips and the drag continues with the mirrored handle.
+        handle = funnel.apply(handle: .bottomRight, to: CGPoint(x: 120, y: -40))
+        #expect(handle == .topRight)
+        #expect(!funnel.flippedVertically)
+        #expect(funnel.rect == CGRect(x: 0, y: -40, width: 120, height: 40))
+
+        // The continued drag with the mirrored handle keeps the same fixed
+        // anchor and doesn't re-flip.
+        handle = funnel.apply(handle: handle, to: CGPoint(x: 120, y: -60))
+        #expect(handle == .topRight && !funnel.flippedVertically)
+        #expect(funnel.rect == CGRect(x: 0, y: -60, width: 120, height: 60))
+    }
+
+    @Test func bubbleTailFollowsItsSideAndKeepsCornerHandles() {
+        var bubble = make(.bubble, start: CGPoint(x: 0, y: 0),
+                          end: CGPoint(x: 120, y: 80))
+        bubble.bubbleTail = .left
+        // The tail tip reaches the rect's bottom corner on the chosen side.
+        #expect(bubble.hitTest(CGPoint(x: 1, y: 79), tolerance: 4))
+        bubble.bubbleTail = .right
+        #expect(bubble.hitTest(CGPoint(x: 119, y: 79), tolerance: 4))
+        #expect(!bubble.hitTest(CGPoint(x: 1, y: 79), tolerance: 4))
+
+        #expect(bubble.handles.map(\.0) ==
+                [.topLeft, .topRight, .bottomLeft, .bottomRight])
     }
 
     @Test func blurAndTextHitAnywhereInside() {
@@ -192,7 +346,7 @@ import Testing
         source.blurStyle = .gaussian
         source.blurLevel = 5
         source.fillOpacity = 0.35
-        source.arrowStyle = .bold
+        source.arrowStyle = .dashed
         source.arrowHeadPlacement = .both
         source.lineStyle = .dashed
         source.stepLabel = "7"
@@ -334,6 +488,27 @@ import Testing
         #expect(points.last == CGPoint(x: 100, y: 0))
         // Apex sample: t = 0.5 → (50, 25).
         #expect(points.contains { abs($0.x - 50) < 0.001 && abs($0.y - 25) < 0.001 })
+    }
+
+    @Test func bendControlAlignsToStraightWithinBandOrWithShift() {
+        let start = CGPoint.zero, end = CGPoint(x: 100, y: 0)
+        // A clear bend keeps the drag point as the control.
+        #expect(Annotation.bentControl(forDrag: CGPoint(x: 50, y: 40),
+                                       start: start, end: end,
+                                       snapDistance: 9, forceStraight: false)
+                == CGPoint(x: 50, y: 40))
+        // Within the alignment band of the chord → snaps straight (nil).
+        #expect(Annotation.bentControl(forDrag: CGPoint(x: 50, y: 6),
+                                       start: start, end: end,
+                                       snapDistance: 9, forceStraight: false) == nil)
+        // Just outside the band still bends.
+        #expect(Annotation.bentControl(forDrag: CGPoint(x: 50, y: 12),
+                                       start: start, end: end,
+                                       snapDistance: 9, forceStraight: false) != nil)
+        // Shift forces straight regardless of deviation.
+        #expect(Annotation.bentControl(forDrag: CGPoint(x: 50, y: 40),
+                                       start: start, end: end,
+                                       snapDistance: 9, forceStraight: true) == nil)
     }
 
     @Test func arrowEndpointSnapsToNearest45DegreeRay() {
@@ -505,6 +680,465 @@ import Testing
     @Test func loupeDegenerateUnderFourPixels() {
         #expect(make(.loupe, start: .zero, end: CGPoint(x: 3, y: 3)).isDegenerate)
         #expect(!make(.loupe, start: .zero, end: CGPoint(x: 20, y: 20)).isDegenerate)
+    }
+
+    // MARK: arrow binding (resolver + ray-to-outline)
+
+    /// Close-enough comparison for the flattened-outline resolver, whose
+    /// path-shape crossings carry subdivision error.
+    private func approx(_ a: CGPoint, _ b: CGPoint, tol: CGFloat = 0.5) -> Bool {
+        abs(a.x - b.x) <= tol && abs(a.y - b.y) <= tol
+    }
+
+    @Test func unboundEndpointsResolveToRawPoints() {
+        let target = make(.rect, start: CGPoint(x: 100, y: 100),
+                          end: CGPoint(x: 200, y: 200))
+        let arrow = make(.arrow, start: CGPoint(x: 0, y: 150),
+                         end: CGPoint(x: 300, y: 150))
+        #expect(arrow.resolvedStart(in: [target, arrow]) == CGPoint(x: 0, y: 150))
+        #expect(arrow.resolvedEnd(in: [target, arrow]) == CGPoint(x: 300, y: 150))
+    }
+
+    @Test func boundEndpointsResolveToTheirAnchorsOnBothShapes() {
+        // Two rects 300 apart; each end binds to the edge facing the other.
+        let a = make(.rect, start: CGPoint(x: 100, y: 100),
+                     end: CGPoint(x: 200, y: 200))   // right edge mid (200,150)
+        let b = make(.rect, start: CGPoint(x: 400, y: 100),
+                     end: CGPoint(x: 500, y: 200))   // left edge mid  (400,150)
+        var arrow = make(.arrow, start: CGPoint(x: 999, y: 999),
+                         end: CGPoint(x: 999, y: 999))
+        arrow.startBinding = EndpointBinding(
+            targetID: a.id, anchor: .fixed(unit: CGPoint(x: 1, y: 0.5)),
+            fallback: .zero)
+        arrow.endBinding = EndpointBinding(
+            targetID: b.id, anchor: .fixed(unit: CGPoint(x: 0, y: 0.5)),
+            fallback: .zero)
+        let list = [a, b, arrow]
+        #expect(arrow.resolvedStart(in: list) == CGPoint(x: 200, y: 150))
+        #expect(arrow.resolvedEnd(in: list) == CGPoint(x: 400, y: 150))
+    }
+
+    @Test func bindingFallsBackWhenTargetIsGone() {
+        var arrow = make(.arrow, start: CGPoint(x: 0, y: 0),
+                         end: CGPoint(x: 50, y: 50))
+        arrow.endBinding = EndpointBinding(
+            targetID: UUID(), anchor: .fixed(unit: CGPoint(x: 0, y: 0.5)),
+            fallback: CGPoint(x: 7, y: 7))
+        #expect(arrow.resolvedEnd(in: [arrow]) == CGPoint(x: 7, y: 7))
+    }
+
+    @Test func boundArrowHitAndHandlesUseResolvedEndpoints() {
+        // Arrow from the left with its tip bound to a rect centered (150,150).
+        // Its raw end is off at (300,150), but interaction must happen where
+        // it's drawn: tip resolved to the left edge (100,150).
+        let rect = make(.rect, start: CGPoint(x: 100, y: 100),
+                        end: CGPoint(x: 200, y: 200))
+        var arrow = make(.arrow, start: CGPoint(x: 0, y: 150),
+                         end: CGPoint(x: 300, y: 150))
+        arrow.endBinding = EndpointBinding(targetID: rect.id, anchor: .fixed(unit: CGPoint(x: 0, y: 0.5)),
+                                           fallback: .zero)
+        let list = [rect, arrow]
+        // Handle grab lands on the resolved tip, not the raw end.
+        #expect(arrow.handle(at: CGPoint(x: 100, y: 150), tolerance: 6, in: list) == .end)
+        #expect(arrow.handle(at: CGPoint(x: 300, y: 150), tolerance: 6, in: list) == nil)
+        // Hit-testing follows the drawn shaft (0…100), not the stale raw shaft.
+        #expect(arrow.hitTest(CGPoint(x: 50, y: 150), tolerance: 4, in: list))
+        #expect(!arrow.hitTest(CGPoint(x: 200, y: 150), tolerance: 4, in: list))
+        // With no bindings the resolved variants match the plain ones.
+        let free = make(.arrow, start: .zero, end: CGPoint(x: 100, y: 0))
+        #expect(free.handle(at: CGPoint(x: 100, y: 0), tolerance: 5, in: [free]) == .end)
+    }
+
+    /// True when some anchor sits within `tol` of `p`.
+    private func hasAnchor(_ anchors: [ReferenceAnchor], at p: CGPoint,
+                           visible: Bool? = nil, tol: CGFloat = 0.5) -> Bool {
+        anchors.contains {
+            abs($0.point.x - p.x) <= tol && abs($0.point.y - p.y) <= tol
+                && (visible == nil || $0.isVisible == visible)
+        }
+    }
+
+    /// The hidden center connector anchor.
+    private func centerAnchor(_ anchors: [ReferenceAnchor]) -> ReferenceAnchor? {
+        anchors.first { $0.isCenter }
+    }
+
+    @Test func ovalExposesFourVisibleAnchorsPlusHiddenCenter() {
+        // Wide oval centered (200,150), half-axes 100×50.
+        let oval = make(.oval, start: CGPoint(x: 100, y: 100),
+                        end: CGPoint(x: 300, y: 200))
+        let anchors = oval.referenceAnchors()
+        #expect(anchors.filter(\.isVisible).count == 4)
+        #expect(hasAnchor(anchors, at: CGPoint(x: 200, y: 100)))   // top
+        #expect(hasAnchor(anchors, at: CGPoint(x: 200, y: 200)))   // bottom
+        #expect(hasAnchor(anchors, at: CGPoint(x: 100, y: 150)))   // left
+        #expect(hasAnchor(anchors, at: CGPoint(x: 300, y: 150)))   // right
+        // The hidden center anchor sits at the middle and binds dynamically.
+        #expect(centerAnchor(anchors)?.point == CGPoint(x: 200, y: 150))
+        // A drop toward an edge snaps to it…
+        #expect(oval.nearestBindingAnchor(to: CGPoint(x: 200, y: 105), magnet: 14)?.point
+                == CGPoint(x: 200, y: 100))
+        // …a drop in the ring between center and edge stays free…
+        #expect(oval.nearestBindingAnchor(to: CGPoint(x: 200, y: 128), magnet: 14) == nil)
+        // …and a drop at the center snaps to the center connector (tip lands
+        // there, bound to the shape).
+        #expect(oval.nearestBindingAnchor(to: CGPoint(x: 200, y: 150), magnet: 14)?.isCenter == true)
+        #expect(oval.nearestBindingAnchor(to: CGPoint(x: 200, y: 150), magnet: 14)?.spec
+                == .fixed(unit: CGPoint(x: 0.5, y: 0.5)))
+        // Non-bindable kinds expose no anchors.
+        #expect(make(.arrow, start: .zero, end: CGPoint(x: 10, y: 10))
+            .referenceAnchors().isEmpty)
+    }
+
+    @Test func rectAnchorsAreVisibleEdgeMidsAndHiddenCornersPlusCenter() {
+        let rect = make(.rect, start: .zero, end: CGPoint(x: 100, y: 60))
+        let anchors = rect.referenceAnchors()
+        #expect(anchors.filter(\.isVisible).count == 4)        // edge midpoints
+        #expect(anchors.filter { !$0.isVisible }.count == 5)   // 4 corners + center
+        // Edge midpoints are the visible anchors.
+        #expect(hasAnchor(anchors, at: CGPoint(x: 50, y: 0), visible: true))
+        #expect(hasAnchor(anchors, at: CGPoint(x: 0, y: 30), visible: true))
+        // Corners are hidden vertex anchors, still snappable.
+        #expect(hasAnchor(anchors, at: CGPoint(x: 0, y: 0), visible: false))
+        #expect(hasAnchor(anchors, at: CGPoint(x: 100, y: 60), visible: false))
+        // A drop into a corner snaps to that (hidden) vertex.
+        #expect(rect.nearestBindingAnchor(to: CGPoint(x: 6, y: 6), magnet: 14)?.point == .zero)
+    }
+
+    @Test func polygonAnchorsRecomputePerSideCount() {
+        // Triangle apex-up in (0,0)…(100,100): 3 hidden vertices (apex + base
+        // corners) and 3 visible edge midpoints, all on the real outline, plus
+        // the hidden center.
+        var triangle = make(.polygon, start: .zero, end: CGPoint(x: 100, y: 100))
+        triangle.polygonSides = 3
+        let anchors = triangle.referenceAnchors()
+        #expect(anchors.filter { !$0.isVisible }.count == 4)   // 3 vertices + center
+        #expect(anchors.filter(\.isVisible).count == 3)        // edge mids
+        #expect(hasAnchor(anchors, at: CGPoint(x: 50, y: 0), visible: false))    // apex
+        #expect(hasAnchor(anchors, at: CGPoint(x: 50, y: 100), visible: true))   // base mid
+        // Six-sided polygon recomputes to 6 + 6 + center.
+        triangle.polygonSides = 6
+        #expect(triangle.referenceAnchors().count == 13)
+    }
+
+    @Test func outlineMagnetSnapsNearContourBetweenReferences() {
+        // rect (0,0)…(100,60). A drop just outside the top edge, away from any
+        // reference, magnets to the nearest contour point.
+        let rect = make(.rect, start: .zero, end: CGPoint(x: 100, y: 60))
+        let snap = rect.nearestBindingAnchor(to: CGPoint(x: 25, y: -8), magnet: 14)
+        #expect(snap?.point == CGPoint(x: 25, y: 0))          // foot on the edge
+        #expect(snap?.spec == .fixed(unit: CGPoint(x: 0.25, y: 0)))
+        #expect(snap?.isVisible == false && snap?.isCenter == false)
+    }
+
+    @Test func referencesOutrankTheOutlineMagnet() {
+        // Near the top-edge midpoint reference: it wins even though the raw
+        // nearest-contour point (44,0) is closer than the reference (50,0).
+        let rect = make(.rect, start: .zero, end: CGPoint(x: 100, y: 60))
+        #expect(rect.nearestBindingAnchor(to: CGPoint(x: 44, y: -8), magnet: 14)?.point
+                == CGPoint(x: 50, y: 0))
+    }
+
+    @Test func magnetReleasesBeyondItsBand() {
+        // Too far outside the outline (and every reference) → free.
+        let rect = make(.rect, start: .zero, end: CGPoint(x: 100, y: 60))
+        #expect(rect.nearestBindingAnchor(to: CGPoint(x: 25, y: -20), magnet: 14) == nil)
+    }
+
+    @Test func arrowheadHasAVisibleFloorOnThinStrokesButGrowsWhenThick() {
+        // Thin strokes keep a generous head instead of a near-invisible one…
+        #expect(Annotation.arrowheadLength(lineWidth: 1) == 18)
+        #expect(Annotation.arrowheadLength(lineWidth: 4) == 18)
+        // …and a thick stroke still scales past the floor.
+        #expect(Annotation.arrowheadLength(lineWidth: 10) == 35)
+    }
+
+    // MARK: elbow routing
+
+    /// Every leg of a route is axis-aligned.
+    private func isOrthogonal(_ route: [CGPoint]) -> Bool {
+        zip(route, route.dropFirst()).allSatisfy { a, b in
+            abs(a.x - b.x) < 0.01 || abs(a.y - b.y) < 0.01
+        }
+    }
+
+    @Test func freeElbowRouteIsAnAxisAlignedZ() {
+        // No anchor directions: the ends turn immediately and meet on a shared
+        // mid-line — the classic snake.
+        let route = Annotation.elbowRoute(from: .zero, startDirection: nil,
+                                          to: CGPoint(x: 100, y: 60), endDirection: nil)
+        #expect(route.first == .zero)
+        #expect(route.last == CGPoint(x: 100, y: 60))
+        #expect(isOrthogonal(route))
+        // Horizontal-dominant delta → split on the mid X.
+        #expect(route.contains { abs($0.x - 50) < 0.01 })
+    }
+
+    @Test func collinearEndpointsRouteStraight() {
+        let route = Annotation.elbowRoute(from: .zero, startDirection: nil,
+                                          to: CGPoint(x: 100, y: 0), endDirection: nil)
+        #expect(route == [.zero, CGPoint(x: 100, y: 0)])   // no spurious corners
+    }
+
+    @Test func anchoredElbowRouteLeavesAlongItsAnchorNormal() {
+        // Bound end on a shape's east edge → the route steps out to the right
+        // (a stub) before turning, and every leg stays axis-aligned.
+        let east = EndpointBinding(targetID: UUID(),
+                                   anchor: .fixed(unit: CGPoint(x: 1, y: 0.5)),
+                                   fallback: .zero)
+        #expect(Annotation.anchorDirection(east) == CGPoint(x: 1, y: 0))
+        let route = Annotation.elbowRoute(from: .zero,
+                                          startDirection: CGPoint(x: 1, y: 0),
+                                          to: CGPoint(x: 100, y: 80),
+                                          endDirection: CGPoint(x: 0, y: -1))
+        #expect(route.first == .zero && route.last == CGPoint(x: 100, y: 80))
+        #expect(isOrthogonal(route))
+        #expect(route[1].x > 0 && route[1].y == 0)       // stub to the east
+        // A corner/center anchor picks no side (router falls back to geometry).
+        let corner = EndpointBinding(targetID: UUID(), anchor: .fixed(unit: .zero),
+                                     fallback: .zero)
+        #expect(Annotation.anchorDirection(corner) == nil)
+        let center = EndpointBinding(targetID: UUID(),
+                                     anchor: .fixed(unit: CGPoint(x: 0.5, y: 0.5)),
+                                     fallback: .zero)
+        #expect(Annotation.anchorDirection(center) == nil)
+    }
+
+    @Test func elbowArrowHitsItsRouteAndBoundsIt() {
+        var arrow = make(.arrow, start: .zero, end: CGPoint(x: 100, y: 60))
+        arrow.arrowRoute = .elbowed
+        let route = arrow.elbowRoute(start: arrow.start, end: arrow.end)
+        #expect(route.count >= 3)
+        // The mid-line leg is hittable; the straight chord between the ends
+        // (which the route doesn't follow) is not.
+        #expect(arrow.hitTest(CGPoint(x: 50, y: 30), tolerance: 4))
+        #expect(!arrow.hitTest(CGPoint(x: 80, y: 20), tolerance: 4))
+        // Bounds span the route, and the bend handle is gone.
+        #expect(arrow.rect == CGRect(x: 0, y: 0, width: 100, height: 60))
+        #expect(arrow.handles.map(\.0) == [.start, .end])
+    }
+
+    @Test func slidingAStraightArrowsLegBudsCornersOnBothEnds() {
+        // The straight vertical arrow of the screenshots: sliding its single
+        // leg sideways turns it into a Z with a vertical mid-line at that x —
+        // the endpoints stay anchored, so a corner buds at each end.
+        var arrow = make(.arrow, start: CGPoint(x: 100, y: 0),
+                         end: CGPoint(x: 100, y: 200))
+        arrow.arrowRoute = .elbowed
+        let route = arrow.elbowRoute(start: arrow.start, end: arrow.end)
+        #expect(route == [CGPoint(x: 100, y: 0), CGPoint(x: 100, y: 200)])
+
+        // Dragged to x = 148: the grid steps from the arrow's own start
+        // (x = 100), so 48 rounds to 48 — six steps of 8.
+        arrow.elbowWaypoints = Annotation.movingRouteSegment(
+            route, index: 0, to: CGPoint(x: 148, y: 100), grid: 8)
+        #expect(arrow.elbowWaypoints == [CGPoint(x: 148, y: 0), CGPoint(x: 148, y: 200)])
+        let bent = arrow.elbowRoute(start: arrow.start, end: arrow.end)
+        #expect(bent == [CGPoint(x: 100, y: 0), CGPoint(x: 148, y: 0),
+                         CGPoint(x: 148, y: 200), CGPoint(x: 100, y: 200)])
+        #expect(isOrthogonal(bent))
+    }
+
+    @Test func aBentArrowCanBeStraightenedBackFromOffGridEndpoints() {
+        // Endpoints on deliberately off-grid coordinates: an absolute grid
+        // could never line the leg up with them, leaving a permanent jog.
+        var arrow = make(.arrow, start: CGPoint(x: 101, y: 7),
+                         end: CGPoint(x: 101, y: 203))
+        arrow.arrowRoute = .elbowed
+        let straight = arrow.elbowRoute(start: arrow.start, end: arrow.end)
+        arrow.elbowWaypoints = Annotation.movingRouteSegment(
+            straight, index: 0, to: CGPoint(x: 173, y: 100), grid: 24)
+        #expect(arrow.elbowWaypoints.count == 2)          // bent into a Z
+
+        // Dragging the mid-line back near the endpoints' x aligns exactly and
+        // the corners collapse — the arrow is straight again.
+        let bent = arrow.elbowRoute(start: arrow.start, end: arrow.end)
+        let midIndex = bent.count / 2 - 1
+        arrow.elbowWaypoints = Annotation.movingRouteSegment(
+            bent, index: midIndex, to: CGPoint(x: 105, y: 100), grid: 24)
+        #expect(arrow.elbowWaypoints.isEmpty)
+        #expect(arrow.elbowRoute(start: arrow.start, end: arrow.end)
+                == [CGPoint(x: 101, y: 7), CGPoint(x: 101, y: 203)])
+    }
+
+    @Test func enteringElbowSquaresUpANearlyAlignedArrow() {
+        // Ends 3 px apart in x: without squaring up the route must jog between
+        // them, so the arrow could never be straight.
+        var arrow = make(.arrow, start: CGPoint(x: 100, y: 10),
+                         end: CGPoint(x: 103, y: 200))
+        arrow.arrowRoute = .elbowed
+        #expect(arrow.elbowRoute(start: arrow.start, end: arrow.end).count > 2)
+        arrow.alignForElbow()
+        #expect(arrow.end.x == 100)
+        #expect(arrow.elbowRoute(start: arrow.start, end: arrow.end)
+                == [CGPoint(x: 100, y: 10), CGPoint(x: 100, y: 200)])
+
+        // A bound endpoint belongs to its shape, so the free end moves instead.
+        var bound = make(.arrow, start: CGPoint(x: 100, y: 10),
+                         end: CGPoint(x: 103, y: 200))
+        bound.arrowRoute = .elbowed
+        bound.endBinding = EndpointBinding(targetID: UUID(),
+                                           anchor: .fixed(unit: CGPoint(x: 0.5, y: 0)),
+                                           fallback: .zero)
+        bound.alignForElbow()
+        #expect(bound.end == CGPoint(x: 103, y: 200))   // untouched
+        #expect(bound.start.x == 103)
+
+        // A genuinely diagonal arrow is left alone.
+        var diagonal = make(.arrow, start: .zero, end: CGPoint(x: 100, y: 80))
+        diagonal.arrowRoute = .elbowed
+        diagonal.alignForElbow()
+        #expect(diagonal.end == CGPoint(x: 100, y: 80))
+    }
+
+    @Test func elbowEndpointsShareTheLegsLattice() {
+        // The lattice is anchored at the opposite endpoint, so a dragged end
+        // lands on exact multiples from it — no sub-step offset to jitter, and
+        // a zero offset on an axis means perfectly aligned.
+        let origin = CGPoint(x: 101, y: 7)
+        let snapped = Annotation.snappedToGrid(CGPoint(x: 148, y: 61),
+                                               origin: origin, grid: 24)
+        #expect(snapped == CGPoint(x: 149, y: 55))   // origin + 48 / +48
+        #expect((snapped.x - origin.x).truncatingRemainder(dividingBy: 24) == 0)
+        #expect((snapped.y - origin.y).truncatingRemainder(dividingBy: 24) == 0)
+        // Within half a step of the origin's axis it lands exactly on it, so
+        // the arrow can be made perfectly straight.
+        #expect(Annotation.snappedToGrid(CGPoint(x: 105, y: 200),
+                                         origin: origin, grid: 24).x == 101)
+        // A degenerate grid leaves the point untouched.
+        #expect(Annotation.snappedToGrid(CGPoint(x: 3, y: 4), origin: .zero,
+                                         grid: 1) == CGPoint(x: 3, y: 4))
+    }
+
+    @Test func slidingALegSnapsToTheGridAndLeavesOthersAlone() {
+        var arrow = make(.arrow, start: .zero, end: CGPoint(x: 100, y: 60))
+        arrow.arrowRoute = .elbowed
+        let route = arrow.elbowRoute(start: arrow.start, end: arrow.end)
+        // The middle leg is vertical at x = 50; slide it to a non-grid x.
+        let moved = Annotation.movingRouteSegment(route, index: 1,
+                                                  to: CGPoint(x: 71, y: 30), grid: 8)
+        #expect(moved.allSatisfy { $0.x == 72 })          // snapped to the grid
+        arrow.elbowWaypoints = moved
+        let updated = arrow.elbowRoute(start: arrow.start, end: arrow.end)
+        #expect(updated.first == .zero && updated.last == CGPoint(x: 100, y: 60))
+        #expect(isOrthogonal(updated))
+    }
+
+    @Test func draggingALegFromAFixedBaselineIsStableAcrossFrames() {
+        // Regression: the canvas used to re-derive the route every frame and
+        // index into it, but a move adds corners — so the index pointed at a
+        // different leg next frame and the leg oscillated between two places.
+        // From a fixed baseline the result is a pure function of the pointer.
+        var arrow = make(.arrow, start: CGPoint(x: 100, y: 0),
+                         end: CGPoint(x: 100, y: 200))
+        arrow.arrowRoute = .elbowed
+        let baseline = arrow.elbowRoute(start: arrow.start, end: arrow.end)
+
+        // Several frames of one drag, all measured from the same baseline.
+        for x in stride(from: CGFloat(124), through: 196, by: 24) {
+            arrow.elbowWaypoints = Annotation.movingRouteSegment(
+                baseline, index: 0, to: CGPoint(x: x, y: 100), grid: 24)
+            let route = arrow.elbowRoute(start: arrow.start, end: arrow.end)
+            // The dragged leg is the vertical one, and it sits exactly where
+            // the pointer put it — never a frame behind or beside it.
+            #expect(route.count == 4)
+            #expect(route[1] == CGPoint(x: x, y: 0))
+            #expect(route[2] == CGPoint(x: x, y: 200))
+            #expect(isOrthogonal(route))
+        }
+        // Re-applying the same frame is idempotent.
+        let once = Annotation.movingRouteSegment(baseline, index: 0,
+                                                 to: CGPoint(x: 148, y: 100), grid: 24)
+        let twice = Annotation.movingRouteSegment(baseline, index: 0,
+                                                  to: CGPoint(x: 148, y: 100), grid: 24)
+        #expect(once == twice)
+    }
+
+    @Test func aLegCollapsedToZeroLengthDisappears() {
+        // Sliding the mid-line back onto the start's x removes the corner
+        // pair, collapsing the Z back to a plain L.
+        var arrow = make(.arrow, start: .zero, end: CGPoint(x: 100, y: 60))
+        arrow.arrowRoute = .elbowed
+        let route = arrow.elbowRoute(start: arrow.start, end: arrow.end)
+        #expect(route.count == 4)
+        arrow.elbowWaypoints = Annotation.movingRouteSegment(
+            route, index: 1, to: .zero, grid: 8)
+        let collapsed = arrow.elbowRoute(start: arrow.start, end: arrow.end)
+        #expect(collapsed.count == 3)                     // one corner left
+        #expect(isOrthogonal(collapsed))
+    }
+
+    @Test func routeSlidersSitOnEveryLegAndWaypointsRideAMove() {
+        var arrow = make(.arrow, start: .zero, end: CGPoint(x: 100, y: 60))
+        arrow.arrowRoute = .elbowed
+        let route = arrow.elbowRoute(start: arrow.start, end: arrow.end)
+        #expect(Annotation.routeSegmentMidpoints(route).count == route.count - 1)
+
+        arrow.elbowWaypoints = [CGPoint(x: 50, y: 0), CGPoint(x: 50, y: 60)]
+        arrow.move(by: CGPoint(x: 10, y: -5))
+        #expect(arrow.elbowWaypoints == [CGPoint(x: 60, y: -5), CGPoint(x: 60, y: 55)])
+        // And a duplicate carries them.
+        #expect(arrow.duplicated().elbowWaypoints == arrow.elbowWaypoints)
+    }
+
+    // MARK: bound curved arrows (relative control)
+
+    @Test func mapControlCarriesTheChordFrame() {
+        // The endpoints map onto the target endpoints exactly…
+        #expect(Annotation.mapControl(.zero, fromStart: .zero,
+                                      fromEnd: CGPoint(x: 100, y: 0),
+                                      toStart: CGPoint(x: 10, y: 10),
+                                      toEnd: CGPoint(x: 10, y: 110))
+                == CGPoint(x: 10, y: 10))
+        #expect(Annotation.mapControl(CGPoint(x: 100, y: 0), fromStart: .zero,
+                                      fromEnd: CGPoint(x: 100, y: 0),
+                                      toStart: CGPoint(x: 10, y: 10),
+                                      toEnd: CGPoint(x: 10, y: 110))
+                == CGPoint(x: 10, y: 110))
+        // …and a mid-chord control follows the scale+rotation (×2, 90°).
+        #expect(Annotation.mapControl(CGPoint(x: 50, y: 0), fromStart: .zero,
+                                      fromEnd: CGPoint(x: 100, y: 0),
+                                      toStart: .zero, toEnd: CGPoint(x: 0, y: 200))
+                == CGPoint(x: 0, y: 100))
+        // A degenerate source chord falls back to a translation.
+        #expect(Annotation.mapControl(CGPoint(x: 5, y: 5), fromStart: .zero,
+                                      fromEnd: .zero, toStart: CGPoint(x: 10, y: 20),
+                                      toEnd: CGPoint(x: 30, y: 40))
+                == CGPoint(x: 15, y: 25))
+    }
+
+    @Test func boundCurvedArrowControlRidesTheResolvedChord() {
+        // Rect centered (100,60); the arrow's end binds to its center, so the
+        // resolved chord is (0,0)→(100,60) while the raw chord is (0,0)→(100,0).
+        let rect = make(.rect, start: CGPoint(x: 50, y: 10),
+                        end: CGPoint(x: 150, y: 110))
+        var arrow = make(.arrow, start: .zero, end: CGPoint(x: 100, y: 0))
+        arrow.curveControl = CGPoint(x: 50, y: -20)
+        arrow.endBinding = EndpointBinding(
+            targetID: rect.id, anchor: .fixed(unit: CGPoint(x: 0.5, y: 0.5)),
+            fallback: .zero)
+        let list = [rect, arrow]
+        #expect(arrow.resolvedEnd(in: list) == CGPoint(x: 100, y: 60))
+        // The control transforms with the chord, keeping the bend's shape.
+        #expect(arrow.resolvedControl(in: list) == CGPoint(x: 62, y: 10))
+        // The bend control handle shows at that resolved position.
+        #expect(arrow.handles(in: list).last?.1 == CGPoint(x: 62, y: 10))
+    }
+
+    @Test func unboundCurvedArrowControlIsUnchanged() {
+        var arrow = make(.arrow, start: .zero, end: CGPoint(x: 100, y: 0))
+        arrow.curveControl = CGPoint(x: 50, y: -20)
+        #expect(arrow.resolvedControl(in: [arrow]) == CGPoint(x: 50, y: -20))
+    }
+
+    @Test func fixedAnchorPlacesOnNormalizedBoundingRect() {
+        let target = make(.rect, start: CGPoint(x: 100, y: 100),
+                          end: CGPoint(x: 200, y: 300))   // 100×200
+        var arrow = make(.arrow, start: .zero, end: CGPoint(x: 50, y: 50))
+        arrow.endBinding = EndpointBinding(
+            targetID: target.id,
+            anchor: .fixed(unit: CGPoint(x: 0.5, y: 0)), fallback: .zero)
+        #expect(arrow.resolvedEnd(in: [target, arrow]) == CGPoint(x: 150, y: 100))
     }
 
     // MARK: degenerate

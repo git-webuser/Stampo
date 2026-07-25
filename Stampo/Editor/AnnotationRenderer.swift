@@ -114,10 +114,12 @@ enum AnnotationRenderer {
         for annotation in annotations
             where annotation.id != skippedID && annotation.kind != .blur {
             switch annotation.kind {
-            case .line:  drawLine(annotation, ctx: ctx)
-            case .arrow: drawArrow(annotation, ctx: ctx)
+            case .line:  drawLine(annotation, in: annotations, ctx: ctx)
+            case .arrow: drawArrow(annotation, in: annotations, ctx: ctx)
             case .rect:  drawShape(annotation, isOval: false, ctx: ctx)
             case .oval:  drawShape(annotation, isOval: true, ctx: ctx)
+            case .roundedRect, .polygon, .star, .bubble:
+                drawPathShape(annotation, ctx: ctx)
             case .text:  drawText(annotation, ctx: ctx)
             case .freehand: drawFreehand(annotation, ctx: ctx)
             case .step:  drawStep(annotation, ctx: ctx)
@@ -141,7 +143,10 @@ enum AnnotationRenderer {
         ctx.restoreGState()
     }
 
-    private static func drawLine(_ a: Annotation, ctx: CGContext) {
+    private static func drawLine(_ a: Annotation, in annotations: [Annotation],
+                                 ctx: CGContext) {
+        let start = a.resolvedStart(in: annotations)
+        let end = a.resolvedEnd(in: annotations)
         ctx.setStrokeColor(a.color.cgColor)
         ctx.setLineWidth(a.lineWidth)
         ctx.setLineCap(.round)
@@ -150,8 +155,8 @@ enum AnnotationRenderer {
             let dash = max(6, a.lineWidth * 2.4)
             ctx.setLineDash(phase: 0, lengths: [dash, dash * 0.8])
         }
-        ctx.move(to: a.start)
-        ctx.addLine(to: a.end)
+        ctx.move(to: start)
+        ctx.addLine(to: end)
         ctx.strokePath()
         ctx.setLineDash(phase: 0, lengths: [])
     }
@@ -162,18 +167,22 @@ enum AnnotationRenderer {
     private static func drawFreehand(_ a: Annotation, ctx: CGContext) {
         guard let first = a.freehandPoints.first else { return }
         let color = a.color.multipliedAlpha(a.freehandStyle.opacity)
+        // A square marker nib lays flat stroke caps (chisel-highlighter);
+        // joins stay round so the smoothed path doesn't grow corners.
+        let squareTip = a.freehandStyle == .marker && a.markerTip == .square
 
         ctx.saveGState()
         ctx.setStrokeColor(color.cgColor)
         ctx.setFillColor(color.cgColor)
         ctx.setLineWidth(a.lineWidth)
-        ctx.setLineCap(.round)
+        ctx.setLineCap(squareTip ? .square : .round)
         ctx.setLineJoin(.round)
 
         if a.freehandPoints.count == 1 {
             let radius = a.lineWidth / 2
-            ctx.fillEllipse(in: CGRect(x: first.x - radius, y: first.y - radius,
-                                       width: a.lineWidth, height: a.lineWidth))
+            let dot = CGRect(x: first.x - radius, y: first.y - radius,
+                             width: a.lineWidth, height: a.lineWidth)
+            if squareTip { ctx.fill(dot) } else { ctx.fillEllipse(in: dot) }
             ctx.restoreGState()
             return
         }
@@ -195,69 +204,96 @@ enum AnnotationRenderer {
         ctx.restoreGState()
     }
 
-    private static func drawArrow(_ a: Annotation, ctx: CGContext) {
-        // `bold` draws a heavier shaft and a proportionally larger head so
-        // arrows read clearly over busy screenshots; other styles keep the
-        // annotation's own line width.
-        let shaftWidth = a.arrowStyle == .bold ? a.lineWidth * 1.8 : a.lineWidth
-        let headWidth = a.arrowStyle == .bold ? a.lineWidth * 1.8 : a.lineWidth
+    private static func drawArrow(_ a: Annotation, in annotations: [Annotation],
+                                  ctx: CGContext) {
+        // Bound endpoints resolve to their target's outline; a free endpoint
+        // resolves to its raw point, so unbound arrows are unaffected.
+        let start = a.resolvedStart(in: annotations)
+        let end = a.resolvedEnd(in: annotations)
+        let width = a.lineWidth
+        // Pull a headed shaft end back by half the stroke so its round cap
+        // lands at the tip rather than poking past the open arrowhead. A tail
+        // without a head keeps its endpoint (and round cap) as is.
+        let capInset = width / 2
 
-        // Curved shaft: stroke the full Bézier, then paint the heads over its
-        // ends — the filled triangle covers the round cap, so no inset math.
-        if let control = a.curveControl {
-            ctx.setStrokeColor(a.color.cgColor)
-            ctx.setFillColor(a.color.cgColor)
-            ctx.setLineWidth(shaftWidth)
-            ctx.setLineCap(.round)
-            ctx.setLineJoin(.round)
-            if a.arrowStyle == .dashed {
-                let dash = max(6, shaftWidth * 2.4)
-                ctx.setLineDash(phase: 0, lengths: [dash, dash * 0.8])
-            }
-            ctx.move(to: a.start)
-            ctx.addQuadCurve(to: a.end, control: control)
+        ctx.setStrokeColor(a.color.cgColor)
+        ctx.setLineWidth(width)
+        ctx.setLineCap(.round)
+        ctx.setLineJoin(.round)
+
+        // Elbow: an axis-aligned route with rounded corners; heads point along
+        // the first/last leg.
+        if a.isElbowed {
+            let route = a.elbowRoute(in: annotations)
+            guard route.count >= 2 else { return }
+            let headStart = a.arrowHeadPlacement.includesStart
+                ? Self.insetAlong(route[0], toward: route[1], by: capInset) : route[0]
+            let headEnd = a.arrowHeadPlacement.includesEnd
+                ? Self.insetAlong(route[route.count - 1],
+                                  toward: route[route.count - 2], by: capInset)
+                : route[route.count - 1]
+            var trimmed = route
+            trimmed[0] = headStart
+            trimmed[trimmed.count - 1] = headEnd
+            ctx.addPath(Self.roundedPolyline(trimmed, radius: max(6, width * 2)))
             ctx.strokePath()
-            ctx.setLineDash(phase: 0, lengths: [])
 
             if a.arrowHeadPlacement.includesStart {
-                drawArrowhead(from: a.arrowheadAnchor(towardTip: a.start, opposite: a.end),
-                              tip: a.start, lineWidth: headWidth, ctx: ctx)
+                drawChevron(from: route[1], tip: route[0], lineWidth: width, ctx: ctx)
             }
             if a.arrowHeadPlacement.includesEnd {
-                drawArrowhead(from: a.arrowheadAnchor(towardTip: a.end, opposite: a.start),
-                              tip: a.end, lineWidth: headWidth, ctx: ctx)
+                drawChevron(from: route[route.count - 2], tip: route[route.count - 1],
+                            lineWidth: width, ctx: ctx)
             }
             return
         }
 
-        let angle = atan2(a.end.y - a.start.y, a.end.x - a.start.x)
-        let headLength = max(12, headWidth * 4)
-        let overlap = headLength * 0.6
-        let shaftLength = hypot(a.end.x - a.start.x, a.end.y - a.start.y)
-        let headCount = (a.arrowHeadPlacement.includesStart ? 1 : 0)
-            + (a.arrowHeadPlacement.includesEnd ? 1 : 0)
-        let inset = min(overlap, headCount > 0 ? shaftLength / CGFloat(headCount) : 0)
-        // Pull each shaft endpoint under its filled head. With two heads this
-        // keeps the dashed/solid shaft visually centered between them. The
-        // inset is capped so heads on a very short arrow never cross the shaft.
+        // Curved shaft: stroke the Bézier, then the open chevron heads over
+        // its ends (pulled back along the tangent by the cap inset). The
+        // control follows the resolved chord so a bound arrow's bend doesn't
+        // drift. The head tangent anchors on the control (or the opposite end
+        // when the control sits on top of the tip).
+        if let control = a.resolvedControl(in: annotations) {
+            let curveStart = a.arrowHeadPlacement.includesStart
+                ? Self.insetTowardControl(start, control: control, by: capInset)
+                : start
+            let curveEnd = a.arrowHeadPlacement.includesEnd
+                ? Self.insetTowardControl(end, control: control, by: capInset)
+                : end
+            if a.arrowStyle == .dashed {
+                let dash = max(6, width * 2.4)
+                ctx.setLineDash(phase: 0, lengths: [dash, dash * 0.8])
+            }
+            ctx.move(to: curveStart)
+            ctx.addQuadCurve(to: curveEnd, control: control)
+            ctx.strokePath()
+            ctx.setLineDash(phase: 0, lengths: [])
+
+            if a.arrowHeadPlacement.includesStart {
+                let anchor = hypot(control.x - start.x, control.y - start.y) >= 1
+                    ? control : end
+                drawChevron(from: anchor, tip: start, lineWidth: width, ctx: ctx)
+            }
+            if a.arrowHeadPlacement.includesEnd {
+                let anchor = hypot(control.x - end.x, control.y - end.y) >= 1
+                    ? control : start
+                drawChevron(from: anchor, tip: end, lineWidth: width, ctx: ctx)
+            }
+            return
+        }
+
+        let angle = atan2(end.y - start.y, end.x - start.x)
         let shaftStart = a.arrowHeadPlacement.includesStart
-            ? CGPoint(x: a.start.x + inset * cos(angle),
-                      y: a.start.y + inset * sin(angle))
-            : a.start
+            ? CGPoint(x: start.x + capInset * cos(angle),
+                      y: start.y + capInset * sin(angle))
+            : start
         let shaftEnd = a.arrowHeadPlacement.includesEnd
-            ? CGPoint(x: a.end.x - inset * cos(angle),
-                      y: a.end.y - inset * sin(angle))
-            : a.end
+            ? CGPoint(x: end.x - capInset * cos(angle),
+                      y: end.y - capInset * sin(angle))
+            : end
 
-        ctx.setStrokeColor(a.color.cgColor)
-        ctx.setFillColor(a.color.cgColor)
-        ctx.setLineWidth(shaftWidth)
-        ctx.setLineCap(.round)
-        ctx.setLineJoin(.round)
-
-        // Shaft.
         if a.arrowStyle == .dashed {
-            let dash = max(6, shaftWidth * 2.4)
+            let dash = max(6, width * 2.4)
             ctx.setLineDash(phase: 0, lengths: [dash, dash * 0.8])
         }
         ctx.move(to: shaftStart)
@@ -265,23 +301,81 @@ enum AnnotationRenderer {
         ctx.strokePath()
         ctx.setLineDash(phase: 0, lengths: [])
 
-        // Filled triangle heads point outwards at their respective endpoints.
+        // Open chevron heads point outwards at their respective endpoints.
         if a.arrowHeadPlacement.includesStart {
-            drawArrowhead(from: a.end, tip: a.start, lineWidth: headWidth, ctx: ctx)
+            drawChevron(from: end, tip: start, lineWidth: width, ctx: ctx)
         }
         if a.arrowHeadPlacement.includesEnd {
-            drawArrowhead(from: a.start, tip: a.end, lineWidth: headWidth, ctx: ctx)
+            drawChevron(from: start, tip: end, lineWidth: width, ctx: ctx)
         }
     }
 
-    private static func drawArrowhead(from: CGPoint, tip: CGPoint,
-                                      lineWidth: CGFloat, ctx: CGContext) {
+    /// Moves a curved arrow's endpoint back toward its control point by up to
+    /// `distance`, along the end tangent (control→endpoint). Capped so it
+    /// never passes the control on a short curve. Keeps the drawn shaft short
+    /// of the real tip so the round cap tucks under the arrowhead.
+    private static func insetTowardControl(_ endpoint: CGPoint, control: CGPoint,
+                                           by distance: CGFloat) -> CGPoint {
+        let dx = endpoint.x - control.x, dy = endpoint.y - control.y
+        let length = hypot(dx, dy)
+        guard length > 0.001 else { return endpoint }
+        let d = min(distance, length * 0.9)
+        return CGPoint(x: endpoint.x - dx / length * d,
+                       y: endpoint.y - dy / length * d)
+    }
+
+    /// Moves `point` toward `other` by up to `distance` (capped at 90% of the
+    /// gap) — pulls a headed route end back so its cap tucks under the head.
+    private static func insetAlong(_ point: CGPoint, toward other: CGPoint,
+                                   by distance: CGFloat) -> CGPoint {
+        let dx = other.x - point.x, dy = other.y - point.y
+        let length = hypot(dx, dy)
+        guard length > 0.001 else { return point }
+        let d = min(distance, length * 0.9)
+        return CGPoint(x: point.x + dx / length * d, y: point.y + dy / length * d)
+    }
+
+    /// A polyline with its corners rounded by arcs — the elbow connector's
+    /// look. Each radius is capped to half of the shorter adjacent leg so tight
+    /// corners stay clean.
+    private static func roundedPolyline(_ points: [CGPoint],
+                                        radius: CGFloat) -> CGPath {
+        let path = CGMutablePath()
+        guard let first = points.first else { return path }
+        path.move(to: first)
+        guard points.count >= 3 else {
+            for point in points.dropFirst() { path.addLine(to: point) }
+            return path
+        }
+        for index in 1..<(points.count - 1) {
+            let previous = points[index - 1], corner = points[index]
+            let next = points[index + 1]
+            let inLength = hypot(corner.x - previous.x, corner.y - previous.y)
+            let outLength = hypot(next.x - corner.x, next.y - corner.y)
+            let r = min(radius, inLength / 2, outLength / 2)
+            if r < 0.5 {
+                path.addLine(to: corner)
+            } else {
+                path.addArc(tangent1End: corner, tangent2End: next, radius: r)
+            }
+        }
+        path.addLine(to: points[points.count - 1])
+        return path
+    }
+
+    /// An open "chevron" arrowhead — two strokes meeting at the tip
+    /// (Figma-style), drawn in the shaft's own weight instead of a filled
+    /// triangle. Round caps and join keep the point clean.
+    private static func drawChevron(from: CGPoint, tip: CGPoint,
+                                    lineWidth: CGFloat, ctx: CGContext) {
         let (b1, b2) = Annotation.arrowheadBarbs(from: from, tip: tip, lineWidth: lineWidth)
-        ctx.move(to: tip)
-        ctx.addLine(to: b1)
+        ctx.setLineWidth(lineWidth)
+        ctx.setLineCap(.round)
+        ctx.setLineJoin(.round)
+        ctx.move(to: b1)
+        ctx.addLine(to: tip)
         ctx.addLine(to: b2)
-        ctx.closePath()
-        ctx.fillPath()
+        ctx.strokePath()
     }
 
     private static func drawShape(_ a: Annotation, isOval: Bool, ctx: CGContext) {
@@ -301,6 +395,24 @@ enum AnnotationRenderer {
         } else {
             ctx.stroke(a.rect)
         }
+    }
+
+    /// Path-outlined closed shapes (rounded rect, triangle, polygon, star,
+    /// bubble): the same fill-then-stroke as rect/oval, over the shared
+    /// outline path hit-testing uses. Round joins keep star and triangle
+    /// tips from throwing long miter spikes at acute angles.
+    private static func drawPathShape(_ a: Annotation, ctx: CGContext) {
+        guard let outline = a.pathShapeOutline else { return }
+        if a.fillOpacity > 0 {
+            ctx.setFillColor(a.color.multipliedAlpha(a.fillOpacity).cgColor)
+            ctx.addPath(outline)
+            ctx.fillPath()
+        }
+        ctx.setStrokeColor(a.color.cgColor)
+        ctx.setLineWidth(a.lineWidth)
+        ctx.setLineJoin(.round)
+        ctx.addPath(outline)
+        ctx.strokePath()
     }
 
     /// Outline path of a loupe body: an ellipse or a rounded rectangle. Used

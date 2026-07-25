@@ -28,12 +28,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         guard !Self.isRunningTests else { return }
         AppSettings.migrateLegacySaveDirectoryIfNeeded()
-        // Run the permission wizard on first launch OR any later launch that's
-        // missing a required permission — an ad-hoc update invalidates the TCC
-        // grants, and the wizard is the only path that requests them in order
-        // (keyboard → screen recording) without firing prompts behind the user.
-        // Gating solely on hasCompletedOnboarding meant returning users hit the
-        // old bare CGRequestScreenCaptureAccess fallback instead.
+        // The welcome flow belongs to first launch only. If Screen Recording is
+        // later revoked, capture actions surface their focused permission alert
+        // and General Settings links directly to the relevant macOS pane.
         let showWizard = AppSettings.onboardingPending
         // Mute standalone permission alerts up front — hover.start() installs
         // the event tap and could otherwise fire the cold-start alert before

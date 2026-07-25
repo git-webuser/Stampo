@@ -23,6 +23,8 @@ struct EditorView: View {
     @State private var panOffset: CGSize = .zero
     /// Pending crop rectangle (image-pixel space) while the crop tool is active.
     @State private var cropRect: CGRect?
+    /// ⌥ held over the rotate button — flips its icon to preview direction.
+    @State private var rotateOptionHeld = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -71,30 +73,50 @@ struct EditorView: View {
         .padding(.vertical, 8)
     }
 
+    /// Toolbar tools, left to right. Two low-frequency families are collapsed
+    /// behind popover buttons — shapes (rectangle, oval, polygon, star,
+    /// bubble, blur, loupe) and drawing (pen, marker, eraser) — the rest stay
+    /// inline. Their keyboard shortcuts still work through the canvas
+    /// handler, so this only declutters the row.
     private var toolPicker: some View {
         HStack(spacing: 2) {
-            ForEach(EditorTool.pickerCases, id: \.self) { t in
-                Button {
-                    tool = t
-                    cropRect = nil
-                    if t != .select { document.selectedID = nil }
-                    if t == .blur {
-                        document.prepareBlurSource(style: style.blurStyle,
-                                                   level: style.blurLevel)
-                    }
-                } label: {
-                    Image(systemName: t.systemImage)
-                        .font(.system(size: 13, weight: .medium))
-                        .frame(width: 26, height: 22)
-                }
-                .buttonStyle(.borderless)
-                .background(
-                    RoundedRectangle(cornerRadius: 5, style: .continuous)
-                        .fill(tool == t ? Color.accentColor.opacity(0.22) : .clear)
-                )
-                .foregroundStyle(tool == t ? Color.accentColor : Color.primary)
-                .hoverTip(t.labelKey, shortcut: t.shortcut?.label)
-            }
+            toolButton(.select)
+            toolButton(.line)
+            toolButton(.arrow)
+            ShapeToolButton(tool: $tool, select: selectTool)
+            toolButton(.text)
+            DrawingToolButton(tool: $tool, drawingMode: $style.drawingMode,
+                              strokeColor: Color(nsColor: style.color.nsColor),
+                              markerTip: style.markerTip,
+                              select: selectTool)
+            toolButton(.step)
+        }
+    }
+
+    private func toolButton(_ t: EditorTool) -> some View {
+        Button { selectTool(t) } label: {
+            Image(systemName: t.systemImage)
+                .font(.system(size: 13, weight: .medium))
+                .frame(width: 26, height: 22)
+        }
+        .buttonStyle(.borderless)
+        .background(
+            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                .fill(tool == t ? Color.accentColor.opacity(0.22) : .clear)
+        )
+        .foregroundStyle(tool == t ? Color.accentColor : Color.primary)
+        .hoverTip(t.labelKey, shortcut: t.shortcut?.label)
+    }
+
+    /// Shared tool-activation path for the inline buttons and the shape
+    /// popover: switches tool, clears any crop frame and selection, and warms
+    /// the blur source when entering the blur tool.
+    private func selectTool(_ t: EditorTool) {
+        tool = t
+        cropRect = nil
+        if t != .select { document.selectedID = nil }
+        if t == .blur {
+            document.prepareBlurSource(style: style.blurStyle, level: style.blurLevel)
         }
     }
 
@@ -114,6 +136,7 @@ struct EditorView: View {
                 settingSlider("Eraser Size", systemImage: "eraser",
                               value: eraserDiameterBinding,
                               range: 8...80, step: 4)
+                eraseAllButton
             } else {
                 contextControls
             }
@@ -141,8 +164,12 @@ struct EditorView: View {
                 Divider().frame(height: 18)
                 textControls
             case .freehand:
-                drawingModePicker
+                // The pen/marker choice lives in the drawing popover — one
+                // parameter, one home; the row keeps the per-brush settings.
                 colorSwatches
+                if effectiveDrawingMode == .marker {
+                    markerTipPicker
+                }
                 let range: ClosedRange<CGFloat> = effectiveDrawingMode == .marker
                     ? 8...64 : 2...32
                 settingSlider("Brush Size", systemImage: "lineweight",
@@ -161,23 +188,49 @@ struct EditorView: View {
                 colorSwatches
                 loupeShapePicker
                 loupeModePicker
+                // Grouped with the other segmented pickers, ahead of the
+                // sliders; only offered while the document has a blur.
+                if documentHasBlur {
+                    loupeSourcePicker
+                }
                 thicknessSlider
                 settingSlider("Magnification", systemImage: "plus.magnifyingglass",
                               value: loupeScaleBinding, range: 1.5...4, step: 0.5,
                               format: { String(format: "×%.1f", $0) })
-                if documentHasBlur {
-                    loupeSourcePicker
-                }
             case .line:
                 colorSwatches
                 lineStylePicker
                 thicknessSlider
-            case .rect, .oval:
+            case .rect, .oval, .roundedRect:
                 colorSwatches
+                thicknessSlider
+                fillSlider
+            case .polygon:
+                colorSwatches
+                thicknessSlider
+                fillSlider
+                settingStepper("Sides", systemImage: "hexagon",
+                               value: polygonSidesBinding,
+                               range: CGFloat(ShapeCounts.polygonSides.lowerBound)
+                                   ... CGFloat(ShapeCounts.polygonSides.upperBound),
+                               step: 1)
+            case .star:
+                colorSwatches
+                thicknessSlider
+                fillSlider
+                settingStepper("Points", systemImage: "star",
+                               value: starPointsBinding,
+                               range: CGFloat(ShapeCounts.starPoints.lowerBound)
+                                   ... CGFloat(ShapeCounts.starPoints.upperBound),
+                               step: 1)
+            case .bubble:
+                colorSwatches
+                bubbleTailPicker
                 thicknessSlider
                 fillSlider
             case .arrow:
                 colorSwatches
+                arrowRoutePicker
                 arrowStylePicker
                 arrowHeadPlacementPicker
                 thicknessSlider
@@ -185,8 +238,16 @@ struct EditorView: View {
                 // Select tool with nothing selected: there is nothing to
                 // restyle, so the row offers a hint instead of orphaned
                 // controls.
+                // `cursorarrow.rays` (a pointer with selection rays) reads as
+                // "select", distinct from the arrow tool's plain arrow.
+                // pointer.arrow.rays would be closer but is macOS 26-only.
+                // Snapping is a document-wide rule (it governs every tool but
+                // freehand drawing), so it lives with the cursor rather than
+                // in any one annotation's controls.
+                snapPicker
+                Divider().frame(height: 18)
                 Label("Select an annotation to edit its style",
-                      systemImage: "cursorarrow.click")
+                      systemImage: "cursorarrow.rays")
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
         }
@@ -201,6 +262,10 @@ struct EditorView: View {
         case .arrow:  return .arrow
         case .rect:   return .rect
         case .oval:   return .oval
+        case .roundedRect: return .roundedRect
+        case .polygon:  return .polygon
+        case .star:     return .star
+        case .bubble:   return .bubble
         case .text:   return .text
         case .drawing:return .freehand
         case .blur:   return .blur
@@ -282,23 +347,53 @@ struct EditorView: View {
         .hoverTip("Loupe Mode")
     }
 
+    /// Which side of a bubble carries the tail — the same icon-only segmented
+    /// pattern as the loupe pickers.
+    private var bubbleTailPicker: some View {
+        Picker("Tail Side", selection: bubbleTailBinding) {
+            Image(systemName: "bubble.left").tag(BubbleTailDirection.left)
+            Image(systemName: "bubble.right").tag(BubbleTailDirection.right)
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .frame(width: 76)
+        .hoverTip("Tail Side")
+    }
+
     private var documentHasBlur: Bool {
         document.annotations.contains { $0.kind == .blur }
     }
 
-    private var drawingModePicker: some View {
-        IconSegmentedPicker(
-            segments: [
-                .init("Pen", systemImage: "pencil.tip",
-                      value: DrawingMode.pen),
-                .init("Marker", systemImage: "highlighter",
-                      value: DrawingMode.marker)
-            ],
-            selection: drawingModeBinding
-        )
-        .fixedSize()
-        .accessibilityLabel("Drawing Instrument")
-        .hoverTip("Drawing Instrument")
+    /// Marker nib shape — the same icon-only segmented pattern as the loupe
+    /// pickers. Offered only while the marker is the effective brush.
+    private var markerTipPicker: some View {
+        Picker("Marker Tip", selection: markerTipBinding) {
+            Image(systemName: "circle.fill").tag(MarkerTip.round)
+            Image(systemName: "square.fill").tag(MarkerTip.square)
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .frame(width: 76)
+        .hoverTip("Marker Tip")
+    }
+
+    /// Deletes every freehand stroke as one undo step; the eraser only ever
+    /// touches freehand, so the button scope matches the tool's. Icon-only
+    /// and sized to sit level with the row's segmented controls.
+    /// (`eraser.badge.xmark` reads best but ships only with macOS 26;
+    /// `eraser.line.dashed` is the closest glyph on 15.7.)
+    private var eraseAllButton: some View {
+        Button {
+            document.eraseAllFreehand()
+        } label: {
+            Image(systemName: "eraser.line.dashed")
+                .font(.system(size: 12))
+                .frame(width: 34, height: 22)
+        }
+        .buttonStyle(.bordered)
+        .disabled(!document.annotations.contains { $0.kind == .freehand })
+        .accessibilityLabel("Erase All")
+        .hoverTip("Erase All")
     }
 
     private var fillSlider: some View {
@@ -388,12 +483,40 @@ struct EditorView: View {
         Picker("Arrow Style", selection: arrowStyleBinding) {
             Text(verbatim: "→").tag(ArrowStyle.filled)
             Text(verbatim: "⇢").tag(ArrowStyle.dashed)
-            Text(verbatim: "⇨").tag(ArrowStyle.bold)
         }
         .pickerStyle(.segmented)
         .labelsHidden()
-        .frame(width: 108)
+        .frame(width: 76)
         .hoverTip("Arrow Style")
+    }
+
+    /// Free placement vs. snapping to the layout grid. Elbowed arrows put
+    /// their legs and endpoints on this grid; free mode drops the quantization
+    /// for pixel-exact placement.
+    private var snapPicker: some View {
+        Picker("Snapping", selection: $style.snapsToGrid) {
+            Image(systemName: "arrow.up.and.down.and.arrow.left.and.right")
+                .tag(false)
+            Image(systemName: "grid").tag(true)
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .frame(width: 76)
+        .hoverTip("Snapping")
+    }
+
+    /// How the arrow travels — a bendable shaft or an axis-aligned run. A
+    /// separate axis from the stroke's appearance, so it gets its own control.
+    private var arrowRoutePicker: some View {
+        Picker("Arrow Route", selection: arrowRouteBinding) {
+            Image(systemName: "point.topleft.down.to.point.bottomright.curvepath")
+                .tag(ArrowRoute.curved)
+            Image(systemName: "arrow.turn.right.down").tag(ArrowRoute.elbowed)
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .frame(width: 76)
+        .hoverTip("Arrow Route")
     }
 
     private var arrowHeadPlacementPicker: some View {
@@ -583,17 +706,24 @@ struct EditorView: View {
         return style.drawingMode
     }
 
-    private var drawingModeBinding: Binding<DrawingMode> {
+    /// Like the width slider, the tip applies to the style and to a selected
+    /// marker stroke — it's a stroke attribute, not an instrument switch.
+    private var markerTipBinding: Binding<MarkerTip> {
         Binding(
-            get: { effectiveDrawingMode },
+            get: {
+                if let selected = document.selectedAnnotation,
+                   selected.kind == .freehand, selected.freehandStyle == .marker {
+                    return selected.markerTip
+                }
+                return style.markerTip
+            },
             set: { newValue in
-                style.drawingMode = newValue
-                tool = .drawing
-                cropRect = nil
-                // Pen and Marker choose the next drawing gesture. Switching
-                // instruments must not mutate a previously selected stroke or
-                // register an unexpected undo operation.
-                document.selectedID = nil
+                style.markerTip = newValue
+                document.updateSelected {
+                    if $0.kind == .freehand, $0.freehandStyle == .marker {
+                        $0.markerTip = newValue
+                    }
+                }
             }
         )
     }
@@ -906,8 +1036,13 @@ struct EditorView: View {
         )
     }
 
+    /// Closed shapes with a colorable interior — the whole outline family.
+    private static func isFillable(_ kind: AnnotationKind) -> Bool {
+        kind == .rect || kind == .oval || kind.isPathShape
+    }
+
     private var isFillableSelection: Bool {
-        document.selectedAnnotation?.kind == .rect || document.selectedAnnotation?.kind == .oval
+        document.selectedAnnotation.map { Self.isFillable($0.kind) } ?? false
     }
 
     /// Fill opacity as a 0…100 percentage for the slider; model stores 0…1.
@@ -924,8 +1059,56 @@ struct EditorView: View {
                 let opacity = percent / 100
                 style.fillOpacity = opacity
                 document.updateSelected {
-                    if $0.kind == .rect || $0.kind == .oval { $0.fillOpacity = opacity }
+                    if Self.isFillable($0.kind) { $0.fillOpacity = opacity }
                 }
+            }
+        )
+    }
+
+    /// Stepper bridge: the sides of a `.polygon` as CGFloat detents.
+    private var polygonSidesBinding: Binding<CGFloat> {
+        Binding(
+            get: {
+                CGFloat(document.selectedAnnotation?.kind == .polygon
+                    ? (document.selectedAnnotation?.polygonSides ?? style.polygonSides)
+                    : style.polygonSides)
+            },
+            set: { newValue in
+                let sides = min(ShapeCounts.polygonSides.upperBound,
+                                max(ShapeCounts.polygonSides.lowerBound, Int(newValue)))
+                style.polygonSides = sides
+                applyToSelection { if $0.kind == .polygon { $0.polygonSides = sides } }
+            }
+        )
+    }
+
+    /// Stepper bridge: the points of a `.star` as CGFloat detents.
+    private var starPointsBinding: Binding<CGFloat> {
+        Binding(
+            get: {
+                CGFloat(document.selectedAnnotation?.kind == .star
+                    ? (document.selectedAnnotation?.starPoints ?? style.starPoints)
+                    : style.starPoints)
+            },
+            set: { newValue in
+                let points = min(ShapeCounts.starPoints.upperBound,
+                                 max(ShapeCounts.starPoints.lowerBound, Int(newValue)))
+                style.starPoints = points
+                applyToSelection { if $0.kind == .star { $0.starPoints = points } }
+            }
+        )
+    }
+
+    private var bubbleTailBinding: Binding<BubbleTailDirection> {
+        Binding(
+            get: {
+                document.selectedAnnotation?.kind == .bubble
+                    ? (document.selectedAnnotation?.bubbleTail ?? style.bubbleTail)
+                    : style.bubbleTail
+            },
+            set: { newValue in
+                style.bubbleTail = newValue
+                applyToSelection { if $0.kind == .bubble { $0.bubbleTail = newValue } }
             }
         )
     }
@@ -940,6 +1123,26 @@ struct EditorView: View {
             set: { newValue in
                 style.arrowStyle = newValue
                 applyToSelection { if $0.kind == .arrow { $0.arrowStyle = newValue } }
+            }
+        )
+    }
+
+    private var arrowRouteBinding: Binding<ArrowRoute> {
+        Binding(
+            get: {
+                document.selectedAnnotation?.kind == .arrow
+                    ? (document.selectedAnnotation?.arrowRoute ?? style.arrowRoute)
+                    : style.arrowRoute
+            },
+            set: { newValue in
+                style.arrowRoute = newValue
+                applyToSelection {
+                    guard $0.kind == .arrow else { return }
+                    $0.arrowRoute = newValue
+                    // Switching into elbowed squares up a near-aligned arrow so
+                    // it can be straight instead of jogging between its ends.
+                    $0.alignForElbow()
+                }
             }
         )
     }
@@ -1043,22 +1246,27 @@ struct EditorView: View {
         .hoverTip("Zoom to Fit")
     }
 
+    /// One rotate button instead of a mirrored pair: plain click rotates
+    /// right, ⌥-click rotates left. The modifier is read at click time, the
+    /// same way the canvas reads shift/option during drags; while ⌥ is held
+    /// over the button, the icon and tooltip flip to preview the direction —
+    /// a local SwiftUI observation, so no Input Monitoring involved.
     private var rotateButtons: some View {
-        HStack(spacing: 2) {
-            Button { rotate(clockwise: false) } label: {
-                Image(systemName: "rotate.left").frame(width: 24, height: 22)
-            }
-            .buttonStyle(.borderless)
-            .disabled(textEditingActive)
-            .hoverTip("Rotate Left")
-
-            Button { rotate(clockwise: true) } label: {
-                Image(systemName: "rotate.right").frame(width: 24, height: 22)
-            }
-            .buttonStyle(.borderless)
-            .disabled(textEditingActive)
-            .hoverTip("Rotate Right")
+        Button {
+            rotate(clockwise: !NSEvent.modifierFlags.contains(.option))
+        } label: {
+            Image(systemName: rotateOptionHeld ? "rotate.left" : "rotate.right")
+                .frame(width: 24, height: 22)
         }
+        .buttonStyle(.borderless)
+        .disabled(textEditingActive)
+        .onModifierKeysChanged(mask: .option) { _, new in
+            rotateOptionHeld = !new.isEmpty
+        }
+        .hoverTip(rotateOptionHeld ? "Rotate Left" : "Rotate Right",
+                  shortcut: rotateOptionHeld
+                      ? nil
+                      : "⌥ — " + LocaleManager.shared.string("Rotate Left"))
     }
 
     /// Rotates the image, and — if a crop frame is active — rotates that frame
