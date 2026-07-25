@@ -184,8 +184,9 @@ enum TestImages {
                               end: CGPoint(x: 80, y: 80), color: .black, lineWidth: 2)
         var arrow = Annotation(kind: .arrow, start: CGPoint(x: 60, y: 10),
                                end: CGPoint(x: 60, y: 110), color: .black, lineWidth: 4)
-        arrow.endBinding = EndpointBinding(targetID: oval.id, anchor: .dynamic,
-                                           fallback: .zero)
+        arrow.endBinding = EndpointBinding(
+            targetID: oval.id, anchor: .fixed(unit: CGPoint(x: 0.5, y: 0)),
+            fallback: .zero)
         let rep = AnnotationRenderer.renderBitmap(base: base,
                                                   annotations: [oval, arrow])!
         // Shaft inked above the shape.
@@ -207,8 +208,9 @@ enum TestImages {
         let base = TestImages.make(width: 100, height: 80)    // all white
         var arrow = Annotation(kind: .arrow, start: CGPoint(x: 10, y: 40),
                                end: CGPoint(x: 90, y: 40), color: .black, lineWidth: 4)
-        arrow.endBinding = EndpointBinding(targetID: UUID(), anchor: .dynamic,
-                                           fallback: CGPoint(x: 50, y: 40))
+        arrow.endBinding = EndpointBinding(
+            targetID: UUID(), anchor: .fixed(unit: CGPoint(x: 0, y: 0.5)),
+            fallback: CGPoint(x: 50, y: 40))
         let rep = AnnotationRenderer.renderBitmap(base: base, annotations: [arrow])!
         #expect((rep.colorAt(x: 30, y: 40)?.brightnessComponent ?? 1) < 0.5)  // shaft
         #expect((rep.colorAt(x: 75, y: 40)?.brightnessComponent ?? 0) > 0.9)  // past fallback
@@ -222,8 +224,9 @@ enum TestImages {
                               end: CGPoint(x: 80, y: 60), color: .black, lineWidth: 2)
         var arrow = Annotation(kind: .arrow, start: CGPoint(x: 10, y: 40),
                                end: CGPoint(x: 150, y: 40), color: .black, lineWidth: 4)
-        arrow.endBinding = EndpointBinding(targetID: oval.id, anchor: .dynamic,
-                                           fallback: .zero)
+        arrow.endBinding = EndpointBinding(
+            targetID: oval.id, anchor: .fixed(unit: CGPoint(x: 0, y: 0.5)),
+            fallback: .zero)
         // Circle left edge at x=40 → tip stops near there; x=90 stays white.
         let before = AnnotationRenderer.renderBitmap(base: base,
                                                      annotations: [oval, arrow])!

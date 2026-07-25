@@ -335,16 +335,12 @@ struct AnnotationColor: Equatable {
     static let presets: [AnnotationColor] = [.red, .orange, .yellow, .green, .blue, .black, .white]
 }
 
-/// How a bound arrow endpoint places itself on its target's outline.
+/// How a bound arrow endpoint places itself on its target.
 enum AnchorSpec: Equatable {
-    /// The point on the target's outline along the ray toward the arrow's
-    /// other end. Follows the other endpoint; used where a "smart" whole-shape
-    /// connection is wanted rather than a fixed reference point.
-    case dynamic
     /// A fixed point on the target's bounding rect, normalized 0…1 in each
-    /// axis (0,0 top-left … 1,1 bottom-right). Every snapped reference anchor —
-    /// an edge midpoint or a vertex — is stored this way, so it tracks the
-    /// shape through resize.
+    /// axis (0,0 top-left … 1,1 bottom-right). Every snapped anchor — an edge
+    /// midpoint, a vertex, a point caught by the outline magnet, or the
+    /// center — is stored this way, so it tracks the shape through resize.
     case fixed(unit: CGPoint)
 }
 
@@ -1284,7 +1280,7 @@ struct Annotation: Identifiable, Equatable {
 
     /// Outward direction implied by a bound endpoint's anchor: the normal of
     /// the bbox edge it sits on. nil when the anchor doesn't pick a side (a
-    /// corner/vertex, the center, `.dynamic`) or the endpoint is free — the
+    /// corner/vertex, or the center) or the endpoint is free — the
     /// router then derives a direction from the geometry.
     static func anchorDirection(_ binding: EndpointBinding?) -> CGPoint? {
         guard let binding, case .fixed(let u) = binding.anchor else { return nil }
@@ -1532,7 +1528,7 @@ struct Annotation: Identifiable, Equatable {
                        y: from.y + (dy < 0 ? -side : side))
     }
 
-    // MARK: Arrow binding (pure resolver + ray-to-outline — unit-testable)
+    // MARK: Arrow binding (pure resolver — unit-testable)
 
     /// Shapes an arrow endpoint can bind to. Closed regions with a meaningful
     /// interior and outline; open/degenerate kinds (line, arrow, freehand,
@@ -1545,42 +1541,30 @@ struct Annotation: Identifiable, Equatable {
     }
 
     /// The resolved position of the `start` endpoint: the bound point on the
-    /// target's outline, the binding's fallback if the target is gone, or the
-    /// raw `start` when unbound. Pure — computed fresh each render/gesture, so
+    /// target, the binding's fallback if the target is gone, or the raw
+    /// `start` when unbound. Pure — computed fresh each render/gesture, so
     /// moving a target makes the arrow follow with no stored derived state.
     func resolvedStart(in annotations: [Annotation]) -> CGPoint {
-        resolved(binding: startBinding, rawSelf: start,
-                 otherBinding: endBinding, rawOther: end, in: annotations)
+        resolved(binding: startBinding, rawSelf: start, in: annotations)
     }
 
     /// The resolved position of the `end` endpoint (the arrow's tip). See
     /// `resolvedStart(in:)`.
     func resolvedEnd(in annotations: [Annotation]) -> CGPoint {
-        resolved(binding: endBinding, rawSelf: end,
-                 otherBinding: startBinding, rawOther: start, in: annotations)
+        resolved(binding: endBinding, rawSelf: end, in: annotations)
     }
 
-    /// Resolves one endpoint. `.dynamic` aims from the *other* endpoint's
-    /// reference point (its target's center when bound, else its raw point) at
-    /// the target and returns where that ray meets the target's outline. Using
-    /// the other target's **center** — not its resolved point — keeps the two
-    /// ends from recursing when both are dynamic.
+    /// Resolves one endpoint: the anchor's bbox-relative point on the target,
+    /// so it follows the shape as it moves and resizes.
     private func resolved(binding: EndpointBinding?, rawSelf: CGPoint,
-                          otherBinding: EndpointBinding?, rawOther: CGPoint,
                           in annotations: [Annotation]) -> CGPoint {
         guard let binding else { return rawSelf }
         guard let target = annotations.first(where: { $0.id == binding.targetID }),
               target.isBindableTarget else { return binding.fallback }
-        switch binding.anchor {
-        case .dynamic:
-            let toward = Self.endpointReference(binding: otherBinding,
-                                                raw: rawOther, in: annotations)
-            return target.outlinePoint(toward: toward)
-        case .fixed(let unit):
-            let r = target.rect
-            return CGPoint(x: r.minX + unit.x * r.width,
-                           y: r.minY + unit.y * r.height)
-        }
+        guard case .fixed(let unit) = binding.anchor else { return binding.fallback }
+        let r = target.rect
+        return CGPoint(x: r.minX + unit.x * r.width,
+                       y: r.minY + unit.y * r.height)
     }
 
     /// The reference points an endpoint can snap to. Edge midpoints are the
@@ -1724,18 +1708,6 @@ struct Annotation: Identifiable, Equatable {
         return nil
     }
 
-    /// A non-recursive stand-in for an endpoint: the center of its bound
-    /// target (so a dynamic aim points shape-to-shape), its fallback if the
-    /// target is gone, or the raw point when unbound.
-    private static func endpointReference(binding: EndpointBinding?, raw: CGPoint,
-                                          in annotations: [Annotation]) -> CGPoint {
-        guard let binding else { return raw }
-        guard let target = annotations.first(where: { $0.id == binding.targetID })
-        else { return binding.fallback }
-        let r = target.rect
-        return CGPoint(x: r.midX, y: r.midY)
-    }
-
     /// The curve control adjusted to the arrow's resolved endpoints. For an
     /// unbound arrow this is the stored control unchanged; for a bound one it
     /// rides the resolved chord (via `mapControl`) so the bend keeps its shape
@@ -1781,88 +1753,6 @@ struct Annotation: Identifiable, Equatable {
     func handle(at p: CGPoint, tolerance: CGFloat,
                 in annotations: [Annotation]) -> Handle? {
         (resolvedForInteraction(in: annotations) ?? self).handle(at: p, tolerance: tolerance)
-    }
-
-    /// The point on this shape's outline along the ray from its center toward
-    /// `external`. rect/ellipse use closed-form edge distance; path shapes
-    /// (rounded rect, polygon, star, bubble) intersect the flattened outline —
-    /// the same silhouette hit-testing and rendering use. Returns the center
-    /// for a degenerate rect or a coincident `external`.
-    func outlinePoint(toward external: CGPoint) -> CGPoint {
-        let r = rect
-        let center = CGPoint(x: r.midX, y: r.midY)
-        let dx = external.x - center.x, dy = external.y - center.y
-        let length = hypot(dx, dy)
-        guard length > 0.0001, r.width > 0, r.height > 0 else { return center }
-        let dxn = dx / length, dyn = dy / length
-        switch kind {
-        case .oval:
-            let t = Self.ellipseEdgeDistance(halfWidth: r.width / 2,
-                                             halfHeight: r.height / 2,
-                                             dxn: dxn, dyn: dyn)
-            return CGPoint(x: center.x + dxn * t, y: center.y + dyn * t)
-        case .roundedRect, .polygon, .star, .bubble:
-            if let hit = rayOutlinePoint(center: center, dxn: dxn, dyn: dyn) {
-                return hit
-            }
-            fallthrough
-        default:   // rect, and box fallback for path shapes with no crossing
-            let t = Self.boxEdgeDistance(halfWidth: r.width / 2,
-                                         halfHeight: r.height / 2,
-                                         dxn: dxn, dyn: dyn)
-            return CGPoint(x: center.x + dxn * t, y: center.y + dyn * t)
-        }
-    }
-
-    /// Farthest crossing of the ray (from `center`, unit direction) with this
-    /// shape's flattened outline. Farthest handles star points and the bubble
-    /// tail (a ray from center can graze an inner edge first). nil when the
-    /// shape has no path outline or the ray misses.
-    private func rayOutlinePoint(center: CGPoint, dxn: CGFloat,
-                                 dyn: CGFloat) -> CGPoint? {
-        guard let outline = pathShapeOutline else { return nil }
-        let polyline = Self.flatten(outline)
-        guard polyline.count >= 2 else { return nil }
-        var farthest: CGFloat = -1
-        for (a, b) in zip(polyline, polyline.dropFirst()) {
-            if let t = Self.raySegmentDistance(origin: center, dxn: dxn, dyn: dyn,
-                                               a: a, b: b), t > farthest {
-                farthest = t
-            }
-        }
-        guard farthest >= 0 else { return nil }
-        return CGPoint(x: center.x + dxn * farthest, y: center.y + dyn * farthest)
-    }
-
-    /// Distance from a box's center to its outline along a unit direction
-    /// (ray–box, corner rounding ignored — the same approximation the loupe
-    /// connector uses).
-    static func boxEdgeDistance(halfWidth: CGFloat, halfHeight: CGFloat,
-                                dxn: CGFloat, dyn: CGFloat) -> CGFloat {
-        guard halfWidth > 0, halfHeight > 0 else { return 0 }
-        return 1 / max(abs(dxn) / halfWidth, abs(dyn) / halfHeight)
-    }
-
-    /// Distance from an ellipse's center to its outline along a unit direction.
-    static func ellipseEdgeDistance(halfWidth: CGFloat, halfHeight: CGFloat,
-                                    dxn: CGFloat, dyn: CGFloat) -> CGFloat {
-        guard halfWidth > 0, halfHeight > 0 else { return 0 }
-        return 1 / sqrt(pow(dxn / halfWidth, 2) + pow(dyn / halfHeight, 2))
-    }
-
-    /// Positive distance `t` along a ray (origin, unit direction) to where it
-    /// crosses segment a→b, or nil if it doesn't. Solves origin + t·d = a + s·e
-    /// for t ≥ 0 and s ∈ [0, 1].
-    static func raySegmentDistance(origin: CGPoint, dxn: CGFloat, dyn: CGFloat,
-                                   a: CGPoint, b: CGPoint) -> CGFloat? {
-        let ex = b.x - a.x, ey = b.y - a.y
-        let det = ex * dyn - dxn * ey
-        guard abs(det) > 1e-9 else { return nil }   // ray parallel to segment
-        let rx = a.x - origin.x, ry = a.y - origin.y
-        let t = (ex * ry - rx * ey) / det
-        let s = (dxn * ry - rx * dyn) / det
-        guard t >= 0, s >= -1e-9, s <= 1 + 1e-9 else { return nil }
-        return t
     }
 
     /// Flattens a CGPath into a polyline (curves subdivided, subpaths closed)

@@ -699,87 +699,32 @@ import Testing
         #expect(arrow.resolvedEnd(in: [target, arrow]) == CGPoint(x: 300, y: 150))
     }
 
-    @Test func dynamicBindingLandsOnRectEdgeAlongRay() {
-        // Target rect centered (150,150), 100×100. Arrow comes from the left,
-        // so the bound tip meets the rect's left-edge midpoint.
-        let target = make(.rect, start: CGPoint(x: 100, y: 100),
-                          end: CGPoint(x: 200, y: 200))
-        var arrow = make(.arrow, start: CGPoint(x: 0, y: 150),
+    @Test func boundEndpointsResolveToTheirAnchorsOnBothShapes() {
+        // Two rects 300 apart; each end binds to the edge facing the other.
+        let a = make(.rect, start: CGPoint(x: 100, y: 100),
+                     end: CGPoint(x: 200, y: 200))   // right edge mid (200,150)
+        let b = make(.rect, start: CGPoint(x: 400, y: 100),
+                     end: CGPoint(x: 500, y: 200))   // left edge mid  (400,150)
+        var arrow = make(.arrow, start: CGPoint(x: 999, y: 999),
                          end: CGPoint(x: 999, y: 999))
-        arrow.endBinding = EndpointBinding(targetID: target.id, anchor: .dynamic,
-                                           fallback: .zero)
-        #expect(approx(arrow.resolvedEnd(in: [target, arrow]),
-                       CGPoint(x: 100, y: 150)))
-        // The unbound start still reports its raw point.
-        #expect(arrow.resolvedStart(in: [target, arrow]) == CGPoint(x: 0, y: 150))
-    }
-
-    @Test func dynamicBindingLandsOnEllipseNotBoundingBox() {
-        // Wide oval centered (200,150), half-axes 100×50. Approach from
-        // straight above → the top of the ellipse, not the bbox corner.
-        let oval = make(.oval, start: CGPoint(x: 100, y: 100),
-                        end: CGPoint(x: 300, y: 200))
-        var arrow = make(.arrow, start: CGPoint(x: 200, y: 0),
-                         end: CGPoint(x: 0, y: 0))
-        arrow.endBinding = EndpointBinding(targetID: oval.id, anchor: .dynamic,
-                                           fallback: .zero)
-        #expect(approx(arrow.resolvedEnd(in: [oval, arrow]),
-                       CGPoint(x: 200, y: 100)))
-    }
-
-    @Test func ovalAndRectOutlineDifferOnTheDiagonal() {
-        // Same bounding rect: on a 45° ray the box reaches its corner while
-        // the ellipse stops short — proof the resolver honors the outline.
-        let r = make(.rect, start: .zero, end: CGPoint(x: 100, y: 100))
-        let o = make(.oval, start: .zero, end: CGPoint(x: 100, y: 100))
-        let toward = CGPoint(x: 200, y: 200)
-        #expect(approx(r.outlinePoint(toward: toward), CGPoint(x: 100, y: 100)))
-        let ovalHit = o.outlinePoint(toward: toward)
-        #expect(approx(ovalHit, CGPoint(x: 85.36, y: 85.36)))
-    }
-
-    @Test func dynamicBindingLandsOnTriangleOutlineNotBoundingBox() {
-        // Triangle in (0,0)…(100,100): apex (50,0), base corners (100,100)/(0,100).
-        var triangle = make(.polygon, start: .zero, end: CGPoint(x: 100, y: 100))
-        triangle.polygonSides = 3
-        // From directly below: the base edge at (50,100).
-        var fromBelow = make(.arrow, start: CGPoint(x: 50, y: 200), end: .zero)
-        fromBelow.endBinding = EndpointBinding(targetID: triangle.id,
-                                               anchor: .dynamic, fallback: .zero)
-        #expect(approx(fromBelow.resolvedEnd(in: [triangle, fromBelow]),
-                       CGPoint(x: 50, y: 100)))
-        // From the right at mid-height: the right edge at x=75 (bbox would say 100).
-        var fromRight = make(.arrow, start: CGPoint(x: 200, y: 50), end: .zero)
-        fromRight.endBinding = EndpointBinding(targetID: triangle.id,
-                                               anchor: .dynamic, fallback: .zero)
-        #expect(approx(fromRight.resolvedEnd(in: [triangle, fromRight]),
-                       CGPoint(x: 75, y: 50)))
+        arrow.startBinding = EndpointBinding(
+            targetID: a.id, anchor: .fixed(unit: CGPoint(x: 1, y: 0.5)),
+            fallback: .zero)
+        arrow.endBinding = EndpointBinding(
+            targetID: b.id, anchor: .fixed(unit: CGPoint(x: 0, y: 0.5)),
+            fallback: .zero)
+        let list = [a, b, arrow]
+        #expect(arrow.resolvedStart(in: list) == CGPoint(x: 200, y: 150))
+        #expect(arrow.resolvedEnd(in: list) == CGPoint(x: 400, y: 150))
     }
 
     @Test func bindingFallsBackWhenTargetIsGone() {
         var arrow = make(.arrow, start: CGPoint(x: 0, y: 0),
                          end: CGPoint(x: 50, y: 50))
-        arrow.endBinding = EndpointBinding(targetID: UUID(), anchor: .dynamic,
-                                           fallback: CGPoint(x: 7, y: 7))
+        arrow.endBinding = EndpointBinding(
+            targetID: UUID(), anchor: .fixed(unit: CGPoint(x: 0, y: 0.5)),
+            fallback: CGPoint(x: 7, y: 7))
         #expect(arrow.resolvedEnd(in: [arrow]) == CGPoint(x: 7, y: 7))
-    }
-
-    @Test func bothEndsDynamicAimShapeToShapeWithoutRecursion() {
-        // Two rects 300 apart; each end binds to one. Each endpoint resolves
-        // to the near edge facing the *other target's center*.
-        let a = make(.rect, start: CGPoint(x: 100, y: 100),
-                     end: CGPoint(x: 200, y: 200))   // center (150,150)
-        let b = make(.rect, start: CGPoint(x: 400, y: 100),
-                     end: CGPoint(x: 500, y: 200))   // center (450,150)
-        var arrow = make(.arrow, start: CGPoint(x: 999, y: 999),
-                         end: CGPoint(x: 999, y: 999))
-        arrow.startBinding = EndpointBinding(targetID: a.id, anchor: .dynamic,
-                                             fallback: .zero)
-        arrow.endBinding = EndpointBinding(targetID: b.id, anchor: .dynamic,
-                                           fallback: .zero)
-        let list = [a, b, arrow]
-        #expect(approx(arrow.resolvedStart(in: list), CGPoint(x: 200, y: 150)))
-        #expect(approx(arrow.resolvedEnd(in: list), CGPoint(x: 400, y: 150)))
     }
 
     @Test func boundArrowHitAndHandlesUseResolvedEndpoints() {
@@ -790,7 +735,7 @@ import Testing
                         end: CGPoint(x: 200, y: 200))
         var arrow = make(.arrow, start: CGPoint(x: 0, y: 150),
                          end: CGPoint(x: 300, y: 150))
-        arrow.endBinding = EndpointBinding(targetID: rect.id, anchor: .dynamic,
+        arrow.endBinding = EndpointBinding(targetID: rect.id, anchor: .fixed(unit: CGPoint(x: 0, y: 0.5)),
                                            fallback: .zero)
         let list = [rect, arrow]
         // Handle grab lands on the resolved tip, not the raw end.
