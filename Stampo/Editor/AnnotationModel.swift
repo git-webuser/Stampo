@@ -360,7 +360,7 @@ struct ReferenceAnchor: Equatable {
 /// Binds one endpoint of an `.arrow`/`.line` to a target annotation so the
 /// endpoint follows the target as it moves or resizes. Value data on the
 /// annotation itself — undo/redo/duplicate/rotate ride the existing snapshot
-/// mechanism with zero synchronization. See `Docs/ArrowBindingPlan.md`.
+/// mechanism with zero synchronization. See `Docs/Stampo/ArrowBindingPlan.md`.
 struct EndpointBinding: Equatable {
     /// Stable identity of the target shape.
     var targetID: UUID

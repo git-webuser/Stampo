@@ -27,7 +27,7 @@ Commit: `git commit -m "Bump version to 0.2.0"`
 ## 2. Archive
 
 ```bash
-cd /Users/air/Documents/xcode/Stampo
+cd "$(git rev-parse --show-toplevel)"
 
 xcodebuild archive \
   -scheme Stampo \

@@ -26,3 +26,9 @@ Pods/
 
 # Docs (local documentation, not tracked)
 Docs/
+
+# Claude Code local state. Machine-specific: settings.local.json holds absolute
+# paths, and these were previously ignored only via a global ~/.config/git
+# excludes file, which does not travel with the repo.
+**/.claude/settings.local.json
+**/.claude/worktrees/
