@@ -1,0 +1,109 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="660" height="400" viewBox="0 0 660 400"
+     font-family="Inter, Helvetica, Arial, sans-serif">
+  <title>Stampo DMG background guides — 660x400 pt</title>
+
+  <g id="canvas">
+    <rect x="0" y="0" width="660" height="400" fill="#FFFFFF"/>
+  </g>
+
+  <g id="zone-never-visible-372-400">
+    <rect x="0" y="372" width="660" height="28" fill="#E5484D" fill-opacity="0.16"/>
+    <text x="8" y="384" font-size="9" font-weight="600" fill="#C62A2F">
+      372–400 · never visible · 28 pt of window title bar
+    </text>
+  </g>
+
+  <g id="zone-default-finder-only-344-372">
+    <rect x="0" y="344" width="660" height="28" fill="#FF8B3D" fill-opacity="0.16"/>
+    <text x="8" y="362" font-size="9" font-weight="600" fill="#BD4B00">
+      344–372 · only with default Finder · hidden by the path bar
+    </text>
+  </g>
+
+  <g id="zone-risky-316-344">
+    <rect x="0" y="316" width="660" height="28" fill="#FFB224" fill-opacity="0.16"/>
+    <text x="8" y="334" font-size="9" font-weight="600" fill="#9E6C00">
+      316–344 · hidden if path bar and status bar are both on
+    </text>
+  </g>
+
+  <g id="zone-safe-0-316">
+    <rect x="1" y="1" width="658" height="314" fill="none"
+          stroke="#12A594" stroke-width="2" stroke-dasharray="7 5"/>
+    <text x="652" y="308" text-anchor="end" font-size="10" font-weight="700" fill="#0D8074">
+      SAFE AREA · 0–316 pt · visible for everyone · keep the composition here
+    </text>
+  </g>
+
+  <g id="grid-10pt">
+    <path d="M0 10 H660 M0 20 H660 M0 30 H660 M0 40 H660 M0 60 H660 M0 70 H660 M0 80 H660 M0 90 H660 M0 110 H660 M0 120 H660 M0 130 H660 M0 140 H660 M0 160 H660 M0 170 H660 M0 180 H660 M0 190 H660 M0 210 H660 M0 220 H660 M0 230 H660 M0 240 H660 M0 260 H660 M0 270 H660 M0 280 H660 M0 290 H660 M0 310 H660 M0 320 H660 M0 330 H660 M0 340 H660 M0 360 H660 M0 370 H660 M0 380 H660 M0 390 H660 M10 0 V400 M20 0 V400 M30 0 V400 M40 0 V400 M60 0 V400 M70 0 V400 M80 0 V400 M90 0 V400 M110 0 V400 M120 0 V400 M130 0 V400 M140 0 V400 M160 0 V400 M170 0 V400 M180 0 V400 M190 0 V400 M210 0 V400 M220 0 V400 M230 0 V400 M240 0 V400 M260 0 V400 M270 0 V400 M280 0 V400 M290 0 V400 M310 0 V400 M320 0 V400 M330 0 V400 M340 0 V400 M360 0 V400 M370 0 V400 M380 0 V400 M390 0 V400 M410 0 V400 M420 0 V400 M430 0 V400 M440 0 V400 M460 0 V400 M470 0 V400 M480 0 V400 M490 0 V400 M510 0 V400 M520 0 V400 M530 0 V400 M540 0 V400 M560 0 V400 M570 0 V400 M580 0 V400 M590 0 V400 M610 0 V400 M620 0 V400 M630 0 V400 M640 0 V400"
+          stroke="#7B61FF" stroke-opacity="0.13" stroke-width="1"/>
+  </g>
+
+  <g id="grid-50pt">
+    <path d="M0 0 H660 M0 50 H660 M0 100 H660 M0 150 H660 M0 200 H660 M0 250 H660 M0 300 H660 M0 350 H660 M0 400 H660 M0 0 V400 M50 0 V400 M100 0 V400 M150 0 V400 M200 0 V400 M250 0 V400 M300 0 V400 M350 0 V400 M400 0 V400 M450 0 V400 M500 0 V400 M550 0 V400 M600 0 V400 M650 0 V400 M660 0 V400"
+          stroke="#7B61FF" stroke-opacity="0.38" stroke-width="1"/>
+  </g>
+
+  <g id="ruler-top-pt">
+      <text x="4" y="11" text-anchor="start" font-size="8" fill="#8B8B8B">0</text>
+      <text x="50" y="11" text-anchor="middle" font-size="8" fill="#8B8B8B">50</text>
+      <text x="100" y="11" text-anchor="middle" font-size="8" fill="#8B8B8B">100</text>
+      <text x="150" y="11" text-anchor="middle" font-size="8" fill="#8B8B8B">150</text>
+      <text x="200" y="11" text-anchor="middle" font-size="8" fill="#8B8B8B">200</text>
+      <text x="250" y="11" text-anchor="middle" font-size="8" fill="#8B8B8B">250</text>
+      <text x="300" y="11" text-anchor="middle" font-size="8" fill="#8B8B8B">300</text>
+      <text x="350" y="11" text-anchor="middle" font-size="8" fill="#8B8B8B">350</text>
+      <text x="400" y="11" text-anchor="middle" font-size="8" fill="#8B8B8B">400</text>
+      <text x="450" y="11" text-anchor="middle" font-size="8" fill="#8B8B8B">450</text>
+      <text x="500" y="11" text-anchor="middle" font-size="8" fill="#8B8B8B">500</text>
+      <text x="550" y="11" text-anchor="middle" font-size="8" fill="#8B8B8B">550</text>
+      <text x="600" y="11" text-anchor="middle" font-size="8" fill="#8B8B8B">600</text>
+      <text x="655" y="11" text-anchor="end" font-size="8" fill="#8B8B8B">660</text>
+  </g>
+
+  <g id="ruler-left-pt">
+      <text x="4" y="53" font-size="8" fill="#8B8B8B">50</text>
+      <text x="4" y="103" font-size="8" fill="#8B8B8B">100</text>
+      <text x="4" y="153" font-size="8" fill="#8B8B8B">150</text>
+      <text x="4" y="203" font-size="8" fill="#8B8B8B">200</text>
+      <text x="4" y="253" font-size="8" fill="#8B8B8B">250</text>
+      <text x="4" y="303" font-size="8" fill="#8B8B8B">300</text>
+      <text x="4" y="353" font-size="8" fill="#8B8B8B">350</text>
+  </g>
+
+  <g id="icon-stampo-app-200-190">
+        <rect x="150" y="140" width="100" height="100" fill="#8E4EC6" fill-opacity="0.10"
+              stroke="#8E4EC6" stroke-opacity="0.7" stroke-width="1"/>
+        <path d="M138 190 H262 M200 128 V252"
+              stroke="#8E4EC6" stroke-opacity="0.85" stroke-width="1" stroke-dasharray="4 3"/>
+        <circle cx="200" cy="190" r="2.5" fill="#8E4EC6"/>
+        <text x="200" y="132" text-anchor="middle" font-size="9"
+              font-weight="600" fill="#8E4EC6">Stampo.app · 200,190 · 100 pt</text>
+      </g>
+
+  <g id="icon-applications-drop-460-190">
+        <rect x="410" y="140" width="100" height="100" fill="#8E4EC6" fill-opacity="0.10"
+              stroke="#8E4EC6" stroke-opacity="0.7" stroke-width="1"/>
+        <path d="M398 190 H522 M460 128 V252"
+              stroke="#8E4EC6" stroke-opacity="0.85" stroke-width="1" stroke-dasharray="4 3"/>
+        <circle cx="460" cy="190" r="2.5" fill="#8E4EC6"/>
+        <text x="460" y="132" text-anchor="middle" font-size="9"
+              font-weight="600" fill="#8E4EC6">Applications · 460,190 · 100 pt</text>
+      </g>
+
+  <g id="finder-label-band-253-266">
+    <rect x="0" y="253" width="660" height="13" fill="#0091FF" fill-opacity="0.13"/>
+    <rect x="156" y="253" width="88" height="13" fill="#0091FF" fill-opacity="0.22"/>
+    <rect x="416" y="253" width="88" height="13" fill="#0091FF" fill-opacity="0.22"/>
+    <text x="256" y="262" font-size="8" font-weight="600" fill="#006ADC">
+      253–266 · Finder icon labels
+    </text>
+  </g>
+
+  <g id="export-note">
+    <text x="652" y="384" text-anchor="end" font-size="8" fill="#7A7A7A">
+      Hide guides · export 4x = 2640×1600 · then ./assets/make-background.sh
+    </text>
+  </g>
+</svg>
