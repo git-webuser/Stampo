@@ -154,7 +154,15 @@ final class FirstLaunchWindowController: NSObject, NSWindowDelegate {
     /// A detached shell waits for THIS pid to actually exit (bounded at ~10s)
     /// before reopening — a fixed sleep raced a slow teardown, letting `open`
     /// activate the still-dying instance so no new one ever launched.
-    static func relaunch() {
+    @discardableResult
+    static func relaunch() -> Bool {
+        // Terminating bypasses windowShouldClose, so the editor's own guard
+        // would never fire and pending annotations would be lost without a
+        // word. Ask first; a cancel calls the whole relaunch off.
+        guard EditorWindowController.shared.confirmDiscardingUnsavedWork() else {
+            return false
+        }
+
         let path = Bundle.main.bundlePath
         let pid = ProcessInfo.processInfo.processIdentifier
         let task = Process()
@@ -163,6 +171,7 @@ final class FirstLaunchWindowController: NSObject, NSWindowDelegate {
             "for i in $(seq 1 100); do kill -0 \(pid) 2>/dev/null || break; sleep 0.1; done; /usr/bin/open \"\(path)\""]
         try? task.run()
         NSApp.terminate(nil)
+        return true
     }
 
     /// True while the wizard window exists. UserFacingError uses this as the
@@ -323,7 +332,9 @@ struct FirstLaunchView: View {
         didFinish = true
         UserDefaults.standard.set(true, forKey: AppSettings.Keys.hasCompletedOnboarding)
         if relaunch {
-            FirstLaunchWindowController.relaunch()
+            // The relaunch can be called off at the editor's unsaved-changes
+            // prompt; re-arm so the button still works on a second press.
+            if !FirstLaunchWindowController.relaunch() { didFinish = false }
         } else {
             FirstLaunchWindowController.shared.close()
         }
@@ -352,6 +363,10 @@ struct FirstLaunchView: View {
 
                 Button {
                     screenRecordingRequested = true
+                    // Also record it where Settings can see it: a user who
+                    // grants here but declines macOS's "Quit & Reopen" closes
+                    // this window and looks for the restart in Settings.
+                    AppSettings.screenRecordingSetupRequested = true
                     _ = CGRequestScreenCaptureAccess()
                     openSecuritySettings("Privacy_ScreenCapture")
                 } label: {

@@ -28,6 +28,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         guard !Self.isRunningTests else { return }
         AppSettings.migrateLegacySaveDirectoryIfNeeded()
+        // "Restart to activate" is a statement about a stale process. This one
+        // is brand new and its preflight is authoritative, so the pending flag
+        // starts every launch clear.
+        AppSettings.screenRecordingSetupRequested = false
         // The welcome flow belongs to first launch only. If Screen Recording is
         // later revoked, capture actions surface their focused permission alert
         // and General Settings links directly to the relevant macOS pane.

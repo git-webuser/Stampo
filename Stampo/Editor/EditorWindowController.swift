@@ -138,6 +138,15 @@ final class EditorWindowController: NSObject, NSWindowDelegate {
         }
     }
 
+    /// Same guard as closing the window, for callers that tear the process
+    /// down instead. `NSApp.terminate` never sends `windowShouldClose`, so a
+    /// dirty document would otherwise die silently. False means the user
+    /// cancelled and the caller must abort.
+    func confirmDiscardingUnsavedWork() -> Bool {
+        guard let document, document.isDirty else { return true }
+        return resolveUnsavedChanges(document)
+    }
+
     // MARK: NSWindowDelegate
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {

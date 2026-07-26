@@ -66,6 +66,11 @@ struct OnboardingVideoView: View {
             }
             .clipped()
             .task(id: resourceName) {
+                // Drop the outgoing theme's frame before decoding the next one.
+                // Holding it would paint a light-stage still over the dark
+                // panel (or the reverse) for as long as the decode takes; the
+                // bare stage color is at least the right color.
+                posterImage = nil
                 posterImage = await OnboardingMotionAsset.posterFrame(
                     named: resourceName
                 )

@@ -59,6 +59,18 @@ enum AppSettings {
         static let hotkeyArrowMove50Enabled = "hotkeyArrowMove50Enabled"
     }
 
+    /// Whether the user has been sent to the Screen Recording pane during
+    /// *this* run. It exists only because opening that pane closes the
+    /// settings window, which would discard view state — so it must outlive a
+    /// window, never a launch. A fresh process reads the real grant, so
+    /// `AppDelegate` clears it at startup; leaving it set would keep offering
+    /// a pointless restart, and claim the user toggled something they never
+    /// touched, to anyone who visited the pane once and walked away.
+    static var screenRecordingSetupRequested: Bool {
+        get { UserDefaults.standard.bool(forKey: Keys.screenRecordingSetupRequested) }
+        set { UserDefaults.standard.set(newValue, forKey: Keys.screenRecordingSetupRequested) }
+    }
+
     // MARK: General
     static var settingsStyle: SettingsStyle {
         let raw = UserDefaults.standard.string(forKey: Keys.settingsStyle) ?? "toolbar"
