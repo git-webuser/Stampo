@@ -16,27 +16,30 @@ Stampo replaces the usual screenshot workflow with a panel that appears when you
 
 ## Installation
 
-### Homebrew (recommended)
+### Download the DMG
+
+1. Download the latest `Stampo-<version>.dmg` from the [Releases](https://github.com/git-webuser/Stampo/releases) page.
+2. Open the DMG and drag **Stampo.app** to your **Applications** folder.
+3. Open Stampo from Applications. macOS blocks this first attempt and says *"Stampo can't be opened because Apple cannot check it for malicious software."* — expected, since the app isn't notarized yet.
+4. Open **System Settings → Privacy & Security** and scroll down to the message about Stampo being blocked.
+5. Click **Open Anyway**, then confirm. Stampo starts, and won't ask again.
+
+Control-clicking the app and choosing **Open** used to skip those last two steps.
+macOS 15 removed that shortcut and Stampo requires macOS 15.7 or later, so
+**Open Anyway** is the way through.
+
+### Homebrew
+
+If you're comfortable with the terminal, this route skips the block entirely —
+`--no-quarantine` keeps macOS from flagging the download, so Stampo opens on the
+first double-click with nothing to approve:
 
 ```bash
 brew tap git-webuser/stampo https://github.com/git-webuser/Stampo
 brew install --cask --no-quarantine stampo
 ```
 
-The `--no-quarantine` flag skips the Gatekeeper warning for this
-not-yet-notarized build. Update later with `brew upgrade --cask stampo`.
-
-### Manual
-
-1. Download the latest `Stampo-<version>.dmg` from the [Releases](https://github.com/git-webuser/Stampo/releases) page.
-2. Open the DMG and drag **Stampo.app** to your **Applications** folder.
-3. Open Stampo from Applications.
-
-**First launch:** macOS will show *"Stampo can't be opened because Apple cannot check it for malicious software."* This is expected — the app is not yet notarized.
-
-To open it: try to launch Stampo once and let macOS block it, then go to **System Settings → Privacy & Security**, find the message about Stampo being blocked, and click **Open Anyway**. You only need to do this once.
-
-Control-clicking the app and choosing **Open** — the old workaround — no longer bypasses this. macOS 15 removed it, and Stampo requires macOS 15.7 or later, so **Open Anyway** is the only route. Installing through Homebrew with `--no-quarantine` avoids the block entirely.
+Update later with `brew upgrade --cask stampo`.
 
 ## Permissions
 
