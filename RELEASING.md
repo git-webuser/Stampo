@@ -64,6 +64,8 @@ VERSION="0.1.0-beta.1"
 
 create-dmg \
   --volname "Stampo" \
+  --volicon "build/export/Stampo.app/Contents/Resources/AppIcon.icns" \
+  --background "assets/dmg-background.tiff" \
   --window-pos 200 120 \
   --window-size 660 400 \
   --icon-size 100 \
@@ -73,6 +75,17 @@ create-dmg \
   "build/Stampo-${VERSION}.dmg" \
   "build/export/"
 ```
+
+`--volicon` takes the app icon straight out of the bundle, so the volume icon
+always matches the app. Drop `--background` if `assets/dmg-background.tiff`
+doesn't exist yet. The window geometry above and the background art are composed
+against each other — see [assets/README.md](assets/README.md) before changing
+either.
+
+Note that `release.sh` builds the DMG in a temp directory and moves it into
+`build/` afterwards: create-dmg records the background as a Finder alias that
+embeds the build path, and building straight into `build/` would put the local
+path inside the published DMG.
 
 ---
 

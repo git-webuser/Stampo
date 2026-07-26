@@ -87,6 +87,20 @@ xcodebuild -exportArchive \
 codesign --verify --deep --strict "$EXPORT_PATH/Stampo.app"
 echo "  Signature OK"
 
+# The DMG's volume icon is the app icon, taken straight out of the bundle Xcode
+# just built from Stampo/AppIcon.icon. Nothing to keep in sync by hand — but if
+# icon compilation ever breaks, stop here rather than quietly shipping a DMG
+# with the generic white disk icon.
+VOLICON="$EXPORT_PATH/Stampo.app/Contents/Resources/AppIcon.icns"
+if [[ ! -f "$VOLICON" ]]; then
+  echo "Error: AppIcon.icns missing from the exported bundle at:"
+  echo "  $VOLICON"
+  echo "Xcode should compile Stampo/AppIcon.icon into it. Fix that, then delete"
+  echo "the tag this run already pushed and re-run:"
+  echo "  git tag -d $VERSION && git push origin :refs/tags/$VERSION"
+  exit 1
+fi
+
 # ---------- DMG ----------
 
 # Stage only the .app so the DMG window doesn't show xcodebuild's
@@ -97,19 +111,42 @@ rm -rf "$DMG_STAGE"
 mkdir -p "$DMG_STAGE"
 cp -R "$EXPORT_PATH/Stampo.app" "$DMG_STAGE/"
 
+# Optional window background: drop a two-representation TIFF at
+# assets/dmg-background.tiff and it gets picked up, otherwise the window stays
+# plain white. The art is composed against the window size and icon positions
+# below, so those two have to change together — see assets/README.md.
+BACKGROUND="$SCRIPT_DIR/assets/dmg-background.tiff"
+BG_ARGS=()
+if [[ -f "$BACKGROUND" ]]; then
+  BG_ARGS=(--background "$BACKGROUND")
+  echo "  Background: assets/dmg-background.tiff"
+fi
+
+# create-dmg stores the background as a Finder alias, and that alias embeds the
+# full path of the scratch image it writes next to the output DMG — which would
+# put the local build path, username and all, inside every published DMG. Build
+# in a neutral temp directory and move the finished DMG into build/ after.
+DMG_WORK="$(mktemp -d /private/tmp/stampo-dmg.XXXXXX)"
+trap 'rm -rf "$DMG_WORK"' EXIT
+DMG_NAME="$(basename "$DMG_PATH")"
+
 echo "▸ Creating DMG..."
+# ${BG_ARGS[@]+...} keeps `set -u` happy with an empty array under bash 3.2.
 create-dmg \
   --volname "Stampo" \
+  --volicon "$VOLICON" \
+  ${BG_ARGS[@]+"${BG_ARGS[@]}"} \
   --window-pos 200 120 \
   --window-size 660 400 \
   --icon-size 100 \
   --icon "Stampo.app" 200 190 \
   --hide-extension "Stampo.app" \
   --app-drop-link 460 190 \
-  "$DMG_PATH" \
+  "$DMG_WORK/$DMG_NAME" \
   "$DMG_STAGE/"
 
-rm -rf "$DMG_STAGE"
+mv "$DMG_WORK/$DMG_NAME" "$DMG_PATH"
+rm -rf "$DMG_STAGE" "$DMG_WORK"
 
 CHECKSUM=$(shasum -a 256 "$DMG_PATH" | awk '{print $1}')
 
