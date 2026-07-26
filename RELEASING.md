@@ -59,8 +59,19 @@ codesign --verify --deep --strict --verbose=2 build/export/Stampo.app
 
 ## 4. Create DMG
 
+Stage only the `.app` first, so the window doesn't show `xcodebuild`'s export
+artifacts, and build into a temp directory — **not** straight into `build/`. With
+`--background`, create-dmg writes a scratch `rw.*.dmg` next to the output file
+and records that file's absolute path in the volume's `.DS_Store`, so building
+inside the repo would put your home path and username inside the published DMG.
+
 ```bash
 VERSION="0.1.0-beta.1"
+
+rm -rf build/dmg-stage && mkdir -p build/dmg-stage
+cp -R build/export/Stampo.app build/dmg-stage/
+
+DMG_WORK="$(mktemp -d /private/tmp/stampo-dmg.XXXXXX)"
 
 create-dmg \
   --volname "Stampo" \
@@ -72,8 +83,11 @@ create-dmg \
   --icon "Stampo.app" 200 190 \
   --hide-extension "Stampo.app" \
   --app-drop-link 460 190 \
-  "build/Stampo-${VERSION}.dmg" \
-  "build/export/"
+  "$DMG_WORK/Stampo-${VERSION}.dmg" \
+  "build/dmg-stage/"
+
+mv "$DMG_WORK/Stampo-${VERSION}.dmg" "build/Stampo-${VERSION}.dmg"
+rm -rf build/dmg-stage "$DMG_WORK"
 ```
 
 `--volicon` takes the app icon straight out of the bundle, so the volume icon
@@ -81,11 +95,6 @@ always matches the app. Drop `--background` if `assets/dmg-background.tiff`
 doesn't exist yet. The window geometry above and the background art are composed
 against each other — see [assets/README.md](assets/README.md) before changing
 either.
-
-Note that `release.sh` builds the DMG in a temp directory and moves it into
-`build/` afterwards: create-dmg records the background as a Finder alias that
-embeds the build path, and building straight into `build/` would put the local
-path inside the published DMG.
 
 ---
 
