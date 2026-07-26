@@ -221,7 +221,10 @@ struct FirstLaunchView: View {
 
             VStack(spacing: 0) {
                 heroSection
-                    .padding(.bottom, 28)
+                    .padding(.bottom, 18)
+
+                featureList
+                    .padding(.bottom, 22)
 
                 switch step {
                 case .screenRecording:
@@ -231,8 +234,8 @@ struct FirstLaunchView: View {
                 }
             }
             .padding(.horizontal, 28)
-            .padding(.top, 28)
-            .padding(.bottom, 24)
+            .padding(.top, 24)
+            .padding(.bottom, 20)
             .frame(maxWidth: .infinity)
             .background(Color(nsColor: .windowBackgroundColor))
         }
@@ -243,17 +246,63 @@ struct FirstLaunchView: View {
     }
 
     private var heroSection: some View {
-        VStack(spacing: 6) {
-            Text("Welcome to Stampo")
-                .font(.title.bold())
-            Text("Screenshots, scanning, editing, and files — all in Stampo.")
-                .font(.body)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.9)
+        Text("Welcome to Stampo")
+            .font(.title.bold())
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: .infinity)
+    }
+
+    /// What the app does, as left-aligned rows instead of one centred
+    /// sentence: a paragraph wraps wherever it happens to fit and splits
+    /// phrases mid-thought. Each row is a title over its own description, so
+    /// the column reads as three solid blocks rather than a ragged staircase
+    /// of one-liners. Glyphs are the ones the app already uses for these
+    /// actions, at a weight that holds up next to the body text.
+    private var featureList: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            featureRow(
+                "rectangle.dashed",
+                "Create and edit screenshots",
+                "A selection, a window, or the whole screen. Click the preview to edit."
+            )
+            featureRow(
+                "doc.viewfinder",
+                "Scan text and QR codes",
+                "Recognized text and links land straight on the clipboard."
+            )
+            featureRow(
+                "tray.and.arrow.down",
+                "Manage files",
+                "Drag files onto the shelf by the notch, drop them into any app."
+            )
         }
-        .multilineTextAlignment(.center)
+        .frame(width: 400, alignment: .leading)
         .frame(maxWidth: .infinity)
+    }
+
+    private func featureRow(
+        _ icon: String,
+        _ title: LocalizedStringKey,
+        _ description: LocalizedStringKey
+    ) -> some View {
+        HStack(alignment: .top, spacing: 16) {
+            Image(systemName: icon)
+                .font(.system(size: 26, weight: .medium))
+                .foregroundStyle(.tint)
+                .frame(width: 34, height: 34)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.headline)
+                Text(description)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .multilineTextAlignment(.leading)
+
+            Spacer(minLength: 0)
+        }
     }
 
     /// Polls the current grant and flips to the done card once it lands.
@@ -282,22 +331,25 @@ struct FirstLaunchView: View {
 
     private var screenRecordingStep: some View {
         VStack(spacing: 14) {
-            Text("Allow screen recording")
-                .font(.title3.bold())
-
-            Text("For screenshots, scanning, and color picking")
+            Text("Screen recording permission is required.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
-            if screenRecordingRequested {
-                Text("Turned it on but nothing happened? The permission takes effect after Stampo restarts.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
+            // macOS places the default action rightmost, with secondary
+            // actions to its left.
             HStack(spacing: 12) {
+                if screenRecordingRequested {
+                    Button {
+                        FirstLaunchWindowController.relaunch()
+                    } label: {
+                        Text("Relaunch")
+                            .frame(minWidth: Self.actionLabelMinWidth)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.large)
+                }
+
                 Button {
                     screenRecordingRequested = true
                     _ = CGRequestScreenCaptureAccess()
@@ -309,17 +361,15 @@ struct FirstLaunchView: View {
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
                 .keyboardShortcut(.defaultAction)
+            }
 
-                if screenRecordingRequested {
-                    Button {
-                        FirstLaunchWindowController.relaunch()
-                    } label: {
-                        Text("Relaunch")
-                            .frame(minWidth: Self.actionLabelMinWidth)
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.large)
-                }
+            // Recovery note, under the actions it explains: it only appears
+            // once the user has already been sent to the Privacy pane.
+            if screenRecordingRequested {
+                Text("Turned it on but nothing happened? The permission takes effect after Stampo restarts.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .multilineTextAlignment(.center)
@@ -353,8 +403,14 @@ struct FirstLaunchView: View {
 
                 Spacer(minLength: 12)
 
-                Button(actionButtonTitle) {
+                Button {
                     finish(relaunch: screenRecordingNeededGrant)
+                } label: {
+                    // Same minimum width as the permission step's buttons, so
+                    // the closing action doesn't read as the smallest control
+                    // in the flow.
+                    Text(actionButtonTitle)
+                        .frame(minWidth: Self.actionLabelMinWidth)
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)

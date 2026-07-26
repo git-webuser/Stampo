@@ -42,7 +42,9 @@ struct OnboardingVideoView: View {
                 )
             }
         }
-        .aspectRatio(3.0 / 2.0, contentMode: .fit)
+        // Matches the exported assets (1600×800). Changing the export means
+        // changing this, or resizeAspectFill silently crops the frame.
+        .aspectRatio(2.0, contentMode: .fit)
         .background(Color(nsColor: stageColor))
         .allowsHitTesting(false)
         // The animation is the only place the notch gesture is explained, so
@@ -75,8 +77,10 @@ struct OnboardingVideoView: View {
 
 private enum OnboardingMotionAsset {
     /// A composed overview near the end of the source timeline: it conveys the
-    /// interaction in one frame, which is what Reduce Motion needs.
-    static let posterTime = CMTime(seconds: 8, preferredTimescale: 600)
+    /// interaction in one frame, which is what Reduce Motion needs. Picked off
+    /// the 15.03s exports as their calmest composed moment — the panel and the
+    /// capture thumbnail are both up, and the fade-out has not started.
+    static let posterTime = CMTime(seconds: 12, preferredTimescale: 600)
 
     static func url(named name: String) -> URL? {
         // File-system-synchronized Xcode groups normally flatten resources

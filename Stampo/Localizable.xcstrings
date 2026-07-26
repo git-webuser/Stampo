@@ -342,6 +342,23 @@
         }
       }
     },
+    "A selection, a window, or the whole screen. Click the preview to edit." : {
+      "comment" : "Onboarding feature row description",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A selection, a window, or the whole screen. Click the preview to edit."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Область, окно или весь экран. Клик по превью открывает редактор."
+          }
+        }
+      }
+    },
     "About" : {
       "comment" : "Settings tab label — About page",
       "extractionState" : "stale",
@@ -1356,6 +1373,23 @@
         }
       }
     },
+    "Create and edit screenshots" : {
+      "comment" : "Onboarding feature row",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Create and edit screenshots"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Создавай и редактируй скриншоты"
+          }
+        }
+      }
+    },
     "Crop" : {
       "comment" : "Tooltip for the editor's crop button.",
       "extractionState" : "stale",
@@ -1652,6 +1686,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Бросьте файлы сюда"
+          }
+        }
+      }
+    },
+    "Drag files onto the shelf by the notch, drop them into any app." : {
+      "comment" : "Onboarding feature row description",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Drag files onto the shelf by the notch, drop them into any app."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Перетащи файлы в полку у челки и забери их в любом приложении."
           }
         }
       }
@@ -2597,6 +2648,23 @@
         }
       }
     },
+    "Recognized text and links land straight on the clipboard." : {
+      "comment" : "Onboarding feature row description",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Recognized text and links land straight on the clipboard."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Распознанный текст и ссылки сразу ложатся в буфер."
+          }
+        }
+      }
+    },
     "macOS couldn't capture the screen. This usually means Screen Recording permission is missing or was revoked." : {
       "extractionState" : "stale",
       "localizations" : {
@@ -2610,6 +2678,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "macOS не смогла сделать скриншот. Обычно это означает, что разрешение «Запись экрана» отсутствует или было отозвано."
+          }
+        }
+      }
+    },
+    "Manage files" : {
+      "comment" : "Onboarding feature row",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Manage files"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Управляй файлами"
           }
         }
       }
@@ -4148,6 +4233,23 @@
         }
       }
     },
+    "Scan text and QR codes" : {
+      "comment" : "Onboarding feature row",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Scan text and QR codes"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сканируй текст и QR-коды"
+          }
+        }
+      }
+    },
     "Screen recording" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -4215,6 +4317,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Screen Recording заработает после перезапуска."
+          }
+        }
+      }
+    },
+    "Screen recording permission is required." : {
+      "comment" : "Onboarding: the ask, shown right above the permission actions",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Screen recording permission is required."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Для работы потребуется разрешение на запись экрана"
           }
         }
       }
