@@ -12,8 +12,25 @@ struct GeneralSettingsView: View {
     @AppStorage(AppSettings.Keys.noNotchNotchScale)     private var noNotchNotchScale      = 1.0
     @AppStorage(AppSettings.Keys.preferredLanguage)     private var preferredLanguage      = "system"
 
+    @AppStorage(AppSettings.Keys.screenRecordingSetupRequested)
+    private var screenRecordingSetupRequested = false
+
     @State private var launchAtLogin = AppSettings.launchAtLoginEnabled
     @State private var screenRecordingGranted = CGPreflightScreenCaptureAccess()
+
+    /// The user has been to the Privacy pane and the preflight still reads
+    /// false — either they haven't flipped the toggle, or they have and this
+    /// process can't see it until it restarts. Only the second case is
+    /// fixable in-app, and offering the restart costs nothing in the first.
+    private var awaitingRelaunch: Bool {
+        !screenRecordingGranted && screenRecordingSetupRequested
+    }
+
+    private var screenRecordingDescription: LocalizedStringKey {
+        awaitingRelaunch
+            ? "Turned it on but nothing happened? The permission takes effect after Stampo restarts."
+            : "For screenshots, scanning, and color picking"
+    }
 
     var body: some View {
         Form {
@@ -31,7 +48,7 @@ struct GeneralSettingsView: View {
                 SettingRow(
                     icon: "lock.shield",
                     title: "Screen recording",
-                    description: "For screenshots, scanning, and color picking"
+                    description: screenRecordingDescription
                 ) {
                     HStack(spacing: 12) {
                         Group {
@@ -42,6 +59,15 @@ struct GeneralSettingsView: View {
                             }
                         }
                         .foregroundStyle(.secondary)
+
+                        // The grant only registers in a fresh process, so a user
+                        // who already toggled Stampo on in System Settings needs
+                        // a restart — not another trip to the same pane.
+                        if awaitingRelaunch {
+                            Button("Relaunch") {
+                                FirstLaunchWindowController.relaunch()
+                            }
+                        }
 
                         Button("Set up…") {
                             openScreenRecordingSettings()
@@ -166,12 +192,18 @@ struct GeneralSettingsView: View {
 
     private func refreshScreenRecordingStatus() {
         screenRecordingGranted = CGPreflightScreenCaptureAccess()
+        // Landed for real: retire the restart prompt so it can't outlive the
+        // problem it was offered for.
+        if screenRecordingGranted {
+            screenRecordingSetupRequested = false
+        }
     }
 
     private func openScreenRecordingSettings() {
         guard let url = URL(
             string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"
         ) else { return }
+        screenRecordingSetupRequested = true
         // Stampo's settings window floats above normal windows; close it so it
         // cannot cover the System Settings pane the user is trying to change.
         SettingsWindowController.shared.close()

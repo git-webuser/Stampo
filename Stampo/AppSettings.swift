@@ -30,6 +30,11 @@ enum AppSettings {
         // Permissions
         /// true после того как пользователь закрыл onboarding окно при первом запуске.
         static let hasCompletedOnboarding = "hasCompletedOnboarding"
+        /// true после того как пользователь ушёл выдавать Screen Recording из
+        /// настроек. Переживает закрытие окна (его закрывает сам переход в
+        /// System Settings) — иначе кнопку перезапуска негде было бы показать.
+        /// Сбрасывается, как только preflight увидел выданное разрешение.
+        static let screenRecordingSetupRequested = "screenRecordingSetupRequested"
         // Tray
         static let trayMaxItems          = "trayMaxItems"
         static let persistTray           = "persistTray"
