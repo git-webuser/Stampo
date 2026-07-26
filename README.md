@@ -34,7 +34,9 @@ not-yet-notarized build. Update later with `brew upgrade --cask stampo`.
 
 **First launch:** macOS will show *"Stampo can't be opened because Apple cannot check it for malicious software."* This is expected — the app is not yet notarized.
 
-To open it: right-click **Stampo.app** in Finder → **Open** → **Open**. You only need to do this once. On macOS 15 you may instead need to allow it via **System Settings → Privacy & Security → Open Anyway** after the first blocked launch.
+To open it: try to launch Stampo once and let macOS block it, then go to **System Settings → Privacy & Security**, find the message about Stampo being blocked, and click **Open Anyway**. You only need to do this once.
+
+Control-clicking the app and choosing **Open** — the old workaround — no longer bypasses this. macOS 15 removed it, and Stampo requires macOS 15.7 or later, so **Open Anyway** is the only route. Installing through Homebrew with `--no-quarantine` avoids the block entirely.
 
 ## Permissions
 
@@ -61,7 +63,7 @@ Select an area of the screen and Stampo reads it in a single pass: every QR/barc
 
 ## Annotation Editor
 
-Click the post-capture thumbnail (or right-click a screenshot in the tray → **Edit**) to open the built-in editor: lines, arrows, rectangles, ovals, freehand drawing, numbered steps, text labels, circular loupes, and blur/pixelate regions, with full undo/redo (`⌘Z` / `⇧⌘Z`). The second toolbar row shows the settings for the active tool — colors, solid/dashed line styles, three arrow styles (solid, dashed, bold), arrowheads at the start, end, or both endpoints, text formatting (bold, italic, underline, strikethrough, shadow, a light/dark/none background plate, and left/center/right alignment), loupe shape and mode, and controls for line thickness, brush size, text size, marker size, fill opacity (0–100%), magnification, and blur/pixelate intensity. On narrow windows the toolbar buttons collapse from label to icon so nothing wraps.
+Click the post-capture thumbnail (or right-click a screenshot in the tray → **Edit**) to open the built-in editor: lines, arrows, rectangles, rounded rectangles, ovals, triangles, polygons, stars, speech bubbles, freehand drawing, numbered steps, text labels, loupes, and blur/pixelate regions, with full undo/redo (`⌘Z` / `⇧⌘Z`). Shapes live behind one toolbar button with a popover, as do the drawing brushes. The second toolbar row shows the settings for the active tool — colors, solid/dashed line styles, arrow route (straight, curved, or elbow) chosen independently of the stroke, arrowheads at the start, end, or both endpoints, text formatting (bold, italic, underline, strikethrough, shadow, a light/dark/none background plate, and left/center/right alignment), loupe shape and mode, and controls for line thickness, brush size, text size, marker size, fill opacity (0–100%), magnification, and blur/pixelate intensity. On narrow windows the toolbar buttons collapse from label to icon so nothing wraps.
 
 - **Save** (`⌘S`) always writes a **new file** to your save folder — the original screenshot is never modified — and the result appears in the tray.
 - **Copy** (`⌘C`) puts the annotated image on the clipboard at the original pixel resolution.
@@ -72,6 +74,7 @@ Click the post-capture thumbnail (or right-click a screenshot in the tray → **
 - Double-click a text label or step marker to edit it; inside a text label, **Return** commits and **⇧Return** starts a new line. New step markers auto-number from the highest numeric label (labels can be any text, e.g. `1.1` or `4.12`).
 - Blur/pixelate always sits beneath the other annotations, so arrows, text, and shapes stay crisp on top of a redacted region.
 - The **Loupe** magnifies a region — as an oval or a rounded rectangle, and either in place or as a **callout** (a source marker joined by a connector to a detached magnifier you can position and resize independently). It can reveal either the original image or the redacted result beneath it.
+- **Arrows can bind to shapes.** Drop an endpoint on a shape and it attaches to that shape's geometry, then follows it as the shape is moved or resized. Anchor points light up while you draw, an outline magnet catches the edge, and a center connector attaches to the shape as a whole. Elbow arrows route along axes with rounded corners and one slider per leg; hold **Shift** to force a straight line.
 - The **Drawing** tool combines an opaque pen and a wide translucent marker. The separate **Eraser** tool partially removes their strokes without touching shapes, text, or redactions. One drawing or erasing gesture is one undo step.
 - Press **⌘D** to duplicate the selected annotation with a **40 × 40 px** offset, or hold **Option** while dragging any annotation to duplicate and move it in one gesture.
 - Switch tools from the keyboard: **V** Select, **L** Line, **A** Arrow, **R** Rectangle, **O** Oval, **T** Text, **P** Drawing, **E** Eraser, **B** Blur, **S** Step, and **M** Loupe. Tool shortcuts pause while editing text or typing in a field.
