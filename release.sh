@@ -51,6 +51,14 @@ echo "▸ Bumping version: $VERSION (build $NEW_BUILD)"
 sed -i '' "s/MARKETING_VERSION = [^;]*/MARKETING_VERSION = $VERSION/" "$PBXPROJ"
 sed -i '' "s/CURRENT_PROJECT_VERSION = [^;]*/CURRENT_PROJECT_VERSION = $NEW_BUILD/" "$PBXPROJ"
 
+# README carries the version in its footer. It was bumped by hand until it
+# silently fell two releases behind, so it rides along with the real bump.
+README="$SCRIPT_DIR/README.md"
+if [[ -f "$README" ]]; then
+  sed -i '' "s/^\*Stampo [0-9][^ ]* — for macOS/\*Stampo $VERSION — for macOS/" "$README"
+  git -C "$SCRIPT_DIR" add README.md
+fi
+
 git -C "$SCRIPT_DIR" add Stampo.xcodeproj/project.pbxproj
 git -C "$SCRIPT_DIR" commit -m "Bump version to $VERSION (build $NEW_BUILD)"
 git -C "$SCRIPT_DIR" tag "$VERSION"
