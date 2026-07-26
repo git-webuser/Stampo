@@ -51,14 +51,19 @@ struct GeneralSettingsView: View {
                     description: screenRecordingDescription
                 ) {
                     HStack(spacing: 12) {
-                        Group {
-                            if screenRecordingGranted {
-                                Text("Granted")
-                            } else {
-                                Text("Permission required")
+                        // Redundant next to a Relaunch button: the row's
+                        // description already spells that state out in full.
+                        if !awaitingRelaunch {
+                            Group {
+                                if screenRecordingGranted {
+                                    Text("Granted")
+                                } else {
+                                    Text("Permission required")
+                                }
                             }
+                            .foregroundStyle(.secondary)
+                            .fixedSize()
                         }
-                        .foregroundStyle(.secondary)
 
                         // The grant only registers in a fresh process, so a user
                         // who already toggled Stampo on in System Settings needs
@@ -67,12 +72,18 @@ struct GeneralSettingsView: View {
                             Button("Relaunch") {
                                 FirstLaunchWindowController.relaunch()
                             }
+                            .fixedSize()
                         }
 
                         Button("Set up…") {
                             openScreenRecordingSettings()
                         }
+                        .fixedSize()
                     }
+                    // Without this the row's description — which grows into a
+                    // full sentence while a restart is pending — wins the width
+                    // negotiation and the buttons get squeezed to "Rela…".
+                    .layoutPriority(1)
                 }
 
                 SettingRow(
