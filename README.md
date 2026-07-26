@@ -175,4 +175,4 @@ MIT License. See [LICENSE](LICENSE).
 
 ---
 
-*Stampo 0.7.0 — for macOS 15.7+*
+*Stampo 0.7.1 — for macOS 15.7+*
