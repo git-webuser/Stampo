@@ -888,11 +888,13 @@ struct EditorCanvasView: View {
                     dragMode = .movingLoupePart(id, part, last: target)
 
                 case .resizing(let id, let handle):
-                    // Curve control: a wide alignment band (≈9 pt) snaps a
-                    // near-straight bend flat, and Shift forces it straight.
-                    // Snap against the resolved chord the user sees, then store
-                    // the control in the raw chord frame so a bound arrow's bend
-                    // follows its endpoints (an identity map when unbound).
+                    // Bend: the pointer is where the curve itself should pass,
+                    // and `bentControl` turns that into the control. A wide
+                    // alignment band (≈9 pt) snaps a near-straight bend flat,
+                    // and Shift forces it straight. Snap against the resolved
+                    // chord the user sees, then store the control in the raw
+                    // chord frame so a bound arrow's bend follows its endpoints
+                    // (an identity map when unbound).
                     if handle == .control,
                        let arrow = document.annotations.first(where: { $0.id == id }),
                        arrow.kind == .arrow {

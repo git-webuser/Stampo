@@ -423,6 +423,8 @@ struct Annotation: Identifiable, Equatable {
     /// Endpoint(s) that receive a filled arrowhead.
     var arrowHeadPlacement: ArrowHeadPlacement = .end
     /// Quadratic Bézier control point for a curved `.arrow`; nil is straight.
+    /// Internal geometry only — the user grabs `bendHandle`, which rides the
+    /// curve rather than this point.
     var curveControl: CGPoint? = nil
     /// True for an arrow that routes orthogonally (so it ignores
     /// `curveControl`, hides the bend handle, and offers per-leg sliders).
@@ -910,6 +912,34 @@ struct Annotation: Identifiable, Equatable {
         }
     }
 
+    /// Where the bend handle sits: on the curve itself, at its midpoint
+    /// (t = 0.5), or the chord midpoint while the arrow is straight.
+    ///
+    /// Deliberately *not* the raw Bézier control. A quadratic's control lies
+    /// twice as far off the chord as the curve it produces, so a bend drawn
+    /// near an image edge would park its handle outside the image — where the
+    /// clipped canvas can't draw it and the image-clamped pan can't reach it,
+    /// stranding the user with an arrow they can only delete. Riding the curve
+    /// keeps the handle wherever the stroke is visible, and makes the bend
+    /// track the cursor exactly instead of at half its travel.
+    var bendHandle: CGPoint {
+        let midpoint = CGPoint(x: (start.x + end.x) / 2, y: (start.y + end.y) / 2)
+        guard kind == .arrow, !isElbowed, let control = curveControl else {
+            return midpoint
+        }
+        // B(0.5) of a quadratic is the midpoint of chord-midpoint→control.
+        return CGPoint(x: (midpoint.x + control.x) / 2,
+                       y: (midpoint.y + control.y) / 2)
+    }
+
+    /// The control that puts the curve's midpoint on `p` — the inverse of
+    /// `bendHandle`, so dragging the handle plants the bend under the cursor.
+    static func control(forBendHandle p: CGPoint,
+                        start: CGPoint, end: CGPoint) -> CGPoint {
+        CGPoint(x: 2 * p.x - (start.x + end.x) / 2,
+                y: 2 * p.y - (start.y + end.y) / 2)
+    }
+
     private static func corners(of r: CGRect,
                                 _ handles: (Handle, Handle, Handle, Handle))
         -> [(Handle, CGPoint)] {
@@ -929,9 +959,7 @@ struct Annotation: Identifiable, Equatable {
             if isElbowed { return [(.start, start), (.end, end)] }
             // Control last so endpoint grabs win on tiny arrows. A straight
             // arrow offers it at the midpoint — dragging it bends the shaft.
-            let control = curveControl
-                ?? CGPoint(x: (start.x + end.x) / 2, y: (start.y + end.y) / 2)
-            return [(.start, start), (.end, end), (.control, control)]
+            return [(.start, start), (.end, end), (.control, bendHandle)]
         case .line:
             return [(.start, start), (.end, end)]
         case .rect, .oval, .roundedRect, .polygon, .star, .bubble,
@@ -1068,7 +1096,10 @@ struct Annotation: Identifiable, Equatable {
         case .start: start = p
         case .end:   end = p
         case .control:
-            if kind == .arrow { curveControl = p }
+            // `p` is a point on the curve (see `bendHandle`), not the control.
+            if kind == .arrow {
+                curveControl = Self.control(forBendHandle: p, start: start, end: end)
+            }
         case .topLeft, .topRight, .bottomLeft, .bottomRight:
             // A callout scales its marker in step (see applyDisplayResize);
             // plain shapes just re-anchor on the opposite corner.
@@ -1497,14 +1528,18 @@ struct Annotation: Identifiable, Equatable {
                        y: toStart.y + ax * rel.y + ay * rel.x)
     }
 
-    /// The curve control for a bend drag to `p`: nil (straight) when the drag
-    /// lands within `snapDistance` of the straight start–end chord — a wide
-    /// alignment band so a nearly-straight bend snaps flat — or when
-    /// `forceStraight` (Shift) is held; otherwise `p`. Pure for testing.
+    /// The curve control for a bend drag to `p`, where `p` is where the user
+    /// wants the curve itself to pass (the bend handle rides the curve — see
+    /// `bendHandle`). nil (straight) when the drag lands within `snapDistance`
+    /// of the straight start–end chord — a wide alignment band so a nearly
+    /// straight bend snaps flat — or when `forceStraight` (Shift) is held.
+    /// Measuring the band against the drag point rather than the control makes
+    /// the band the width it looks like on screen. Pure for testing.
     static func bentControl(forDrag p: CGPoint, start: CGPoint, end: CGPoint,
                             snapDistance: CGFloat, forceStraight: Bool) -> CGPoint? {
         if forceStraight { return nil }
-        return distance(from: p, toSegment: start, end) <= snapDistance ? nil : p
+        guard distance(from: p, toSegment: start, end) > snapDistance else { return nil }
+        return control(forBendHandle: p, start: start, end: end)
     }
 
     /// Snaps an arrow endpoint to its nearest 45-degree ray from `from`.
