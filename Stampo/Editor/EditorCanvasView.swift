@@ -6,9 +6,10 @@ enum EditorTool: Equatable, CaseIterable {
     case select, line, arrow, rect, oval, roundedRect, polygon, star,
          bubble, text, drawing, eraser, blur, step, loupe, scan, crop
 
-    /// Drawing tools shown in the toolbar picker. Scan and Crop are transient
-    /// modes driven by their own action buttons, not persistent drawing tools,
-    /// so they're excluded here.
+    /// Drawing tools shown in the toolbar picker — the set the keyboard
+    /// shortcuts resolve against. Scan and Crop are transient modes driven by
+    /// their own toolbar buttons, not persistent drawing tools, so they're
+    /// excluded here.
     static let pickerCases: [EditorTool] = [
         .select, .line, .arrow, .rect, .oval, .text, .drawing, .eraser, .blur, .step, .loupe
     ]
@@ -163,6 +164,9 @@ struct ToolStyle {
     var penWidth: CGFloat = 6
     var markerWidth: CGFloat = 24
     var eraserDiameter: CGFloat = 32
+    /// Whether the scanner glues recognized lines into one paragraph instead
+    /// of keeping every OCR line break.
+    var scanJoinsLines = false
 
     func width(for mode: DrawingMode) -> CGFloat {
         switch mode {

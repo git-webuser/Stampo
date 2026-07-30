@@ -37,6 +37,26 @@ final class ScreenshotFileStore {
         }
     }
 
+    /// Encodes a bitmap into a throwaway file for handing to another app (the
+    /// editor's share sheet). Sharing a file rather than an in-memory image
+    /// keeps a real name and extension all the way into Mail, AirDrop and
+    /// Finder. The export folder is recreated per call, so at most one stale
+    /// export survives in the temp directory.
+    func writeTemporaryExport(_ rep: NSBitmapImageRep, named name: String) throws -> URL {
+        let format = AppSettings.fileFormat
+        let (fileType, properties) = Self.encoding(for: format)
+        guard let data = rep.representation(using: fileType, properties: properties) else {
+            throw SaveError.encodingFailed
+        }
+        let dir = fm.temporaryDirectory.appendingPathComponent("Share", isDirectory: true)
+        try? fm.removeItem(at: dir)
+        try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        let dest = dir.appendingPathComponent(name)
+            .appendingPathExtension(Self.fileExtension(for: format))
+        try data.write(to: dest)
+        return dest
+    }
+
     /// Maps the user-facing format string (png/jpg/tiff) onto bitmap encoding
     /// parameters. Pure — unit-testable.
     static func encoding(for format: String)
@@ -46,6 +66,15 @@ final class ScreenshotFileStore {
         case "jpg":  return (.jpeg, [.compressionFactor: 0.9])
         case "tiff": return (.tiff, [:])
         default:     return (.png, [:])
+        }
+    }
+
+    /// Filename extension for a format string, falling back to png in step
+    /// with `encoding(for:)`.
+    static func fileExtension(for format: String) -> String {
+        switch format {
+        case "jpg", "tiff": return format
+        default:            return "png"
         }
     }
 

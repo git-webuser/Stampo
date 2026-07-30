@@ -1445,20 +1445,36 @@
         }
       }
     },
-    "Drag to select an area to scan" : {
-      "comment" : "Editor context hint shown while the Scan tool is active.",
+    "Drag to select an area — line breaks kept" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Drag to select an area to scan"
+            "value" : "Drag to select an area — line breaks kept"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Выделите область для сканирования QR"
+            "value" : "Выделите область — переносы сохранятся"
+          }
+        }
+      }
+    },
+    "Drag to select an area — line breaks removed" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Drag to select an area — line breaks removed"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Выделите область — переносы будут убраны"
           }
         }
       }
@@ -2073,6 +2089,23 @@
         }
       }
     },
+    "Invert for one scan" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Invert for one scan"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Инвертировать для одного скана"
+          }
+        }
+      }
+    },
     "ISO 8601" : {
       "comment" : "Filename preset name (standard)",
       "extractionState" : "stale",
@@ -2228,6 +2261,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Линия"
+          }
+        }
+      }
+    },
+    "Line Breaks" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Line Breaks"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Переносы"
           }
         }
       }
@@ -3973,6 +4023,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Стиль навигации"
+          }
+        }
+      }
+    },
+    "Share" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Share"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Поделиться"
           }
         }
       }

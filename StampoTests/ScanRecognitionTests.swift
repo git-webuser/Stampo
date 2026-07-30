@@ -74,6 +74,66 @@ import Testing
     }
 }
 
+// MARK: - Line joining
+
+@Suite struct ScanLineJoiningTests {
+
+    private func line(_ s: String, _ box: CGRect) -> ScanRecognition.Candidate {
+        ScanRecognition.Candidate(string: s, box: box)
+    }
+
+    /// Row `n` counting down from the top, as a full-width text line.
+    private func row(_ s: String, _ n: Int) -> ScanRecognition.Candidate {
+        line(s, CGRect(x: 0.1, y: 0.9 - CGFloat(n) * 0.1, width: 0.8, height: 0.05))
+    }
+
+    @Test func plainLinesJoinWithASingleSpace() {
+        #expect(ScanRecognition.joinWrappedLines(["one", "two", "three"]) == "one two three")
+    }
+
+    @Test func surroundingWhitespaceAndBlankLinesCollapse() {
+        #expect(ScanRecognition.joinWrappedLines(["  one ", "", "   ", "two"]) == "one two")
+    }
+
+    /// A hyphen at a line break is ambiguous, so it survives and the join
+    /// happens without a space: "кто-то" stays a word, "пере-нос" stays
+    /// readable. Only the soft hyphen — which exists solely to mark a wrap —
+    /// disappears.
+    @Test func hyphenatedBreaksJoinWithoutASpace() {
+        #expect(ScanRecognition.joinWrappedLines(["кто-", "то"]) == "кто-то")
+        #expect(ScanRecognition.joinWrappedLines(["пере\u{00AD}", "нос"]) == "перенос")
+    }
+
+    @Test func joiningIsOffByDefault() {
+        let result = ScanRecognition.assemble(codes: [], textLines: [row("one", 0), row("two", 1)])
+        #expect(result.text == "one\ntwo")
+        #expect(result.clipboardText == "one\ntwo")
+    }
+
+    @Test func joinedTextReachesClipboardAndTray() {
+        let result = ScanRecognition.assemble(
+            codes: [], textLines: [row("one", 0), row("two", 1)], joinsLines: true)
+        #expect(result.text == "one two")
+        #expect(result.clipboardText == "one two")
+        #expect(result.trayEntries == ["one two"])
+    }
+
+    /// A payload is a value, not prose: joining must never weld a code onto
+    /// the text around it, and text on either side of a code joins separately.
+    @Test func codesKeepTheirOwnLine() {
+        let qr = line("payload", CGRect(x: 0.1, y: 0.55, width: 0.3, height: 0.1))
+        let result = ScanRecognition.assemble(
+            codes: [qr],
+            textLines: [row("above one", 0), row("above two", 1),
+                        row("below one", 6), row("below two", 7)],
+            joinsLines: true
+        )
+        #expect(result.clipboardText == "above one above two\npayload\nbelow one below two")
+        // The text blob itself is one paragraph, wherever the code fell.
+        #expect(result.text == "above one above two below one below two")
+    }
+}
+
 // MARK: - HUD outcome mapping
 
 @Suite struct ScanOutcomeTests {
