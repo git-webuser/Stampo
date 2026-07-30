@@ -917,7 +917,7 @@ private struct TrayScreenshotCell: View {
 /// members in Finder.
 private struct TrayStackCell: View {
     let stack: TrayStack
-    let loaders: [ThumbnailLoader?]
+    let loaders: [ThumbnailLoader]
     let height: CGFloat
     let badgeBleed: CGFloat
     let labelOffset: CGFloat
@@ -943,10 +943,10 @@ private struct TrayStackCell: View {
         return name
     }
 
-    /// Preview for a fan slot: decoded thumbnail for images, the file icon for
-    /// everything else (and while an image thumbnail is still decoding).
+    /// Preview for a fan slot: the Quick Look preview once it arrives, the
+    /// file icon as the placeholder until then.
     private func previewImage(at index: Int) -> NSImage {
-        if index < loaders.count, let img = loaders[index]?.image { return img }
+        if index < loaders.count, let img = loaders[index].image { return img }
         guard index < stack.urls.count else { return NSImage() }
         return NSWorkspace.shared.icon(forFile: stack.urls[index].path)
     }
@@ -1201,14 +1201,14 @@ private struct ExpandedStackGroup: View {
     }
 }
 
-/// One file inside an expanded stack — a thin wrapper over TrayFileCell: image
-/// members show their thumbnail, everything else the cached NSWorkspace file
-/// icon. Tap opens the file and hides the panel; drag copies this file out
-/// (the member stays, like a screenshot cell — only the whole-stack drag is
-/// transit); the badge removes it from the tray.
+/// One file inside an expanded stack — a thin wrapper over TrayFileCell showing
+/// the member's Quick Look preview, with the cached NSWorkspace file icon
+/// standing in until it arrives. Tap opens the file and hides the panel; drag
+/// copies this file out (the member stays, like a screenshot cell — only the
+/// whole-stack drag is transit); the badge removes it from the tray.
 private struct StackMemberCell: View {
     let url: URL
-    let loader: ThumbnailLoader?
+    let loader: ThumbnailLoader
     let height: CGFloat
     let badgeBleed: CGFloat
     let labelOffset: CGFloat
@@ -1217,16 +1217,16 @@ private struct StackMemberCell: View {
     let onRemove: () -> Void
 
     @State private var isCopied = false
-    /// The NSWorkspace file icon for non-image members, resolved once on appear
-    /// so hover/press re-renders don't re-run the lookup.
+    /// Placeholder shown until Quick Look answers, resolved once on appear so
+    /// hover/press re-renders don't re-run the lookup.
     @State private var resolvedIcon: NSImage?
 
     private var displayName: String { url.lastPathComponent }
 
-    /// Decoded thumbnail for images, the cached system file icon otherwise (and
-    /// while a thumbnail is still decoding).
+    /// The Quick Look preview once it lands, the cached system file icon while
+    /// it is still being generated.
     private var previewImage: NSImage {
-        loader?.image ?? resolvedIcon ?? NSWorkspace.shared.icon(forFile: url.path)
+        loader.image ?? resolvedIcon ?? NSWorkspace.shared.icon(forFile: url.path)
     }
 
     private func open() {
@@ -1270,7 +1270,7 @@ private struct StackMemberCell: View {
             }
         )
         .onAppear {
-            if loader == nil, resolvedIcon == nil {
+            if resolvedIcon == nil {
                 resolvedIcon = NSWorkspace.shared.icon(forFile: url.path)
             }
         }

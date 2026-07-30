@@ -1,6 +1,5 @@
 import AppKit
 import Foundation
-import UniformTypeIdentifiers
 
 // MARK: - Tray Item
 
@@ -151,8 +150,7 @@ private struct PersistedTrayItem: Codable {
     /// Per-member watchers of the (single) stack item, keyed by file path —
     /// unlike screenshots, one stack item watches N files.
     @ObservationIgnored private var stackWatchers: [String: DispatchSourceFileSystemObject] = [:]
-    /// Thumbnail loaders for image-file stack members, keyed by file path.
-    /// Non-image members use the NSWorkspace file icon and need no loader.
+    /// Preview loaders for stack members, keyed by file path.
     @ObservationIgnored private var stackLoaders: [String: ThumbnailLoader] = [:]
     /// Thumbnail loaders outlive individual SwiftUI cells and hosting views.
     /// Without this cache, recreating the panel briefly replaces every preview
@@ -349,13 +347,10 @@ private struct PersistedTrayItem: Codable {
         return loader
     }
 
-    /// Loader for an image-file stack member; nil for any other file type —
-    /// the cell then falls back to the NSWorkspace file icon. Lazy: only the
-    /// members the fan actually shows ever get decoded.
-    func stackThumbnailLoader(for url: URL) -> ThumbnailLoader? {
-        guard let type = UTType(filenameExtension: url.pathExtension),
-              type.conforms(to: .image)
-        else { return nil }
+    /// Preview loader for a stack member of any file type — Quick Look renders
+    /// what it can and falls back to the file's icon, so no type is filtered
+    /// out up front. Lazy: only the members the fan actually shows are loaded.
+    func stackThumbnailLoader(for url: URL) -> ThumbnailLoader {
         if let loader = stackLoaders[url.path] { return loader }
         let loader = ThumbnailLoader()
         stackLoaders[url.path] = loader
