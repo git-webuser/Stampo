@@ -493,7 +493,7 @@ struct NotchTrayView: View {
         PanelMoreMenuButton(metrics: metrics)
             .frame(width: metrics.cellWidth, height: metrics.iconSize)
             .help("Settings and quit")
-            .accessibilityLabel("Settings and quit")
+            // Labelled from AppKit inside PopUpMoreButtonWrapper.
     }
 
     private var schemeMenu: some View {
@@ -1356,6 +1356,7 @@ private struct PopUpSchemeButtonWrapper: NSViewRepresentable {
     @Binding var selection: ColorSchemeType
     var onOpen:  () -> Void
     var onClose: () -> Void
+    @Environment(\.locale) private var locale
 
     func makeNSView(context: Context) -> NSPopUpButton {
         let button = PanelPopUpButton()
@@ -1364,7 +1365,6 @@ private struct PopUpSchemeButtonWrapper: NSViewRepresentable {
         button.pullsDown        = true
         button.autoresizingMask = []
         (button.cell as? NSPopUpButtonCell)?.arrowPosition = .noArrow
-        button.setAccessibilityLabel(String(localized: "Color format"))
 
         // pullsDown=true: the first item acts as the hidden button title,
         // so we add an empty placeholder to make HEX the first visible option.
@@ -1393,6 +1393,11 @@ private struct PopUpSchemeButtonWrapper: NSViewRepresentable {
     }
 
     func updateNSView(_ button: NSPopUpButton, context: Context) {
+        // Via LocaleManager rather than String(localized:), which reads the
+        // process language and so ignores the in-app language picker; set here
+        // rather than in makeNSView so it follows a language change.
+        button.setAccessibilityLabel(LocaleManager.string("Color format", locale: locale))
+
         // +1 — offset for the empty placeholder at index 0 (pullsDown = true)
         let idx = (ColorSchemeType.allCases.firstIndex(of: selection) ?? 0) + 1
         NSAnimationContext.runAnimationGroup { ctx in

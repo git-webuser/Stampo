@@ -130,6 +130,10 @@ struct NotchPanelView: View {
                         .frame(width: metrics.notchGap)
                         .contentShape(Rectangle())
                         .onTapGesture { onClose() }
+                        // A mouse shortcut over the notch itself, not a control:
+                        // closeCell already exposes closing, so announcing this
+                        // as a second unlabelled element would only add noise.
+                        .accessibilityHidden(true)
 
                     HStack(spacing: metrics.gap) {
                         trayButtonCell
@@ -194,7 +198,11 @@ struct NotchPanelView: View {
         )
         .animation(nil, value: model.mode)
         .help("Capture mode")
-        .accessibilityLabel("Capture mode: \(model.mode.title)")
+        // No .accessibilityLabel here: the cell is a ZStack around an
+        // NSPopUpButton, so the label that actually reaches VoiceOver is the
+        // AppKit one the wrapper sets (label + value, kept in sync in
+        // updateNSView). A SwiftUI label on the container would either be
+        // dropped or shadow the localized AppKit one.
     }
 
     private var timerMenuCell: some View {
@@ -208,7 +216,7 @@ struct NotchPanelView: View {
         )
         .animation(nil, value: model.delay)
         .help("Capture delay")
-        .accessibilityLabel(shortLabel == nil ? "No delay" : "Delay: \(shortLabel ?? "") seconds")
+        // Labelled from AppKit, like the mode cell above.
     }
 
     private var trayButtonCell: some View {
@@ -228,7 +236,7 @@ struct NotchPanelView: View {
         PanelMoreMenuButton(metrics: metrics)
             .frame(width: metrics.cellWidth, height: metrics.iconSize)
             .help("Settings and quit")
-            .accessibilityLabel("Settings and quit")
+            // Labelled from AppKit, like the mode and delay cells.
     }
 
     private var captureButton: some View {
@@ -236,7 +244,11 @@ struct NotchPanelView: View {
             metrics: metrics,
             action: { onCapture(model.mode, model.delay) }
         )
-        .accessibilityLabel("Take screenshot")
+        // The button carries visible text, so SwiftUI derives its label from
+        // that — an explicit label could only drift out of sync with what the
+        // user reads and says to Voice Control. That one word is thin on its
+        // own, so the tooltip and the hint both spell the action out.
+        .help("Capture in \(model.mode.title) mode")
         .accessibilityHint("Capture in \(model.mode.title) mode")
     }
 
@@ -264,11 +276,22 @@ private struct PopUpModeButtonWrapper: NSViewRepresentable {
         let button = PanelPopUpButton()
         button.isBordered        = false
         button.isTransparent     = true
-        button.pullsDown         = false
+        // Pull-down, not pop-up: a pop-up menu positions itself so the selected
+        // item lands over the button, which at the top edge of the screen means
+        // starting above the screen — AppKit's fallback there is to scroll the
+        // menu and hide the items that don't fit. A pull-down always drops
+        // below, so every item stays reachable whatever is selected.
+        button.pullsDown         = true
         button.autoresizingMask  = []
         (button.cell as? NSPopUpButtonCell)?.arrowPosition = .noArrow
-        button.setAccessibilityLabel(LocaleManager.string("Capture mode", locale: locale))
+        // A pull-down doesn't mark a "current" item on its own, and the menu
+        // mixes modes with two plain commands — so the checkmark is ours to
+        // place, on the modes only.
+        (button.cell as? NSPopUpButtonCell)?.altersStateOfSelectedItem = false
 
+        // pullsDown=true: item 0 acts as the (never shown) button title, so an
+        // empty placeholder goes first and every real index shifts by one.
+        button.addItem(withTitle: "")
         for mode in CaptureMode.allCases {
             button.addItem(withTitle: mode.localizedTitle(locale))
         }
@@ -308,18 +331,26 @@ private struct PopUpModeButtonWrapper: NSViewRepresentable {
     }
 
     func updateNSView(_ button: NSPopUpButton, context: Context) {
-        // Refresh titles when locale changes.
+        // Refresh titles when locale changes, and carry the checkmark.
+        // +1 throughout — offset for the placeholder at index 0.
         for (idx, mode) in CaptureMode.allCases.enumerated() {
-            button.item(at: idx)?.title = mode.localizedTitle(locale)
+            let item = button.item(at: idx + 1)
+            item?.title = mode.localizedTitle(locale)
+            item?.state = (mode == selection) ? .on : .off
         }
-        // Separator is at allCases.count, Pick Color is at allCases.count + 1,
-        // Scan at + 2.
-        button.item(at: CaptureMode.allCases.count + 1)?.title =
-            LocaleManager.string("Pick Color", locale: locale)
+        // Label and value live here rather than in makeNSView so they follow
+        // both the language and the selection. Set explicitly instead of
+        // leaning on the cell's implicit value: the button is transparent and
+        // borderless, and the mode is the one thing VoiceOver must announce.
+        button.setAccessibilityLabel(LocaleManager.string("Capture mode", locale: locale))
+        button.setAccessibilityValue(selection.localizedTitle(locale))
+        // Separator is at allCases.count + 1, Pick Color at + 2, Scan at + 3.
         button.item(at: CaptureMode.allCases.count + 2)?.title =
+            LocaleManager.string("Pick Color", locale: locale)
+        button.item(at: CaptureMode.allCases.count + 3)?.title =
             LocaleManager.string("Scan", locale: locale)
 
-        let idx = CaptureMode.allCases.firstIndex(of: selection) ?? 0
+        let idx = (CaptureMode.allCases.firstIndex(of: selection) ?? 0) + 1
         NSAnimationContext.runAnimationGroup { ctx in
             ctx.duration = 0
             button.selectItem(at: idx)
@@ -338,7 +369,8 @@ private struct PopUpModeButtonWrapper: NSViewRepresentable {
 
         @objc func selectionChanged(_ sender: NSPopUpButton) {
             let cases = CaptureMode.allCases
-            let idx = sender.indexOfSelectedItem
+            // -1 — compensate for the empty placeholder at index 0 (pullsDown = true)
+            let idx = sender.indexOfSelectedItem - 1
             guard idx >= 0, idx < cases.count else { return }
             DispatchQueue.main.async { self.parent.selection = cases[idx] }
         }
@@ -373,11 +405,16 @@ private struct PopUpButtonWrapper: NSViewRepresentable {
         let button = PanelPopUpButton()
         button.isBordered        = false
         button.isTransparent     = true
-        button.pullsDown         = false
+        // Pull-down for the same reason as the mode menu: see
+        // PopUpModeButtonWrapper.makeNSView. The delay list is the worse case —
+        // picking "10 Seconds" would ask a pop-up for three rows above the
+        // screen edge.
+        button.pullsDown         = true
         button.autoresizingMask  = []
         (button.cell as? NSPopUpButtonCell)?.arrowPosition = .noArrow
-        button.setAccessibilityLabel(LocaleManager.string("Capture delay", locale: locale))
+        (button.cell as? NSPopUpButtonCell)?.altersStateOfSelectedItem = false
 
+        button.addItem(withTitle: "")
         for delay in CaptureDelay.allCases {
             button.addItem(withTitle: delay.localizedTitle(locale))
         }
@@ -402,11 +439,17 @@ private struct PopUpButtonWrapper: NSViewRepresentable {
     }
 
     func updateNSView(_ button: NSPopUpButton, context: Context) {
-        // Refresh titles when locale changes.
+        // Refresh titles when locale changes, and carry the checkmark.
+        // +1 throughout — offset for the placeholder at index 0.
         for (idx, delay) in CaptureDelay.allCases.enumerated() {
-            button.item(at: idx)?.title = delay.localizedTitle(locale)
+            let item = button.item(at: idx + 1)
+            item?.title = delay.localizedTitle(locale)
+            item?.state = (delay == selection) ? .on : .off
         }
-        let idx = CaptureDelay.allCases.firstIndex(of: selection) ?? 0
+        // See PopUpModeButtonWrapper.updateNSView on why these live here.
+        button.setAccessibilityLabel(LocaleManager.string("Capture delay", locale: locale))
+        button.setAccessibilityValue(selection.localizedTitle(locale))
+        let idx = (CaptureDelay.allCases.firstIndex(of: selection) ?? 0) + 1
         NSAnimationContext.runAnimationGroup { ctx in
             ctx.duration = 0
             button.selectItem(at: idx)
@@ -425,7 +468,8 @@ private struct PopUpButtonWrapper: NSViewRepresentable {
 
         @objc func selectionChanged(_ sender: NSPopUpButton) {
             let cases = CaptureDelay.allCases
-            let idx = sender.indexOfSelectedItem
+            // -1 — compensate for the empty placeholder at index 0 (pullsDown = true)
+            let idx = sender.indexOfSelectedItem - 1
             guard idx >= 0, idx < cases.count else { return }
             DispatchQueue.main.async { self.parent.selection = cases[idx] }
         }
