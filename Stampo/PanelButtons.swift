@@ -135,8 +135,10 @@ struct PopUpMoreButtonWrapper: NSViewRepresentable {
         button.item(at: 0)?.title = LocaleManager.string("Settings",      locale: locale)
         button.item(at: 2)?.title = LocaleManager.string("Quit Stampo", locale: locale)
         // The NSPopUpButton is what VoiceOver focuses; a SwiftUI label on the
-        // ZStack that wraps it doesn't reliably reach it. A pull-down has no
-        // selection, so there is no value to expose alongside the label.
+        // ZStack that wraps it doesn't reliably reach it. This menu is two
+        // commands rather than a choice — nothing is ever selected (see the
+        // selectItem(at: -1) below) — so there is no value to expose alongside
+        // the label.
         button.setAccessibilityLabel(LocaleManager.string("Settings and quit", locale: locale))
         button.selectItem(at: -1)
         context.coordinator.parent = self
