@@ -794,7 +794,7 @@
     },
     "Capture Settings" : {
       "comment" : "Settings tab label — Capture settings page. English reads \"Capture\", same as the panel button; the key differs because Russian needs two different words.",
-      "extractionState" : "stale",
+      "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -2127,23 +2127,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Введение"
-          }
-        }
-      }
-    },
-    "Invert for one scan" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Invert for one scan"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Инвертировать для одного скана"
           }
         }
       }

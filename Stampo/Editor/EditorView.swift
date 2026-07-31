@@ -26,9 +26,6 @@ struct EditorView: View {
     @State private var cropRect: CGRect?
     /// ⌥ held over the rotate button — flips its icon to preview direction.
     @State private var rotateOptionHeld = false
-    /// Live ⌥ state while the scanner is armed — previews the inverted line
-    /// joining. Runs only in scan mode; see ModifierKeyWatcher.
-    @State private var optionKey = ModifierKeyWatcher()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -52,12 +49,6 @@ struct EditorView: View {
         }
         .frame(minWidth: Self.minimumContentSize.width,
                minHeight: Self.minimumContentSize.height)
-        // Only the scanner reads ⌥ continuously, so the monitor lives exactly
-        // as long as that mode does.
-        .onChange(of: tool, initial: true) { _, new in
-            if new == .scan { optionKey.start() } else { optionKey.stop() }
-        }
-        .onDisappear { optionKey.stop() }
     }
 
     private var textEditingActive: Bool { editingTextID != nil }
@@ -425,54 +416,31 @@ struct EditorView: View {
     /// draws that block solid. (`text.alignleft` reads as the same shape but
     /// already means left alignment one row over, in the text controls.)
     ///
-    /// The selection follows the *effective* value, so holding ⌥ moves it —
-    /// the control shows what the next drag produces, the way the rotate
-    /// button's icon flips under the same key. What keeps that from reading as
-    /// "my setting changed by itself" is `scanHint`, which switches to the ⌥
-    /// glyph and the accent color for exactly as long as the key is down.
+    /// No modifier override here, unlike the hotkey scanner: this row is on
+    /// screen while the user drags, so the setting is one click away and a
+    /// held key could only duplicate it — at the cost of a control whose
+    /// selection moves on its own.
     private var lineBreaksPicker: some View {
-        Picker("Line Breaks", selection: lineBreaksBinding) {
+        Picker("Line Breaks", selection: $style.scanJoinsLines) {
             Image(systemName: "text.append").tag(false)
             Image(systemName: "text.justify").tag(true)
         }
         .pickerStyle(.segmented)
         .labelsHidden()
         .frame(width: 76)
-        .hoverTip("Line Breaks",
-                  shortcut: "⌥ — " + LocaleManager.shared.string("Invert for one scan"))
+        .hoverTip("Line Breaks")
     }
 
-    /// Reads the effective value; a click while ⌥ is down stores whatever
-    /// makes the segment the user pointed at the effective one, so picking a
-    /// segment always means "this is what I want", held key or not.
-    private var lineBreaksBinding: Binding<Bool> {
-        Binding(
-            get: { effectiveScanJoinsLines },
-            set: { picked in style.scanJoinsLines = picked != optionKey.optionHeld }
-        )
-    }
-
-    /// What the next scan will do: ⌥ inverts the stored setting for that one
-    /// drag, the same way it flips the rotate button's direction.
-    private var effectiveScanJoinsLines: Bool {
-        optionKey.optionHeld != style.scanJoinsLines
-    }
-
-    /// The scanner's instruction line, which always spells out the outcome of
-    /// the drag it is describing — an inverting modifier is only safe if the
-    /// result is stated somewhere, and a lit/unlit pill alone can't say
-    /// whether ⌥ is currently flipping it.
-    ///
-    /// While ⌥ is down the line switches to the ⌥ glyph and the accent color,
-    /// so an overridden state reads as momentary rather than as the setting
-    /// having changed under the user.
+    /// The scanner's instruction line, which spells out the outcome of the
+    /// drag it is describing rather than naming the control again — the
+    /// picker's two icons say which state is chosen, not what it produces.
     private var scanHint: some View {
-        Label(effectiveScanJoinsLines
+        Label(style.scanJoinsLines
                   ? "Drag to select an area — line breaks removed"
                   : "Drag to select an area — line breaks kept",
-              systemImage: optionKey.optionHeld ? "option" : "doc.viewfinder")
+              systemImage: "doc.viewfinder")
             .font(.system(size: 12))
-            .foregroundStyle(optionKey.optionHeld ? Color.accentColor : Color.secondary)
+            .foregroundStyle(.secondary)
     }
 
     private var fillSlider: some View {
@@ -1505,9 +1473,7 @@ struct EditorView: View {
     /// crop doesn't stall the UI. Leaving scan mode after a scan matches the
     /// "select once, then copy" flow.
     private func scanRegion(_ pixelRect: CGRect) {
-        // Read ⌥ as the marquee is released, the way the rotate button reads it
-        // at click time — the canvas drag never routes modifiers through state.
-        let joinsLines = NSEvent.modifierFlags.contains(.option) != style.scanJoinsLines
+        let joinsLines = style.scanJoinsLines
         tool = .select
         guard let cropped = croppedBaseImage(pixelRect) else { showCaptureHUD(.nothingRecognized); return }
         DispatchQueue.global(qos: .userInitiated).async {

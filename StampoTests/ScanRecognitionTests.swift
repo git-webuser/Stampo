@@ -129,8 +129,63 @@ import Testing
             joinsLines: true
         )
         #expect(result.clipboardText == "above one above two\npayload\nbelow one below two")
-        // The text blob itself is one paragraph, wherever the code fell.
-        #expect(result.text == "above one above two below one below two")
+        // The text blob keeps them apart too — the code left a gap four rows
+        // wide, which is a paragraph break by any measure.
+        #expect(result.text == "above one above two\nbelow one below two")
+    }
+
+    // MARK: Paragraphs
+
+    /// Evenly spaced lines are one paragraph however many there are — the
+    /// whole point of joining is that a wrap is not a break.
+    @Test func evenlySpacedLinesStayOneParagraph() {
+        let lines = (0..<6).map { row("line\($0)", $0) }
+        #expect(ScanRecognition.joinParagraphs(lines)
+                == "line0 line1 line2 line3 line4 line5")
+    }
+
+    /// A blank line roughly doubles the pitch, which is well past the
+    /// threshold — the two blocks come back as two lines.
+    @Test func aBlankLineStartsANewParagraph() {
+        let lines = [row("a one", 0), row("a two", 1), row("a three", 2),
+                     row("b one", 4), row("b two", 5)]
+        #expect(ScanRecognition.joinParagraphs(lines) == "a one a two a three\nb one b two")
+    }
+
+    /// Ordinary leading wobbles by a few percent between OCR'd lines; that
+    /// must never read as a break.
+    @Test func slightlyUnevenLeadingIsNotABreak() {
+        let ys: [CGFloat] = [0.90, 0.80, 0.695, 0.59, 0.485]
+        let lines = ys.enumerated().map { index, y in
+            line("line\(index)", CGRect(x: 0.1, y: y, width: 0.8, height: 0.05))
+        }
+        #expect(ScanRecognition.joinParagraphs(lines) == "line0 line1 line2 line3 line4")
+    }
+
+    /// Two lines give no pitch to compare against, so a short block joins
+    /// straight through rather than guessing.
+    @Test func tooFewLinesToJudgeAlwaysJoin() {
+        #expect(ScanRecognition.joinParagraphs([row("one", 0), row("two", 9)]) == "one two")
+    }
+
+    /// Paragraph splitting rides the same un-wrapping as everything else, so a
+    /// hyphen that ends a line inside a paragraph still joins tight.
+    @Test func hyphenationSurvivesParagraphSplitting() {
+        let lines = [row("кто-", 0), row("то", 1), row("здесь", 2),
+                     row("новый", 4), row("абзац", 5)]
+        #expect(ScanRecognition.joinParagraphs(lines) == "кто-то здесь\nновый абзац")
+    }
+
+    /// End to end: paragraphs reach the clipboard and the tray as one entry.
+    @Test func paragraphsReachTheClipboard() {
+        let result = ScanRecognition.assemble(
+            codes: [],
+            textLines: [row("a one", 0), row("a two", 1), row("a three", 2),
+                        row("b one", 4), row("b two", 5)],
+            joinsLines: true
+        )
+        #expect(result.clipboardText == "a one a two a three\nb one b two")
+        #expect(result.trayEntries == ["a one a two a three\nb one b two"])
     }
 }
 

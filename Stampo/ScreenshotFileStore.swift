@@ -40,22 +40,49 @@ final class ScreenshotFileStore {
     /// Encodes a bitmap into a throwaway file for handing to another app (the
     /// editor's share sheet). Sharing a file rather than an in-memory image
     /// keeps a real name and extension all the way into Mail, AirDrop and
-    /// Finder. The export folder is recreated per call, so at most one stale
-    /// export survives in the temp directory.
+    /// Finder.
+    ///
+    /// Every export gets its own directory so the filename can stay exactly
+    /// the document's, with no uniquing suffix, and so a second share never
+    /// pulls the file out from under the first — an AirDrop transfer or a Mail
+    /// draft may still be reading it. Older exports are swept on the way in
+    /// (see `sweepStaleExports`).
     func writeTemporaryExport(_ rep: NSBitmapImageRep, named name: String) throws -> URL {
         let format = AppSettings.fileFormat
         let (fileType, properties) = Self.encoding(for: format)
         guard let data = rep.representation(using: fileType, properties: properties) else {
             throw SaveError.encodingFailed
         }
-        let dir = fm.temporaryDirectory.appendingPathComponent("Share", isDirectory: true)
-        try? fm.removeItem(at: dir)
+        let root = fm.temporaryDirectory.appendingPathComponent("Share", isDirectory: true)
+        sweepStaleExports(in: root)
+        let dir = root.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try fm.createDirectory(at: dir, withIntermediateDirectories: true)
-        let dest = dir.appendingPathComponent(name)
+        // A document whose name is empty (or all extension) would otherwise
+        // produce a bare ".png" — invisible in Finder and useless in Mail.
+        let base = name.isEmpty ? "Screenshot" : name
+        let dest = dir.appendingPathComponent(base)
             .appendingPathExtension(Self.fileExtension(for: format))
         try data.write(to: dest)
         return dest
     }
+
+    /// Deletes export directories older than `exportLifetime`. Runs only when
+    /// a new export is made, so the temp directory can't grow without bound
+    /// across a long session, while a share sheet the user left open keeps its
+    /// file for as long as anyone plausibly needs it.
+    private func sweepStaleExports(in root: URL) {
+        let cutoff = Date().addingTimeInterval(-Self.exportLifetime)
+        let dirs = (try? fm.contentsOfDirectory(at: root,
+                                                includingPropertiesForKeys: [.creationDateKey],
+                                                options: .skipsHiddenFiles)) ?? []
+        for dir in dirs {
+            let created = (try? dir.resourceValues(forKeys: [.creationDateKey]))?.creationDate
+            if let created, created > cutoff { continue }
+            try? fm.removeItem(at: dir)
+        }
+    }
+
+    private static let exportLifetime: TimeInterval = 15 * 60
 
     /// Maps the user-facing format string (png/jpg/tiff) onto bitmap encoding
     /// parameters. Pure — unit-testable.

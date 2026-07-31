@@ -112,22 +112,23 @@ enum ScanRecognition {
             row.sorted { $0.candidate.box.minX < $1.candidate.box.minX }
         }
 
-        let join = { (lines: [String]) in
-            joinsLines ? joinWrappedLines(lines) : lines.joined(separator: "\n")
+        let join = { (lines: [Candidate]) in
+            joinsLines ? joinParagraphs(lines)
+                       : lines.map(\.string).joined(separator: "\n")
         }
-        let text = join(ordered.filter { !$0.isCode }.map(\.candidate.string))
+        let text = join(ordered.filter { !$0.isCode }.map(\.candidate))
 
         // Clipboard: consecutive text lines form a run that `join` collapses;
         // codes break the run and stay on their own line. Without joining this
         // is the same "everything on its own line" string as before.
         var chunks: [String] = []
-        var run: [String] = []
+        var run: [Candidate] = []
         for item in ordered {
             if item.isCode {
                 if !run.isEmpty { chunks.append(join(run)); run = [] }
                 chunks.append(item.candidate.string)
             } else {
-                run.append(item.candidate.string)
+                run.append(item.candidate)
             }
         }
         if !run.isEmpty { chunks.append(join(run)) }
@@ -152,6 +153,43 @@ enum ScanRecognition {
             trayEntries: trayEntries
         )
     }
+
+    /// Un-wraps the text while keeping its paragraphs apart: lines are glued
+    /// back together by `joinWrappedLines`, and a new line starts wherever the
+    /// layout left a visible gap.
+    ///
+    /// The gap is judged against the block's own line pitch (baseline to
+    /// baseline, taken as the median so a stray tall line can't move it)
+    /// rather than an absolute distance, because the only thing normalized
+    /// Vision boxes say about a font is how far apart its lines sit. A pitch
+    /// past `paragraphPitchRatio` of the median means a blank line, a section
+    /// break, or a jump to a different type size — all of them reasons to
+    /// break. Fewer than three lines gives no median worth the name, so a
+    /// short block always joins straight through.
+    static func joinParagraphs(_ lines: [Candidate]) -> String {
+        let kept = lines.filter { !$0.string.trimmingCharacters(in: .whitespaces).isEmpty }
+        guard kept.count > 2 else { return joinWrappedLines(kept.map(\.string)) }
+
+        let pitches = zip(kept, kept.dropFirst()).map { $0.box.midY - $1.box.midY }
+        let median = pitches.sorted()[pitches.count / 2]
+        guard median > 0 else { return joinWrappedLines(kept.map(\.string)) }
+
+        var paragraphs: [[String]] = [[kept[0].string]]
+        for (pitch, line) in zip(pitches, kept.dropFirst()) {
+            if pitch > median * paragraphPitchRatio {
+                paragraphs.append([line.string])
+            } else {
+                paragraphs[paragraphs.count - 1].append(line.string)
+            }
+        }
+        return paragraphs.map(joinWrappedLines).joined(separator: "\n")
+    }
+
+    /// How much wider than the median line pitch a gap must be to read as a
+    /// paragraph break. Ordinary leading varies by a few percent between lines
+    /// of one block; a blank line roughly doubles the pitch, so the threshold
+    /// sits between the two with room on both sides.
+    static let paragraphPitchRatio: CGFloat = 1.5
 
     /// Glues lines wrapped by the layout back into one paragraph.
     ///
