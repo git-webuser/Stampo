@@ -32,7 +32,7 @@ final class ScanCaptureCoordinator {
     /// a control for this; the overlay has no UI at all, so it rides ⌥ (see
     /// `NotchPanelController.scan`).
     @MainActor
-    func scan(in rect: CGRect, on screen: NSScreen?, joinsLines: Bool = false) {
+    func scan(in rect: CGRect, on screen: NSScreen?, joinsLines: Bool) {
         guard !isInFlight else { return }
         isInFlight = true
         // Carry only the value-type display ID across the background closure;
@@ -127,11 +127,17 @@ extension NotchPanelController {
             self.state = .preSelection(.selection)
             self.selectionOverlay.onSelected = { [weak self] rect in
                 guard let self else { return }
-                // ⌥ at *release*, not at launch: the scan hotkey is ⌃⌥⌘S, so ⌥
-                // is already down when the overlay opens and reading it there
-                // would join every hotkey scan. This runs synchronously out of
-                // the overlay's mouseUp, long after the chord is gone.
-                let joinsLines = NSEvent.modifierFlags.contains(.option)
+                // Joining is the default — line breaks from someone else's
+                // layout are noise in text you are about to paste somewhere
+                // else — so ⌥ is what *keeps* them, for the rare block where
+                // the breaks are the content (verse, code, a table column).
+                //
+                // Read at *release*, not at launch: the scan hotkey is ⌃⌥⌘S,
+                // so ⌥ is already down when the overlay opens and reading it
+                // there would keep the breaks on every hotkey scan. This runs
+                // synchronously out of the overlay's mouseUp, long after the
+                // chord is gone.
+                let joinsLines = !NSEvent.modifierFlags.contains(.option)
                 self.state = .hidden
                 // Let WindowServer remove the overlay from the framebuffer
                 // before capturing the selected area.

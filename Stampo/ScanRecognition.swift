@@ -31,11 +31,14 @@ enum ScanRecognition {
         var isEmpty: Bool { codePayloads.isEmpty && text.isEmpty }
     }
 
-    static func scan(in imageURL: URL, joinsLines: Bool = false) throws -> Result {
+    /// No default for `joinsLines`: the product answer is "join" and the pure
+    /// assembler's is "leave the text alone", so a call site that omitted it
+    /// would silently pick the wrong one.
+    static func scan(in imageURL: URL, joinsLines: Bool) throws -> Result {
         try scan(using: VNImageRequestHandler(url: imageURL), joinsLines: joinsLines)
     }
 
-    static func scan(in cgImage: CGImage, joinsLines: Bool = false) throws -> Result {
+    static func scan(in cgImage: CGImage, joinsLines: Bool) throws -> Result {
         try scan(using: VNImageRequestHandler(cgImage: cgImage, options: [:]),
                  joinsLines: joinsLines)
     }

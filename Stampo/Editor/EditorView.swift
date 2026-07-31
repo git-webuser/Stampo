@@ -407,14 +407,20 @@ struct EditorView: View {
         .hoverTip("Erase All")
     }
 
-    /// Whether the scanner keeps the line breaks the layout happened to put in
-    /// the text, or glues it back into one paragraph. Two states with names,
-    /// so the same icon-only segmented pattern the rest of the row uses — a
-    /// lit/unlit single control would leave "lit means what?" unanswered.
+    /// Whether the scanner glues the text back into paragraphs or keeps the
+    /// line breaks the scanned layout happened to put in it. Two states with
+    /// names, so the same icon-only segmented pattern the rest of the row uses
+    /// — a lit/unlit single control would leave "lit means what?" unanswered.
     ///
-    /// `text.append` draws a line break inside a block of text; `text.justify`
-    /// draws that block solid. (`text.alignleft` reads as the same shape but
-    /// already means left alignment one row over, in the text controls.)
+    /// Joining leads and is selected by default: the breaks belong to the page
+    /// the text was read off, not to the text, so keeping them means cleaning
+    /// them out by hand wherever it gets pasted. Keeping them is the deliberate
+    /// choice, for the blocks where the breaks *are* the content — verse, code,
+    /// a column of a table.
+    ///
+    /// `text.justify` draws a block of text solid; `text.append` draws a line
+    /// break inside one. (`text.alignleft` reads as the same shape as justify
+    /// but already means left alignment one row over, in the text controls.)
     ///
     /// No modifier override here, unlike the hotkey scanner: this row is on
     /// screen while the user drags, so the setting is one click away and a
@@ -422,8 +428,8 @@ struct EditorView: View {
     /// selection moves on its own.
     private var lineBreaksPicker: some View {
         Picker("Line Breaks", selection: $style.scanJoinsLines) {
-            Image(systemName: "text.append").tag(false)
             Image(systemName: "text.justify").tag(true)
+            Image(systemName: "text.append").tag(false)
         }
         .pickerStyle(.segmented)
         .labelsHidden()

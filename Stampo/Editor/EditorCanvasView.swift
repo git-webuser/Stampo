@@ -164,9 +164,12 @@ struct ToolStyle {
     var penWidth: CGFloat = 6
     var markerWidth: CGFloat = 24
     var eraserDiameter: CGFloat = 32
-    /// Whether the scanner glues recognized lines into one paragraph instead
-    /// of keeping every OCR line break.
-    var scanJoinsLines = false
+    /// Whether the scanner glues recognized lines back into paragraphs instead
+    /// of keeping every line break the scanned layout happened to produce.
+    /// On by default: the breaks belong to the page the text was read off,
+    /// not to the text, and pasting them somewhere else means cleaning them
+    /// out by hand.
+    var scanJoinsLines = true
 
     func width(for mode: DrawingMode) -> CGFloat {
         switch mode {

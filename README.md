@@ -64,7 +64,9 @@ Clicking the notch and global hotkeys work without any permission — they use s
 
 Select an area of the screen and Stampo reads it in a single pass: every QR/barcode payload plus all readable text (English and Russian, detected automatically). Everything found is copied to the clipboard in visual order, and each finding is added to the tray as a text entry. Nothing is saved to disk, and code payloads are treated strictly as inert text — never opened, linkified, or fetched. Start it from the capture-mode menu in the panel or with `⌃⌥⌘S`.
 
-By default the recognized text keeps the line breaks the original layout put in it. Hold **⌥ as you release the selection** to strip them instead: wrapped lines are glued back into paragraphs, a hyphen at a wrap is kept (so `кто-то` survives), and blank lines or a change of type size still start a new paragraph. Barcode payloads always stay on a line of their own. Release ⌥ before you finish the drag and you get the plain line-by-line text — the modifier is read when the selection ends, not when the overlay opens.
+The recognized text comes back as paragraphs, not as the lines the original layout happened to wrap it into: a hyphen at a wrap is kept (so `кто-то` survives), a soft hyphen is dropped, and a blank line or a change of type size starts a new paragraph. Barcode payloads always stay on a line of their own.
+
+Hold **⌥ as you release the selection** to keep every line break instead — for the blocks where the breaks are the content, like verse, code, or one column of a table. The modifier is read when the selection ends, not when the overlay opens, so `⌃⌥⌘S` on its own doesn't trigger it.
 
 ## Annotation Editor
 
@@ -75,7 +77,7 @@ Click the post-capture thumbnail (or right-click a screenshot in the tray → **
 - Rotate the whole image in 90° steps with the toolbar buttons.
 - **Crop** the image: drag a frame with corner/edge handles (or type an exact **W × H** in the toolbar), then **Apply** (**Return**) or **Cancel** (**Esc**). The frame shows a rule-of-thirds grid, nudges with the arrow keys (`⇧` 10 px, `⌥⇧` 50 px), rotates with the image, and stays within the picture; cropping is undoable.
 - **Share** hands the annotated image to the system share sheet — Mail, Messages, AirDrop, or anything else you have installed. It exports a real file named after the document in your configured format, and never saves: an unsaved edit stays unsaved.
-- **Scan** a region: click the Scan button (next to Crop), drag over an area, and every QR/barcode payload and all readable text is copied to the clipboard and added to the tray. The **Line Breaks** control in the second toolbar row chooses whether the text keeps its line breaks or comes back as paragraphs.
+- **Scan** a region: click the Scan button (next to Crop), drag over an area, and every QR/barcode payload and all readable text is copied to the clipboard and added to the tray. The **Line Breaks** control in the second toolbar row switches between paragraphs (the default) and the raw line-by-line text.
 - Hover any toolbar control for a tooltip describing it.
 - Double-click a text label or step marker to edit it; inside a text label, **Return** commits and **⇧Return** starts a new line. New step markers auto-number from the highest numeric label (labels can be any text, e.g. `1.1` or `4.12`).
 - Blur/pixelate always sits beneath the other annotations, so arrows, text, and shapes stay crisp on top of a redacted region.

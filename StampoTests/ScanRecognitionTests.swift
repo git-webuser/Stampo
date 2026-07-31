@@ -259,7 +259,7 @@ import Testing
         try png.write(to: url, options: .atomic)
         defer { try? FileManager.default.removeItem(at: url) }
 
-        let result = try ScanRecognition.scan(in: url)
+        let result = try ScanRecognition.scan(in: url, joinsLines: false)
         #expect(result.codePayloads == [payload])
         #expect(result.clipboardText == payload)
     }
@@ -305,7 +305,7 @@ import Testing
             canvas.cgImage(forProposedRect: &proposed, context: nil, hints: nil)
         )
 
-        let result = try ScanRecognition.scan(in: cgImage)
+        let result = try ScanRecognition.scan(in: cgImage, joinsLines: false)
         #expect(result.codePayloads == [payload])
         #expect(result.text == "The quick brown fox")
         #expect(result.clipboardText == "\(payload)\nThe quick brown fox")
