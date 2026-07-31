@@ -1,4 +1,5 @@
 import AppKit
+import OSLog
 import SwiftUI
 import Vision
 
@@ -64,6 +65,8 @@ struct EditorView: View {
             rotateButtons
             Divider().frame(height: 20)
             cropButton
+            Divider().frame(height: 20)
+            scanButton
             Spacer(minLength: 8)
             undoRedoButtons
             Divider().frame(height: 20)
@@ -124,19 +127,28 @@ struct EditorView: View {
     /// annotation's kind wins over the tool so restyling a selection always
     /// shows the matching controls. Fixed height — switching tools must not
     /// reflow the canvas.
+    ///
+    /// Every row keeps one order, so the eye finds the same class of control
+    /// in the same place whatever the tool: **color, then the discrete
+    /// controls** (buttons, segmented pickers, steppers), **then sliders**.
+    /// A row that leads with a control and ends in a hint puts a divider
+    /// between the two.
     private var contextBar: some View {
         HStack(spacing: 12) {
             if tool == .scan, document.selectedAnnotation == nil {
-                Label("Drag to select an area to scan", systemImage: "doc.viewfinder")
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
+                // Control first, hint after the divider — the same shape as the
+                // select row, where snapping leads and the hint follows.
+                lineBreaksPicker
+                Divider().frame(height: 18)
+                scanHint
             } else if tool == .crop {
                 cropSizeControls
             } else if tool == .eraser, document.selectedAnnotation == nil {
+                eraseAllButton
+                Divider().frame(height: 18)
                 settingSlider("Eraser Size", systemImage: "eraser",
                               value: eraserDiameterBinding,
                               range: 8...80, step: 4)
-                eraseAllButton
             } else {
                 contextControls
             }
@@ -150,7 +162,6 @@ struct EditorView: View {
         switch contextKind {
             case .blur:
                 blurStylePicker
-                    .padding(.horizontal, 6)
                 settingSlider("Intensity", systemImage: "aqi.medium",
                               value: blurLevelBinding,
                               range: CGFloat(BlurIntensity.range.lowerBound)
@@ -207,22 +218,22 @@ struct EditorView: View {
                 fillSlider
             case .polygon:
                 colorSwatches
-                thicknessSlider
-                fillSlider
                 settingStepper("Sides", systemImage: "hexagon",
                                value: polygonSidesBinding,
                                range: CGFloat(ShapeCounts.polygonSides.lowerBound)
                                    ... CGFloat(ShapeCounts.polygonSides.upperBound),
                                step: 1)
-            case .star:
-                colorSwatches
                 thicknessSlider
                 fillSlider
+            case .star:
+                colorSwatches
                 settingStepper("Points", systemImage: "star",
                                value: starPointsBinding,
                                range: CGFloat(ShapeCounts.starPoints.lowerBound)
                                    ... CGFloat(ShapeCounts.starPoints.upperBound),
                                step: 1)
+                thicknessSlider
+                fillSlider
             case .bubble:
                 colorSwatches
                 bubbleTailPicker
@@ -394,6 +405,48 @@ struct EditorView: View {
         .disabled(!document.annotations.contains { $0.kind == .freehand })
         .accessibilityLabel("Erase All")
         .hoverTip("Erase All")
+    }
+
+    /// Whether the scanner glues the text back into paragraphs or keeps the
+    /// line breaks the scanned layout happened to put in it. Two states with
+    /// names, so the same icon-only segmented pattern the rest of the row uses
+    /// — a lit/unlit single control would leave "lit means what?" unanswered.
+    ///
+    /// Joining leads and is selected by default: the breaks belong to the page
+    /// the text was read off, not to the text, so keeping them means cleaning
+    /// them out by hand wherever it gets pasted. Keeping them is the deliberate
+    /// choice, for the blocks where the breaks *are* the content — verse, code,
+    /// a column of a table.
+    ///
+    /// `text.justify` draws a block of text solid; `text.append` draws a line
+    /// break inside one. (`text.alignleft` reads as the same shape as justify
+    /// but already means left alignment one row over, in the text controls.)
+    ///
+    /// No modifier override here, unlike the hotkey scanner: this row is on
+    /// screen while the user drags, so the setting is one click away and a
+    /// held key could only duplicate it — at the cost of a control whose
+    /// selection moves on its own.
+    private var lineBreaksPicker: some View {
+        Picker("Line Breaks", selection: $style.scanJoinsLines) {
+            Image(systemName: "text.justify").tag(true)
+            Image(systemName: "text.append").tag(false)
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .frame(width: 76)
+        .hoverTip("Line Breaks")
+    }
+
+    /// The scanner's instruction line, which spells out the outcome of the
+    /// drag it is describing rather than naming the control again — the
+    /// picker's two icons say which state is chosen, not what it produces.
+    private var scanHint: some View {
+        Label(style.scanJoinsLines
+                  ? "Drag to select an area — line breaks removed"
+                  : "Drag to select an area — line breaks kept",
+              systemImage: "doc.viewfinder")
+            .font(.system(size: 12))
+            .foregroundStyle(.secondary)
     }
 
     private var fillSlider: some View {
@@ -1298,6 +1351,27 @@ struct EditorView: View {
         .hoverTip("Crop")
     }
 
+    /// Own group past the crop divider: the scanner is a marquee like the
+    /// drawing tools, but what it produces is text on the clipboard, not an
+    /// annotation — so it sits with crop and rotate, the operations that act
+    /// on the image itself, rather than in the tool picker. Toggles, matching
+    /// crop: a second click leaves the mode. One entry point covers text and
+    /// codes — the drag is identical either way, so what the pixels contain is
+    /// decided after the drag (see scanRegion), not by a button picked up
+    /// front.
+    private var scanButton: some View {
+        Button {
+            if tool == .scan { tool = .select } else { selectTool(.scan) }
+        } label: {
+            Image(systemName: "doc.viewfinder")
+                .frame(width: 24, height: 22)
+                .foregroundStyle(tool == .scan ? Color.accentColor : Color.primary)
+        }
+        .buttonStyle(.borderless)
+        .disabled(textEditingActive)
+        .hoverTip("Scan")
+    }
+
     /// In crop mode the Copy/Save actions are replaced by Cancel/Apply.
     @ViewBuilder private var actionButtons: some View {
         if tool == .crop {
@@ -1325,18 +1399,13 @@ struct EditorView: View {
 
     private var standardActionButtons: some View {
         HStack(spacing: 8) {
-            // One scanner entry point: the marquee interaction is identical for
-            // text and codes, so what the pixels contain is decided after the
-            // drag (see scanRegion), not by picking the right button up front.
-            Button {
-                tool = (tool == .scan) ? .select : .scan
-                document.selectedID = nil
-            } label: {
-                Image(systemName: "doc.viewfinder")
-                    .foregroundStyle(tool == .scan ? Color.accentColor : Color.primary)
+            // Icon-only, in the slot the scanner used to hold: Copy and Save
+            // keep their labels and the action group its width.
+            EditorShareButton(items: shareItems) {
+                Image(systemName: "square.and.arrow.up")
             }
             .disabled(textEditingActive)
-            .hoverTip("Scan")
+            .hoverTip("Share")
 
             Button {
                 copyToClipboard()
@@ -1370,16 +1439,37 @@ struct EditorView: View {
     // MARK: Actions
 
     private func copyToClipboard() {
-        guard let rep = AnnotationRenderer.renderBitmap(
-            base: document.baseImage,
-            blurSources: document.blurSources,
-            annotations: document.annotations
-        ) else { return }
+        guard let rep = renderComposite() else { return }
         let image = NSImage(size: rep.size)
         image.addRepresentation(rep)
         NSPasteboard.general.clearContents()
         NSPasteboard.general.writeObjects([image])
         showCaptureHUD(.copied)
+    }
+
+    private func renderComposite() -> NSBitmapImageRep? {
+        AnnotationRenderer.renderBitmap(
+            base: document.baseImage,
+            blurSources: document.blurSources,
+            annotations: document.annotations
+        )
+    }
+
+    /// Payload for the share sheet: the annotated image written to a temp file
+    /// in the configured format, so the receiving service gets a real name and
+    /// extension. Falls back to the in-memory image if the file can't be
+    /// written — sharing still works, just unnamed. Sharing never saves: an
+    /// unsaved document stays unsaved.
+    private func shareItems() -> [Any] {
+        guard let rep = renderComposite() else { return [] }
+        let name = document.sourceURL.deletingPathExtension().lastPathComponent
+        if let url = try? ScreenshotFileStore().writeTemporaryExport(rep, named: name) {
+            return [url]
+        }
+        Log.capture.error("editor: share export failed, sharing in-memory image")
+        let image = NSImage(size: rep.size)
+        image.addRepresentation(rep)
+        return [image]
     }
 
     /// Unified scanner over the marquee region: the same one-pass barcode+text
@@ -1389,10 +1479,11 @@ struct EditorView: View {
     /// crop doesn't stall the UI. Leaving scan mode after a scan matches the
     /// "select once, then copy" flow.
     private func scanRegion(_ pixelRect: CGRect) {
+        let joinsLines = style.scanJoinsLines
         tool = .select
         guard let cropped = croppedBaseImage(pixelRect) else { showCaptureHUD(.nothingRecognized); return }
         DispatchQueue.global(qos: .userInitiated).async {
-            let result = (try? ScanRecognition.scan(in: cropped))
+            let result = (try? ScanRecognition.scan(in: cropped, joinsLines: joinsLines))
                 ?? ScanRecognition.Result(codePayloads: [], text: "", clipboardText: "")
             DispatchQueue.main.async {
                 guard !result.isEmpty else { showCaptureHUD(.nothingRecognized); return }

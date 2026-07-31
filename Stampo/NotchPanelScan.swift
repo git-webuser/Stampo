@@ -27,8 +27,12 @@ final class ScanCaptureCoordinator {
         hud.hide(animated: false)
     }
 
+    /// `joinsLines` glues the recognized text back into paragraphs instead of
+    /// keeping every line break the layout happened to produce. The editor has
+    /// a control for this; the overlay has no UI at all, so it rides ⌥ (see
+    /// `NotchPanelController.scan`).
     @MainActor
-    func scan(in rect: CGRect, on screen: NSScreen?) {
+    func scan(in rect: CGRect, on screen: NSScreen?, joinsLines: Bool) {
         guard !isInFlight else { return }
         isInFlight = true
         // Carry only the value-type display ID across the background closure;
@@ -37,7 +41,7 @@ final class ScanCaptureCoordinator {
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self else { return }
-            let result = self.captureAndRecognize(rect)
+            let result = self.captureAndRecognize(rect, joinsLines: joinsLines)
             DispatchQueue.main.async { [weak self] in
                 guard let self, self.isInFlight else { return }
                 self.isInFlight = false
@@ -82,7 +86,8 @@ final class ScanCaptureCoordinator {
     /// Blocking: captures the selected rect to a temporary image and runs the
     /// combined barcode + text recognition. Returns nil on capture/Vision
     /// failure and an empty result when nothing readable was found.
-    private func captureAndRecognize(_ rect: CGRect) -> ScanRecognition.Result? {
+    private func captureAndRecognize(_ rect: CGRect,
+                                     joinsLines: Bool) -> ScanRecognition.Result? {
         guard let tmpURL = capturer.captureRectToTemp(rect) else {
             if !capturer.lastCaptureWasCancelled && !capturer.lastCaptureWasBusy {
                 Log.capture.error("scan capture failed: \(rect.debugDescription)")
@@ -92,7 +97,7 @@ final class ScanCaptureCoordinator {
         defer { try? FileManager.default.removeItem(at: tmpURL) }
 
         do {
-            return try ScanRecognition.scan(in: tmpURL)
+            return try ScanRecognition.scan(in: tmpURL, joinsLines: joinsLines)
         } catch {
             Log.capture.error("scan recognition failed: \(error)")
             return nil
@@ -122,11 +127,22 @@ extension NotchPanelController {
             self.state = .preSelection(.selection)
             self.selectionOverlay.onSelected = { [weak self] rect in
                 guard let self else { return }
+                // Joining is the default — line breaks from someone else's
+                // layout are noise in text you are about to paste somewhere
+                // else — so ⌥ is what *keeps* them, for the rare block where
+                // the breaks are the content (verse, code, a table column).
+                //
+                // Read at *release*, not at launch: the scan hotkey is ⌃⌥⌘S,
+                // so ⌥ is already down when the overlay opens and reading it
+                // there would keep the breaks on every hotkey scan. This runs
+                // synchronously out of the overlay's mouseUp, long after the
+                // chord is gone.
+                let joinsLines = !NSEvent.modifierFlags.contains(.option)
                 self.state = .hidden
                 // Let WindowServer remove the overlay from the framebuffer
                 // before capturing the selected area.
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-                    self?.scanCapture.scan(in: rect, on: target)
+                    self?.scanCapture.scan(in: rect, on: target, joinsLines: joinsLines)
                 }
             }
             self.selectionOverlay.onCancelled = { [weak self] in

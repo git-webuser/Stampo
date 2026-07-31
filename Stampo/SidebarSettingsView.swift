@@ -10,7 +10,10 @@ enum SettingsTab: Int, CaseIterable, Identifiable, Hashable {
     var labelKey: String {
         switch self {
         case .general:  return "General"
-        case .capture:  return "Capture"
+        // Distinct from the panel's "Capture" button key: both read "Capture"
+        // in English, but Russian names the pane (Съёмка) and the action
+        // (Снять) differently, and one catalog key can't carry two values.
+        case .capture:  return "Capture Settings"
         case .tray:     return "Tray"
         case .hotkeys:  return "Hotkeys"
         case .about:    return "About"

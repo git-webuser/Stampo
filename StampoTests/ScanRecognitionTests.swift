@@ -74,6 +74,121 @@ import Testing
     }
 }
 
+// MARK: - Line joining
+
+@Suite struct ScanLineJoiningTests {
+
+    private func line(_ s: String, _ box: CGRect) -> ScanRecognition.Candidate {
+        ScanRecognition.Candidate(string: s, box: box)
+    }
+
+    /// Row `n` counting down from the top, as a full-width text line.
+    private func row(_ s: String, _ n: Int) -> ScanRecognition.Candidate {
+        line(s, CGRect(x: 0.1, y: 0.9 - CGFloat(n) * 0.1, width: 0.8, height: 0.05))
+    }
+
+    @Test func plainLinesJoinWithASingleSpace() {
+        #expect(ScanRecognition.joinWrappedLines(["one", "two", "three"]) == "one two three")
+    }
+
+    @Test func surroundingWhitespaceAndBlankLinesCollapse() {
+        #expect(ScanRecognition.joinWrappedLines(["  one ", "", "   ", "two"]) == "one two")
+    }
+
+    /// A hyphen at a line break is ambiguous, so it survives and the join
+    /// happens without a space: "кто-то" stays a word, "пере-нос" stays
+    /// readable. Only the soft hyphen — which exists solely to mark a wrap —
+    /// disappears.
+    @Test func hyphenatedBreaksJoinWithoutASpace() {
+        #expect(ScanRecognition.joinWrappedLines(["кто-", "то"]) == "кто-то")
+        #expect(ScanRecognition.joinWrappedLines(["пере\u{00AD}", "нос"]) == "перенос")
+    }
+
+    @Test func joiningIsOffByDefault() {
+        let result = ScanRecognition.assemble(codes: [], textLines: [row("one", 0), row("two", 1)])
+        #expect(result.text == "one\ntwo")
+        #expect(result.clipboardText == "one\ntwo")
+    }
+
+    @Test func joinedTextReachesClipboardAndTray() {
+        let result = ScanRecognition.assemble(
+            codes: [], textLines: [row("one", 0), row("two", 1)], joinsLines: true)
+        #expect(result.text == "one two")
+        #expect(result.clipboardText == "one two")
+        #expect(result.trayEntries == ["one two"])
+    }
+
+    /// A payload is a value, not prose: joining must never weld a code onto
+    /// the text around it, and text on either side of a code joins separately.
+    @Test func codesKeepTheirOwnLine() {
+        let qr = line("payload", CGRect(x: 0.1, y: 0.55, width: 0.3, height: 0.1))
+        let result = ScanRecognition.assemble(
+            codes: [qr],
+            textLines: [row("above one", 0), row("above two", 1),
+                        row("below one", 6), row("below two", 7)],
+            joinsLines: true
+        )
+        #expect(result.clipboardText == "above one above two\npayload\nbelow one below two")
+        // The text blob keeps them apart too — the code left a gap four rows
+        // wide, which is a paragraph break by any measure.
+        #expect(result.text == "above one above two\nbelow one below two")
+    }
+
+    // MARK: Paragraphs
+
+    /// Evenly spaced lines are one paragraph however many there are — the
+    /// whole point of joining is that a wrap is not a break.
+    @Test func evenlySpacedLinesStayOneParagraph() {
+        let lines = (0..<6).map { row("line\($0)", $0) }
+        #expect(ScanRecognition.joinParagraphs(lines)
+                == "line0 line1 line2 line3 line4 line5")
+    }
+
+    /// A blank line roughly doubles the pitch, which is well past the
+    /// threshold — the two blocks come back as two lines.
+    @Test func aBlankLineStartsANewParagraph() {
+        let lines = [row("a one", 0), row("a two", 1), row("a three", 2),
+                     row("b one", 4), row("b two", 5)]
+        #expect(ScanRecognition.joinParagraphs(lines) == "a one a two a three\nb one b two")
+    }
+
+    /// Ordinary leading wobbles by a few percent between OCR'd lines; that
+    /// must never read as a break.
+    @Test func slightlyUnevenLeadingIsNotABreak() {
+        let ys: [CGFloat] = [0.90, 0.80, 0.695, 0.59, 0.485]
+        let lines = ys.enumerated().map { index, y in
+            line("line\(index)", CGRect(x: 0.1, y: y, width: 0.8, height: 0.05))
+        }
+        #expect(ScanRecognition.joinParagraphs(lines) == "line0 line1 line2 line3 line4")
+    }
+
+    /// Two lines give no pitch to compare against, so a short block joins
+    /// straight through rather than guessing.
+    @Test func tooFewLinesToJudgeAlwaysJoin() {
+        #expect(ScanRecognition.joinParagraphs([row("one", 0), row("two", 9)]) == "one two")
+    }
+
+    /// Paragraph splitting rides the same un-wrapping as everything else, so a
+    /// hyphen that ends a line inside a paragraph still joins tight.
+    @Test func hyphenationSurvivesParagraphSplitting() {
+        let lines = [row("кто-", 0), row("то", 1), row("здесь", 2),
+                     row("новый", 4), row("абзац", 5)]
+        #expect(ScanRecognition.joinParagraphs(lines) == "кто-то здесь\nновый абзац")
+    }
+
+    /// End to end: paragraphs reach the clipboard and the tray as one entry.
+    @Test func paragraphsReachTheClipboard() {
+        let result = ScanRecognition.assemble(
+            codes: [],
+            textLines: [row("a one", 0), row("a two", 1), row("a three", 2),
+                        row("b one", 4), row("b two", 5)],
+            joinsLines: true
+        )
+        #expect(result.clipboardText == "a one a two a three\nb one b two")
+        #expect(result.trayEntries == ["a one a two a three\nb one b two"])
+    }
+}
+
 // MARK: - HUD outcome mapping
 
 @Suite struct ScanOutcomeTests {
@@ -144,7 +259,7 @@ import Testing
         try png.write(to: url, options: .atomic)
         defer { try? FileManager.default.removeItem(at: url) }
 
-        let result = try ScanRecognition.scan(in: url)
+        let result = try ScanRecognition.scan(in: url, joinsLines: false)
         #expect(result.codePayloads == [payload])
         #expect(result.clipboardText == payload)
     }
@@ -190,7 +305,7 @@ import Testing
             canvas.cgImage(forProposedRect: &proposed, context: nil, hints: nil)
         )
 
-        let result = try ScanRecognition.scan(in: cgImage)
+        let result = try ScanRecognition.scan(in: cgImage, joinsLines: false)
         #expect(result.codePayloads == [payload])
         #expect(result.text == "The quick brown fox")
         #expect(result.clipboardText == "\(payload)\nThe quick brown fox")

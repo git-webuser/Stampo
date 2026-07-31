@@ -440,14 +440,33 @@ import Testing
         #expect(straight.handles.map(\.0) == [.start, .end, .control])
         #expect(straight.handles.last?.1 == CGPoint(x: 50, y: 0))
 
+        // Bent: the handle rides the curve (t = 0.5), not the control at (50, 50).
         let curved = curvedArrow()
-        #expect(curved.handles.last?.1 == CGPoint(x: 50, y: 50))
+        #expect(curved.handles.last?.1 == CGPoint(x: 50, y: 25))
+    }
+
+    /// The bend handle must stay on the drawn stroke — parking it at the raw
+    /// control put it twice as far off the chord, so bending an arrow near an
+    /// edge pushed the handle off the image, out of reach of the clipped
+    /// canvas, leaving the arrow uneditable.
+    @Test func bendHandleStaysOnTheCurveWhileTheControlEscapesIt() {
+        let a = curvedArrow()
+        // The handle is on the drawn stroke …
+        #expect(a.hitTest(a.bendHandle, tolerance: 0.5))
+        // … while the control it derives sits well outside the arrow's bounds,
+        // which is exactly what used to strand it off the image.
+        let control = a.curveControl!
+        #expect(!a.rect.contains(control))
+        #expect(control.y - a.rect.maxY >= 20)
     }
 
     @Test func applyControlHandleBendsArrowOnly() {
+        // The drag point is where the curve should pass; the control lands
+        // twice as far out so B(0.5) hits the cursor.
         var arrow = make(.arrow, start: .zero, end: CGPoint(x: 100, y: 0))
         arrow.apply(handle: .control, to: CGPoint(x: 50, y: 40))
-        #expect(arrow.curveControl == CGPoint(x: 50, y: 40))
+        #expect(arrow.curveControl == CGPoint(x: 50, y: 80))
+        #expect(arrow.bendHandle == CGPoint(x: 50, y: 40))
 
         var line = make(.line, start: .zero, end: CGPoint(x: 100, y: 0))
         line.apply(handle: .control, to: CGPoint(x: 50, y: 40))
@@ -492,11 +511,12 @@ import Testing
 
     @Test func bendControlAlignsToStraightWithinBandOrWithShift() {
         let start = CGPoint.zero, end = CGPoint(x: 100, y: 0)
-        // A clear bend keeps the drag point as the control.
+        // A clear bend puts the curve through the drag point, so the control
+        // lands at twice its offset from the chord.
         #expect(Annotation.bentControl(forDrag: CGPoint(x: 50, y: 40),
                                        start: start, end: end,
                                        snapDistance: 9, forceStraight: false)
-                == CGPoint(x: 50, y: 40))
+                == CGPoint(x: 50, y: 80))
         // Within the alignment band of the chord → snaps straight (nil).
         #expect(Annotation.bentControl(forDrag: CGPoint(x: 50, y: 6),
                                        start: start, end: end,
@@ -1121,8 +1141,9 @@ import Testing
         #expect(arrow.resolvedEnd(in: list) == CGPoint(x: 100, y: 60))
         // The control transforms with the chord, keeping the bend's shape.
         #expect(arrow.resolvedControl(in: list) == CGPoint(x: 62, y: 10))
-        // The bend control handle shows at that resolved position.
-        #expect(arrow.handles(in: list).last?.1 == CGPoint(x: 62, y: 10))
+        // The bend handle shows on the resolved curve: midway between the
+        // resolved chord's midpoint (50, 30) and that control.
+        #expect(arrow.handles(in: list).last?.1 == CGPoint(x: 56, y: 20))
     }
 
     @Test func unboundCurvedArrowControlIsUnchanged() {

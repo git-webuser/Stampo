@@ -31,15 +31,20 @@ enum ScanRecognition {
         var isEmpty: Bool { codePayloads.isEmpty && text.isEmpty }
     }
 
-    static func scan(in imageURL: URL) throws -> Result {
-        try scan(using: VNImageRequestHandler(url: imageURL))
+    /// No default for `joinsLines`: the product answer is "join" and the pure
+    /// assembler's is "leave the text alone", so a call site that omitted it
+    /// would silently pick the wrong one.
+    static func scan(in imageURL: URL, joinsLines: Bool) throws -> Result {
+        try scan(using: VNImageRequestHandler(url: imageURL), joinsLines: joinsLines)
     }
 
-    static func scan(in cgImage: CGImage) throws -> Result {
-        try scan(using: VNImageRequestHandler(cgImage: cgImage, options: [:]))
+    static func scan(in cgImage: CGImage, joinsLines: Bool) throws -> Result {
+        try scan(using: VNImageRequestHandler(cgImage: cgImage, options: [:]),
+                 joinsLines: joinsLines)
     }
 
-    private static func scan(using handler: VNImageRequestHandler) throws -> Result {
+    private static func scan(using handler: VNImageRequestHandler,
+                             joinsLines: Bool) throws -> Result {
         // Leave `symbologies` at Vision's default so QR and the other barcode
         // formats supported by the running macOS release are all recognized.
         let barcodes = VNDetectBarcodesRequest()
@@ -64,13 +69,18 @@ enum ScanRecognition {
             return Candidate(string: line, box: observation.boundingBox)
         }
 
-        return assemble(codes: codes, textLines: textLines)
+        return assemble(codes: codes, textLines: textLines, joinsLines: joinsLines)
     }
 
     /// Pure assembly, split from Vision for testability: drops text found
     /// inside a code's box (the QR pattern itself OCRs as garbage), orders
     /// everything visually, and builds the combined clipboard string.
-    static func assemble(codes: [Candidate], textLines: [Candidate]) -> Result {
+    ///
+    /// `joinsLines` glues the recognized text into one paragraph. It only ever
+    /// merges runs of text: a barcode payload is a value, not prose, so it
+    /// always keeps a line of its own even between joined text.
+    static func assemble(codes: [Candidate], textLines: [Candidate],
+                         joinsLines: Bool = false) -> Result {
         let keptText = textLines.filter { line in
             !codes.contains { code in
                 let overlap = line.box.intersection(code.box)
@@ -105,7 +115,26 @@ enum ScanRecognition {
             row.sorted { $0.candidate.box.minX < $1.candidate.box.minX }
         }
 
-        let text = ordered.filter { !$0.isCode }.map(\.candidate.string).joined(separator: "\n")
+        let join = { (lines: [Candidate]) in
+            joinsLines ? joinParagraphs(lines)
+                       : lines.map(\.string).joined(separator: "\n")
+        }
+        let text = join(ordered.filter { !$0.isCode }.map(\.candidate))
+
+        // Clipboard: consecutive text lines form a run that `join` collapses;
+        // codes break the run and stay on their own line. Without joining this
+        // is the same "everything on its own line" string as before.
+        var chunks: [String] = []
+        var run: [Candidate] = []
+        for item in ordered {
+            if item.isCode {
+                if !run.isEmpty { chunks.append(join(run)); run = [] }
+                chunks.append(item.candidate.string)
+            } else {
+                run.append(item.candidate)
+            }
+        }
+        if !run.isEmpty { chunks.append(join(run)) }
 
         // Tray order = visual order: each code on its own, and the whole text
         // blob once, at the position of its topmost line.
@@ -123,9 +152,69 @@ enum ScanRecognition {
         return Result(
             codePayloads: ordered.filter(\.isCode).map(\.candidate.string),
             text: text,
-            clipboardText: ordered.map(\.candidate.string).joined(separator: "\n"),
+            clipboardText: chunks.joined(separator: "\n"),
             trayEntries: trayEntries
         )
+    }
+
+    /// Un-wraps the text while keeping its paragraphs apart: lines are glued
+    /// back together by `joinWrappedLines`, and a new line starts wherever the
+    /// layout left a visible gap.
+    ///
+    /// The gap is judged against the block's own line pitch (baseline to
+    /// baseline, taken as the median so a stray tall line can't move it)
+    /// rather than an absolute distance, because the only thing normalized
+    /// Vision boxes say about a font is how far apart its lines sit. A pitch
+    /// past `paragraphPitchRatio` of the median means a blank line, a section
+    /// break, or a jump to a different type size — all of them reasons to
+    /// break. Fewer than three lines gives no median worth the name, so a
+    /// short block always joins straight through.
+    static func joinParagraphs(_ lines: [Candidate]) -> String {
+        let kept = lines.filter { !$0.string.trimmingCharacters(in: .whitespaces).isEmpty }
+        guard kept.count > 2 else { return joinWrappedLines(kept.map(\.string)) }
+
+        let pitches = zip(kept, kept.dropFirst()).map { $0.box.midY - $1.box.midY }
+        let median = pitches.sorted()[pitches.count / 2]
+        guard median > 0 else { return joinWrappedLines(kept.map(\.string)) }
+
+        var paragraphs: [[String]] = [[kept[0].string]]
+        for (pitch, line) in zip(pitches, kept.dropFirst()) {
+            if pitch > median * paragraphPitchRatio {
+                paragraphs.append([line.string])
+            } else {
+                paragraphs[paragraphs.count - 1].append(line.string)
+            }
+        }
+        return paragraphs.map(joinWrappedLines).joined(separator: "\n")
+    }
+
+    /// How much wider than the median line pitch a gap must be to read as a
+    /// paragraph break. Ordinary leading varies by a few percent between lines
+    /// of one block; a blank line roughly doubles the pitch, so the threshold
+    /// sits between the two with room on both sides.
+    static let paragraphPitchRatio: CGFloat = 1.5
+
+    /// Glues lines wrapped by the layout back into one paragraph.
+    ///
+    /// A line ending in a hyphen is joined without a space but keeps the
+    /// hyphen: at a line break it is ambiguous between a wrap hyphen
+    /// ("пере-/нос") and a real one ("кто-/то"), and keeping it loses nothing
+    /// a reader can't fix, while dropping it would silently weld two words.
+    /// A soft hyphen is unambiguous — it exists only to mark a wrap — so it
+    /// goes. Everything else joins with a single space.
+    static func joinWrappedLines(_ lines: [String]) -> String {
+        var result = ""
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard !trimmed.isEmpty else { continue }
+            guard !result.isEmpty else { result = trimmed; continue }
+            switch result.last {
+            case "\u{00AD}": result.removeLast(); result += trimmed
+            case "-":        result += trimmed
+            default:         result += " " + trimmed
+            }
+        }
+        return result
     }
 
     /// Two boxes share a visual row when their vertical overlap exceeds half

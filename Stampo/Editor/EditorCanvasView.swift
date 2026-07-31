@@ -6,9 +6,10 @@ enum EditorTool: Equatable, CaseIterable {
     case select, line, arrow, rect, oval, roundedRect, polygon, star,
          bubble, text, drawing, eraser, blur, step, loupe, scan, crop
 
-    /// Drawing tools shown in the toolbar picker. Scan and Crop are transient
-    /// modes driven by their own action buttons, not persistent drawing tools,
-    /// so they're excluded here.
+    /// Drawing tools shown in the toolbar picker — the set the keyboard
+    /// shortcuts resolve against. Scan and Crop are transient modes driven by
+    /// their own toolbar buttons, not persistent drawing tools, so they're
+    /// excluded here.
     static let pickerCases: [EditorTool] = [
         .select, .line, .arrow, .rect, .oval, .text, .drawing, .eraser, .blur, .step, .loupe
     ]
@@ -163,6 +164,12 @@ struct ToolStyle {
     var penWidth: CGFloat = 6
     var markerWidth: CGFloat = 24
     var eraserDiameter: CGFloat = 32
+    /// Whether the scanner glues recognized lines back into paragraphs instead
+    /// of keeping every line break the scanned layout happened to produce.
+    /// On by default: the breaks belong to the page the text was read off,
+    /// not to the text, and pasting them somewhere else means cleaning them
+    /// out by hand.
+    var scanJoinsLines = true
 
     func width(for mode: DrawingMode) -> CGFloat {
         switch mode {
@@ -884,11 +891,13 @@ struct EditorCanvasView: View {
                     dragMode = .movingLoupePart(id, part, last: target)
 
                 case .resizing(let id, let handle):
-                    // Curve control: a wide alignment band (≈9 pt) snaps a
-                    // near-straight bend flat, and Shift forces it straight.
-                    // Snap against the resolved chord the user sees, then store
-                    // the control in the raw chord frame so a bound arrow's bend
-                    // follows its endpoints (an identity map when unbound).
+                    // Bend: the pointer is where the curve itself should pass,
+                    // and `bentControl` turns that into the control. A wide
+                    // alignment band (≈9 pt) snaps a near-straight bend flat,
+                    // and Shift forces it straight. Snap against the resolved
+                    // chord the user sees, then store the control in the raw
+                    // chord frame so a bound arrow's bend follows its endpoints
+                    // (an identity map when unbound).
                     if handle == .control,
                        let arrow = document.annotations.first(where: { $0.id == id }),
                        arrow.kind == .arrow {

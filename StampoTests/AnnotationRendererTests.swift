@@ -488,4 +488,15 @@ enum TestImages {
         let (_, properties) = ScreenshotFileStore.encoding(for: "jpg")
         #expect(properties[.compressionFactor] as? Double != nil)
     }
+
+    /// The share export names its temp file from this, so it has to fall back
+    /// to png exactly where `encoding(for:)` does — otherwise a shared file
+    /// would carry an extension its bytes don't match.
+    @Test(arguments: [
+        ("png", "png"), ("jpg", "jpg"), ("tiff", "tiff"),
+        ("webp", "png"), ("", "png"),
+    ])
+    func extensionMapping(format: String, expected: String) {
+        #expect(ScreenshotFileStore.fileExtension(for: format) == expected)
+    }
 }

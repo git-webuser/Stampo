@@ -64,6 +64,10 @@ Clicking the notch and global hotkeys work without any permission — they use s
 
 Select an area of the screen and Stampo reads it in a single pass: every QR/barcode payload plus all readable text (English and Russian, detected automatically). Everything found is copied to the clipboard in visual order, and each finding is added to the tray as a text entry. Nothing is saved to disk, and code payloads are treated strictly as inert text — never opened, linkified, or fetched. Start it from the capture-mode menu in the panel or with `⌃⌥⌘S`.
 
+The recognized text comes back as paragraphs, not as the lines the original layout happened to wrap it into: a hyphen at a wrap is kept (so `кто-то` survives), a soft hyphen is dropped, and a blank line or a change of type size starts a new paragraph. Barcode payloads always stay on a line of their own.
+
+Hold **⌥ as you release the selection** to keep every line break instead — for the blocks where the breaks are the content, like verse, code, or one column of a table. The modifier is read when the selection ends, not when the overlay opens, so `⌃⌥⌘S` on its own doesn't trigger it.
+
 ## Annotation Editor
 
 Click the post-capture thumbnail (or right-click a screenshot in the tray → **Edit**) to open the built-in editor: lines, arrows, rectangles, rounded rectangles, ovals, triangles, polygons, stars, speech bubbles, freehand drawing, numbered steps, text labels, loupes, and blur/pixelate regions, with full undo/redo (`⌘Z` / `⇧⌘Z`). Shapes live behind one toolbar button with a popover, as do the drawing brushes. The second toolbar row shows the settings for the active tool — colors, solid/dashed line styles, arrow route (straight, curved, or elbow) chosen independently of the stroke, arrowheads at the start, end, or both endpoints, text formatting (bold, italic, underline, strikethrough, shadow, a light/dark/none background plate, and left/center/right alignment), loupe shape and mode, and controls for line thickness, brush size, text size, marker size, fill opacity (0–100%), magnification, and blur/pixelate intensity. On narrow windows the toolbar buttons collapse from label to icon so nothing wraps.
@@ -72,7 +76,8 @@ Click the post-capture thumbnail (or right-click a screenshot in the tray → **
 - **Copy** (`⌘C`) puts the annotated image on the clipboard at the original pixel resolution.
 - Rotate the whole image in 90° steps with the toolbar buttons.
 - **Crop** the image: drag a frame with corner/edge handles (or type an exact **W × H** in the toolbar), then **Apply** (**Return**) or **Cancel** (**Esc**). The frame shows a rule-of-thirds grid, nudges with the arrow keys (`⇧` 10 px, `⌥⇧` 50 px), rotates with the image, and stays within the picture; cropping is undoable.
-- **Scan** a region: pick the Scan tool, drag over an area, and every QR/barcode payload and all readable text is copied to the clipboard and added to the tray.
+- **Share** hands the annotated image to the system share sheet — Mail, Messages, AirDrop, or anything else you have installed. It exports a real file named after the document in your configured format, and never saves: an unsaved edit stays unsaved.
+- **Scan** a region: click the Scan button (next to Crop), drag over an area, and every QR/barcode payload and all readable text is copied to the clipboard and added to the tray. The **Line Breaks** control in the second toolbar row switches between paragraphs (the default) and the raw line-by-line text.
 - Hover any toolbar control for a tooltip describing it.
 - Double-click a text label or step marker to edit it; inside a text label, **Return** commits and **⇧Return** starts a new line. New step markers auto-number from the highest numeric label (labels can be any text, e.g. `1.1` or `4.12`).
 - Blur/pixelate always sits beneath the other annotations, so arrows, text, and shapes stay crisp on top of a redacted region.
@@ -123,6 +128,8 @@ Drop files onto the open tray and they gather into a **stack** — a temporary s
 
 Press `⌃⌥⌘T` to open the tray straight into collect mode — the panel pins itself so it survives the mouse-down that starts a drag from another window; press it again to close.
 
+Every file on the shelf shows a real preview, whatever it is: PDFs, videos, Pages documents and anything else macOS can render appear as their content rather than a generic document icon. Files with nothing to preview fall back to their file-type icon.
+
 ## Pin to Screen
 
 Keep a screenshot floating above all windows while you work — handy for copying data into another app or comparing against a reference. Right-click a screenshot in the tray or on the post-capture thumbnail → **Pin to Screen**, or press `⌃⌥⌘P` to pin the last capture.
@@ -142,6 +149,10 @@ Stampo does not upload screenshots, sampled colors, or any other data.
   for the latest release version to offer an update notification. It sends
   nothing beyond a standard HTTPS request and can be turned off in
   **Settings → General → Updates**. There are no other network requests.
+- **Share** is the one way an image leaves your Mac, and only when you ask:
+  Stampo writes the image to a temporary file and hands it to the macOS
+  service you pick from the sheet. Whatever that service then does with it is
+  between you and that app — Stampo itself sends nothing.
 - No analytics or telemetry.
 - No crash reporting.
 - All captures stay on your Mac.
