@@ -467,6 +467,10 @@ extension NSColor {
         let r = CGFloat((value >> 16) & 0xFF) / 255
         let g = CGFloat((value >> 8)  & 0xFF) / 255
         let b = CGFloat(value         & 0xFF) / 255
-        self.init(calibratedRed: r, green: g, blue: b, alpha: 1)
+        // sRGB, not calibrated RGB: `hexString` and every other formatter read
+        // components through `usingColorSpace(.sRGB)`, so a calibrated color
+        // built here came back out as a different hex — a restored #FF0000
+        // displayed and copied as #FF2600.
+        self.init(srgbRed: r, green: g, blue: b, alpha: 1)
     }
 }

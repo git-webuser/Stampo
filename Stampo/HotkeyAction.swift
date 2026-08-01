@@ -1,6 +1,25 @@
 import Foundation
 import Carbon.HIToolbox
 
+/// Settings sections for the global shortcuts, in display order.
+enum HotkeyGroup: CaseIterable {
+    case panel
+    case capture
+    case tools
+
+    /// Localization key for the section header.
+    var titleKey: String {
+        switch self {
+        case .panel:   return "Panel and Archive"
+        // Not "Capture" — that key is the panel's shutter button ("Снять").
+        case .capture: return "Screen Capture"
+        case .tools:   return "Tools"
+        }
+    }
+
+    var actions: [HotkeyAction] { HotkeyAction.allCases.filter { $0.group == self } }
+}
+
 /// The global, user-rebindable hotkey actions. The raw value is the Carbon
 /// `EventHotKeyID.id` used when registering and dispatching.
 enum HotkeyAction: UInt32, CaseIterable {
@@ -14,6 +33,34 @@ enum HotkeyAction: UInt32, CaseIterable {
     case scan        = 7
     case pinLastCapture = 8
     case collectFiles = 9
+    case shareLastCapture = 10
+
+    /// Settings grouping. Nine editable shortcuts in one flat list stopped
+    /// being scannable; the split follows what the action does rather than
+    /// when it was added — bring the panel up, take a picture, run an overlay
+    /// tool. Section order below is the order of `HotkeyGroup.allCases`.
+    var group: HotkeyGroup {
+        switch self {
+        case .togglePanel, .collectFiles, .pinLastCapture, .shareLastCapture:
+            return .panel
+        case .selection, .fullscreen, .window:
+            return .capture
+        case .color, .scan:
+            return .tools
+        }
+    }
+
+    /// Extra modifier the action honors, described for the settings row. Only
+    /// behaviour the user cannot discover from the shortcut itself belongs
+    /// here — nil for actions that do exactly one thing.
+    var modifierHintKey: String? {
+        switch self {
+        case .scan:
+            return "Hold ⌥ when releasing the selection to keep line breaks"
+        default:
+            return nil
+        }
+    }
 
     /// Localization key for the row label.
     var labelKey: String {
@@ -26,6 +73,7 @@ enum HotkeyAction: UInt32, CaseIterable {
         case .scan:        return "Scan"
         case .pinLastCapture: return "Pin Last Screenshot"
         case .collectFiles: return "Collect Files"
+        case .shareLastCapture: return "Share Last Screenshot"
         }
     }
 
@@ -39,7 +87,8 @@ enum HotkeyAction: UInt32, CaseIterable {
         case .color:       return "eyedropper"
         case .scan:        return "doc.viewfinder"
         case .pinLastCapture: return "pin"
-        case .collectFiles: return "tray.and.arrow.down"
+        case .collectFiles: return "arrow.down.document"
+        case .shareLastCapture: return "square.and.arrow.up"
         }
     }
 
@@ -56,6 +105,9 @@ enum HotkeyAction: UInt32, CaseIterable {
         case .scan:        key = kVK_ANSI_S
         case .pinLastCapture: key = kVK_ANSI_P
         case .collectFiles: key = kVK_ANSI_T
+        // S (Scan) and P (Pin) are taken; D is free and unreserved by macOS
+        // under ⌃⌥⌘.
+        case .shareLastCapture: key = kVK_ANSI_D
         }
         return HotkeyCombo(keyCode: UInt16(key), carbonModifiers: mods)
     }
@@ -77,6 +129,7 @@ enum HotkeyAction: UInt32, CaseIterable {
         // Added after the combo migration — no legacy key was ever written;
         // migrateIfNeeded reads nil and treats the action as enabled.
         case .collectFiles: return "hotkeyCollectFilesEnabled"
+        case .shareLastCapture: return "hotkeyShareLastCaptureEnabled"
         }
     }
 

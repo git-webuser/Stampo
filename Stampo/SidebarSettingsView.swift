@@ -14,7 +14,7 @@ enum SettingsTab: Int, CaseIterable, Identifiable, Hashable {
         // in English, but Russian names the pane (Съёмка) and the action
         // (Снять) differently, and one catalog key can't carry two values.
         case .capture:  return "Capture Settings"
-        case .tray:     return "Tray"
+        case .tray:     return "Archive"
         case .hotkeys:  return "Hotkeys"
         case .about:    return "About"
         }
@@ -25,7 +25,7 @@ enum SettingsTab: Int, CaseIterable, Identifiable, Hashable {
         switch self {
         case .general:  return "gearshape"
         case .capture:  return "camera"
-        case .tray:     return "tray"
+        case .tray:     return "archivebox"
         case .hotkeys:  return "keyboard"
         case .about:    return "info.circle"
         }
@@ -36,7 +36,7 @@ enum SettingsTab: Int, CaseIterable, Identifiable, Hashable {
         switch self {
         case .general:  return "tab-general"
         case .capture:  return "tab-capture"
-        case .tray:     return "tab-tray"
+        case .tray:     return "tab-archive"
         case .hotkeys:  return "tab-hotkeys"
         case .about:    return "tab-about"
         }

@@ -192,7 +192,7 @@ import Testing
     @Test func collectFilesRowMetadataIsFilledIn() {
         #expect(HotkeyAction.collectFiles.rawValue == 9)
         #expect(HotkeyAction.collectFiles.labelKey == "Collect Files")
-        #expect(HotkeyAction.collectFiles.icon == "tray.and.arrow.down")
+        #expect(HotkeyAction.collectFiles.icon == "arrow.down.document")
         #expect(HotkeyAction.collectFiles.defaultCombo.displayString == "⌃⌥⌘T")
     }
 

@@ -37,6 +37,30 @@ import Testing
         #expect(HotkeyAction.scan.labelKey == "Scan")
         #expect(HotkeyAction.scan.icon == "doc.viewfinder")
     }
+
+    /// The settings screen renders group by group, so an action missing from
+    /// every group would silently vanish from the window.
+    @Test func groupsPartitionEveryAction() {
+        let grouped = HotkeyGroup.allCases.flatMap(\.actions)
+        #expect(Set(grouped) == Set(HotkeyAction.allCases))
+        #expect(grouped.count == HotkeyAction.allCases.count)
+    }
+
+    /// Section headers must not collide with unrelated catalog keys — "Capture"
+    /// is already the panel's shutter button, which reads "Снять" in Russian.
+    @Test func groupHeadersHaveTheirOwnKeys() {
+        let keys = HotkeyGroup.allCases.map(\.titleKey)
+        #expect(keys == ["Panel and Archive", "Screen Capture", "Tools"])
+    }
+
+    /// Scan is the one action whose behaviour changes under a modifier; the
+    /// row subtitle is where that gets documented.
+    @Test func onlyScanCarriesAModifierHint() {
+        #expect(HotkeyAction.scan.modifierHintKey
+                == "Hold ⌥ when releasing the selection to keep line breaks")
+        let withHints = HotkeyAction.allCases.filter { $0.modifierHintKey != nil }
+        #expect(withHints == [.scan])
+    }
 }
 
 // MARK: - Scan-merge migration

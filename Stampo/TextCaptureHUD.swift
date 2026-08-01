@@ -19,6 +19,8 @@ final class TextCaptureHUD {
         case nothingRecognized
         /// "Pin last screenshot" hotkey fired with nothing captured yet.
         case noScreenshotToPin
+        /// Same for "Share last screenshot" — same wording, share glyph.
+        case noScreenshotToShare
     }
 
     private var panel: NSPanel?
@@ -146,6 +148,9 @@ private struct TextCaptureHUDView: View {
                     .fixedSize()
             case .noScreenshotToPin:
                 statusRow(title: "No recent screenshot", systemName: "pin.slash", iconOpacity: 0.6)
+                    .fixedSize()
+            case .noScreenshotToShare:
+                statusRow(title: "No recent screenshot", systemName: "square.and.arrow.up", iconOpacity: 0.6)
                     .fixedSize()
             }
         }

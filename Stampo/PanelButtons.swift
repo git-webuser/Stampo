@@ -79,7 +79,17 @@ struct PanelIconButton: View {
 
 // MARK: - PanelMoreMenuButton
 
+/// A caller-supplied command in the "⋯" menu, rendered above Settings/Quit.
+/// The tray uses these for its whole-tray actions; the main panel passes none.
+struct PanelMenuCommand {
+    /// Localization key, also the item's identity for the rebuild check.
+    let titleKey: String
+    var isEnabled: Bool = true
+    let action: () -> Void
+}
+
 struct PopUpMoreButtonWrapper: NSViewRepresentable {
+    var extraCommands: [PanelMenuCommand] = []
     var onOpen:  () -> Void
     var onClose: () -> Void
     @Environment(\.locale) private var locale
@@ -92,27 +102,9 @@ struct PopUpMoreButtonWrapper: NSViewRepresentable {
         button.autoresizingMask = []
         (button.cell as? NSPopUpButtonCell)?.arrowPosition = .noArrow
 
-        let settingsItem = NSMenuItem(
-            title: LocaleManager.string("Settings", locale: locale),
-            action: #selector(Coordinator.settingsTapped),
-            keyEquivalent: ""
-        )
-        button.menu?.addItem(settingsItem)
-        button.menu?.addItem(.separator())
-        let quitItem = NSMenuItem(
-            title: LocaleManager.string("Quit Stampo", locale: locale),
-            action: #selector(Coordinator.quitTapped),
-            keyEquivalent: ""
-        )
-        button.menu?.addItem(quitItem)
-
         button.menu?.autoenablesItems = false
-        settingsItem.state = .off
-        quitItem.state     = .off
-
-        button.target       = context.coordinator
-        settingsItem.target = context.coordinator
-        quitItem.target     = context.coordinator
+        button.target = context.coordinator
+        context.coordinator.rebuildMenu(in: button, commands: extraCommands, locale: locale)
 
         NotificationCenter.default.addObserver(
             context.coordinator,
@@ -131,11 +123,13 @@ struct PopUpMoreButtonWrapper: NSViewRepresentable {
     }
 
     func updateNSView(_ button: NSPopUpButton, context: Context) {
-        // item(at:) order: 0 = Settings, 1 = separator, 2 = Quit Stampo.
-        button.item(at: 0)?.title = LocaleManager.string("Settings",      locale: locale)
-        button.item(at: 2)?.title = LocaleManager.string("Quit Stampo", locale: locale)
+        // Closures capture caller state, so always refresh them; the item list
+        // itself is only rebuilt when its shape actually changed (see
+        // rebuildMenu) — replacing items under an open menu would flicker.
+        context.coordinator.commands = extraCommands
+        context.coordinator.rebuildMenu(in: button, commands: extraCommands, locale: locale)
         // The NSPopUpButton is what VoiceOver focuses; a SwiftUI label on the
-        // ZStack that wraps it doesn't reliably reach it. This menu is two
+        // ZStack that wraps it doesn't reliably reach it. This menu is a list of
         // commands rather than a choice — nothing is ever selected (see the
         // selectItem(at: -1) below) — so there is no value to expose alongside
         // the label.
@@ -148,10 +142,61 @@ struct PopUpMoreButtonWrapper: NSViewRepresentable {
 
     final class Coordinator: NSObject {
         var parent: PopUpMoreButtonWrapper
+        /// Live commands, re-assigned on every update so a menu item always
+        /// runs the current closure.
+        var commands: [PanelMenuCommand] = []
+        /// Shape of the menu as last built: titles + enablement + language.
+        private var menuSignature: String?
 
         init(_ parent: PopUpMoreButtonWrapper) { self.parent = parent }
 
         deinit { NotificationCenter.default.removeObserver(self) }
+
+        /// Rebuilds `[extras…] [separator] Settings [separator] Quit`, but only
+        /// when the shape changed — the same NSMenu instance is kept throughout
+        /// so the didEndTracking observer registered against it stays valid.
+        func rebuildMenu(in button: NSPopUpButton, commands: [PanelMenuCommand], locale: Locale) {
+            self.commands = commands
+            let signature = commands.map { "\($0.titleKey)|\($0.isEnabled)" }
+                .joined(separator: ",") + "#\(locale.identifier)"
+            guard signature != menuSignature, let menu = button.menu else { return }
+            menuSignature = signature
+
+            menu.removeAllItems()
+            for (index, command) in commands.enumerated() {
+                let item = NSMenuItem(
+                    title: LocaleManager.string(command.titleKey, locale: locale),
+                    action: #selector(extraCommandTapped(_:)),
+                    keyEquivalent: ""
+                )
+                item.target = self
+                item.isEnabled = command.isEnabled
+                item.tag = index
+                item.state = .off
+                menu.addItem(item)
+            }
+            if !commands.isEmpty { menu.addItem(.separator()) }
+
+            for (titleKey, selector) in [
+                ("Settings", #selector(settingsTapped)),
+                ("Quit Stampo", #selector(quitTapped))
+            ] {
+                if titleKey == "Quit Stampo" { menu.addItem(.separator()) }
+                let item = NSMenuItem(
+                    title: LocaleManager.string(titleKey, locale: locale),
+                    action: selector,
+                    keyEquivalent: ""
+                )
+                item.target = self
+                item.state = .off
+                menu.addItem(item)
+            }
+        }
+
+        @objc func extraCommandTapped(_ sender: NSMenuItem) {
+            guard commands.indices.contains(sender.tag) else { return }
+            commands[sender.tag].action()
+        }
 
         @objc func settingsTapped() {
             SettingsWindowController.shared.open()
@@ -173,6 +218,9 @@ struct PopUpMoreButtonWrapper: NSViewRepresentable {
 
 struct PanelMoreMenuButton: View {
     let metrics: NotchMetrics
+    /// Route-specific commands shown above Settings/Quit (the tray's
+    /// whole-tray actions); empty on the main panel.
+    var extraCommands: [PanelMenuCommand] = []
 
     @State private var isHovered  = false
     @State private var isPressed  = false
@@ -181,6 +229,7 @@ struct PanelMoreMenuButton: View {
     var body: some View {
         ZStack {
             PopUpMoreButtonWrapper(
+                extraCommands: extraCommands,
                 onOpen:  { isMenuOpen = true  },
                 onClose: { isMenuOpen = false }
             )

@@ -8,6 +8,11 @@ import UniformTypeIdentifiers
 struct NotchTrayView: View {
     let metrics: NotchMetrics
     var trayModel: NotchTrayModel
+    /// Owned by the panel controller, not by this view: the "Share Last
+    /// Screenshot" hotkey presents through the same anchor, so the sheet always
+    /// hangs off the "⋯" button whether it was opened from the menu or the
+    /// keyboard.
+    let shareAnchor: SharePickerAnchor
     let isPinned: Bool
     /// True while the tray content is on screen; flips to false as the tray
     /// closes (back, hide, ESC). Drives the ephemeral collapse of any expanded
@@ -144,7 +149,7 @@ struct NotchTrayView: View {
                 // targeting, so the hint shows for every external drop — not only
                 // the empty tray. (The plate itself is opacity-gated on
                 // isDropTargeted, so this is only visible mid-drop.)
-                trayHint(icon: "tray.and.arrow.down.fill", label: "Drop Files Here")
+                trayHint(icon: "arrow.down.document.fill", label: "Drop Files Here")
             }
             .padding(.top, metrics.panelHeight)
             .padding(.horizontal, sideInset)
@@ -490,10 +495,33 @@ struct NotchTrayView: View {
     }
 
     private var moreButton: some View {
-        PanelMoreMenuButton(metrics: metrics)
+        PanelMoreMenuButton(metrics: metrics, extraCommands: trayCommands)
             .frame(width: metrics.cellWidth, height: metrics.iconSize)
             .help("Settings and quit")
             // Labelled from AppKit inside PopUpMoreButtonWrapper.
+            // The share sheet hangs off this button — the only fixed point in
+            // the header, and far enough from the cells not to cover them.
+            .sharePickerAnchor(shareAnchor)
+    }
+
+    /// Whole-tray commands in the "⋯" menu. All three are disabled on an empty
+    /// tray rather than hidden, so the menu never changes shape under the user.
+    private var trayCommands: [PanelMenuCommand] {
+        let isEmpty = trayModel.items.isEmpty
+        return [
+            PanelMenuCommand(titleKey: "Copy All", isEnabled: !isEmpty) {
+                let payload = NotchTrayModel.payload(for: trayModel.items, colorScheme: scheme)
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.writeObjects(payload.objects.compactMap { $0 as? NSPasteboardWriting })
+            },
+            PanelMenuCommand(titleKey: "Share All", isEnabled: !isEmpty) {
+                let payload = NotchTrayModel.payload(for: trayModel.items, colorScheme: scheme)
+                shareAnchor.present(payload.objects)
+            },
+            PanelMenuCommand(titleKey: "Clear Archive", isEnabled: !isEmpty) {
+                withAnimation(.easeInOut(duration: 0.18)) { trayModel.removeAll() }
+            }
+        ]
     }
 
     private var schemeMenu: some View {
@@ -510,7 +538,7 @@ struct TrayDeleteBadge: View {
     var isOn: Bool = false
     /// Overrides the tray-specific default labels below — reusers outside the
     /// tray (e.g. the pinned-screenshot close button) must not announce
-    /// "Remove from tray".
+    /// "Remove from archive".
     var accessibilityLabelOverride: LocalizedStringKey? = nil
     let action: () -> Void
     @Binding var isPressed: Bool
@@ -533,7 +561,7 @@ struct TrayDeleteBadge: View {
             )
             .accessibilityAddTraits(.isButton)
             .accessibilityLabel(accessibilityLabelOverride
-                ?? (systemName == "xmark.circle.fill" ? "Remove from tray" : (isOn ? "Unpin" : "Pin")))
+                ?? (systemName == "xmark.circle.fill" ? "Remove from archive" : (isOn ? "Unpin" : "Pin")))
     }
 }
 
@@ -552,6 +580,18 @@ private struct TrayColorCell: View {
     @State private var isPressed    = false
     @State private var isCopied     = false
     @State private var isBadgeActive = false
+    @State private var shareAnchor  = SharePickerAnchor()
+
+    /// Copies `value` and flashes "Copied!" in the label — the same feedback the
+    /// tap gesture gives, reused by every menu entry.
+    private func copy(_ value: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(value, forType: .string)
+        withAnimation { isCopied = true }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+            withAnimation { isCopied = false }
+        }
+    }
 
     var body: some View {
         RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
@@ -588,6 +628,22 @@ private struct TrayColorCell: View {
                 .offset(y: labelOffset)
                 .animation(.easeInOut(duration: 0.14), value: isCopied)
             }
+            .contextMenu {
+                // Tap already copies in the header's format; the submenu is for
+                // the other notations, so a user working in CSS doesn't have to
+                // switch the whole tray's format to grab one HSL value.
+                Button("Copy") { copy(scheme.convert(item.color)) }
+                Menu("Copy As") {
+                    ForEach(ColorSchemeType.allCases, id: \.title) { format in
+                        Button { copy(format.convert(item.color)) }
+                            label: { Text(verbatim: format.title) }
+                    }
+                }
+                Button("Share") { shareAnchor.present([scheme.convert(item.color)]) }
+                Divider()
+                Button("Remove from archive") { onRemove() }
+            }
+            .sharePickerAnchor(shareAnchor)
             .scaleEffect(isPressed ? 0.88 : 1.0)
             .animation(.spring(response: 0.2, dampingFraction: 0.8), value: isHovered)
             .animation(.spring(response: 0.15, dampingFraction: 0.7), value: isPressed)
@@ -603,12 +659,7 @@ private struct TrayColorCell: View {
                     .onEnded { _ in
                         isPressed = false
                         guard !isBadgeActive else { isBadgeActive = false; return }
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(scheme.convert(item.color), forType: .string)
-                        withAnimation { isCopied = true }
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                            withAnimation { isCopied = false }
-                        }
+                        copy(scheme.convert(item.color))
                     }
             )
     }
@@ -630,6 +681,7 @@ private struct TrayTextCell: View {
     @State private var isPressed    = false
     @State private var isCopied     = false
     @State private var isBadgeActive = false
+    @State private var shareAnchor  = SharePickerAnchor()
 
     private var width: CGFloat { height * 1.6 }
 
@@ -696,9 +748,13 @@ private struct TrayTextCell: View {
         }
         .contextMenu {
             Button("Copy") { copyText() }
+            // Plain string, not a file: the share sheet offers Messages, Notes,
+            // Mail — the same payload the tap-to-copy puts on the pasteboard.
+            Button("Share") { shareAnchor.present([item.text]) }
             Divider()
-            Button("Remove from tray") { onRemove() }
+            Button("Remove from archive") { onRemove() }
         }
+        .sharePickerAnchor(shareAnchor)
         .scaleEffect(isPressed ? 0.88 : 1.0)
         .animation(.spring(response: 0.2, dampingFraction: 0.8), value: isHovered)
         .animation(.spring(response: 0.15, dampingFraction: 0.7), value: isPressed)
@@ -857,6 +913,7 @@ private struct TrayScreenshotCell: View {
     let onMoveToTrash: () -> Void
 
     @State private var isCopied = false
+    @State private var shareAnchor = SharePickerAnchor()
 
     private var displayName: String {
         shot.url.deletingPathExtension().lastPathComponent
@@ -901,10 +958,16 @@ private struct TrayScreenshotCell: View {
                         withAnimation { isCopied = false }
                     }
                 }
+                // The file URL, not the decoded image: AirDrop and Mail then
+                // carry the actual PNG with its name instead of an untitled
+                // bitmap. (The editor shares an image because its composite
+                // isn't on disk yet.)
+                Button("Share") { shareAnchor.present([shot.url]) }
                 Divider()
                 Button("Move to Trash", role: .destructive) { onMoveToTrash() }
             }
         )
+        .sharePickerAnchor(shareAnchor)
     }
 }
 
@@ -932,6 +995,7 @@ private struct TrayStackCell: View {
     @State private var isBadgeActive = false
     @State private var isDragging    = false
     @State private var isCopied      = false
+    @State private var shareAnchor   = SharePickerAnchor()
 
     private var width: CGFloat { height * 1.6 }
     private var fanCount: Int { min(stack.urls.count, 3) }
@@ -1058,9 +1122,13 @@ private struct TrayStackCell: View {
         .contextMenu {
             Button("Show in Finder") { revealInFinder() }
             Button("Copy") { copyAll() }
+            // Every member in one sheet — the same payload the whole-cell drag
+            // carries, so AirDrop sends the pile in a single transfer.
+            Button("Share") { shareAnchor.present(stack.urls) }
             Divider()
-            Button("Remove from tray") { onRemove() }
+            Button("Remove from archive") { onRemove() }
         }
+        .sharePickerAnchor(shareAnchor)
         .preference(key: InternalDraggingKey.self, value: isDragging)
         .accessibilityLabel(accessibilityTitle)
         .accessibilityHint("Tap to open the stack, drag to move all files")
@@ -1089,6 +1157,7 @@ private struct ExpandedStackGroup: View {
     let onRemoveStack: () -> Void
 
     @State private var isCopied = false
+    @State private var shareAnchor = SharePickerAnchor()
 
     /// Copies every member to the pasteboard and flashes "Copied!" in the header.
     private func copyAll() {
@@ -1180,10 +1249,12 @@ private struct ExpandedStackGroup: View {
         .contextMenu {
             Button("Show in Finder") { onRevealAll() }
             Button("Copy") { copyAll() }
+            Button("Share") { shareAnchor.present(stack.urls) }
             Button("Collapse") { onCollapse() }
             Divider()
-            Button("Remove from tray") { onRemoveStack() }
+            Button("Remove from archive") { onRemoveStack() }
         }
+        .sharePickerAnchor(shareAnchor)
         .help("Collapse")
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityTitle)
@@ -1217,6 +1288,7 @@ private struct StackMemberCell: View {
     let onRemove: () -> Void
 
     @State private var isCopied = false
+    @State private var shareAnchor = SharePickerAnchor()
     /// Placeholder shown until Quick Look answers, resolved once on appear so
     /// hover/press re-renders don't re-run the lookup.
     @State private var resolvedIcon: NSImage?
@@ -1262,6 +1334,7 @@ private struct StackMemberCell: View {
                         withAnimation { isCopied = false }
                     }
                 }
+                Button("Share") { shareAnchor.present([url]) }
                 Divider()
                 Button("Move to Trash", role: .destructive) {
                     onRemove()
@@ -1269,6 +1342,7 @@ private struct StackMemberCell: View {
                 }
             }
         )
+        .sharePickerAnchor(shareAnchor)
         .onAppear {
             if resolvedIcon == nil {
                 resolvedIcon = NSWorkspace.shared.icon(forFile: url.path)

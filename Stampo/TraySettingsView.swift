@@ -9,7 +9,7 @@ struct TraySettingsView: View {
         Form {
             // MARK: History
             Section {
-                SettingRow(icon: "tray.full", title: "Maximum items") {
+                SettingRow(icon: "archivebox", title: "Maximum items") {
                     HStack {
                         Stepper(value: $trayMaxItems, in: 5...50, step: 5) { EmptyView() }
                             .labelsHidden()

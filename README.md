@@ -6,7 +6,7 @@ Screenshot, text capture, and color picker for any Mac. The panel lives at the n
 
 ## What is Stampo
 
-Stampo replaces the usual screenshot workflow with a panel that appears when you hover near the top of your screen. From the panel you can take area, window, or fullscreen screenshots, annotate them in the built-in editor, scan any region for text and QR/barcodes, pick colors, and browse your recent captures in the tray.
+Stampo replaces the usual screenshot workflow with a panel that appears when you hover near the top of your screen. From the panel you can take area, window, or fullscreen screenshots, annotate them in the built-in editor, scan any region for text and QR/barcodes, pick colors, and browse your recent captures in the archive.
 
 ## Requirements
 
@@ -57,12 +57,12 @@ Clicking the notch and global hotkeys work without any permission — they use s
 
 - **Hover** near the top center of your screen (at the notch) to open the panel.
 - **Click a capture mode** to start a screenshot, scan, or color pick.
-- **Click the tray icon** (stack icon) to browse recent captures.
+- **Click the archive icon** (stack icon) to browse recent captures.
 - All screenshots are saved to your chosen folder (default: `~/Pictures/Stampo`).
 
 ## Scan (text & codes)
 
-Select an area of the screen and Stampo reads it in a single pass: every QR/barcode payload plus all readable text (English and Russian, detected automatically). Everything found is copied to the clipboard in visual order, and each finding is added to the tray as a text entry. Nothing is saved to disk, and code payloads are treated strictly as inert text — never opened, linkified, or fetched. Start it from the capture-mode menu in the panel or with `⌃⌥⌘S`.
+Select an area of the screen and Stampo reads it in a single pass: every QR/barcode payload plus all readable text (English and Russian, detected automatically). Everything found is copied to the clipboard in visual order, and each finding is added to the archive as a text entry. Nothing is saved to disk, and code payloads are treated strictly as inert text — never opened, linkified, or fetched. Start it from the capture-mode menu in the panel or with `⌃⌥⌘S`.
 
 The recognized text comes back as paragraphs, not as the lines the original layout happened to wrap it into: a hyphen at a wrap is kept (so `кто-то` survives), a soft hyphen is dropped, and a blank line or a change of type size starts a new paragraph. Barcode payloads always stay on a line of their own.
 
@@ -70,14 +70,14 @@ Hold **⌥ as you release the selection** to keep every line break instead — f
 
 ## Annotation Editor
 
-Click the post-capture thumbnail (or right-click a screenshot in the tray → **Edit**) to open the built-in editor: lines, arrows, rectangles, rounded rectangles, ovals, triangles, polygons, stars, speech bubbles, freehand drawing, numbered steps, text labels, loupes, and blur/pixelate regions, with full undo/redo (`⌘Z` / `⇧⌘Z`). Shapes live behind one toolbar button with a popover, as do the drawing brushes. The second toolbar row shows the settings for the active tool — colors, solid/dashed line styles, arrow route (straight, curved, or elbow) chosen independently of the stroke, arrowheads at the start, end, or both endpoints, text formatting (bold, italic, underline, strikethrough, shadow, a light/dark/none background plate, and left/center/right alignment), loupe shape and mode, and controls for line thickness, brush size, text size, marker size, fill opacity (0–100%), magnification, and blur/pixelate intensity. On narrow windows the toolbar buttons collapse from label to icon so nothing wraps.
+Click the post-capture thumbnail (or right-click a screenshot in the archive → **Edit**) to open the built-in editor: lines, arrows, rectangles, rounded rectangles, ovals, triangles, polygons, stars, speech bubbles, freehand drawing, numbered steps, text labels, loupes, and blur/pixelate regions, with full undo/redo (`⌘Z` / `⇧⌘Z`). Shapes live behind one toolbar button with a popover, as do the drawing brushes. The second toolbar row shows the settings for the active tool — colors, solid/dashed line styles, arrow route (straight, curved, or elbow) chosen independently of the stroke, arrowheads at the start, end, or both endpoints, text formatting (bold, italic, underline, strikethrough, shadow, a light/dark/none background plate, and left/center/right alignment), loupe shape and mode, and controls for line thickness, brush size, text size, marker size, fill opacity (0–100%), magnification, and blur/pixelate intensity. On narrow windows the toolbar buttons collapse from label to icon so nothing wraps.
 
-- **Save** (`⌘S`) always writes a **new file** to your save folder — the original screenshot is never modified — and the result appears in the tray.
+- **Save** (`⌘S`) always writes a **new file** to your save folder — the original screenshot is never modified — and the result appears in the archive.
 - **Copy** (`⌘C`) puts the annotated image on the clipboard at the original pixel resolution.
 - Rotate the whole image in 90° steps with the toolbar buttons.
 - **Crop** the image: drag a frame with corner/edge handles (or type an exact **W × H** in the toolbar), then **Apply** (**Return**) or **Cancel** (**Esc**). The frame shows a rule-of-thirds grid, nudges with the arrow keys (`⇧` 10 px, `⌥⇧` 50 px), rotates with the image, and stays within the picture; cropping is undoable.
 - **Share** hands the annotated image to the system share sheet — Mail, Messages, AirDrop, or anything else you have installed. It exports a real file named after the document in your configured format, and never saves: an unsaved edit stays unsaved.
-- **Scan** a region: click the Scan button (next to Crop), drag over an area, and every QR/barcode payload and all readable text is copied to the clipboard and added to the tray. The **Line Breaks** control in the second toolbar row switches between paragraphs (the default) and the raw line-by-line text.
+- **Scan** a region: click the Scan button (next to Crop), drag over an area, and every QR/barcode payload and all readable text is copied to the clipboard and added to the archive. The **Line Breaks** control in the second toolbar row switches between paragraphs (the default) and the raw line-by-line text.
 - Hover any toolbar control for a tooltip describing it.
 - Double-click a text label or step marker to edit it; inside a text label, **Return** commits and **⇧Return** starts a new line. New step markers auto-number from the highest numeric label (labels can be any text, e.g. `1.1` or `4.12`).
 - Blur/pixelate always sits beneath the other annotations, so arrows, text, and shapes stay crisp on top of a redacted region.
@@ -113,26 +113,26 @@ By default, screenshots are saved to **~/Pictures/Stampo**. You can change the s
 
 File names follow one of four presets, selectable in **Settings → Capture**: compact `Jan·05-14·30·22` (default), ISO `2026-01-05 14-30-22`, numbered `2026-01-05 #1`, or dense `20260105-143022`. The file format is PNG, JPG, or TIFF.
 
-## Tray
+## Archive
 
-The tray shows recent screenshots, color swatches, and scanned text — and it's also a drop shelf for files.
+The archive shows recent screenshots, color swatches, and scanned text — and it's also a drop target for files.
 
 - **Click** a screenshot to open it.
 - **Right-click** for options: Edit, Open, Pin to Screen, Show in Finder, Copy, Move to Trash.
-- **X button** (on hover) removes the item from the tray — the file is not deleted.
-- **Drag** a screenshot out of the tray to copy it anywhere.
+- **X button** (on hover) removes the item from the archive — the file is not deleted.
+- **Drag** a screenshot out of the archive to copy it anywhere.
 
-### Collect files (drop shelf)
+### Collect files
 
-Drop files onto the open tray and they gather into a **stack** — a temporary shelf you fill from several windows, then drag out all at once into a destination folder. Files are grouped by their source folder, so dropping from Downloads and Desktop makes two separate stacks, each labeled with its folder name. Drag a stack out to move everything it holds in one gesture; the stack clears once the files land. The tray keeps references to the originals, never copies, so nothing is duplicated on disk while it sits on the shelf.
+Drop files onto the open archive and they gather into a **stack** — a temporary pile you fill from several windows, then drag out all at once into a destination folder. Files are grouped by their source folder, so dropping from Downloads and Desktop makes two separate stacks, each labeled with its folder name. Drag a stack out to move everything it holds in one gesture; the stack clears once the files land. The archive keeps references to the originals, never copies, so nothing is duplicated on disk while they sit there.
 
-Press `⌃⌥⌘T` to open the tray straight into collect mode — the panel pins itself so it survives the mouse-down that starts a drag from another window; press it again to close.
+Press `⌃⌥⌘T` to open the archive straight into collect mode — the panel pins itself so it survives the mouse-down that starts a drag from another window; press it again to close.
 
-Every file on the shelf shows a real preview, whatever it is: PDFs, videos, Pages documents and anything else macOS can render appear as their content rather than a generic document icon. Files with nothing to preview fall back to their file-type icon.
+Every file in the archive shows a real preview, whatever it is: PDFs, videos, Pages documents and anything else macOS can render appear as their content rather than a generic document icon. Files with nothing to preview fall back to their file-type icon.
 
 ## Pin to Screen
 
-Keep a screenshot floating above all windows while you work — handy for copying data into another app or comparing against a reference. Right-click a screenshot in the tray or on the post-capture thumbnail → **Pin to Screen**, or press `⌃⌥⌘P` to pin the last capture.
+Keep a screenshot floating above all windows while you work — handy for copying data into another app or comparing against a reference. Right-click a screenshot in the archive or on the post-capture thumbnail → **Pin to Screen**, or press `⌃⌥⌘P` to pin the last capture.
 
 Pinned screenshots stay on top of everything, follow you across Spaces, and never steal focus. Drag a pin by its body to move it, resize it from the edges (proportions are kept), and close it with the **X** button, a **double-click**, or **Esc** while hovering it. Right-click a pin for Copy, Edit, Show in Finder, Unpin, or Close All Pins.
 

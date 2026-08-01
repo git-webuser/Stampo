@@ -280,9 +280,9 @@ struct FirstLaunchView: View {
                 "Recognized text and links land straight on the clipboard."
             )
             featureRow(
-                "tray.and.arrow.down",
+                "arrow.down.document",
                 "Manage files",
-                "Drag files onto the shelf by the notch, drop them into any app."
+                "Drag files into the archive by the notch, drop them into any app."
             )
         }
         .frame(width: 400, alignment: .leading)

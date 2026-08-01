@@ -16,6 +16,20 @@ import Testing
         #expect(gray.hexString == "#808080")
     }
 
+    /// Persistence round-trip: the tray stores a color as its hex and rebuilds
+    /// it with `NSColor(hexString:)` on restore. The init has to work in the
+    /// same space the formatters read from, or every restored color drifts
+    /// (#FF0000 came back as #FF2600 while the init used calibrated RGB).
+    @Test func hexInitRoundTripsThroughEveryFormatter() throws {
+        for hex in ["#FF0000", "#000000", "#FFFFFF", "#808080", "#1E90FF"] {
+            let restored = try #require(NSColor(hexString: hex))
+            #expect(restored.hexString == hex)
+        }
+        let restoredRed = try #require(NSColor(hexString: "#FF0000"))
+        #expect(restoredRed.rgbString == red.rgbString)
+        #expect(restoredRed.hslString == red.hslString)
+    }
+
     @Test func rgbStrings() {
         #expect(red.rgbString == "255 0 0")
         #expect(gray.rgbString == "128 128 128")

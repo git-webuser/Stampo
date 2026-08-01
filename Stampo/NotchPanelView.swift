@@ -228,8 +228,8 @@ struct NotchPanelView: View {
             action: onToggleTray
         )
         .frame(width: metrics.cellWidth, height: metrics.iconSize)
-        .help(isTrayOpen ? "Hide tray" : "Show tray")
-        .accessibilityLabel(isTrayOpen ? "Hide tray" : "Show tray")
+        .help(isTrayOpen ? "Hide archive" : "Show archive")
+        .accessibilityLabel(isTrayOpen ? "Hide archive" : "Show archive")
     }
 
     private var moreCell: some View {

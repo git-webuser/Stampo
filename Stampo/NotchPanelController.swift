@@ -129,6 +129,7 @@ private struct NotchPanelRootView: View {
     var interaction: NotchPanelInteractionState
     var model: NotchPanelModel
     var trayModel: NotchTrayModel
+    let shareAnchor: SharePickerAnchor
 
     let onClose: () -> Void
     let onCapture: (CaptureMode, CaptureDelay) -> Void
@@ -237,6 +238,7 @@ private struct NotchPanelRootView: View {
             NotchTrayView(
                 metrics: m,
                 trayModel: trayModel,
+                shareAnchor: shareAnchor,
                 isPinned: rootState.isTrayPinned,
                 isContentVisible: rootState.trayContentVisible > 0.5,
                 onBack: onBack,
@@ -279,6 +281,18 @@ final class NotchPanelController: NSObject {
     private var panel: NSPanel?
     private let interactionState = NotchPanelInteractionState()
     private var isMenuTracking: Bool = false
+    /// True between `.sharePickerDidOpen` and `.sharePickerDidClose` (see
+    /// SharePicker.swift). The share sheet is its own window, so the panel it
+    /// was opened from must not slide away underneath it.
+    private var isSharePickerOpen: Bool = false
+    /// Anchor for every share sheet opened from the tray — the "⋯" menu's
+    /// Share All and the Share Last Screenshot hotkey. Owned here rather than
+    /// by the view so the hotkey can reach it without the tray being on screen
+    /// first.
+    private let trayShareAnchor = SharePickerAnchor()
+    /// Toast for hotkeys that have nothing to act on; a silent global shortcut
+    /// reads as broken (same reasoning as PinnedScreenshotController).
+    private let feedbackHUD = TextCaptureHUD()
 
     /// Authoritative panel state. All transitions go through here; the
     /// older isExpanded / trayTransitionInFlight flags were folded in.
@@ -548,7 +562,23 @@ final class NotchPanelController: NSObject {
             self?.trayModel.add(text: payload)
         }
 
-        notificationObservers = [t1, t2, t3, t4, t5, t6, t7, t8, t9]
+        // Share sheet opened from a tray context menu: hold the panel open for
+        // as long as the sheet is up (the picker is not an NSMenu, so t1/t2
+        // above never see it).
+        let t10 = NotificationCenter.default.addObserver(
+            forName: .sharePickerDidOpen,
+            object: nil, queue: .main
+        ) { [weak self] _ in
+            self?.isSharePickerOpen = true
+        }
+        let t11 = NotificationCenter.default.addObserver(
+            forName: .sharePickerDidClose,
+            object: nil, queue: .main
+        ) { [weak self] _ in
+            self?.isSharePickerOpen = false
+        }
+
+        notificationObservers = [t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11]
     }
 
     deinit {
@@ -637,6 +667,7 @@ final class NotchPanelController: NSObject {
         panel = nil
         removeEscMonitor()
         state = .stale(reason: reason)
+        isSharePickerOpen = false
         interactionState.isEnabled = true
         route = .main
         rootState.progress = 0.0
@@ -652,6 +683,7 @@ final class NotchPanelController: NSObject {
     var suppressesGlobalAutoHide: Bool {
         !state.allowsAutoHide
             || isMenuTracking
+            || isSharePickerOpen
             || colorPicker.isInFlight
             || rootState.isTrayPinned
     }
@@ -692,6 +724,39 @@ final class NotchPanelController: NSObject {
                 guard let self else { return }
                 if self.route != .tray { self.switchToTray() }
                 self.rootState.isTrayPinned = true
+            }
+        }
+    }
+
+    /// Hotkey entry for sharing the most recent capture: reveal the tray, then
+    /// open the system share sheet on it. The tray is brought up rather than
+    /// shared silently for two reasons — the sheet needs a real anchor view to
+    /// hang off, and the user sees which screenshot is about to leave the
+    /// machine. Nothing captured yet → a toast, never silence.
+    func shareLastCapture(on screen: NSScreen) {
+        guard let url = screenshot.lastCaptureURL,
+              FileManager.default.fileExists(atPath: url.path) else {
+            feedbackHUD.show(.noScreenshotToShare, on: screen)
+            return
+        }
+        // The anchor lives on the "⋯" button, which only reaches its final
+        // position once the tray morph has finished — presenting earlier would
+        // point the sheet at wherever the header was mid-animation.
+        let present = { [weak self] in self?.trayShareAnchor.present([url]) }
+
+        if isVisible && !needsSpaceRebind {
+            if route == .tray {
+                DispatchQueue.main.asyncAfter(deadline: .now() + PanelTiming.oneFrameSettle) { present() }
+            } else {
+                switchToTray()
+                DispatchQueue.main.asyncAfter(deadline: .now() + PanelTiming.trayCloseMorph) { present() }
+            }
+        } else {
+            showAnimated(on: screen, forceRebind: needsSpaceRebind)
+            DispatchQueue.main.asyncAfter(deadline: .now() + PanelTiming.showBeforeTray) { [weak self] in
+                guard let self else { return }
+                if self.route != .tray { self.switchToTray() }
+                DispatchQueue.main.asyncAfter(deadline: .now() + PanelTiming.trayCloseMorph) { present() }
             }
         }
     }
@@ -846,6 +911,9 @@ final class NotchPanelController: NSObject {
             return
         }
         rootState.isTrayPinned = false
+        // The panel is going away with the sheet's anchor: drop the hold so a
+        // close notification that never arrives can't wedge auto-hide.
+        isSharePickerOpen = false
 
         // Cancel any active countdown before hiding
         if case .countdown = state {
@@ -1045,6 +1113,7 @@ final class NotchPanelController: NSObject {
             interaction: interactionState,
             model: model,
             trayModel: trayModel,
+            shareAnchor: trayShareAnchor,
             onClose: { [weak self] in self?.hideAnimated(reason: .closeButton) },
             onCapture: { [weak self] mode, delay in
                 guard let self else { return }

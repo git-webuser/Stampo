@@ -14,23 +14,28 @@ struct HotkeySettingsView: View {
 
     var body: some View {
         Form {
-            // MARK: Global shortcuts (editable)
-            Section {
-                ForEach(HotkeyAction.allCases, id: \.self) { action in
-                    EditableHotkeyRow(action: action, combo: combos[action] ?? nil) { newCombo in
-                        action.setCombo(newCombo)        // persists → controller reinstalls
-                        combos[action] = newCombo
+            // MARK: Global shortcuts (editable), one section per group.
+            // Reset covers every group, so it lives in the last one's footer.
+            ForEach(Array(HotkeyGroup.allCases.enumerated()), id: \.element) { index, group in
+                Section {
+                    ForEach(group.actions, id: \.self) { action in
+                        EditableHotkeyRow(action: action, combo: combos[action] ?? nil) { newCombo in
+                            action.setCombo(newCombo)    // persists → controller reinstalls
+                            combos[action] = newCombo
+                        }
+                    }
+                } header: {
+                    Text(LocalizedStringKey(group.titleKey))
+                } footer: {
+                    if index == HotkeyGroup.allCases.count - 1 {
+                        HStack {
+                            Spacer()
+                            Button("Reset") { restoreDefaults() }
+                                .buttonStyle(.bordered)
+                        }
+                        .padding(.top, 2)
                     }
                 }
-            } header: {
-                Text("Shortcuts")
-            } footer: {
-                HStack {
-                    Spacer()
-                    Button("Reset") { restoreDefaults() }
-                        .buttonStyle(.bordered)
-                }
-                .padding(.top, 2)
             }
 
             // MARK: Color picker (fixed, toggleable)
@@ -180,7 +185,13 @@ private struct EditableHotkeyRow: View {
     let onChange: (HotkeyCombo?) -> Void
 
     var body: some View {
-        SettingRow(icon: action.icon, title: LocalizedStringKey(action.labelKey)) {
+        SettingRow(
+            icon: action.icon,
+            title: LocalizedStringKey(action.labelKey),
+            // Second line for actions with a modifier variant (Scan's ⌥) —
+            // otherwise the behaviour lives only in the release notes.
+            description: action.modifierHintKey.map { LocalizedStringKey($0) }
+        ) {
             ShortcutRecorderView(action: action, combo: combo, onChange: onChange)
         }
     }

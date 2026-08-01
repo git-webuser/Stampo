@@ -129,6 +129,29 @@ enum ColorSchemeType: CaseIterable, Equatable {
     }
 }
 
+// MARK: - Tray Payload
+
+/// One tray entry flattened into something the pasteboard and the share sheet
+/// both understand. Files stay files (so a paste in Finder reproduces them and
+/// AirDrop carries the real bytes); colors and text become their string form.
+enum TrayPayloadItem: Equatable {
+    case file(URL)
+    case string(String)
+}
+
+extension Array where Element == TrayPayloadItem {
+    /// Boxed for `NSPasteboard.writeObjects` / `NSSharingServicePicker(items:)`,
+    /// both of which take Objective-C objects rather than Swift values.
+    var objects: [Any] {
+        map {
+            switch $0 {
+            case .file(let url):    return url as NSURL
+            case .string(let text): return text as NSString
+            }
+        }
+    }
+}
+
 // MARK: - Tray Persistence (Codable)
 
 private struct PersistedTrayItem: Codable {
@@ -307,6 +330,32 @@ private struct PersistedTrayItem: Codable {
             return false
         }
         schedulePersist()
+    }
+
+    /// Empties the tray in one go (the "Clear Archive" command). Only tray
+    /// membership is dropped — screenshots and dropped files stay on disk, same
+    /// as the per-cell "Remove from archive".
+    func removeAll() {
+        for item in items { releaseResources(for: item) }
+        items.removeAll()
+        schedulePersist()
+    }
+
+    /// Everything in the tray, in display order, flattened for the pasteboard
+    /// and the share sheet. A stack contributes each of its members. Pure and
+    /// static so "Copy All" and "Share All" can never disagree about what the
+    /// tray contains. `colorScheme` picks the notation for color entries — the
+    /// one currently selected in the tray header, so the copied text matches
+    /// what the cells display.
+    static func payload(for items: [TrayItem], colorScheme: ColorSchemeType) -> [TrayPayloadItem] {
+        items.flatMap { item -> [TrayPayloadItem] in
+            switch item {
+            case .color(let c):      return [.string(colorScheme.convert(c.color))]
+            case .text(let t):       return [.string(t.text)]
+            case .screenshot(let s): return [.file(s.url)]
+            case .stack(let stack):  return stack.urls.map { .file($0) }
+            }
+        }
     }
 
     private func trim() {

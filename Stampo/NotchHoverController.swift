@@ -329,6 +329,9 @@ final class NotchHoverController: NSObject {
             // Collect files — open the panel straight into the tray, pinned,
             // ready to receive file drops (Dropover-style shelf flow)
             panel.openTrayPinned(on: screen)
+        case 10:
+            // Share last screenshot — tray up, system share sheet on it
+            panel.shareLastCapture(on: screen)
         default:
             break
         }
