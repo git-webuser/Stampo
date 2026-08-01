@@ -36,3 +36,44 @@ import Testing
         #expect(!PanelState.preSelection(.selection).isStale)
     }
 }
+
+/// Esc is registered application-wide while the panel holds it, so both halves
+/// of the decision — whether to hold the key at all, and what a press does —
+/// are pure functions on the state rather than branches buried in the handler.
+@Suite struct PanelEscapeTests {
+
+    @Test func expandedStackSwallowsTheFirstEscape() {
+        #expect(PanelState.archive.escapeAction(hasExpandedStack: true) == .collapseStack)
+    }
+
+    @Test func escapeClosesThePanelOnceNothingIsExpanded() {
+        #expect(PanelState.archive.escapeAction(hasExpandedStack: false) == .hidePanel)
+    }
+
+    /// A stack can only be expanded inside the archive, but the flag outlives
+    /// the route by an instant while the archive morphs away — the press must
+    /// close the panel then, not collapse something the user can no longer see.
+    @Test(arguments: [PanelState.main, .showing, .countdown, .transitioning(to: .main)])
+    func onlyTheArchiveCollapsesInsteadOfClosing(state: PanelState) {
+        #expect(state.escapeAction(hasExpandedStack: true) == .hidePanel)
+    }
+
+    @Test(arguments: [PanelState.showing, .main, .archive, .countdown])
+    func visibleStatesHoldTheHotkey(state: PanelState) {
+        #expect(state.wantsEscapeHotkey(isSharePickerOpen: false))
+    }
+
+    /// .hiding is already on its way out, and the rest have no panel to act on.
+    @Test(arguments: [PanelState.hidden, .hiding, .transitioning(to: .archive),
+                      .preSelection(.selection), .stale(reason: .sleep)])
+    func everythingElseReleasesIt(state: PanelState) {
+        #expect(!state.wantsEscapeHotkey(isSharePickerOpen: false))
+    }
+
+    /// The share sheet is our own window: holding the hotkey would eat the Esc
+    /// meant for the sheet and close the panel it hangs off instead.
+    @Test(arguments: [PanelState.showing, .main, .archive, .countdown])
+    func anOpenShareSheetTakesTheHotkeyBack(state: PanelState) {
+        #expect(!state.wantsEscapeHotkey(isSharePickerOpen: true))
+    }
+}

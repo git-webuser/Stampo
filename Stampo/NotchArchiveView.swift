@@ -3,11 +3,21 @@ import AppKit
 import UniformTypeIdentifiers
 
 
+// MARK: - Expansion state
+
+/// Which stack the archive has expanded, held outside the view so the panel
+/// controller can both read it (Esc collapses before it closes) and clear it.
+/// Still ephemeral — nothing here is persisted.
+@Observable final class ArchiveExpansionState {
+    var stackID: UUID?
+}
+
 // MARK: - NotchArchiveView
 
 struct NotchArchiveView: View {
     let metrics: NotchMetrics
     var archiveModel: NotchArchiveModel
+    var expansion: ArchiveExpansionState
     /// Owned by the panel controller, not by this view: the "Share Last
     /// Screenshot" hotkey presents through the same anchor, so the sheet always
     /// hangs off the "⋯" button whether it was opened from the menu or the
@@ -23,7 +33,7 @@ struct NotchArchiveView: View {
     let onTogglePin: () -> Void
 
     @AppStorage(AppSettings.Keys.defaultColorFormat) private var scheme: ColorSchemeType = .hex
-    /// Cell currently hovered via a ArchiveDragShim NSView (screenshot or stack
+    /// Cell currently hovered via an ArchiveDragShim NSView (screenshot or stack
     /// cells — the AppKit shim owns hover tracking for drag-capable cells).
     @State private var hoveredDragCellID: UUID?
     @State private var isDropTargeted = false
@@ -36,7 +46,15 @@ struct NotchArchiveView: View {
     /// Which stack is currently expanded into an inline accordion, if any.
     /// Ephemeral: never persisted, reset when the archive leaves the stage or the
     /// stack disappears (see `effectiveExpandedID`).
-    @State private var expandedStackID: UUID?
+    ///
+    /// Owned by the controller rather than held as `@State` here because Esc is
+    /// an application-wide Carbon hotkey: the controller has to know whether an
+    /// accordion is open to decide whether the key collapses it or closes the
+    /// panel, and it collapses through the same property.
+    private var expandedStackID: UUID? {
+        get { expansion.stackID }
+        nonmutating set { expansion.stackID = newValue }
+    }
 
     /// Inline expansion is a quick peek, not a file browser: cap how many
     /// members render in the row; the overflow tail routes the rest to Finder.
@@ -162,7 +180,7 @@ struct NotchArchiveView: View {
     }
 
     private func handleDrop(_ providers: [NSItemProvider]) -> Bool {
-        // Ignore the app's own drags: a archive cell dropped back onto the archive
+        // Ignore the app's own drags: an archive cell dropped back onto the archive
         // would otherwise be re-ingested (e.g. a screenshot becomes a duplicate
         // stack). External file drops leave isInternalDragging false.
         guard !isInternalDragging else { return false }

@@ -9,7 +9,7 @@ import SwiftUI
 enum PanelTiming {
     /// Panel reveal (frame descent + content fade-in, decelerate curve).
     static let openAnimation:       TimeInterval = 0.30
-    /// Panel close / content fade-out before a archive→main morph (accelerate curve).
+    /// Panel close / content fade-out before an archive→main morph (accelerate curve).
     static let hideAnimation:       TimeInterval = 0.22
     /// Countdown / archive-content crossfade (easeOut).
     static let crossfade:           TimeInterval = 0.16
@@ -108,6 +108,39 @@ extension PanelState {
         if case .stale = self { return true }
         return false
     }
+
+    /// Whether the panel should hold the Esc hotkey right now.
+    ///
+    /// Registration consumes Esc application-wide, so it may only be held in
+    /// states where the panel is on screen to act on it. `.hiding` is excluded
+    /// — the panel is already going away, and the key should return to the
+    /// system as early as possible. A share sheet takes it back too: the sheet
+    /// is a window of ours, so a registered hotkey would swallow the Esc meant
+    /// to dismiss it and close the panel out from under the sheet instead.
+    func wantsEscapeHotkey(isSharePickerOpen: Bool) -> Bool {
+        guard !isSharePickerOpen else { return false }
+        switch self {
+        case .showing, .main, .archive, .countdown: return true
+        case .hidden, .transitioning, .hiding, .preSelection, .stale: return false
+        }
+    }
+
+    /// Which layer Esc unwinds. The archive expands one stack at a time into an
+    /// inline accordion, and that accordion is the only panel state with no
+    /// keyboard way out — so Esc collapses it first and closes the panel on the
+    /// press after. It stops there: returning to Main is what the back button
+    /// is for, and a third press before the panel disappears would undo the
+    /// "Esc means gone" reflex.
+    func escapeAction(hasExpandedStack: Bool) -> EscapeAction {
+        if case .archive = self, hasExpandedStack { return .collapseStack }
+        return .hidePanel
+    }
+}
+
+/// What a press of Esc does at a given moment (see `PanelState.escapeAction`).
+enum EscapeAction: Equatable {
+    case collapseStack
+    case hidePanel
 }
 
 @Observable final class NotchPanelRootState {
@@ -129,6 +162,7 @@ private struct NotchPanelRootView: View {
     var interaction: NotchPanelInteractionState
     var model: NotchPanelModel
     var archiveModel: NotchArchiveModel
+    var archiveExpansion: ArchiveExpansionState
     let shareAnchor: SharePickerAnchor
 
     let onClose: () -> Void
@@ -238,6 +272,7 @@ private struct NotchPanelRootView: View {
             NotchArchiveView(
                 metrics: m,
                 archiveModel: archiveModel,
+                expansion: archiveExpansion,
                 shareAnchor: shareAnchor,
                 isPinned: rootState.isArchivePinned,
                 isContentVisible: rootState.archiveContentVisible > 0.5,
@@ -396,6 +431,9 @@ final class NotchPanelController: NSObject {
     let rootState = NotchPanelRootState()
     let model = NotchPanelModel()
     let archiveModel = NotchArchiveModel()
+    /// Lives here rather than inside the archive view so the Esc handler can see
+    /// (and clear) an open accordion — see `PanelState.escapeAction`.
+    let archiveExpansion = ArchiveExpansionState()
     let screenshot = ScreenshotService()
     let colorPicker = ColorPickingCoordinator()
     let scanCapture = ScanCaptureCoordinator()
@@ -562,20 +600,23 @@ final class NotchPanelController: NSObject {
             self?.archiveModel.add(text: payload)
         }
 
-        // Share sheet opened from a archive context menu: hold the panel open for
-        // as long as the sheet is up (the picker is not an NSMenu, so t1/t2
-        // above never see it).
+        // Share sheet opened from an archive context menu: hold the panel open
+        // for as long as the sheet is up (the picker is not an NSMenu, so t1/t2
+        // above never see it), and hand Esc back so it dismisses the sheet
+        // rather than the panel the sheet is anchored to.
         let t10 = NotificationCenter.default.addObserver(
             forName: .sharePickerDidOpen,
             object: nil, queue: .main
         ) { [weak self] _ in
             self?.isSharePickerOpen = true
+            self?.syncEscapeHotkey()
         }
         let t11 = NotificationCenter.default.addObserver(
             forName: .sharePickerDidClose,
             object: nil, queue: .main
         ) { [weak self] _ in
             self?.isSharePickerOpen = false
+            self?.syncEscapeHotkey()
         }
 
         notificationObservers = [t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11]
@@ -1077,20 +1118,23 @@ final class NotchPanelController: NSObject {
     }
 
     /// Держит Esc-хоткей зарегистрированным ровно пока панель на экране.
-    /// Вызывается из state.didSet: Carbon-хоткей (в отличие от прежнего
-    /// listen-only CGEventTap) съедает Esc системно, поэтому активен он может
-    /// быть только в видимых состояниях. .hiding исключён — панель уже
-    /// закрывается, Esc должен вернуться системе как можно раньше.
+    /// Вызывается из state.didSet и из наблюдателей шер-шита: Carbon-хоткей
+    /// (в отличие от прежнего listen-only CGEventTap) съедает Esc системно,
+    /// поэтому держать его можно только там, где панель реально может на него
+    /// отреагировать — условие целиком в `PanelState.wantsEscapeHotkey`.
     private func syncEscapeHotkey() {
-        let wantsEsc: Bool
-        switch state {
-        case .showing, .main, .archive, .countdown: wantsEsc = true
-        default: wantsEsc = false
-        }
+        let wantsEsc = state.wantsEscapeHotkey(isSharePickerOpen: isSharePickerOpen)
         if wantsEsc, escToken == nil {
             escToken = EscapeHotkeyCenter.shared.push { [weak self] in
                 guard let self, self.isVisible else { return }
-                self.hideAnimated(reason: .escKey)
+                switch self.state.escapeAction(hasExpandedStack: self.archiveExpansion.stackID != nil) {
+                case .collapseStack:
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                        self.archiveExpansion.stackID = nil
+                    }
+                case .hidePanel:
+                    self.hideAnimated(reason: .escKey)
+                }
             }
         } else if !wantsEsc, let token = escToken {
             EscapeHotkeyCenter.shared.remove(token)
@@ -1113,6 +1157,7 @@ final class NotchPanelController: NSObject {
             interaction: interactionState,
             model: model,
             archiveModel: archiveModel,
+            archiveExpansion: archiveExpansion,
             shareAnchor: archiveShareAnchor,
             onClose: { [weak self] in self?.hideAnimated(reason: .closeButton) },
             onCapture: { [weak self] mode, delay in
