@@ -1,4 +1,5 @@
 import AppKit
+import OSLog
 import SwiftUI
 
 extension Notification.Name {
@@ -20,12 +21,51 @@ extension Notification.Name {
 /// representable can hand the view back to a re-created SwiftUI view.
 @MainActor final class SharePickerAnchor: NSObject {
     weak var view: NSView?
-    /// The live picker outlives `present` — it stays up until the user picks a
-    /// service or dismisses it, so it can't be a local.
+    /// The picker and the chosen service both have to outlive `present`, and
+    /// the service has to outlive the *picker*: a share extension reads the
+    /// items lazily, so dropping the service the moment the user picks it
+    /// cancels transfers that hadn't finished reading yet. Held until the
+    /// service reports back through `NSSharingServiceDelegate`.
     private var picker: NSSharingServicePicker?
+    private var service: NSSharingService?
+    /// Toast for a folder that couldn't be zipped (unreadable, or a location
+    /// the app has no permission for).
+    private let feedbackHUD = TextCaptureHUD()
 
     func present(_ items: [Any]) {
-        guard let view, !items.isEmpty else { return }
+        guard view != nil, !items.isEmpty else { return }
+        // Every call site funnels through the same boxing, so a Swift URL and
+        // an NSURL reach the service identically.
+        let boxed = items.map { item -> Any in (item as? URL).map { $0 as NSURL } ?? item }
+        // Hold the panel open across preparation too — zipping a big folder can
+        // take a moment, and the panel must still be there to anchor the sheet.
+        NotificationCenter.default.post(name: .sharePickerDidOpen, object: nil)
+
+        guard boxed.contains(where: { ShareItemPreparer.isDirectory($0) }) else {
+            show(boxed)  // plain files and strings: no preparation, no delay
+            return
+        }
+        DispatchQueue.global(qos: .userInitiated).async {
+            let result = ShareItemPreparer.prepare(boxed)
+            DispatchQueue.main.async {
+                self.show(result.items)
+                // An item that couldn't be staged is still handed over as the
+                // bare folder, which most services drop on the floor. Say so —
+                // silence here is the exact failure mode this whole step exists
+                // to remove.
+                if result.hasFailures { self.feedbackHUD.show(.shareNotPrepared, on: nil) }
+            }
+        }
+    }
+
+    private func show(_ items: [Any]) {
+        guard let view else {
+            finish()  // the panel went away while we were preparing
+            return
+        }
+        // Accessory app: without activating, a service that opens its own
+        // window or sheet (Telegram, Mail) has nowhere to come forward to.
+        NSApp.activate(ignoringOtherApps: true)
         // AppKit resolves the edge in the anchor view's own coordinate space,
         // and SwiftUI's hosting views are flipped — so "below the button" is
         // maxY there and minY in a conventional view.
@@ -33,25 +73,150 @@ extension Notification.Name {
         let picker = NSSharingServicePicker(items: items)
         picker.delegate = self
         self.picker = picker
-        NotificationCenter.default.post(name: .sharePickerDidOpen, object: nil)
         picker.show(relativeTo: view.bounds, of: view, preferredEdge: below)
     }
 
-    fileprivate func pickerFinished() {
+    fileprivate func finish() {
         picker = nil
+        service = nil
         NotificationCenter.default.post(name: .sharePickerDidClose, object: nil)
     }
 }
 
-// @preconcurrency: the delegate protocol is not main-actor annotated, but AppKit
-// only ever calls it on the main thread.
+// @preconcurrency: neither delegate protocol is main-actor annotated, but
+// AppKit only ever calls them on the main thread.
 extension SharePickerAnchor: @preconcurrency NSSharingServicePickerDelegate {
     /// Called with the chosen service, or nil when the user dismissed the
-    /// picker without choosing — either way the picker is gone, so this is the
-    /// close half of the notification bracket.
+    /// picker without choosing. Only the dismissal ends the session here — a
+    /// chosen service is still working, and closing the bracket now would both
+    /// release it and let the panel slide away mid-transfer.
     func sharingServicePicker(_ sharingServicePicker: NSSharingServicePicker,
                               didChoose service: NSSharingService?) {
-        pickerFinished()
+        guard let service else {
+            finish()
+            return
+        }
+        self.service = service
+    }
+
+    /// The documented hook for supplying the service's delegate — set here
+    /// rather than on the service directly, which the picker would overwrite.
+    func sharingServicePicker(_ sharingServicePicker: NSSharingServicePicker,
+                              delegateFor sharingService: NSSharingService) -> (any NSSharingServiceDelegate)? {
+        self
+    }
+}
+
+extension SharePickerAnchor: NSSharingServiceDelegate {
+    func sharingService(_ sharingService: NSSharingService, didShareItems items: [Any]) {
+        finish()
+    }
+
+    /// Also fires on a cancelled compose sheet (NSUserCancelledError) — that is
+    /// a normal outcome, not something to surface. Anything else is logged: a
+    /// share that silently does nothing is otherwise invisible from the outside.
+    func sharingService(_ sharingService: NSSharingService,
+                        didFailToShareItems items: [Any], error: any Error) {
+        let nsError = error as NSError
+        if !(nsError.domain == NSCocoaErrorDomain && nsError.code == NSUserCancelledError) {
+            Log.share.error("""
+                share via \(sharingService.title, privacy: .public) failed: \
+                \(nsError.domain, privacy: .public) \(nsError.code) \
+                \(nsError.localizedDescription, privacy: .public)
+                """)
+        }
+        finish()
+    }
+}
+
+// MARK: - Folder → zip
+
+/// Turns anything the share sheet can't carry into something it can.
+///
+/// Dropped items are whatever the user dragged in, and a "file" on macOS is
+/// routinely a *directory*: `.icon`, `.app`, `.rtfd`, Xcode projects, plain
+/// folders. Services take the URL either way, but most extensions (Telegram
+/// among them) read it as a file, find a directory, and attach nothing —
+/// silently. `NSFileCoordinator`'s `.forUploading` is the system's own answer:
+/// it hands back a zipped copy for directories and the original for everything
+/// else, which is exactly what Mail does with a package attachment.
+enum ShareItemPreparer {
+
+    /// True for anything that needs staging. `.isDirectoryKey` describes the
+    /// link itself, not its target, so a symlink pointing at a folder would
+    /// otherwise slip through and fail the same silent way a package does.
+    static func isDirectory(_ item: Any) -> Bool {
+        directoryURL(item) != nil
+    }
+
+    /// The directory this item ultimately refers to, or nil if it isn't one.
+    private static func directoryURL(_ item: Any) -> URL? {
+        guard let url = fileURL(item) else { return nil }
+        let resolved = url.resolvingSymlinksInPath()
+        guard (try? resolved.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
+        else { return nil }
+        return resolved
+    }
+
+    /// Called off the main thread — zipping is proportional to folder size.
+    /// `hasFailures` marks a directory that could not be staged (unreadable,
+    /// or a location the app has no permission for); it is passed through
+    /// unchanged, which the caller surfaces rather than swallowing.
+    static func prepare(_ items: [Any]) -> (items: [Any], hasFailures: Bool) {
+        let scratch = freshScratchDirectory()
+        var hasFailures = false
+        let prepared = items.map { item -> Any in
+            guard let directory = directoryURL(item) else { return item }
+            guard let scratch, let zip = zipped(directory, into: scratch) else {
+                hasFailures = true
+                return item
+            }
+            return zip as NSURL
+        }
+        return (prepared, hasFailures)
+    }
+
+    private static func fileURL(_ item: Any) -> URL? {
+        if let url = item as? URL, url.isFileURL { return url }
+        if let url = item as? NSURL, (url as URL).isFileURL { return url as URL }
+        return nil
+    }
+
+    /// The zip `.forUploading` produces is only valid inside the coordination
+    /// block, so it is copied out to a directory we own.
+    private static func zipped(_ url: URL, into scratch: URL) -> URL? {
+        var coordinationError: NSError?
+        var result: URL?
+        NSFileCoordinator().coordinate(readingItemAt: url, options: .forUploading,
+                                       error: &coordinationError) { temporary in
+            let destination = scratch.appendingPathComponent(temporary.lastPathComponent)
+            do {
+                try FileManager.default.copyItem(at: temporary, to: destination)
+                result = destination
+            } catch {
+                Log.share.error("could not stage \(url.lastPathComponent, privacy: .public) for sharing: \(error.localizedDescription, privacy: .public)")
+            }
+        }
+        if let coordinationError {
+            Log.share.error("could not zip \(url.lastPathComponent, privacy: .public): \(coordinationError.localizedDescription, privacy: .public)")
+        }
+        return result
+    }
+
+    /// One directory per share, under a single parent that is wiped at the
+    /// start of the next one — the service may still be reading its copy when
+    /// the picker closes, so nothing is deleted while it could still be in use.
+    private static func freshScratchDirectory() -> URL? {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("StampoShare", isDirectory: true)
+        try? FileManager.default.removeItem(at: root)
+        let session = root.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        do {
+            try FileManager.default.createDirectory(at: session, withIntermediateDirectories: true)
+            return session
+        } catch {
+            Log.share.error("could not create the share staging directory: \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
     }
 }
 

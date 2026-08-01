@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import UniformTypeIdentifiers
 
 // MARK: - Archive Item
 
@@ -126,6 +127,25 @@ enum ColorSchemeType: CaseIterable, Equatable {
         case .hsb:  return c.hsbString
         case .cmyk: return c.cmykString
         }
+    }
+}
+
+// MARK: - File kinds
+
+/// What the archive can tell about a dropped file without opening it.
+enum ArchiveFileKind {
+    /// True for a still image the editor can load. Decided by the file's UTI,
+    /// not its extension: a `.icon` package conforms to nothing image-like, and
+    /// an image saved with the wrong extension is still recognized. Multi-frame
+    /// formats (GIF) are excluded — the editor would flatten them to frame one
+    /// and quietly discard the animation on save.
+    static func isEditableImage(_ url: URL) -> Bool {
+        guard let type = try? url.resourceValues(forKeys: [.contentTypeKey]).contentType,
+              type.conforms(to: .image),
+              !type.conforms(to: .gif)
+        else { return false }
+        // A package can conform to .image in principle; the editor needs a file.
+        return (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) != true
     }
 }
 

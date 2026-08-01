@@ -21,6 +21,9 @@ final class TextCaptureHUD {
         case noScreenshotToPin
         /// Same for "Share last screenshot" — same wording, share glyph.
         case noScreenshotToShare
+        /// A folder headed for the share sheet couldn't be zipped (unreadable,
+        /// or a location the app has no permission for).
+        case shareNotPrepared
     }
 
     private var panel: NSPanel?
@@ -151,6 +154,10 @@ private struct TextCaptureHUDView: View {
                     .fixedSize()
             case .noScreenshotToShare:
                 statusRow(title: "No recent screenshot", systemName: "square.and.arrow.up", iconOpacity: 0.6)
+                    .fixedSize()
+            case .shareNotPrepared:
+                statusRow(title: "Couldn't prepare the folder for sharing",
+                          systemName: "folder.badge.questionmark", iconOpacity: 0.6)
                     .fixedSize()
             }
         }

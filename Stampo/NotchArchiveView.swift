@@ -658,6 +658,14 @@ private struct ArchiveColorCell: View {
                     }
                 }
                 Button("Share") { shareAnchor.present([scheme.convert(item.color)]) }
+                // Mirrors Copy As: what leaves in a message is a string, so the
+                // notation is as much a choice when sharing as when copying.
+                Menu("Share As") {
+                    ForEach(ColorSchemeType.allCases, id: \.title) { format in
+                        Button { shareAnchor.present([format.convert(item.color)]) }
+                            label: { Text(verbatim: format.title) }
+                    }
+                }
                 Divider()
                 Button("Remove from archive") { onRemove() }
             }
@@ -1341,6 +1349,16 @@ private struct StackMemberCell: View {
             accessibilityLabelText: Text("File \(displayName)"),
             accessibilityHintText: Text("Tap to open, hold to delete"),
             menu: {
+                // Only for images: the editor loads through CGImageSource, and
+                // offering Edit on a PDF or a package would open an empty
+                // window. Saving from the editor always writes a new file, so
+                // the dropped original is never touched.
+                if ArchiveFileKind.isEditableImage(url) {
+                    Button("Edit") {
+                        EditorWindowController.shared.open(url: url)
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { onOpen() }
+                    }
+                }
                 Button("Open") { open() }
                 Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([url]) }
                 Button("Copy") {
