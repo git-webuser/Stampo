@@ -16,6 +16,9 @@ struct EditorView: View {
     var document: EditorDocument
     /// Wired by EditorWindowController in the save/copy commit; nil disables Save.
     var saveHandler: ((EditorDocument) -> Bool)?
+    /// Save As: runs a save panel, so it reports back through its own sheet
+    /// rather than a return value (the toast is shown by the controller).
+    var saveAsHandler: ((EditorDocument) -> Void)?
 
     @State private var tool: EditorTool = .select
     @State private var style = ToolStyle()
@@ -1394,13 +1397,32 @@ struct EditorView: View {
             .disabled(cropRect == nil)
             .hoverTip("Apply")
         }
-        .controlSize(.small)
+        // Same size as the standard group it replaces in this slot.
+        .controlSize(.regular)
     }
 
+    /// The whole action group collapses as a unit: labels on Copy and Save
+    /// together, or icons on both. Per-button `collapsibleLabel` can't be used
+    /// here — the Save control is a button-styled `Menu`, which accepts any
+    /// width it is offered and would eat the toolbar's slack unless pinned with
+    /// `.fixedSize()`, and a fixed-size label never gets the chance to collapse.
+    /// Choosing at the group level restores that: the toolbar proposes a real
+    /// width to the group, so the labelled variant wins whenever it fits.
     private var standardActionButtons: some View {
+        ViewThatFits(in: .horizontal) {
+            actionGroup(labelled: true)
+            actionGroup(labelled: false)
+        }
+        // As a background, not a sibling: zero-size views in an HStack still
+        // get the row's spacing on both sides, and three of them pushed the
+        // group 24 pt off the toolbar's trailing edge.
+        .background(shortcutCarriers)
+    }
+
+    private func actionGroup(labelled: Bool) -> some View {
         HStack(spacing: 8) {
-            // Icon-only, in the slot the scanner used to hold: Copy and Save
-            // keep their labels and the action group its width.
+            // Share stays icon-only in both variants: it has no keyboard
+            // shortcut to advertise and its glyph is unambiguous.
             EditorShareButton(items: shareItems) {
                 Image(systemName: "square.and.arrow.up")
             }
@@ -1410,22 +1432,80 @@ struct EditorView: View {
             Button {
                 copyToClipboard()
             } label: {
-                collapsibleLabel("Copy", systemImage: "doc.on.doc")
+                actionLabel("Copy", systemImage: "doc.on.doc", labelled: labelled)
             }
-            .keyboardShortcut("c", modifiers: .command)
             .disabled(textEditingActive)
-            .hoverTip("Copy")
+            .hoverTip("Copy", shortcut: "⌘C")
 
-            Button {
-                if let saveHandler, saveHandler(document) { showCaptureHUD(.saved) }
+            // Split control rather than a fourth button: clicking saves
+            // straight to the configured folder (the flow this app is built
+            // around), and the variant that asks where and in what format
+            // lives one chevron away instead of widening the row.
+            Menu {
+                Button("Save As…") { saveAs() }
+                    .disabled(saveAsHandler == nil)
             } label: {
-                collapsibleLabel("Save", systemImage: "square.and.arrow.down")
+                actionLabel("Save", systemImage: "square.and.arrow.down", labelled: labelled)
+            } primaryAction: {
+                save()
             }
-            .keyboardShortcut("s", modifiers: .command)
+            .menuStyle(.button)
+            // A button-styled Menu sizes 2 pt shorter than a plain Button at
+            // the same control size, which reads as a thinner control next to
+            // Copy; maxHeight lets the row's own height drive it instead.
+            // fixedSize stays horizontal-only — the group's fixedSize already
+            // keeps the menu from growing into the toolbar's slack.
+            .fixedSize(horizontal: true, vertical: false)
+            .frame(maxHeight: .infinity)
             .disabled(saveHandler == nil || textEditingActive)
-            .hoverTip("Save")
+            .hoverTip("Save", shortcut: "⌘S")
         }
-        .controlSize(.small)
+        // .regular, not .small: a button-styled Menu draws a shorter bezel than
+        // a plain Button at .mini (−1.6 pt) and .small (−3.2 pt), and no style,
+        // font or padding changes that — the two only agree at .regular, which
+        // is what keeps Save from looking thinner than Copy beside it.
+        .controlSize(.regular)
+        .fixedSize()
+    }
+
+    @ViewBuilder
+    private func actionLabel(_ title: LocalizedStringKey, systemImage: String, labelled: Bool) -> some View {
+        if labelled {
+            Label(title, systemImage: systemImage)
+        } else {
+            Image(systemName: systemImage)
+        }
+    }
+
+    /// Zero-size buttons carrying the group's shortcuts. They sit outside the
+    /// ViewThatFits so each shortcut is declared exactly once no matter which
+    /// variant is on screen (ViewThatFits builds every candidate to measure it),
+    /// and because a Menu's `primaryAction` does not reliably adopt
+    /// `.keyboardShortcut` — ⌘S must not depend on the toolbar's shape.
+    private var shortcutCarriers: some View {
+        Group {
+            Button("") { copyToClipboard() }
+                .keyboardShortcut("c", modifiers: .command)
+                .disabled(textEditingActive)
+            Button("") { save() }
+                .keyboardShortcut("s", modifiers: .command)
+                .disabled(saveHandler == nil || textEditingActive)
+            Button("") { saveAs() }
+                .keyboardShortcut("s", modifiers: [.command, .shift])
+                .disabled(saveAsHandler == nil || textEditingActive)
+        }
+        .frame(width: 0, height: 0)
+        .opacity(0)
+        .accessibilityHidden(true)
+    }
+
+    private func save() {
+        guard let saveHandler, saveHandler(document) else { return }
+        showCaptureHUD(.saved)
+    }
+
+    private func saveAs() {
+        saveAsHandler?(document)
     }
 
     /// Text+icon when there's room, icon-only when the row is tight.

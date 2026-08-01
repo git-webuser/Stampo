@@ -37,6 +37,18 @@ final class ScreenshotFileStore {
         }
     }
 
+    /// Writes a bitmap to a caller-chosen destination in a caller-chosen
+    /// format — the Save As path. No uniquing and no save-directory scope: the
+    /// save panel already picked the exact URL and granted access to it, and
+    /// overwriting is the user's explicit choice there.
+    func writeImage(_ rep: NSBitmapImageRep, to url: URL, format: String) throws {
+        let (fileType, properties) = Self.encoding(for: format)
+        guard let data = rep.representation(using: fileType, properties: properties) else {
+            throw SaveError.encodingFailed
+        }
+        try data.write(to: url)
+    }
+
     /// Encodes a bitmap into a throwaway file for handing to another app (the
     /// editor's share sheet). Sharing a file rather than an in-memory image
     /// keeps a real name and extension all the way into Mail, AirDrop and

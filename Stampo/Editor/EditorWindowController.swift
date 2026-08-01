@@ -21,6 +21,8 @@ final class EditorWindowController: NSObject, NSWindowDelegate {
     private var window: NSWindow?
     private var document: EditorDocument?
     private let store = ScreenshotFileStore()
+    /// Alive only while its sheet is up — it owns the format popup's target.
+    private var saveAsPanel: EditorSaveAsPanel?
 
     /// Toast for editor action and OCR/scan outcomes, shared with the notch
     /// capture flows so the editor and hotkey paths confirm results identically.
@@ -55,9 +57,11 @@ final class EditorWindowController: NSObject, NSWindowDelegate {
         self.document = document
         prepareBlurSources(for: document)
 
-        let root = EditorView(document: document, saveHandler: { [weak self] doc in
-            self?.performSave(doc) ?? false
-        })
+        let root = EditorView(
+            document: document,
+            saveHandler: { [weak self] doc in self?.performSave(doc) ?? false },
+            saveAsHandler: { [weak self] doc in self?.presentSaveAs(doc) }
+        )
         .managedLocale()
 
         if let window {
@@ -112,6 +116,52 @@ final class EditorWindowController: NSObject, NSWindowDelegate {
             alert.addButton(withTitle: String(localized: "OK"))
             alert.runModal()
             return false
+        }
+    }
+
+    /// Save As: the same rendered composite, but written where and in what
+    /// format the user picks. Like Save it never touches the original file and
+    /// announces the result, so the copy joins the archive too — the only
+    /// difference is who chooses the destination.
+    private func presentSaveAs(_ document: EditorDocument) {
+        guard let rep = AnnotationRenderer.renderBitmap(
+            base: document.baseImage,
+            blurSources: document.blurSources,
+            annotations: document.annotations
+        ) else {
+            Log.capture.error("editor: render for save-as failed")
+            return
+        }
+        let panel = EditorSaveAsPanel(defaultFormat: .fromSettings())
+        saveAsPanel = panel
+        // Open where the original lives: for a capture that is the save folder
+        // anyway, and for a file dropped into the archive it is the folder the
+        // user is actually working in.
+        let sourceFolder = document.sourceURL.deletingLastPathComponent()
+        let directory = FileManager.default.fileExists(atPath: sourceFolder.path)
+            ? sourceFolder
+            : AppSettings.saveDirectoryURL
+        panel.present(
+            suggestedName: document.sourceURL.deletingPathExtension().lastPathComponent,
+            directory: directory,
+            on: window
+        ) { [weak self] url, format in
+            guard let self else { return }
+            self.saveAsPanel = nil
+            do {
+                try self.store.writeImage(rep, to: url, format: format.rawValue)
+                document.markSaved()
+                NotificationCenter.default.post(name: .editorDidSaveImage, object: url)
+                self.captureHUD.show(.saved, on: self.screen)
+            } catch {
+                Log.capture.error("editor: save-as failed: \(error)")
+                let alert = NSAlert()
+                alert.alertStyle = .warning
+                alert.messageText = String(localized: "Could not save the edited image")
+                alert.informativeText = error.localizedDescription
+                alert.addButton(withTitle: String(localized: "OK"))
+                alert.runModal()
+            }
         }
     }
 
