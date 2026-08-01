@@ -330,8 +330,8 @@ final class NotchHoverController: NSObject {
             // ready to receive file drops (Dropover-style shelf flow)
             panel.openArchivePinned(on: screen)
         case 10:
-            // Share last screenshot — archive up, system share sheet on it
-            panel.shareLastCapture(on: screen)
+            // Share the newest archive entry — archive up, share sheet on it
+            panel.shareLastArchiveItem(on: screen)
         default:
             break
         }

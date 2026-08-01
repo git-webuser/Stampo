@@ -769,21 +769,29 @@ final class NotchPanelController: NSObject {
         }
     }
 
-    /// Hotkey entry for sharing the most recent capture: reveal the archive, then
-    /// open the system share sheet on it. The archive is brought up rather than
-    /// shared silently for two reasons — the sheet needs a real anchor view to
-    /// hang off, and the user sees which screenshot is about to leave the
-    /// machine. Nothing captured yet → a toast, never silence.
-    func shareLastCapture(on screen: NSScreen) {
-        guard let url = screenshot.lastCaptureURL,
-              FileManager.default.fileExists(atPath: url.path) else {
-            feedbackHUD.show(.noScreenshotToShare, on: screen)
+    /// Hotkey entry for sharing the newest archive entry — whatever it is: a
+    /// capture, a picked color, recognized text, or a whole dropped stack. The
+    /// archive is brought up rather than shared silently for two reasons — the
+    /// sheet needs a real anchor view to hang off, and the user sees what is
+    /// about to leave the machine. Empty archive → a toast, never silence.
+    func shareLastArchiveItem(on screen: NSScreen) {
+        guard let newest = archiveModel.items.first else {
+            feedbackHUD.show(.nothingToShare, on: screen)
+            return
+        }
+        // Colors follow the format selected in the archive header, so what gets
+        // shared reads the same as what the cell shows.
+        let items = NotchArchiveModel
+            .payload(for: [newest], colorScheme: AppSettings.defaultColorFormat)
+            .objects
+        guard !items.isEmpty else {
+            feedbackHUD.show(.nothingToShare, on: screen)
             return
         }
         // The anchor lives on the "⋯" button, which only reaches its final
         // position once the archive morph has finished — presenting earlier would
         // point the sheet at wherever the header was mid-animation.
-        let present = { [weak self] in self?.archiveShareAnchor.present([url]) }
+        let present = { [weak self] in self?.archiveShareAnchor.present(items) }
 
         if isVisible && !needsSpaceRebind {
             if route == .archive {

@@ -54,24 +54,40 @@ import Testing
     }
 }
 
-// MARK: - Share Last Screenshot hotkey
+// MARK: - Share Last Item hotkey
 
-@Suite struct ShareLastCaptureHotkeyTests {
+@Suite struct ShareLastItemHotkeyTests {
+
+    /// The hotkey shares whatever sits at the top of the archive, so it runs
+    /// through the same flattening as Share All — a color goes as a string in
+    /// the selected notation, a stack goes as every one of its files.
+    @Test func newestEntryIsWhatGetsShared() throws {
+        let shot = URL(fileURLWithPath: "/tmp/archive/shot.png")
+        let items: [ArchiveItem] = [
+            .color(ArchiveColor(color: NSColor(hexString: "#00FF00")!, hex: "#00FF00")),
+            .screenshot(ArchiveScreenshot(url: shot))
+        ]
+        let newest = try #require(items.first)
+        #expect(NotchArchiveModel.payload(for: [newest], colorScheme: .rgb) == [.string("0 255 0")])
+
+        let stack = ArchiveItem.stack(ArchiveStack(urls: [shot, URL(fileURLWithPath: "/tmp/archive/b.pdf")]))
+        #expect(NotchArchiveModel.payload(for: [stack], colorScheme: .hex).count == 2)
+    }
 
     @Test func rowMetadataIsFilledIn() {
-        #expect(HotkeyAction.shareLastCapture.labelKey == "Share Last Screenshot")
-        #expect(HotkeyAction.shareLastCapture.icon == "square.and.arrow.up")
-        #expect(HotkeyAction.shareLastCapture.rawValue == 10)
+        #expect(HotkeyAction.shareLastItem.labelKey == "Share Last Item")
+        #expect(HotkeyAction.shareLastItem.icon == "square.and.arrow.up")
+        #expect(HotkeyAction.shareLastItem.rawValue == 10)
     }
 
     @Test func sharingSitsWithTheOtherPanelActions() {
-        #expect(HotkeyAction.shareLastCapture.group == .panel)
+        #expect(HotkeyAction.shareLastItem.group == .panel)
     }
 
     @Test func defaultComboIsUsableAndUnreserved() {
-        let combo = HotkeyAction.shareLastCapture.defaultCombo
+        let combo = HotkeyAction.shareLastItem.defaultCombo
         #expect(combo.displayString == "⌃⌥⌘D")
-        let result = HotkeyValidator.validate(combo, for: .shareLastCapture)
+        let result = HotkeyValidator.validate(combo, for: .shareLastItem)
         #expect(result != .systemReserved)
         #expect(result != .noStrongModifier)
     }

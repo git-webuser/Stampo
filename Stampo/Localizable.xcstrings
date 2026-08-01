@@ -2824,6 +2824,23 @@
         }
       }
     },
+    "Nothing to share" : {
+      "comment" : "Toast — the Share Last Item hotkey fired on an empty archive",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nothing to share"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Нечего отправить"
+          }
+        }
+      }
+    },
     "Numbered" : {
       "comment" : "Filename preset name",
       "extractionState" : "stale",
@@ -3423,6 +3440,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Многоугольник"
+          }
+        }
+      }
+    },
+    "Preparing to share…" : {
+      "comment" : "Toast shown while a folder is being zipped for the share sheet",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Preparing to share…"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Подготовка к отправке…"
           }
         }
       }
@@ -4267,8 +4301,26 @@
         }
       }
     },
+    "Share Last Item" : {
+      "comment" : "Hotkey row label — shares the newest archive entry",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Share Last Item"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Поделиться последним"
+          }
+        }
+      }
+    },
     "Share Last Screenshot" : {
       "comment" : "Hotkey row label",
+      "extractionState" : "stale",
       "extractionState" : "stale",
       "localizations" : {
         "en" : {

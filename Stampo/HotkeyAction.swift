@@ -33,7 +33,7 @@ enum HotkeyAction: UInt32, CaseIterable {
     case scan        = 7
     case pinLastCapture = 8
     case collectFiles = 9
-    case shareLastCapture = 10
+    case shareLastItem = 10
 
     /// Settings grouping. Nine editable shortcuts in one flat list stopped
     /// being scannable; the split follows what the action does rather than
@@ -41,7 +41,7 @@ enum HotkeyAction: UInt32, CaseIterable {
     /// tool. Section order below is the order of `HotkeyGroup.allCases`.
     var group: HotkeyGroup {
         switch self {
-        case .togglePanel, .collectFiles, .pinLastCapture, .shareLastCapture:
+        case .togglePanel, .collectFiles, .pinLastCapture, .shareLastItem:
             return .panel
         case .selection, .fullscreen, .window:
             return .capture
@@ -73,7 +73,7 @@ enum HotkeyAction: UInt32, CaseIterable {
         case .scan:        return "Scan"
         case .pinLastCapture: return "Pin Last Screenshot"
         case .collectFiles: return "Collect Files"
-        case .shareLastCapture: return "Share Last Screenshot"
+        case .shareLastItem: return "Share Last Item"
         }
     }
 
@@ -88,7 +88,7 @@ enum HotkeyAction: UInt32, CaseIterable {
         case .scan:        return "doc.viewfinder"
         case .pinLastCapture: return "pin"
         case .collectFiles: return "arrow.down.document"
-        case .shareLastCapture: return "square.and.arrow.up"
+        case .shareLastItem: return "square.and.arrow.up"
         }
     }
 
@@ -107,7 +107,7 @@ enum HotkeyAction: UInt32, CaseIterable {
         case .collectFiles: key = kVK_ANSI_T
         // S (Scan) and P (Pin) are taken; D is free and unreserved by macOS
         // under ⌃⌥⌘.
-        case .shareLastCapture: key = kVK_ANSI_D
+        case .shareLastItem: key = kVK_ANSI_D
         }
         return HotkeyCombo(keyCode: UInt16(key), carbonModifiers: mods)
     }
@@ -129,7 +129,9 @@ enum HotkeyAction: UInt32, CaseIterable {
         // Added after the combo migration — no legacy key was ever written;
         // migrateIfNeeded reads nil and treats the action as enabled.
         case .collectFiles: return "hotkeyCollectFilesEnabled"
-        case .shareLastCapture: return "hotkeyShareLastCaptureEnabled"
+        // Storage key predates the rename from "Share Last Screenshot"; only
+        // pre-migration installs ever read it, so it stays as written.
+        case .shareLastItem: return "hotkeyShareLastCaptureEnabled"
         }
     }
 

@@ -19,11 +19,13 @@ final class TextCaptureHUD {
         case nothingRecognized
         /// "Pin last screenshot" hotkey fired with nothing captured yet.
         case noScreenshotToPin
-        /// Same for "Share last screenshot" — same wording, share glyph.
-        case noScreenshotToShare
+        /// "Share last item" hotkey fired on an empty archive.
+        case nothingToShare
         /// A folder headed for the share sheet couldn't be zipped (unreadable,
         /// or a location the app has no permission for).
         case shareNotPrepared
+        /// Shown only while a slow folder is being zipped for the share sheet.
+        case preparingShare
     }
 
     private var panel: NSPanel?
@@ -152,8 +154,11 @@ private struct TextCaptureHUDView: View {
             case .noScreenshotToPin:
                 statusRow(title: "No recent screenshot", systemName: "pin.slash", iconOpacity: 0.6)
                     .fixedSize()
-            case .noScreenshotToShare:
-                statusRow(title: "No recent screenshot", systemName: "square.and.arrow.up", iconOpacity: 0.6)
+            case .nothingToShare:
+                statusRow(title: "Nothing to share", systemName: "square.and.arrow.up", iconOpacity: 0.6)
+                    .fixedSize()
+            case .preparingShare:
+                statusRow(title: "Preparing to share…", systemName: "shippingbox", iconOpacity: 0.6)
                     .fixedSize()
             case .shareNotPrepared:
                 statusRow(title: "Couldn't prepare the folder for sharing",

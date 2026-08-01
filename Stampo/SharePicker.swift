@@ -45,9 +45,20 @@ extension Notification.Name {
             show(boxed)  // plain files and strings: no preparation, no delay
             return
         }
+        // A package of icons zips instantly; a folder of gigabytes does not,
+        // and until the sheet appears nothing on screen says the click landed.
+        // The toast is scheduled rather than shown outright so the common,
+        // instant case stays silent.
+        let waitHint = DispatchWorkItem { [weak self] in
+            self?.feedbackHUD.show(.preparingShare, on: nil, autoHideAfter: 30)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.preparationHintDelay, execute: waitHint)
+
         DispatchQueue.global(qos: .userInitiated).async {
             let result = ShareItemPreparer.prepare(boxed)
             DispatchQueue.main.async {
+                waitHint.cancel()
+                self.feedbackHUD.hide(animated: false)
                 self.show(result.items)
                 // An item that couldn't be staged is still handed over as the
                 // bare folder, which most services drop on the floor. Say so —
@@ -57,6 +68,10 @@ extension Notification.Name {
             }
         }
     }
+
+    /// Long enough that zipping a package never flashes a toast, short enough
+    /// that a slow folder doesn't feel like a dead click.
+    private static let preparationHintDelay: TimeInterval = 0.5
 
     private func show(_ items: [Any]) {
         guard let view else {
