@@ -130,7 +130,7 @@ struct NotchArchiveView: View {
     }
 
     /// Drop frame (user-designed mock, "Frame 1000001163"): not a contour
-    /// ring but a filled plate marking the shelf band — top edge exactly at
+    /// ring but a filled plate marking the drop band — top edge exactly at
     /// the header boundary (panelHeight), 20pt side insets, 5pt off the
     /// bottom, radii 9.6 top / 17.6 bottom, dashed system-blue outline.
     /// Rendered as the view's background so cells ride on top of it.
@@ -163,7 +163,7 @@ struct NotchArchiveView: View {
             )
             .overlay {
                 // The plate's own state hint. Now that the plate is an overlay
-                // riding above the cells, it covers the whole shelf band while
+                // riding above the cells, it covers the whole drop band while
                 // targeting, so the hint shows for every external drop — not only
                 // the empty archive. (The plate itself is opacity-gated on
                 // isDropTargeted, so this is only visible mid-drop.)
@@ -999,10 +999,10 @@ private struct ArchiveScreenshotCell: View {
 
 // MARK: - Archive Stack Cell
 
-/// The shelf pile: files the user dropped onto the archive. Shows a fan of up to
+/// The dropped pile: files the user dragged onto the archive. Shows a fan of up to
 /// three member previews plus a count badge. Dragging the cell carries every
 /// member URL in one session; a drag that lands outside the app clears the
-/// stack (the shelf is transit storage, not an archive). Tap reveals all
+/// stack (a dropped pile is transit, not stored history). Tap reveals all
 /// members in Finder.
 private struct ArchiveStackCell: View {
     let stack: ArchiveStack

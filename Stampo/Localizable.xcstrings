@@ -4303,6 +4303,7 @@
     },
     "Share Last Item" : {
       "comment" : "Hotkey row label — shares the newest archive entry",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -4314,25 +4315,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Поделиться последним"
-          }
-        }
-      }
-    },
-    "Share Last Screenshot" : {
-      "comment" : "Hotkey row label",
-      "extractionState" : "stale",
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Share Last Screenshot"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Поделиться последним скриншотом"
           }
         }
       }

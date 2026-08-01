@@ -31,7 +31,7 @@ struct ArchiveScreenshot: Identifiable, Equatable {
     let url: URL
 }
 
-/// A shelf-style pile of files the user dropped onto the archive. Files are
+/// A pile of files the user dropped onto the archive. Files are
 /// grouped by their source folder: the archive keeps one stack per parent folder,
 /// so dropping from two folders yields two stacks. Consecutive drops from the
 /// same folder accumulate (deduplicated by standardized URL), and dragging a

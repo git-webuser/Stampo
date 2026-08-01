@@ -327,7 +327,7 @@ final class NotchHoverController: NSObject {
                 url: panel.screenshot.lastCaptureURL, on: screen)
         case 9:
             // Collect files — open the panel straight into the archive, pinned,
-            // ready to receive file drops (Dropover-style shelf flow)
+            // ready to receive file drops (Dropover-style collect flow)
             panel.openArchivePinned(on: screen)
         case 10:
             // Share the newest archive entry — archive up, share sheet on it
