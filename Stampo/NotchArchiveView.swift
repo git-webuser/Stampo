@@ -3,38 +3,38 @@ import AppKit
 import UniformTypeIdentifiers
 
 
-// MARK: - NotchTrayView
+// MARK: - NotchArchiveView
 
-struct NotchTrayView: View {
+struct NotchArchiveView: View {
     let metrics: NotchMetrics
-    var trayModel: NotchTrayModel
+    var archiveModel: NotchArchiveModel
     /// Owned by the panel controller, not by this view: the "Share Last
     /// Screenshot" hotkey presents through the same anchor, so the sheet always
     /// hangs off the "⋯" button whether it was opened from the menu or the
     /// keyboard.
     let shareAnchor: SharePickerAnchor
     let isPinned: Bool
-    /// True while the tray content is on screen; flips to false as the tray
+    /// True while the archive content is on screen; flips to false as the archive
     /// closes (back, hide, ESC). Drives the ephemeral collapse of any expanded
-    /// stack so the tray always reopens fully collapsed.
+    /// stack so the archive always reopens fully collapsed.
     let isContentVisible: Bool
     let onBack: () -> Void
     let onHidePanel: () -> Void
     let onTogglePin: () -> Void
 
     @AppStorage(AppSettings.Keys.defaultColorFormat) private var scheme: ColorSchemeType = .hex
-    /// Cell currently hovered via a TrayDragShim NSView (screenshot or stack
+    /// Cell currently hovered via a ArchiveDragShim NSView (screenshot or stack
     /// cells — the AppKit shim owns hover tracking for drag-capable cells).
     @State private var hoveredDragCellID: UUID?
     @State private var isDropTargeted = false
-    /// True while any tray cell is mid drag-out (its TrayDragShim reports through
+    /// True while any archive cell is mid drag-out (its ArchiveDragShim reports through
     /// `InternalDraggingKey`). SwiftUI's `.onDrop` also fires `isDropTargeted`
     /// for the app's OWN drags, so this gates them out: without it, dragging a
-    /// screenshot back over the tray re-ingests it as a duplicate stack, and the
+    /// screenshot back over the archive re-ingests it as a duplicate stack, and the
     /// drop plate paints over the content being dragged.
     @State private var isInternalDragging = false
     /// Which stack is currently expanded into an inline accordion, if any.
-    /// Ephemeral: never persisted, reset when the tray leaves the stage or the
+    /// Ephemeral: never persisted, reset when the archive leaves the stage or the
     /// stack disappears (see `effectiveExpandedID`).
     @State private var expandedStackID: UUID?
 
@@ -42,13 +42,13 @@ struct NotchTrayView: View {
     /// members render in the row; the overflow tail routes the rest to Finder.
     private let memberCap = 60
 
-    /// `expandedStackID`, but only if that stack still exists in the tray.
+    /// `expandedStackID`, but only if that stack still exists in the archive.
     /// A stack can vanish while expanded (last member removed → model drops it,
     /// `trim()`, or Remove from the menu); this guard collapses the view instead
     /// of rendering an accordion for a stack that is no longer there.
     private var effectiveExpandedID: UUID? {
         guard let id = expandedStackID,
-              trayModel.items.contains(where: { $0.id == id })
+              archiveModel.items.contains(where: { $0.id == id })
         else { return nil }
         return id
     }
@@ -67,7 +67,7 @@ struct NotchTrayView: View {
     private var contentInset:  CGFloat { metrics.hasNotch ? 18 : 10 }  // leading/trailing padding (and fade width) inside scroll content
     private var scrollPadH:    CGFloat { panelRounding + innerInset }
     /// The notch tab tapers inward at the bottom shoulders (NotchTabShape: wall
-    /// at x=15, bottom edge at x=31 → a 16pt skew). Without this the tray
+    /// at x=15, bottom edge at x=31 → a 16pt skew). Without this the archive
     /// content — which reaches down into the shoulder band — spills past the
     /// shape by exactly the skew, so inset the whole layout (header + scroll
     /// stay aligned) by that amount. Rounded style has straight sides → 0.
@@ -78,7 +78,7 @@ struct NotchTrayView: View {
     private let labelOffset:   CGFloat = 18
 
     var scrollRowHeight: CGFloat { 55 }
-    var trayHeight:      CGFloat { metrics.panelHeight + scrollRowHeight }
+    var archiveHeight:      CGFloat { metrics.panelHeight + scrollRowHeight }
 
     var body: some View {
         Group {
@@ -88,7 +88,7 @@ struct NotchTrayView: View {
                 noNotchLayout
             }
         }
-        .frame(height: trayHeight)
+        .frame(height: archiveHeight)
         // Overlay (not background) so the plate rides ABOVE the cells: its
         // icon+label stay visible and it fully covers an expanded stack while
         // targeting. `allowsHitTesting(false)` keeps the drop landing on the row.
@@ -96,7 +96,7 @@ struct NotchTrayView: View {
         .onDrop(of: [.fileURL], isTargeted: $isDropTargeted) { providers in
             handleDrop(providers)
         }
-        // Ephemeral expansion: collapse whenever the tray closes so it always
+        // Ephemeral expansion: collapse whenever the archive closes so it always
         // reopens in the compact grid.
         .onChange(of: isContentVisible) {
             if !isContentVisible { expandedStackID = nil }
@@ -107,7 +107,7 @@ struct NotchTrayView: View {
         .onChange(of: effectiveExpandedID) {
             if effectiveExpandedID == nil { expandedStackID = nil }
         }
-        // Aggregate drag state from every TrayDragShim-backed cell below.
+        // Aggregate drag state from every ArchiveDragShim-backed cell below.
         .onPreferenceChange(InternalDraggingKey.self) { isInternalDragging = $0 }
     }
 
@@ -147,9 +147,9 @@ struct NotchTrayView: View {
                 // The plate's own state hint. Now that the plate is an overlay
                 // riding above the cells, it covers the whole shelf band while
                 // targeting, so the hint shows for every external drop — not only
-                // the empty tray. (The plate itself is opacity-gated on
+                // the empty archive. (The plate itself is opacity-gated on
                 // isDropTargeted, so this is only visible mid-drop.)
-                trayHint(icon: "arrow.down.document.fill", label: "Drop Files Here")
+                archiveHint(icon: "arrow.down.document.fill", label: "Drop Files Here")
             }
             .padding(.top, metrics.panelHeight)
             .padding(.horizontal, sideInset)
@@ -162,7 +162,7 @@ struct NotchTrayView: View {
     }
 
     private func handleDrop(_ providers: [NSItemProvider]) -> Bool {
-        // Ignore the app's own drags: a tray cell dropped back onto the tray
+        // Ignore the app's own drags: a archive cell dropped back onto the archive
         // would otherwise be re-ingested (e.g. a screenshot becomes a duplicate
         // stack). External file drops leave isInternalDragging false.
         guard !isInternalDragging else { return false }
@@ -194,7 +194,7 @@ struct NotchTrayView: View {
             let urls = slots.compactMap { $0 }
             guard !urls.isEmpty else { return }
             withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                trayModel.add(droppedFiles: urls)
+                archiveModel.add(droppedFiles: urls)
                 // Collapse on a landed drop: show the (possibly reordered) stack
                 // in its compact form. This also sidesteps the reorder jank —
                 // add() moves a touched stack to the front, and an expanded group
@@ -231,14 +231,14 @@ struct NotchTrayView: View {
                     }
                     .frame(height: metrics.panelHeight)
 
-                    if !trayModel.items.isEmpty {
+                    if !archiveModel.items.isEmpty {
                         scrollContent.frame(height: scrollRowHeight)
                     }
                 }
 
-                // Empty state spans full trayHeight → centers relative to whole panel
-                if trayModel.items.isEmpty {
-                    emptyState.frame(height: trayHeight)
+                // Empty state spans full archiveHeight → centers relative to whole panel
+                if archiveModel.items.isEmpty {
+                    emptyState.frame(height: archiveHeight)
                 }
             }
         }
@@ -268,14 +268,14 @@ struct NotchTrayView: View {
                 .padding(.horizontal, scrollPadH)
                 .frame(height: metrics.panelHeight)
 
-                if !trayModel.items.isEmpty {
+                if !archiveModel.items.isEmpty {
                     scrollContent.frame(height: scrollRowHeight)
                 }
             }
 
-            // Empty state spans full trayHeight → centers relative to whole panel
-            if trayModel.items.isEmpty {
-                emptyState.frame(height: trayHeight)
+            // Empty state spans full archiveHeight → centers relative to whole panel
+            if archiveModel.items.isEmpty {
+                emptyState.frame(height: archiveHeight)
             }
         }
         // Keep content inside the notch tab's tapering shoulders.
@@ -283,9 +283,9 @@ struct NotchTrayView: View {
     }
 
     /// Shared vertical "icon over label" hint, used both for the resting empty
-    /// tray and for the drop plate's targeting hint so the two read as one
+    /// archive and for the drop plate's targeting hint so the two read as one
     /// visual language.
-    private func trayHint(icon: String, label: LocalizedStringKey) -> some View {
+    private func archiveHint(icon: String, label: LocalizedStringKey) -> some View {
         VStack(spacing: 4) {
             Image(systemName: icon)
                 .font(.system(size: 15, weight: .medium))
@@ -297,7 +297,7 @@ struct NotchTrayView: View {
     }
 
     private var emptyState: some View {
-        trayHint(icon: "photo.on.rectangle.angled", label: "Nothing Here Yet")
+        archiveHint(icon: "photo.on.rectangle.angled", label: "Nothing Here Yet")
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
         // The drop plate carries its own hint while a drag hovers — showing
         // both indicators at once reads as overlapping clutter.
@@ -309,13 +309,13 @@ struct NotchTrayView: View {
         ScrollViewReader { proxy in
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(alignment: .top, spacing: cellSpacing) {
-                ForEach(trayModel.items) { item in
+                ForEach(archiveModel.items) { item in
                     Group {
                         switch item {
                         case .screenshot(let shot):
-                            TrayScreenshotCell(
+                            ArchiveScreenshotCell(
                                 shot: shot,
-                                loader: trayModel.thumbnailLoader(for: shot),
+                                loader: archiveModel.thumbnailLoader(for: shot),
                                 height: cellH,
                                 badgeBleed: badgeBleed,
                                 labelOffset: labelOffset,
@@ -323,18 +323,18 @@ struct NotchTrayView: View {
                                 onOpen: { onHidePanel() },
                                 onRemove: {
                                     withAnimation(.easeInOut(duration: 0.18)) {
-                                        trayModel.remove(id: shot.id)
+                                        archiveModel.remove(id: shot.id)
                                     }
                                 },
                                 onMoveToTrash: {
                                     withAnimation(.easeInOut(duration: 0.18)) {
-                                        trayModel.remove(id: shot.id)
+                                        archiveModel.remove(id: shot.id)
                                     }
                                     NSWorkspace.shared.recycle([shot.url])
                                 }
                             )
                         case .color(let c):
-                            TrayColorCell(
+                            ArchiveColorCell(
                                 item: c,
                                 scheme: scheme,
                                 height: cellH,
@@ -343,12 +343,12 @@ struct NotchTrayView: View {
                                 cornerRadius: metrics.buttonRadius,
                                 onRemove: {
                                     withAnimation(.easeInOut(duration: 0.18)) {
-                                        trayModel.remove(id: c.id)
+                                        archiveModel.remove(id: c.id)
                                     }
                                 }
                             )
                         case .text(let t):
-                            TrayTextCell(
+                            ArchiveTextCell(
                                 item: t,
                                 height: cellH,
                                 badgeBleed: badgeBleed,
@@ -356,7 +356,7 @@ struct NotchTrayView: View {
                                 cornerRadius: metrics.buttonRadius,
                                 onRemove: {
                                     withAnimation(.easeInOut(duration: 0.18)) {
-                                        trayModel.remove(id: t.id)
+                                        archiveModel.remove(id: t.id)
                                     }
                                 }
                             )
@@ -364,7 +364,7 @@ struct NotchTrayView: View {
                             if stack.id == effectiveExpandedID {
                                 ExpandedStackGroup(
                                     stack: stack,
-                                    trayModel: trayModel,
+                                    archiveModel: archiveModel,
                                     height: cellH,
                                     cornerRadius: metrics.buttonRadius,
                                     badgeBleed: badgeBleed,
@@ -378,14 +378,14 @@ struct NotchTrayView: View {
                                     },
                                     onRemoveStack: {
                                         withAnimation(.easeInOut(duration: 0.18)) {
-                                            trayModel.remove(id: stack.id)
+                                            archiveModel.remove(id: stack.id)
                                         }
                                     }
                                 )
                             } else {
-                                TrayStackCell(
+                                ArchiveStackCell(
                                     stack: stack,
-                                    loaders: stack.urls.prefix(3).map { trayModel.stackThumbnailLoader(for: $0) },
+                                    loaders: stack.urls.prefix(3).map { archiveModel.stackThumbnailLoader(for: $0) },
                                     height: cellH,
                                     badgeBleed: badgeBleed,
                                     labelOffset: labelOffset,
@@ -401,12 +401,12 @@ struct NotchTrayView: View {
                                     onExpand: { expandStack(stack.id, proxy: proxy) },
                                     onDragOutCompleted: {
                                         withAnimation(.easeInOut(duration: 0.18)) {
-                                            trayModel.remove(id: stack.id)
+                                            archiveModel.remove(id: stack.id)
                                         }
                                     },
                                     onRemove: {
                                         withAnimation(.easeInOut(duration: 0.18)) {
-                                            trayModel.remove(id: stack.id)
+                                            archiveModel.remove(id: stack.id)
                                         }
                                     }
                                 )
@@ -495,7 +495,7 @@ struct NotchTrayView: View {
     }
 
     private var moreButton: some View {
-        PanelMoreMenuButton(metrics: metrics, extraCommands: trayCommands)
+        PanelMoreMenuButton(metrics: metrics, extraCommands: archiveCommands)
             .frame(width: metrics.cellWidth, height: metrics.iconSize)
             .help("Settings and quit")
             // Labelled from AppKit inside PopUpMoreButtonWrapper.
@@ -504,28 +504,28 @@ struct NotchTrayView: View {
             .sharePickerAnchor(shareAnchor)
     }
 
-    /// Whole-tray commands in the "⋯" menu. All three are disabled on an empty
-    /// tray rather than hidden, so the menu never changes shape under the user.
-    private var trayCommands: [PanelMenuCommand] {
-        let isEmpty = trayModel.items.isEmpty
+    /// Whole-archive commands in the "⋯" menu. All three are disabled on an empty
+    /// archive rather than hidden, so the menu never changes shape under the user.
+    private var archiveCommands: [PanelMenuCommand] {
+        let isEmpty = archiveModel.items.isEmpty
         return [
             PanelMenuCommand(titleKey: "Copy All", isEnabled: !isEmpty) {
-                let payload = NotchTrayModel.payload(for: trayModel.items, colorScheme: scheme)
+                let payload = NotchArchiveModel.payload(for: archiveModel.items, colorScheme: scheme)
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.writeObjects(payload.objects.compactMap { $0 as? NSPasteboardWriting })
             },
             PanelMenuCommand(titleKey: "Share All", isEnabled: !isEmpty) {
-                let payload = NotchTrayModel.payload(for: trayModel.items, colorScheme: scheme)
+                let payload = NotchArchiveModel.payload(for: archiveModel.items, colorScheme: scheme)
                 shareAnchor.present(payload.objects)
             },
             PanelMenuCommand(titleKey: "Clear Archive", isEnabled: !isEmpty) {
-                withAnimation(.easeInOut(duration: 0.18)) { trayModel.removeAll() }
+                withAnimation(.easeInOut(duration: 0.18)) { archiveModel.removeAll() }
             }
         ]
     }
 
     private var schemeMenu: some View {
-        TraySchemeMenuButton(scheme: $scheme, metrics: metrics)
+        ArchiveSchemeMenuButton(scheme: $scheme, metrics: metrics)
             .help("Color format")
             .accessibilityLabel("Color format: \(scheme.title)")
     }
@@ -533,11 +533,11 @@ struct NotchTrayView: View {
 
 // MARK: - Delete Badge
 
-struct TrayDeleteBadge: View {
+struct ArchiveDeleteBadge: View {
     var systemName: String = "xmark.circle.fill"
     var isOn: Bool = false
-    /// Overrides the tray-specific default labels below — reusers outside the
-    /// tray (e.g. the pinned-screenshot close button) must not announce
+    /// Overrides the archive-specific default labels below — reusers outside the
+    /// archive (e.g. the pinned-screenshot close button) must not announce
     /// "Remove from archive".
     var accessibilityLabelOverride: LocalizedStringKey? = nil
     let action: () -> Void
@@ -565,10 +565,10 @@ struct TrayDeleteBadge: View {
     }
 }
 
-// MARK: - Tray Color Cell
+// MARK: - Archive Color Cell
 
-private struct TrayColorCell: View {
-    let item: TrayColor
+private struct ArchiveColorCell: View {
+    let item: ArchiveColor
     let scheme: ColorSchemeType
     let height: CGFloat
     let badgeBleed: CGFloat
@@ -602,7 +602,7 @@ private struct TrayColorCell: View {
                     .stroke(Color.white.opacity(isHovered ? 0.35 : 0.12), lineWidth: 1)
             )
             .overlay(alignment: .topTrailing) {
-                TrayDeleteBadge(action: { onRemove() },
+                ArchiveDeleteBadge(action: { onRemove() },
                                 isPressed: $isBadgeActive)
                 .opacity(isHovered ? 1 : 0)
                 .allowsHitTesting(isHovered)
@@ -631,7 +631,7 @@ private struct TrayColorCell: View {
             .contextMenu {
                 // Tap already copies in the header's format; the submenu is for
                 // the other notations, so a user working in CSS doesn't have to
-                // switch the whole tray's format to grab one HSL value.
+                // switch the whole archive's format to grab one HSL value.
                 Button("Copy") { copy(scheme.convert(item.color)) }
                 Menu("Copy As") {
                     ForEach(ColorSchemeType.allCases, id: \.title) { format in
@@ -665,12 +665,12 @@ private struct TrayColorCell: View {
     }
 }
 
-// MARK: - Tray Text Cell
+// MARK: - Archive Text Cell
 
 /// Plain text captured via OCR or Scan Code. Tap copies the full value to the
-/// clipboard (mirrors TrayColorCell); the context menu offers Copy / Remove.
-private struct TrayTextCell: View {
-    let item: TrayText
+/// clipboard (mirrors ArchiveColorCell); the context menu offers Copy / Remove.
+private struct ArchiveTextCell: View {
+    let item: ArchiveText
     let height: CGFloat
     let badgeBleed: CGFloat
     let labelOffset: CGFloat
@@ -704,7 +704,7 @@ private struct TrayTextCell: View {
                 )
 
             // Miniature of the recognized text — enough to tell snippets apart.
-            // Verbatim text keeps URL-shaped code payloads inert in the tray.
+            // Verbatim text keeps URL-shaped code payloads inert in the archive.
             Text(verbatim: item.text)
                 .font(.system(size: 5, weight: .regular))
                 .foregroundStyle(.white.opacity(0.75))
@@ -740,7 +740,7 @@ private struct TrayTextCell: View {
             .animation(.easeInOut(duration: 0.14), value: isCopied)
         }
         .overlay(alignment: .topTrailing) {
-            TrayDeleteBadge(action: { onRemove() },
+            ArchiveDeleteBadge(action: { onRemove() },
                             isPressed: $isBadgeActive)
             .opacity(isHovered ? 1 : 0)
             .allowsHitTesting(isHovered)
@@ -785,7 +785,7 @@ private func copyFilesToPasteboard(_ urls: [URL]) {
 
 // MARK: - Shared single-file cell
 
-/// Shared chrome for a single-file tray cell — a captured screenshot or a stack
+/// Shared chrome for a single-file archive cell — a captured screenshot or a stack
 /// member. Owns the rounded preview, hover label, press/drag animation, the
 /// drag-out shim, the delete badge, and the internal-drag preference. Callers
 /// supply the preview image, name, tap/drag behaviour, and context menu. While
@@ -793,7 +793,7 @@ private func copyFilesToPasteboard(_ urls: [URL]) {
 /// and text cells. Hover is local — the shim's per-view zone tracking already
 /// prevents neighbour oscillation, and cellSpacing (8) exceeds the badge
 /// bleed (3) so no two cells hover at once.
-private struct TrayFileCell<Menu: View>: View {
+private struct ArchiveFileCell<Menu: View>: View {
     let url: URL
     /// nil → generic placeholder glyph (a still-decoding screenshot thumbnail).
     let preview: NSImage?
@@ -841,7 +841,7 @@ private struct TrayFileCell<Menu: View>: View {
         .frame(width: width, height: height)
         .contentShape(Rectangle())
         .overlay(alignment: .bottom) {
-            // Name ↔ "Copied!" swap, mirroring TrayColorCell/TrayTextCell. Only
+            // Name ↔ "Copied!" swap, mirroring ArchiveColorCell/ArchiveTextCell. Only
             // the file name is width-capped and truncatable; the confirmation
             // always renders whole — the capsule may outgrow the cell, exactly
             // like the color cell's label.
@@ -873,7 +873,7 @@ private struct TrayFileCell<Menu: View>: View {
         .animation(.spring(response: 0.2, dampingFraction: 0.8), value: isHovered)
         .animation(.spring(response: 0.15, dampingFraction: 0.7), value: isPressed)
         .overlay {
-            TrayDragShim(
+            ArchiveDragShim(
                 urls: [url],
                 dragImages: [preview],
                 cellSize: CGSize(width: width, height: height),
@@ -883,10 +883,10 @@ private struct TrayFileCell<Menu: View>: View {
                 onTap: onTap
             )
         }
-        // Badge is placed AFTER TrayDragShim so it sits above the NSView in z-order
+        // Badge is placed AFTER ArchiveDragShim so it sits above the NSView in z-order
         // and receives SwiftUI hit-testing before the NSView can intercept.
         .overlay(alignment: .topTrailing) {
-            TrayDeleteBadge(action: onRemove, isPressed: $isBadgeActive)
+            ArchiveDeleteBadge(action: onRemove, isPressed: $isBadgeActive)
                 .opacity(isHovered ? 1 : 0)
                 .allowsHitTesting(isHovered)
                 .offset(x: badgeBleed, y: -badgeBleed)
@@ -899,10 +899,10 @@ private struct TrayFileCell<Menu: View>: View {
     }
 }
 
-// MARK: - Tray Screenshot Cell
+// MARK: - Archive Screenshot Cell
 
-private struct TrayScreenshotCell: View {
-    let shot: TrayScreenshot
+private struct ArchiveScreenshotCell: View {
+    let shot: ArchiveScreenshot
     let loader: ThumbnailLoader
     let height: CGFloat
     let badgeBleed: CGFloat
@@ -927,7 +927,7 @@ private struct TrayScreenshotCell: View {
     }
 
     var body: some View {
-        TrayFileCell(
+        ArchiveFileCell(
             url: shot.url,
             preview: loader.image,
             displayName: displayName,
@@ -971,15 +971,15 @@ private struct TrayScreenshotCell: View {
     }
 }
 
-// MARK: - Tray Stack Cell
+// MARK: - Archive Stack Cell
 
-/// The shelf pile: files the user dropped onto the tray. Shows a fan of up to
+/// The shelf pile: files the user dropped onto the archive. Shows a fan of up to
 /// three member previews plus a count badge. Dragging the cell carries every
 /// member URL in one session; a drag that lands outside the app clears the
 /// stack (the shelf is transit storage, not an archive). Tap reveals all
 /// members in Finder.
-private struct TrayStackCell: View {
-    let stack: TrayStack
+private struct ArchiveStackCell: View {
+    let stack: ArchiveStack
     let loaders: [ThumbnailLoader]
     let height: CGFloat
     let badgeBleed: CGFloat
@@ -1100,7 +1100,7 @@ private struct TrayStackCell: View {
         .animation(.spring(response: 0.2, dampingFraction: 0.8), value: isHovered)
         .animation(.spring(response: 0.15, dampingFraction: 0.7), value: isPressed)
         .overlay {
-            TrayDragShim(
+            ArchiveDragShim(
                 urls: stack.urls,
                 dragImages: (0..<fanCount).map { previewImage(at: $0) },
                 cellSize: CGSize(width: width, height: height),
@@ -1111,9 +1111,9 @@ private struct TrayStackCell: View {
                 onDragCompleted: { _ in onDragOutCompleted() }
             )
         }
-        // Badge after the shim, mirroring TrayScreenshotCell's z-order note.
+        // Badge after the shim, mirroring ArchiveScreenshotCell's z-order note.
         .overlay(alignment: .topTrailing) {
-            TrayDeleteBadge(action: { onRemove() },
+            ArchiveDeleteBadge(action: { onRemove() },
                             isPressed: $isBadgeActive)
             .opacity(isHovered ? 1 : 0)
             .allowsHitTesting(isHovered)
@@ -1139,12 +1139,12 @@ private struct TrayStackCell: View {
 // MARK: - Expanded Stack (inline accordion)
 
 /// A stack expanded in place: `[divider] [header] [members…] [+N tail?] [divider]`.
-/// Lives inside the tray's horizontal scroll row — the collapsed cell it replaces
+/// Lives inside the archive's horizontal scroll row — the collapsed cell it replaces
 /// morphs into this group and the neighbours slide aside. Only one stack is ever
-/// expanded (the tray tracks a single `expandedStackID`).
+/// expanded (the archive tracks a single `expandedStackID`).
 private struct ExpandedStackGroup: View {
-    let stack: TrayStack
-    var trayModel: NotchTrayModel
+    let stack: ArchiveStack
+    var archiveModel: NotchArchiveModel
     let height: CGFloat
     let cornerRadius: CGFloat
     let badgeBleed: CGFloat
@@ -1169,7 +1169,7 @@ private struct ExpandedStackGroup: View {
     }
 
     /// Source folder name, or nil for the filesystem root — mirrors
-    /// TrayStackCell.folderName so the header reads the same as the badge.
+    /// ArchiveStackCell.folderName so the header reads the same as the badge.
     private var folderName: String? {
         guard let name = stack.folder?.lastPathComponent, name != "/" else { return nil }
         return name
@@ -1178,7 +1178,7 @@ private struct ExpandedStackGroup: View {
     private var overflow: Int { max(0, stack.urls.count - memberCap) }
 
     var body: some View {
-        // Top-aligned so members sit on the same line as the neighbouring tray
+        // Top-aligned so members sit on the same line as the neighbouring archive
         // cells (the outer scroll HStack is also `.top`). Any element taller than
         // a cell (the divider) must not center-shift the row downward.
         HStack(alignment: .top, spacing: spacing) {
@@ -1187,7 +1187,7 @@ private struct ExpandedStackGroup: View {
             ForEach(shownURLs, id: \.self) { url in
                 StackMemberCell(
                     url: url,
-                    loader: trayModel.stackThumbnailLoader(for: url),
+                    loader: archiveModel.stackThumbnailLoader(for: url),
                     height: height,
                     badgeBleed: badgeBleed,
                     labelOffset: labelOffset,
@@ -1195,7 +1195,7 @@ private struct ExpandedStackGroup: View {
                     onOpen: onOpenMember,
                     onRemove: {
                         withAnimation(.easeInOut(duration: 0.18)) {
-                            trayModel.removeStackMember(url: url)
+                            archiveModel.removeStackMember(url: url)
                         }
                     }
                 )
@@ -1262,7 +1262,7 @@ private struct ExpandedStackGroup: View {
         .accessibilityAddTraits(.isButton)
     }
 
-    /// Reuses TrayStackCell's wording so the (already translated) catalog
+    /// Reuses ArchiveStackCell's wording so the (already translated) catalog
     /// entries cover it too.
     private var accessibilityTitle: Text {
         if let folderName {
@@ -1272,11 +1272,11 @@ private struct ExpandedStackGroup: View {
     }
 }
 
-/// One file inside an expanded stack — a thin wrapper over TrayFileCell showing
+/// One file inside an expanded stack — a thin wrapper over ArchiveFileCell showing
 /// the member's Quick Look preview, with the cached NSWorkspace file icon
 /// standing in until it arrives. Tap opens the file and hides the panel; drag
 /// copies this file out (the member stays, like a screenshot cell — only the
-/// whole-stack drag is transit); the badge removes it from the tray.
+/// whole-stack drag is transit); the badge removes it from the archive.
 private struct StackMemberCell: View {
     let url: URL
     let loader: ThumbnailLoader
@@ -1309,7 +1309,7 @@ private struct StackMemberCell: View {
     }
 
     var body: some View {
-        TrayFileCell(
+        ArchiveFileCell(
             url: url,
             preview: previewImage,
             displayName: displayName,
@@ -1508,9 +1508,9 @@ private struct PopUpSchemeButtonWrapper: NSViewRepresentable {
     }
 }
 
-// MARK: - TraySchemeMenuButton
+// MARK: - ArchiveSchemeMenuButton
 
-private struct TraySchemeMenuButton: View {
+private struct ArchiveSchemeMenuButton: View {
     @Binding var scheme: ColorSchemeType
     let metrics: NotchMetrics
 
@@ -1579,7 +1579,7 @@ private struct TraySchemeMenuButton: View {
 
 // MARK: - Drag Shim (NSView-based NSDraggingSource)
 
-/// OR-reduces `isDragging` from every draggable tray cell up to NotchTrayView,
+/// OR-reduces `isDragging` from every draggable archive cell up to NotchArchiveView,
 /// so the parent knows when one of its own cells is mid drag-out.
 private struct InternalDraggingKey: PreferenceKey {
     static let defaultValue = false
@@ -1588,7 +1588,7 @@ private struct InternalDraggingKey: PreferenceKey {
     }
 }
 
-private struct TrayDragShim: NSViewRepresentable {
+private struct ArchiveDragShim: NSViewRepresentable {
     let urls: [URL]
     let dragImages: [NSImage?]
     let cellSize: CGSize
@@ -1600,12 +1600,12 @@ private struct TrayDragShim: NSViewRepresentable {
     /// operation (i.e. the payload actually landed somewhere external).
     var onDragCompleted: ((NSDragOperation) -> Void)? = nil
 
-    func makeNSView(context: Context) -> TrayDragShimView {
-        TrayDragShimView(isPressed: $isPressed, isDragging: $isDragging,
+    func makeNSView(context: Context) -> ArchiveDragShimView {
+        ArchiveDragShimView(isPressed: $isPressed, isDragging: $isDragging,
                          onHoverChange: onHoverChange, onTap: onTap)
     }
 
-    func updateNSView(_ nsView: TrayDragShimView, context: Context) {
+    func updateNSView(_ nsView: ArchiveDragShimView, context: Context) {
         nsView.urls = urls
         nsView.dragImages = dragImages
         nsView.cellSize = cellSize
@@ -1614,7 +1614,7 @@ private struct TrayDragShim: NSViewRepresentable {
     }
 }
 
-final class TrayDragShimView: NSView, NSDraggingSource {
+final class ArchiveDragShimView: NSView, NSDraggingSource {
     var urls: [URL] = []
     var dragImages: [NSImage?] = []
     var cellSize: CGSize = .zero
@@ -1754,7 +1754,7 @@ final class TrayDragShimView: NSView, NSDraggingSource {
     func draggingSession(_ session: NSDraggingSession,
                          endedAt screenPoint: NSPoint, operation: NSDragOperation) {
         // A drop back onto our own panel (e.g. the stack dragged an inch and
-        // released over the tray) must not count as a completed drag-out.
+        // released over the archive) must not count as a completed drag-out.
         let insideOwnWindow = window?.frame.contains(screenPoint) == true
         DispatchQueue.main.async {
             self.isDragging = false

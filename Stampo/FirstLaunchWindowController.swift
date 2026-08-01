@@ -98,7 +98,7 @@ final class FirstLaunchWindowController: NSObject, NSWindowDelegate {
     func windowWillClose(_ notification: Notification) {
         UserFacingError.suppressPermissionAlerts = false
         window = nil
-        // Let deferred launch work (tray file access) run now that the wizard
+        // Let deferred launch work (archive file access) run now that the wizard
         // no longer owns the screen. Fires on every close path — including
         // finishing without the Screen Recording relaunch, where no fresh
         // process would otherwise pick the deferral up.
@@ -182,7 +182,7 @@ final class FirstLaunchWindowController: NSObject, NSWindowDelegate {
 
 extension Notification.Name {
     /// Posted when the onboarding wizard window closes (any path). Consumers
-    /// with launch work deferred behind the wizard (e.g. the tray's screenshot
+    /// with launch work deferred behind the wizard (e.g. the archive's screenshot
     /// file access) complete it on this signal.
     static let onboardingWindowClosed = Notification.Name("Stampo.onboardingWindowClosed")
 }

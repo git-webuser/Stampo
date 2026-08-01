@@ -319,18 +319,18 @@ final class NotchHoverController: NSObject {
             triggerPickColor(on: screen)
         case 7:
             // Scan — area selection, every barcode payload + recognized text
-            // → clipboard + tray
+            // → clipboard + archive
             triggerScan(on: screen)
         case 8:
             // Pin last screenshot as a floating always-on-top window
             PinnedScreenshotController.shared.pinLastCapture(
                 url: panel.screenshot.lastCaptureURL, on: screen)
         case 9:
-            // Collect files — open the panel straight into the tray, pinned,
+            // Collect files — open the panel straight into the archive, pinned,
             // ready to receive file drops (Dropover-style shelf flow)
-            panel.openTrayPinned(on: screen)
+            panel.openArchivePinned(on: screen)
         case 10:
-            // Share last screenshot — tray up, system share sheet on it
+            // Share last screenshot — archive up, system share sheet on it
             panel.shareLastCapture(on: screen)
         default:
             break

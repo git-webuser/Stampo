@@ -1,6 +1,6 @@
 import SwiftUI
 
-struct TraySettingsView: View {
+struct ArchiveSettingsView: View {
     @AppStorage(AppSettings.Keys.trayMaxItems)       private var trayMaxItems       = 20
     @AppStorage(AppSettings.Keys.persistTray)        private var persistTray        = false
     @AppStorage(AppSettings.Keys.defaultColorFormat) private var defaultColorFormat = ColorSchemeType.hex

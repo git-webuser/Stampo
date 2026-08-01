@@ -134,7 +134,7 @@ struct PinnedScreenshotView: View {
                 .stroke(Color.white.opacity(isHovered ? 0.35 : 0.15), lineWidth: 1)
         )
         .overlay(alignment: .topTrailing) {
-            TrayDeleteBadge(accessibilityLabelOverride: "Close",
+            ArchiveDeleteBadge(accessibilityLabelOverride: "Close",
                             action: onClose,
                             isPressed: $isCloseBadgePressed)
                 .frame(width: 24, height: 24)

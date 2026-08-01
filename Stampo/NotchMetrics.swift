@@ -4,7 +4,7 @@ import OSLog
 // MARK: - NotchMetrics
 
 /// Geometric metrics for the panel, computed from a specific NSScreen.
-/// Consumed by NotchPanelController, NotchPanelView, and NotchTrayView.
+/// Consumed by NotchPanelController, NotchPanelView, and NotchArchiveView.
 struct NotchMetrics {
 
     // MARK: Screen
@@ -84,12 +84,12 @@ struct NotchMetrics {
     /// Width of the Capture button.
     let captureButtonWidth: CGFloat
 
-    // MARK: Button (tray)
+    // MARK: Button (archive)
 
-    /// Height of tray swatch buttons.
+    /// Height of archive swatch buttons.
     let buttonHeight: CGFloat
 
-    /// Corner radius of tray buttons.
+    /// Corner radius of archive buttons.
     let buttonRadius: CGFloat
 
     // MARK: Pixel

@@ -4,7 +4,7 @@ import QuartzCore
 
 // MARK: - PanelMorphShape
 //
-// 7 keyframes from Figma (Main + 5 transitions + Tray).
+// 7 keyframes from Figma (Main + 5 transitions + Archive).
 // progress 0.0→1.0 interpolates between them pairwise.
 // Each keyframe is a flat array of 82 CGFloat values (41 points × 2 coordinates).
 // Point order is identical across all frames — only the coordinates change.
@@ -83,7 +83,7 @@ struct PanelMorphShape: Shape {
          521,15,
          521,10.341, 521,8.011, 521.761,6.173, 522.776,3.723, 524.723,1.776, 527.173,0.761, 529.011,0, 531.341,0, 536,0,
          536,0, 0,0],
-        // 6: Tray (536×89)
+        // 6: Archive (536×89)
         [0,0, 4.659,0, 6.989,0, 8.827,0.761, 11.277,1.776, 13.224,3.723, 14.239,6.173, 15,8.011, 15,10.341, 15,15,
          15,63.4,
          15,72.361, 15,76.841, 16.744,80.264, 18.278,83.274, 20.726,85.722, 23.736,87.256, 27.159,89, 31.639,89, 40.6,89,

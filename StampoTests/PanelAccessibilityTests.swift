@@ -40,8 +40,8 @@ import Testing
             metrics: .fallback(),
             interaction: NotchPanelInteractionState(),
             model: model,
-            isTrayOpen: false,
-            onClose: {}, onCapture: { _, _ in }, onToggleTray: {},
+            isArchiveOpen: false,
+            onClose: {}, onCapture: { _, _ in }, onToggleArchive: {},
             onPickColor: {}, onScan: {}, onModeDelayChanged: {}
         )
 

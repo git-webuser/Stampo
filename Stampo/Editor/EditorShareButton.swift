@@ -8,7 +8,7 @@ import SwiftUI
 /// produced when the button is clicked, not on every view update the way a
 /// `ShareLink` payload would be. The picker is also the real AppKit popover —
 /// same anchoring, same service list — instead of a menu that imitates it.
-/// The anchor plumbing itself lives in SharePicker.swift; the tray's context
+/// The anchor plumbing itself lives in SharePicker.swift; the archive's context
 /// menus share it.
 struct EditorShareButton<Label: View>: View {
     /// Built at click time; an empty result silently does nothing (a render

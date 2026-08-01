@@ -4,7 +4,7 @@ import Testing
 @Suite struct PanelStateTests {
 
     @Test func inFlightStatesSuppressAutoHide() {
-        #expect(!PanelState.transitioning(to: .tray).allowsAutoHide)
+        #expect(!PanelState.transitioning(to: .archive).allowsAutoHide)
         #expect(!PanelState.transitioning(to: .main).allowsAutoHide)
         #expect(!PanelState.countdown.allowsAutoHide)
         #expect(!PanelState.preSelection(.selection).allowsAutoHide)
@@ -15,7 +15,7 @@ import Testing
         #expect(PanelState.hidden.allowsAutoHide)
         #expect(PanelState.showing.allowsAutoHide)
         #expect(PanelState.main.allowsAutoHide)
-        #expect(PanelState.tray.allowsAutoHide)
+        #expect(PanelState.archive.allowsAutoHide)
         #expect(PanelState.hiding.allowsAutoHide)
         #expect(PanelState.stale(reason: .sleep).allowsAutoHide)
     }
@@ -29,8 +29,8 @@ import Testing
         #expect(!PanelState.hidden.isStale)
         #expect(!PanelState.showing.isStale)
         #expect(!PanelState.main.isStale)
-        #expect(!PanelState.transitioning(to: .tray).isStale)
-        #expect(!PanelState.tray.isStale)
+        #expect(!PanelState.transitioning(to: .archive).isStale)
+        #expect(!PanelState.archive.isStale)
         #expect(!PanelState.hiding.isStale)
         #expect(!PanelState.countdown.isStale)
         #expect(!PanelState.preSelection(.selection).isStale)

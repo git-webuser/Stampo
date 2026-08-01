@@ -22,11 +22,11 @@ enum ScanRecognition {
         var text: String
         /// Every finding in visual order — what lands on the clipboard.
         var clipboardText: String
-        /// Tray entries in visual order (topmost first): each code payload on
+        /// Archive entries in visual order (topmost first): each code payload on
         /// its own, plus the whole recognized text as one entry placed where
-        /// its topmost line falls. Callers add these in reverse so the tray —
+        /// its topmost line falls. Callers add these in reverse so the archive —
         /// which inserts at the top — lists the visually-topmost finding first.
-        var trayEntries: [String] = []
+        var archiveEntries: [String] = []
 
         var isEmpty: Bool { codePayloads.isEmpty && text.isEmpty }
     }
@@ -136,15 +136,15 @@ enum ScanRecognition {
         }
         if !run.isEmpty { chunks.append(join(run)) }
 
-        // Tray order = visual order: each code on its own, and the whole text
+        // Archive order = visual order: each code on its own, and the whole text
         // blob once, at the position of its topmost line.
-        var trayEntries: [String] = []
+        var archiveEntries: [String] = []
         var textInserted = false
         for item in ordered {
             if item.isCode {
-                trayEntries.append(item.candidate.string)
+                archiveEntries.append(item.candidate.string)
             } else if !textInserted {
-                trayEntries.append(text)
+                archiveEntries.append(text)
                 textInserted = true
             }
         }
@@ -153,7 +153,7 @@ enum ScanRecognition {
             codePayloads: ordered.filter(\.isCode).map(\.candidate.string),
             text: text,
             clipboardText: chunks.joined(separator: "\n"),
-            trayEntries: trayEntries
+            archiveEntries: archiveEntries
         )
     }
 

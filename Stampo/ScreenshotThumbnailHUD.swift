@@ -7,10 +7,10 @@ final class ScreenshotThumbnailHUD {
     private var panel: NSPanel?
     private var dismissWorkItem: DispatchWorkItem?
 
-    /// Called when user taps the thumbnail — intended to open tray.
+    /// Called when user taps the thumbnail — intended to open archive.
     var onTapped: (() -> Void)?
 
-    /// Called when user deletes the screenshot from the context menu — intended to sync tray.
+    /// Called when user deletes the screenshot from the context menu — intended to sync archive.
     var onDelete: (() -> Void)?
 
     // Reads image pixel dimensions inside the active security scope so CGImageSource
@@ -302,7 +302,7 @@ struct ScreenshotThumbnailView: View {
             // Title bar — slides in from the top edge on hover,
             // clipped by the rounded rectangle so it never overlaps outside.
             HStack(spacing: 0) {
-                TrayDeleteBadge(
+                ArchiveDeleteBadge(
                     systemName: "pin.circle.fill",
                     isOn: isPinned,
                     action: {
@@ -316,7 +316,7 @@ struct ScreenshotThumbnailView: View {
 
                 Spacer()
 
-                TrayDeleteBadge(
+                ArchiveDeleteBadge(
                     action: { onDismiss() },
                     isPressed: $isCloseBadgePressed
                 )

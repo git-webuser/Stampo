@@ -102,12 +102,12 @@ enum PinnedWindowGeometry {
 // MARK: - PinnedScreenshotController
 
 /// Owns every "pinned to screen" screenshot window. Singleton on the same
-/// grounds as `EditorWindowController.shared`: the tray cell, the thumbnail
+/// grounds as `EditorWindowController.shared`: the archive cell, the thumbnail
 /// HUD, and the global hotkey all reach it directly without threading
 /// callbacks through `NotchPanelController`.
 ///
 /// Pins are deliberately ephemeral (not persisted across launches): they are
-/// working-memory references while the user works, and the tray already
+/// working-memory references while the user works, and the archive already
 /// provides durable recall of recent captures.
 final class PinnedScreenshotController {
     static let shared = PinnedScreenshotController()
@@ -147,7 +147,7 @@ final class PinnedScreenshotController {
 
     @discardableResult
     func pin(url: URL, on screen: NSScreen? = nil) -> UUID? {
-        // When no screen is given (tray / thumbnail HUD context menus), use
+        // When no screen is given (archive / thumbnail HUD context menus), use
         // the screen under the mouse: for a nonactivating LSUIElement panel,
         // NSScreen.main is the *other* app's key-window screen, which on a
         // multi-monitor setup is often not where the user just clicked.
@@ -238,7 +238,7 @@ final class PinnedScreenshotController {
     // MARK: File watching
 
     /// A pin showing a trashed file is misleading — close it, matching the
-    /// tray's behavior for deleted screenshots.
+    /// archive's behavior for deleted screenshots.
     private func startWatching(url: URL, id: UUID) {
         let path = url.path
         let fd = open(path, O_EVTONLY)

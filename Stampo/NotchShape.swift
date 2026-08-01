@@ -96,7 +96,7 @@ struct NotchShape: Shape {
 /// (скосы). Unlike `PanelMorphShape`, the corners are fixed-size (a 9-slice):
 /// the bottom shoulders stay anchored to the bottom edge and the side walls
 /// stretch, so the corners never distort with width and the same shape serves
-/// both Main and the taller Tray (the height is driven by the morph progress).
+/// both Main and the taller Archive (the height is driven by the morph progress).
 ///
 /// Corner geometry is lifted verbatim from `NotchShape` (a 536×34 design):
 /// the bottom shoulder occupies the bottom 16pt, the top corners the top 8pt,

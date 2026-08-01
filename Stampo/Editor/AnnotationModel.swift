@@ -1865,7 +1865,7 @@ struct DocumentSnapshot: Equatable {
 // MARK: - EditorDocument
 
 /// The open image plus its annotations, selection, and undo history.
-/// Same @Observable pattern as NotchTrayModel.
+/// Same @Observable pattern as NotchArchiveModel.
 @Observable final class EditorDocument {
     private(set) var baseImage: CGImage
     let sourceURL: URL

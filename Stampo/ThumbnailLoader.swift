@@ -5,7 +5,7 @@ import QuickLookThumbnailing
 
 /// Asynchronous preview for an arbitrary file, backed by Quick Look.
 ///
-/// Quick Look rather than a private CGImageSource decode: the tray holds any
+/// Quick Look rather than a private CGImageSource decode: the archive holds any
 /// file the user drops on it, and the system already knows how to preview PDFs,
 /// videos, Pages documents and anything else with a QL generator — an image
 /// decoder would flatten all of those to a generic document icon. Requests ask

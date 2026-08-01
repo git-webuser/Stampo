@@ -9,18 +9,18 @@ import SwiftUI
 enum PanelTiming {
     /// Panel reveal (frame descent + content fade-in, decelerate curve).
     static let openAnimation:       TimeInterval = 0.30
-    /// Panel close / content fade-out before a tray→main morph (accelerate curve).
+    /// Panel close / content fade-out before a archive→main morph (accelerate curve).
     static let hideAnimation:       TimeInterval = 0.22
-    /// Countdown / tray-content crossfade (easeOut).
+    /// Countdown / archive-content crossfade (easeOut).
     static let crossfade:           TimeInterval = 0.16
     /// One-frame settle: lets SwiftUI process a visibility change before
     /// starting the shape morph that follows it.
     static let oneFrameSettle:      TimeInterval = 0.03
-    /// Full tray-open/close morph (shape + position).
-    static let trayCloseMorph:      TimeInterval = 0.32
-    /// Delay between showAnimated() and switchToTray() so the open
-    /// animation has a head-start before tray content appears.
-    static let showBeforeTray:      TimeInterval = 0.25
+    /// Full archive-open/close morph (shape + position).
+    static let archiveCloseMorph:      TimeInterval = 0.32
+    /// Delay between showAnimated() and switchToArchive() so the open
+    /// animation has a head-start before archive content appears.
+    static let showBeforeArchive:      TimeInterval = 0.25
 
     // MARK: Shared easing curves
 
@@ -59,7 +59,7 @@ enum PanelTiming {
 
 enum NotchPanelRoute {
     case main
-    case tray
+    case archive
     case cdwn
 }
 
@@ -68,13 +68,13 @@ enum NotchPanelRoute {
 /// Drives the controller through every visible phase of the panel.
 /// `route` (in `NotchPanelRootState`) continues to feed the SwiftUI morph
 /// animations; `PanelState` is the controller-side authority that
-/// replaces the old isExpanded/trayTransitionInFlight flag pair.
+/// replaces the old isExpanded/archiveTransitionInFlight flag pair.
 enum PanelState {
     case hidden
     case showing
     case main
     case transitioning(to: TransitionTarget)
-    case tray
+    case archive
     case hiding
     case countdown
     /// Panel hidden, an external selection overlay (rect or window) is up.
@@ -87,7 +87,7 @@ enum PanelState {
     case stale(reason: StaleReason)
 }
 
-enum TransitionTarget { case tray, main }
+enum TransitionTarget { case archive, main }
 enum OverlayKind { case selection, window }
 enum StaleReason { case sleep, spaceChange, displayChange }
 
@@ -98,7 +98,7 @@ extension PanelState {
     var allowsAutoHide: Bool {
         switch self {
         case .transitioning, .countdown, .preSelection: return false
-        case .hidden, .showing, .main, .tray, .hiding, .stale: return true
+        case .hidden, .showing, .main, .archive, .hiding, .stale: return true
         }
     }
 
@@ -113,27 +113,27 @@ extension PanelState {
 @Observable final class NotchPanelRootState {
     var route: NotchPanelRoute = .main
     var metrics: NotchMetrics = .fallback()
-    /// 0.0 = Main, 1.0 = Tray
+    /// 0.0 = Main, 1.0 = Archive
     var progress: CGFloat = 0.0
-    /// Pre-faded to 0.0 before tray→main morph starts; reset to 1.0 after close completes
-    var trayContentVisible: CGFloat = 1.0
+    /// Pre-faded to 0.0 before archive→main morph starts; reset to 1.0 after close completes
+    var archiveContentVisible: CGFloat = 1.0
     /// 0.0 = Main visible, 1.0 = Countdown visible (crossfade, no morph)
     var countdownVisible: CGFloat = 0.0
     var countdownSeconds: Int = 0
     var countdownTotal: Int = 0
-    var isTrayPinned: Bool = false
+    var isArchivePinned: Bool = false
 }
 
 private struct NotchPanelRootView: View {
     var rootState: NotchPanelRootState
     var interaction: NotchPanelInteractionState
     var model: NotchPanelModel
-    var trayModel: NotchTrayModel
+    var archiveModel: NotchArchiveModel
     let shareAnchor: SharePickerAnchor
 
     let onClose: () -> Void
     let onCapture: (CaptureMode, CaptureDelay) -> Void
-    let onToggleTray: () -> Void
+    let onToggleArchive: () -> Void
     let onPickColor: () -> Void
     let onScan: () -> Void
     let onModeDelayChanged: () -> Void
@@ -144,8 +144,8 @@ private struct NotchPanelRootView: View {
     let onCaptureNow: () -> Void
 
     private var m: NotchMetrics { rootState.metrics }
-    private var trayScrollHeight: CGFloat { 55 }
-    private var trayH: CGFloat { m.panelHeight + trayScrollHeight }
+    private var archiveScrollHeight: CGFloat { 55 }
+    private var archiveH: CGFloat { m.panelHeight + archiveScrollHeight }
     private var p: CGFloat { rootState.progress }
 
     var body: some View {
@@ -167,15 +167,15 @@ private struct NotchPanelRootView: View {
     }
 
     private var panelStack: some View {
-        // Panel content height at the current morph progress (Main → Tray).
-        // Drives the no-notch background height and clips the tray content so its
+        // Panel content height at the current morph progress (Main → Archive).
+        // Drives the no-notch background height and clips the archive content so its
         // lower rows are revealed in step with the growing panel — not before it
         // has opened.
-        let revealH = m.panelHeight + p * (trayH - m.panelHeight)
+        let revealH = m.panelHeight + p * (archiveH - m.panelHeight)
         return ZStack(alignment: .top) {
             // Background. Only the real notch uses the morphing notch keyframes
             // (its viewBox flares blend into the physical notch). Notch-less
-            // screens use fixed-radius shapes that grow in height with the tray
+            // screens use fixed-radius shapes that grow in height with the archive
             // morph — so corners never distort the way the 536-wide keyframes do
             // when squished onto a narrow panel:
             //   • notch style: pinned to the top edge → square top corners flush
@@ -185,7 +185,7 @@ private struct NotchPanelRootView: View {
                 PanelMorphShape(progress: p, pixel: m.pixel)
                     .fill(Color.black)
                     .compositingGroup()
-                    .frame(height: trayH)
+                    .frame(height: archiveH)
             } else {
                 Group {
                     if m.pinnedToTopEdge {
@@ -198,7 +198,7 @@ private struct NotchPanelRootView: View {
                     }
                 }
                 .frame(height: revealH)
-                .frame(height: trayH, alignment: .top)
+                .frame(height: archiveH, alignment: .top)
             }
 
             // Main — visible only in the last ~60% of the morph; hidden during countdown
@@ -206,10 +206,10 @@ private struct NotchPanelRootView: View {
                 metrics: m,
                 interaction: interaction,
                 model: model,
-                isTrayOpen: rootState.route == .tray,
+                isArchiveOpen: rootState.route == .archive,
                 onClose: onClose,
                 onCapture: onCapture,
-                onToggleTray: onToggleTray,
+                onToggleArchive: onToggleArchive,
                 onPickColor: onPickColor,
                 onScan: onScan,
                 onModeDelayChanged: onModeDelayChanged
@@ -232,35 +232,35 @@ private struct NotchPanelRootView: View {
             .allowsHitTesting(rootState.countdownVisible >= 0.5)
             .frame(height: m.panelHeight)
 
-            // Tray — appears as p→1; content is pre-faded via trayContentVisible.
+            // Archive — appears as p→1; content is pre-faded via archiveContentVisible.
             // Two separate opacity modifiers: SwiftUI tracks them independently so
-            // the progress animation does not "drag" trayContentVisible along with it.
-            NotchTrayView(
+            // the progress animation does not "drag" archiveContentVisible along with it.
+            NotchArchiveView(
                 metrics: m,
-                trayModel: trayModel,
+                archiveModel: archiveModel,
                 shareAnchor: shareAnchor,
-                isPinned: rootState.isTrayPinned,
-                isContentVisible: rootState.trayContentVisible > 0.5,
+                isPinned: rootState.isArchivePinned,
+                isContentVisible: rootState.archiveContentVisible > 0.5,
                 onBack: onBack,
                 onHidePanel: onHidePanel,
                 onTogglePin: onTogglePin
             )
-            .opacity(rootState.trayContentVisible)
+            .opacity(rootState.archiveContentVisible)
             .opacity(p)
             .allowsHitTesting(p >= 0.5)
-            // Reveal the tray content in step with the growing panel: clip it to
+            // Reveal the archive content in step with the growing panel: clip it to
             // the current panel height so the lower rows don't show before the
             // background has expanded to cover them. revealH is a hair shorter
             // than the notch morph, so content reveals just behind the shape edge
-            // (safe) rather than ahead of it. At rest (p=1) revealH == trayH.
+            // (safe) rather than ahead of it. At rest (p=1) revealH == archiveH.
             .mask(
                 Color.black
                     .frame(height: revealH)
-                    .frame(height: trayH, alignment: .top)
+                    .frame(height: archiveH, alignment: .top)
             )
 
             // Notch close zone — always topmost, width = notchGap, height = panelHeight.
-            // Lets the user close the panel by tapping the notch pill even when the tray
+            // Lets the user close the panel by tapping the notch pill even when the archive
             // is open and NotchPanelView hit-testing is disabled.
             if m.hasNotch {
                 Color.clear
@@ -269,7 +269,7 @@ private struct NotchPanelRootView: View {
                     .onTapGesture { onClose() }
             }
         }
-        .frame(height: trayH)
+        .frame(height: archiveH)
         .allowsHitTesting(interaction.isEnabled)
     }
 }
@@ -285,17 +285,17 @@ final class NotchPanelController: NSObject {
     /// SharePicker.swift). The share sheet is its own window, so the panel it
     /// was opened from must not slide away underneath it.
     private var isSharePickerOpen: Bool = false
-    /// Anchor for every share sheet opened from the tray — the "⋯" menu's
+    /// Anchor for every share sheet opened from the archive — the "⋯" menu's
     /// Share All and the Share Last Screenshot hotkey. Owned here rather than
-    /// by the view so the hotkey can reach it without the tray being on screen
+    /// by the view so the hotkey can reach it without the archive being on screen
     /// first.
-    private let trayShareAnchor = SharePickerAnchor()
+    private let archiveShareAnchor = SharePickerAnchor()
     /// Toast for hotkeys that have nothing to act on; a silent global shortcut
     /// reads as broken (same reasoning as PinnedScreenshotController).
     private let feedbackHUD = TextCaptureHUD()
 
     /// Authoritative panel state. All transitions go through here; the
-    /// older isExpanded / trayTransitionInFlight flags were folded in.
+    /// older isExpanded / archiveTransitionInFlight flags were folded in.
     /// Note: setter is not `private(set)` because the countdown extension
     /// in NotchPanelCapture.swift needs to write to it. Only this file
     /// and its extensions should mutate `state`.
@@ -371,7 +371,7 @@ final class NotchPanelController: NSObject {
     private func postMascotNotification() {
         switch state {
         case .countdown:                             postMascotState(.countdown)
-        case .main, .tray, .showing, .preSelection: postMascotState(.awake)
+        case .main, .archive, .showing, .preSelection: postMascotState(.awake)
         case .hidden:                               postMascotState(.sleeping)
         default:                                    break
         }
@@ -395,7 +395,7 @@ final class NotchPanelController: NSObject {
     var currentScreen: NSScreen?
     let rootState = NotchPanelRootState()
     let model = NotchPanelModel()
-    let trayModel = NotchTrayModel()
+    let archiveModel = NotchArchiveModel()
     let screenshot = ScreenshotService()
     let colorPicker = ColorPickingCoordinator()
     let scanCapture = ScanCaptureCoordinator()
@@ -436,7 +436,7 @@ final class NotchPanelController: NSObject {
     override init() {
         super.init()
         colorPicker.hidePanel = { [weak self] completion in self?.hideAnimated(reason: .colorPickerStart, completion: completion) }
-        colorPicker.addColor  = { [weak self] color in self?.trayModel.add(color: color) }
+        colorPicker.addColor  = { [weak self] color in self?.archiveModel.add(color: color) }
         colorPicker.resetRoute = { [weak self] in
             self?.route = .main
             self?.rootState.progress = 0.0
@@ -453,9 +453,9 @@ final class NotchPanelController: NSObject {
         colorPicker.onCursorMoved = { point in
             NotificationCenter.default.post(name: .mascotCursorMoved, object: NSValue(point: point))
         }
-        scanCapture.addText = { [weak self] text in self?.trayModel.add(text: text) }
+        scanCapture.addText = { [weak self] text in self?.archiveModel.add(text: text) }
         screenshot.onCaptured = { [weak self] url in
-            self?.trayModel.add(screenshotURL: url)
+            self?.archiveModel.add(screenshotURL: url)
             // Clear preSelection so the next capture attempt isn't blocked.
             if case .preSelection = self?.state { self?.state = .hidden }
             self?.postMascotState(.celebrating)
@@ -469,17 +469,17 @@ final class NotchPanelController: NSObject {
             // Тот же guard что в toggleAnimated: после sleep/Space-switch AppKit
             // может считать панель isVisible, хотя пользователь её не видит.
             if self.isVisible && !self.needsSpaceRebind {
-                self.switchToTray()
+                self.switchToArchive()
             } else {
                 guard let screen = self.currentScreen ?? NSScreen.main else { return }
                 self.showAnimated(on: screen, forceRebind: self.needsSpaceRebind)
-                DispatchQueue.main.asyncAfter(deadline: .now() + PanelTiming.showBeforeTray) {
-                    self.switchToTray()
+                DispatchQueue.main.asyncAfter(deadline: .now() + PanelTiming.showBeforeArchive) {
+                    self.switchToArchive()
                 }
             }
         }
         screenshot.onDelete = { [weak self] url in
-            self?.trayModel.remove(screenshotURL: url)
+            self?.archiveModel.remove(screenshotURL: url)
         }
         let t1 = NotificationCenter.default.addObserver(
             forName: NSMenu.didBeginTrackingNotification,
@@ -546,23 +546,23 @@ final class NotchPanelController: NSObject {
         let t7 = NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification,
             object: nil, queue: .main, using: onDisplayChange)
-        // Edited screenshots saved from the annotation editor join the tray.
+        // Edited screenshots saved from the annotation editor join the archive.
         let t8 = NotificationCenter.default.addObserver(
             forName: .editorDidSaveImage,
             object: nil, queue: .main
         ) { [weak self] note in
             guard let url = note.object as? URL else { return }
-            self?.trayModel.add(screenshotURL: url)
+            self?.archiveModel.add(screenshotURL: url)
         }
         let t9 = NotificationCenter.default.addObserver(
             forName: .editorDidScan,
             object: nil, queue: .main
         ) { [weak self] note in
             guard let payload = note.object as? String else { return }
-            self?.trayModel.add(text: payload)
+            self?.archiveModel.add(text: payload)
         }
 
-        // Share sheet opened from a tray context menu: hold the panel open for
+        // Share sheet opened from a archive context menu: hold the panel open for
         // as long as the sheet is up (the picker is not an NSMenu, so t1/t2
         // above never see it).
         let t10 = NotificationCenter.default.addObserver(
@@ -674,8 +674,8 @@ final class NotchPanelController: NSObject {
         rootState.countdownVisible = 0.0
         rootState.countdownSeconds = 0
         rootState.countdownTotal = 0
-        rootState.trayContentVisible = 1.0
-        rootState.isTrayPinned = false
+        rootState.archiveContentVisible = 1.0
+        rootState.isArchivePinned = false
     }
 
     // MARK: - Public API
@@ -685,7 +685,7 @@ final class NotchPanelController: NSObject {
             || isMenuTracking
             || isSharePickerOpen
             || colorPicker.isInFlight
-            || rootState.isTrayPinned
+            || rootState.isArchivePinned
     }
 
     var isVisible: Bool { panel?.isVisible == true }
@@ -702,34 +702,34 @@ final class NotchPanelController: NSObject {
     }
 
     /// Hotkey entry for the collect-files flow: reveal the panel straight into
-    /// the tray and pin it, so the panel survives the mouse-down that starts a
+    /// the archive and pin it, so the panel survives the mouse-down that starts a
     /// file drag from another app (pin feeds suppressesGlobalAutoHide). Mirrors
     /// screenshot.onThumbnailTapped's show-then-switch template; guards the
-    /// route because switchToTray() is a toggle.
+    /// route because switchToArchive() is a toggle.
     ///
     /// The hotkey itself toggles: pressing it again while already collecting
-    /// (tray shown + pinned) dismisses the panel, mirroring togglePanel (⌃⌥⌘N).
-    /// hideAnimated resets isTrayPinned, so the unpin comes for free.
-    func openTrayPinned(on screen: NSScreen) {
-        if isVisible && !needsSpaceRebind && route == .tray && rootState.isTrayPinned {
+    /// (archive shown + pinned) dismisses the panel, mirroring togglePanel (⌃⌥⌘N).
+    /// hideAnimated resets isArchivePinned, so the unpin comes for free.
+    func openArchivePinned(on screen: NSScreen) {
+        if isVisible && !needsSpaceRebind && route == .archive && rootState.isArchivePinned {
             hideAnimated(reason: .hotkeyToggle)
             return
         }
         if isVisible && !needsSpaceRebind {
-            if route != .tray { switchToTray() }
-            rootState.isTrayPinned = true
+            if route != .archive { switchToArchive() }
+            rootState.isArchivePinned = true
         } else {
             showAnimated(on: screen, forceRebind: needsSpaceRebind)
-            DispatchQueue.main.asyncAfter(deadline: .now() + PanelTiming.showBeforeTray) { [weak self] in
+            DispatchQueue.main.asyncAfter(deadline: .now() + PanelTiming.showBeforeArchive) { [weak self] in
                 guard let self else { return }
-                if self.route != .tray { self.switchToTray() }
-                self.rootState.isTrayPinned = true
+                if self.route != .archive { self.switchToArchive() }
+                self.rootState.isArchivePinned = true
             }
         }
     }
 
-    /// Hotkey entry for sharing the most recent capture: reveal the tray, then
-    /// open the system share sheet on it. The tray is brought up rather than
+    /// Hotkey entry for sharing the most recent capture: reveal the archive, then
+    /// open the system share sheet on it. The archive is brought up rather than
     /// shared silently for two reasons — the sheet needs a real anchor view to
     /// hang off, and the user sees which screenshot is about to leave the
     /// machine. Nothing captured yet → a toast, never silence.
@@ -740,23 +740,23 @@ final class NotchPanelController: NSObject {
             return
         }
         // The anchor lives on the "⋯" button, which only reaches its final
-        // position once the tray morph has finished — presenting earlier would
+        // position once the archive morph has finished — presenting earlier would
         // point the sheet at wherever the header was mid-animation.
-        let present = { [weak self] in self?.trayShareAnchor.present([url]) }
+        let present = { [weak self] in self?.archiveShareAnchor.present([url]) }
 
         if isVisible && !needsSpaceRebind {
-            if route == .tray {
+            if route == .archive {
                 DispatchQueue.main.asyncAfter(deadline: .now() + PanelTiming.oneFrameSettle) { present() }
             } else {
-                switchToTray()
-                DispatchQueue.main.asyncAfter(deadline: .now() + PanelTiming.trayCloseMorph) { present() }
+                switchToArchive()
+                DispatchQueue.main.asyncAfter(deadline: .now() + PanelTiming.archiveCloseMorph) { present() }
             }
         } else {
             showAnimated(on: screen, forceRebind: needsSpaceRebind)
-            DispatchQueue.main.asyncAfter(deadline: .now() + PanelTiming.showBeforeTray) { [weak self] in
+            DispatchQueue.main.asyncAfter(deadline: .now() + PanelTiming.showBeforeArchive) { [weak self] in
                 guard let self else { return }
-                if self.route != .tray { self.switchToTray() }
-                DispatchQueue.main.asyncAfter(deadline: .now() + PanelTiming.trayCloseMorph) { present() }
+                if self.route != .archive { self.switchToArchive() }
+                DispatchQueue.main.asyncAfter(deadline: .now() + PanelTiming.archiveCloseMorph) { present() }
             }
         }
     }
@@ -836,7 +836,7 @@ final class NotchPanelController: NSObject {
         // orderFront, исходя из текущего фрейма. setFrame после — окно окажется
         // на прошлом Space (особенно после долгого idle и выхода из сна).
         if metrics.hasNotch {
-            panel.setFrame(frameForWidth(collapsedWidth, on: screen, height: trayPanelHeight), display: false)
+            panel.setFrame(frameForWidth(collapsedWidth, on: screen, height: archivePanelHeight), display: false)
         } else {
             // Reveal by descending from above the top edge — the exact reverse of
             // the close animation. The notch tab starts just the content height
@@ -845,7 +845,7 @@ final class NotchPanelController: NSObject {
             let w = clampedWidth(currentWidthForCurrentRoute, on: screen)
             let start = metrics.pinnedToTopEdge
                 ? frameNotchTabHidden(width: w, on: screen)
-                : frameNoNotchHiddenAbove(width: w, on: screen, height: trayPanelHeight)
+                : frameNoNotchHiddenAbove(width: w, on: screen, height: archivePanelHeight)
             panel.setFrame(start, display: false)
         }
 
@@ -856,7 +856,7 @@ final class NotchPanelController: NSObject {
         trace("showAnimated.afterOrderFront")
 
         if metrics.hasNotch {
-            let target = frameForWidth(clampedWidth(currentWidthForCurrentRoute, on: screen), on: screen, height: trayPanelHeight)
+            let target = frameForWidth(clampedWidth(currentWidthForCurrentRoute, on: screen), on: screen, height: archivePanelHeight)
             NSAnimationContext.runAnimationGroup { ctx in
                 ctx.duration = PanelTiming.openAnimation
                 ctx.timingFunction = PanelTiming.decelerate
@@ -878,7 +878,7 @@ final class NotchPanelController: NSObject {
             }
         } else {
             let w = clampedWidth(currentWidthForCurrentRoute, on: screen)
-            let h = trayPanelHeight
+            let h = archivePanelHeight
             let visible = frameForWidth(w, on: screen, height: h)
 
             NSAnimationContext.runAnimationGroup { ctx in
@@ -910,7 +910,7 @@ final class NotchPanelController: NSObject {
             completion?()
             return
         }
-        rootState.isTrayPinned = false
+        rootState.isArchivePinned = false
         // The panel is going away with the sheet's anchor: drop the hold so a
         // close notification that never arrives can't wedge auto-hide.
         isSharePickerOpen = false
@@ -925,7 +925,7 @@ final class NotchPanelController: NSObject {
             route = .main
         }
 
-        let wasTray = (route == .tray)
+        let wasArchive = (route == .archive)
         state = .hiding
         interactionState.isEnabled = false
         bumpGeneration()
@@ -938,27 +938,27 @@ final class NotchPanelController: NSObject {
             return
         }
 
-        if wasTray {
-            hideTrayThenMain(panel: panel, screen: screen)
+        if wasArchive {
+            hideArchiveThenMain(panel: panel, screen: screen)
         } else {
             hideMainPanel(panel: panel, screen: screen)
         }
     }
 
-    // Closing from Tray state: reverse of the open sequence.
+    // Closing from Archive state: reverse of the open sequence.
     // Phase 1 — content hides instantly.
     // Phase 2 — shape morphs back to Main (Y axis).
     // Phase 3 — standard Main close animation (X axis).
-    private func hideTrayThenMain(panel: NSPanel, screen: NSScreen) {
+    private func hideArchiveThenMain(panel: NSPanel, screen: NSScreen) {
         let gen = animationGeneration
-        // Instantly hide both tray and main content (otherwise main bleeds through in phase 2).
-        rootState.trayContentVisible = 0.0
+        // Instantly hide both archive and main content (otherwise main bleeds through in phase 2).
+        rootState.archiveContentVisible = 0.0
         interactionState.contentVisibility = 0.0
 
         DispatchQueue.main.asyncAfter(deadline: .now() + PanelTiming.oneFrameSettle) { [weak self, weak panel] in
             guard let self, let panel, self.animationGeneration == gen else { return }
 
-            // Phase 2: morph shape tray → main (Y axis via progress, width unchanged).
+            // Phase 2: morph shape archive → main (Y axis via progress, width unchanged).
             self.route = .main
             withAnimation(PanelTiming.accelerateSwift(PanelTiming.hideAnimation)) {
                 self.rootState.progress = 0.0
@@ -967,7 +967,7 @@ final class NotchPanelController: NSObject {
             // Phase 3: kick off the standard main-panel close.
             DispatchQueue.main.asyncAfter(deadline: .now() + PanelTiming.hideAnimation) { [weak self, weak panel] in
                 guard let self, let panel, self.animationGeneration == gen else { return }
-                self.rootState.trayContentVisible = 1.0  // reset for next open
+                self.rootState.archiveContentVisible = 1.0  // reset for next open
                 self.hideMainPanel(panel: panel, screen: screen)
             }
         }
@@ -976,7 +976,7 @@ final class NotchPanelController: NSObject {
     private func hideMainPanel(panel: NSPanel, screen: NSScreen) {
         let gen = animationGeneration
         if metrics.hasNotch {
-            let target = frameForWidth(collapsedWidth, on: screen, height: trayPanelHeight)
+            let target = frameForWidth(collapsedWidth, on: screen, height: archivePanelHeight)
 
             NSAnimationContext.runAnimationGroup { ctx in
                 ctx.duration = PanelTiming.hideAnimation
@@ -996,7 +996,7 @@ final class NotchPanelController: NSObject {
                 self.interactionState.isEnabled = true
                 self.route = .main
                 self.rootState.progress = 0.0
-                self.rootState.isTrayPinned = false
+                self.rootState.isArchivePinned = false
                 self.rootState.countdownVisible = 0.0
                 self.rootState.countdownSeconds = 0
                 self.rootState.countdownTotal = 0
@@ -1005,7 +1005,7 @@ final class NotchPanelController: NSObject {
             }
         } else {
             let w = clampedWidth(currentWidthForCurrentRoute, on: screen)
-            let h = trayPanelHeight
+            let h = archivePanelHeight
             // Mirror of the reveal: notch tab rises just the content height (so the
             // close is fully visible), rounded style slides up fully above.
             let hidden = metrics.pinnedToTopEdge
@@ -1030,7 +1030,7 @@ final class NotchPanelController: NSObject {
                 self.interactionState.isEnabled = true
                 self.route = .main
                 self.rootState.progress = 0.0
-                self.rootState.isTrayPinned = false
+                self.rootState.isArchivePinned = false
                 self.rootState.countdownVisible = 0.0
                 self.rootState.countdownSeconds = 0
                 self.rootState.countdownTotal = 0
@@ -1049,7 +1049,7 @@ final class NotchPanelController: NSObject {
 
     private func create() {
         let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: collapsedWidth, height: trayPanelHeight),
+            contentRect: NSRect(x: 0, y: 0, width: collapsedWidth, height: archivePanelHeight),
             styleMask: [.nonactivatingPanel, .borderless],
             backing: .buffered,
             defer: false
@@ -1084,7 +1084,7 @@ final class NotchPanelController: NSObject {
     private func syncEscapeHotkey() {
         let wantsEsc: Bool
         switch state {
-        case .showing, .main, .tray, .countdown: wantsEsc = true
+        case .showing, .main, .archive, .countdown: wantsEsc = true
         default: wantsEsc = false
         }
         if wantsEsc, escToken == nil {
@@ -1112,8 +1112,8 @@ final class NotchPanelController: NSObject {
             rootState: rootState,
             interaction: interactionState,
             model: model,
-            trayModel: trayModel,
-            shareAnchor: trayShareAnchor,
+            archiveModel: archiveModel,
+            shareAnchor: archiveShareAnchor,
             onClose: { [weak self] in self?.hideAnimated(reason: .closeButton) },
             onCapture: { [weak self] mode, delay in
                 guard let self else { return }
@@ -1153,13 +1153,13 @@ final class NotchPanelController: NSObject {
                     self.launchPreSelection(mode: mode, seconds: delay.seconds)
                 }
             },
-            onToggleTray: { [weak self] in self?.switchToTray() },
+            onToggleArchive: { [weak self] in self?.switchToArchive() },
             onPickColor: { [weak self] in self?.pickColor() },
             onScan: { [weak self] in self?.scan() },
             onModeDelayChanged: { [weak self] in self?.updateWidthForNoNotchIfNeeded() },
             onBack: { [weak self] in self?.switchToMain() },
             onHidePanel: { [weak self] in self?.hideAnimated(reason: .closeButton) },
-            onTogglePin: { [weak self] in self?.rootState.isTrayPinned.toggle() },
+            onTogglePin: { [weak self] in self?.rootState.isArchivePinned.toggle() },
             onStopCountdown: { [weak self] in self?.stopCountdown() },
             onCaptureNow: { [weak self] in self?.captureNowFromCountdown() }
         )
@@ -1167,13 +1167,13 @@ final class NotchPanelController: NSObject {
 
     // MARK: - State routing
 
-    func switchToTray() {
-        if route == .tray { switchToMain() } else { transitionBetweenStates(.tray) }
+    func switchToArchive() {
+        if route == .archive { switchToMain() } else { transitionBetweenStates(.archive) }
     }
 
     func switchToMain() {
         guard route != .main else { return }
-        rootState.isTrayPinned = false
+        rootState.isArchivePinned = false
         transitionBetweenStates(.main)
     }
 
@@ -1181,7 +1181,7 @@ final class NotchPanelController: NSObject {
         guard let panel else { return }
         guard let screen = currentScreen ?? NSScreen.main ?? NSScreen.screens.first else { return }
 
-        // Coalesce re-entrant toggles: ignore a new tray morph while one is still
+        // Coalesce re-entrant toggles: ignore a new archive morph while one is still
         // in flight. Overlapping transitions orphan each other's completion
         // handlers (generation mismatch), which left brief half-morphed/stuck
         // states during rapid clicking. hideAnimated/showAnimated (Esc, hotkey,
@@ -1189,7 +1189,7 @@ final class NotchPanelController: NSObject {
         if case .transitioning = state { return }
 
         let gen = bumpGeneration()
-        let target: TransitionTarget = (targetRoute == .tray) ? .tray : .main
+        let target: TransitionTarget = (targetRoute == .archive) ? .archive : .main
         state = .transitioning(to: target)
         interactionState.isEnabled = false
 
@@ -1197,9 +1197,9 @@ final class NotchPanelController: NSObject {
             // Step 1: hide content in a separate render pass (without withAnimation).
             // Calling it together with withAnimation { progress = 0 } causes SwiftUI to
             // batch both objectWillChange notifications and apply the easeIn context to
-            // both — opacity would then animate 1→0 over trayCloseMorph instead of
+            // both — opacity would then animate 1→0 over archiveCloseMorph instead of
             // snapping instantly.
-            rootState.trayContentVisible = 0.0
+            rootState.archiveContentVisible = 0.0
 
             // Step 2: give SwiftUI one render pass to process the hide before
             // starting the shape morph.
@@ -1209,21 +1209,21 @@ final class NotchPanelController: NSObject {
                 self.route = .main
                 let targetFrame = self.frameForWidth(
                     self.clampedWidth(self.currentWidthForCurrentRoute, on: screen),
-                    on: screen, height: self.trayPanelHeight
+                    on: screen, height: self.archivePanelHeight
                 )
 
                 // X axis: panel width — NSAnimationContext. `settle`, not
                 // `accelerate`: the panel stays on screen after this morph,
                 // so X must land as softly as the Y-axis spring below.
                 NSAnimationContext.runAnimationGroup { ctx in
-                    ctx.duration = PanelTiming.trayCloseMorph
+                    ctx.duration = PanelTiming.archiveCloseMorph
                     ctx.timingFunction = PanelTiming.settle
                     panel.animator().setFrame(targetFrame, display: true)
                 } completionHandler: { [weak self] in
                     guard let self, self.animationGeneration == gen else { return }
                     self.state = .main
                     self.interactionState.isEnabled = true
-                    self.rootState.trayContentVisible = 1.0  // reset for next open
+                    self.rootState.archiveContentVisible = 1.0  // reset for next open
                 }
 
                 // Y axis: shape morph — spring settle, no abrupt stop at the seam
@@ -1233,23 +1233,23 @@ final class NotchPanelController: NSObject {
             }
         } else {
             // Opening: spring easing
-            route = .tray
-            // Ensure the tray content is visible on open. A rapid open→close can
-            // strand trayContentVisible at 0 — the close pre-fades it to 0 and its
+            route = .archive
+            // Ensure the archive content is visible on open. A rapid open→close can
+            // strand archiveContentVisible at 0 — the close pre-fades it to 0 and its
             // reset back to 1 is generation-gated, so an interrupted close skips
             // the reset; without this line the next open showed only empty bg.
-            rootState.trayContentVisible = 1.0
+            rootState.archiveContentVisible = 1.0
             let targetFrame = frameForWidth(
                 clampedWidth(currentWidthForCurrentRoute, on: screen),
-                on: screen, height: trayPanelHeight
+                on: screen, height: archivePanelHeight
             )
             NSAnimationContext.runAnimationGroup { ctx in
-                ctx.duration = PanelTiming.trayCloseMorph
+                ctx.duration = PanelTiming.archiveCloseMorph
                 ctx.timingFunction = PanelTiming.decelerate
                 panel.animator().setFrame(targetFrame, display: true)
             } completionHandler: { [weak self] in
                 guard let self, self.animationGeneration == gen else { return }
-                self.state = .tray
+                self.state = .archive
                 self.interactionState.isEnabled = true
             }
             DispatchQueue.main.async {
@@ -1273,10 +1273,10 @@ final class NotchPanelController: NSObject {
         guard let screen = currentScreen ?? NSScreen.main ?? NSScreen.screens.first else { return }
 
         let w = clampedWidth(expandedWidth, on: screen)
-        // Keep the window at the full tray height — only the width may change here.
+        // Keep the window at the full archive height — only the width may change here.
         // Animating height collapsed the panel vertically (it was created/shown at
-        // trayPanelHeight but this used the default panelHeight).
-        let target = frameForWidth(w, on: screen, height: trayPanelHeight)
+        // archivePanelHeight but this used the default panelHeight).
+        let target = frameForWidth(w, on: screen, height: archivePanelHeight)
 
         // Resize instantly: the content (timer cell) reflows with no animation
         // (`.animation(nil, value: model.delay)`), so a 0.12s window animation

@@ -4,11 +4,11 @@ import OSLog
 
 extension Notification.Name {
     /// Posted by the editor after saving an edited image; object is the URL.
-    /// NotchPanelController observes it to add the file to the tray.
+    /// NotchPanelController observes it to add the file to the archive.
     static let editorDidSaveImage = Notification.Name("editorDidSaveImage")
     /// Posted once per finding after the editor's Scan succeeds — each barcode
     /// payload separately, then the recognized text. Object is the inert
-    /// string that should be added to the tray as a text entity.
+    /// string that should be added to the archive as a text entity.
     static let editorDidScan = Notification.Name("editorDidScan")
 }
 
@@ -88,7 +88,7 @@ final class EditorWindowController: NSObject, NSWindowDelegate {
 
     /// Renders the annotated image and writes it to the save directory as a
     /// new file; marks the document clean and announces the file so the
-    /// panel controller can add it to the tray.
+    /// panel controller can add it to the archive.
     private func performSave(_ document: EditorDocument) -> Bool {
         guard let rep = AnnotationRenderer.renderBitmap(
             base: document.baseImage,

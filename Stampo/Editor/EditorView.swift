@@ -1474,7 +1474,7 @@ struct EditorView: View {
 
     /// Unified scanner over the marquee region: the same one-pass barcode+text
     /// recognition as the panel's Scan action. Everything found lands on the
-    /// clipboard in visual order and each finding joins the tray; the shared
+    /// clipboard in visual order and each finding joins the archive; the shared
     /// capture HUD reports the outcome. Runs off the main thread so a large
     /// crop doesn't stall the UI. Leaving scan mode after a scan matches the
     /// "select once, then copy" flow.
@@ -1489,9 +1489,9 @@ struct EditorView: View {
                 guard !result.isEmpty else { showCaptureHUD(.nothingRecognized); return }
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(result.clipboardText, forType: .string)
-                // The tray inserts each entry at the top, so post in reverse:
-                // the visually-topmost finding ends up as the topmost tray entry.
-                for entry in result.trayEntries.reversed() {
+                // The archive inserts each entry at the top, so post in reverse:
+                // the visually-topmost finding ends up as the topmost archive entry.
+                for entry in result.archiveEntries.reversed() {
                     NotificationCenter.default.post(name: .editorDidScan, object: entry)
                 }
                 showCaptureHUD(ScanCaptureCoordinator.outcome(for: result))

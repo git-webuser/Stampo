@@ -27,7 +27,7 @@ extension NotchPanelController {
         }
 
         // The no-notch content is a single HStack of 6 cells (5 inter-cell gaps).
-        // `left` covers close + mode + timer, `right` covers tray + more + capture;
+        // `left` covers close + mode + timer, `right` covers archive + more + capture;
         // the trailing `.gap` on `left` is the 5th gap joining the two groups —
         // without it the panel background ends up one `gap` narrower than the
         // content and the rightmost button overflows the shape.
@@ -45,20 +45,20 @@ extension NotchPanelController {
         return left + right
     }
 
-    // Panel height is always the Tray height — animation is driven by SwiftUI progress, not setFrame.
-    var trayScrollRowHeight: CGFloat { 55 }
-    var trayPanelHeight: CGFloat { metrics.panelHeight + trayScrollRowHeight }
+    // Panel height is always the Archive height — animation is driven by SwiftUI progress, not setFrame.
+    var archiveScrollRowHeight: CGFloat { 55 }
+    var archivePanelHeight: CGFloat { metrics.panelHeight + archiveScrollRowHeight }
 
     var currentWidthForCurrentRoute: CGFloat {
         switch route {
-        case .main:  return expandedWidth
-        case .tray:  return trayWidth
-        case .cdwn:  return expandedWidth
+        case .main:     return expandedWidth
+        case .archive:  return archiveWidth
+        case .cdwn:     return expandedWidth
         }
     }
 
-    var trayWidth: CGFloat {
-        // On notched devices the Tray uses the same width as Main —
+    var archiveWidth: CGFloat {
+        // On notched devices the Archive uses the same width as Main —
         // content scrolls inside the panel, the panel width does not change.
         if metrics.hasNotch {
             return expandedWidth
@@ -69,9 +69,9 @@ extension NotchPanelController {
         let shotWidth: CGFloat = swatchWidth * 1.6
         let spacing: CGFloat = 6
 
-        let colorCount = trayModel.colors.count
-        let shotCount = trayModel.items.count - colorCount
-        let totalCount = max(1, trayModel.items.count)
+        let colorCount = archiveModel.colors.count
+        let shotCount = archiveModel.items.count - colorCount
+        let totalCount = max(1, archiveModel.items.count)
         let contentWidth = CGFloat(colorCount) * swatchWidth
             + CGFloat(shotCount) * shotWidth
             + CGFloat(max(0, totalCount - 1)) * spacing
@@ -139,7 +139,7 @@ extension NotchPanelController {
     /// mostly off-screen and reads as a pop; nudging up by only the content
     /// height makes the whole reveal/close the content wiping in/out at the edge.
     func frameNotchTabHidden(width: CGFloat, on screen: NSScreen?) -> NSRect {
-        var f = frameForWidth(width, on: screen, height: trayPanelHeight)
+        var f = frameForWidth(width, on: screen, height: archivePanelHeight)
         f.origin.y += metrics.panelHeight * metrics.panelScale
         return f
     }

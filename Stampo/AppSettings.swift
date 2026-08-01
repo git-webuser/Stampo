@@ -35,7 +35,11 @@ enum AppSettings {
         /// System Settings) — иначе кнопку перезапуска негде было бы показать.
         /// Сбрасывается, как только preflight увидел выданное разрешение.
         static let screenRecordingSetupRequested = "screenRecordingSetupRequested"
-        // Tray
+        // Archive. These three keep saying "tray": the literal is what sits in
+        // the user's defaults, so renaming it would reset the item limit, turn
+        // persistence back off and orphan the saved archive on upgrade. The
+        // constants are named after the literals on purpose — a name that
+        // disagreed with the string it holds is worse than an outdated word.
         static let trayMaxItems          = "trayMaxItems"
         static let persistTray           = "persistTray"
         static let trayPersistedData     = "trayPersistedData"
@@ -139,7 +143,7 @@ enum AppSettings {
 
     /// One-time migration: if a legacy plain-path saveDirectory exists but no
     /// security-scoped bookmark does, attempt to create the bookmark now.
-    /// Should be called once at app launch before any capture/tray access.
+    /// Should be called once at app launch before any capture/archive access.
     static func migrateLegacySaveDirectoryIfNeeded() {
         guard UserDefaults.standard.data(forKey: Keys.saveDirectoryBookmark) == nil,
               let path = UserDefaults.standard.string(forKey: Keys.saveDirectory),
@@ -228,7 +232,7 @@ enum AppSettings {
         return CaptureDelay(rawValue: raw) ?? .off
     }
 
-    // MARK: Tray
+    // MARK: Archive
     static var trayMaxItems: Int {
         let v = UserDefaults.standard.object(forKey: Keys.trayMaxItems) as? Int ?? 20
         return max(5, min(50, v))
@@ -459,7 +463,7 @@ enum FilenamePreset: String, CaseIterable {
 }
 
 
-// MARK: - NSColor hex init (for tray restore)
+// MARK: - NSColor hex init (for archive restore)
 extension NSColor {
     convenience init?(hexString: String) {
         let hex = hexString.trimmingCharacters(in: .init(charactersIn: "#"))

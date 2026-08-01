@@ -13,7 +13,7 @@ final class ScreenshotService {
     /// Called when a capture completes successfully. Passes the final file URL.
     var onCaptured: ((URL) -> Void)?
 
-    /// Called when user taps the thumbnail HUD — should open tray.
+    /// Called when user taps the thumbnail HUD — should open archive.
     var onThumbnailTapped: (() -> Void)?
 
     /// Called when user deletes a screenshot from the thumbnail HUD.

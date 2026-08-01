@@ -84,11 +84,11 @@ struct NotchPanelView: View {
     var interaction: NotchPanelInteractionState
     var model: NotchPanelModel
 
-    let isTrayOpen: Bool
+    let isArchiveOpen: Bool
 
     let onClose: () -> Void
     let onCapture: (_ mode: CaptureMode, _ delay: CaptureDelay) -> Void
-    let onToggleTray: () -> Void
+    let onToggleArchive: () -> Void
     let onPickColor: () -> Void
     let onScan: () -> Void
     let onModeDelayChanged: () -> Void
@@ -136,7 +136,7 @@ struct NotchPanelView: View {
                         .accessibilityHidden(true)
 
                     HStack(spacing: metrics.gap) {
-                        trayButtonCell
+                        archiveButtonCell
                         moreCell
                         captureButton
                     }
@@ -162,7 +162,7 @@ struct NotchPanelView: View {
                 closeCell
                 modeMenuCell
                 timerMenuCell
-                trayButtonCell
+                archiveButtonCell
                 moreCell
                 captureButton
             }
@@ -219,17 +219,17 @@ struct NotchPanelView: View {
         // Labelled from AppKit, like the mode cell above.
     }
 
-    private var trayButtonCell: some View {
+    private var archiveButtonCell: some View {
         PanelIconButton(
             systemName: "photo.on.rectangle.angled",
             size: 14,
             weight: .semibold,
-            isActive: isTrayOpen,
-            action: onToggleTray
+            isActive: isArchiveOpen,
+            action: onToggleArchive
         )
         .frame(width: metrics.cellWidth, height: metrics.iconSize)
-        .help(isTrayOpen ? "Hide archive" : "Show archive")
-        .accessibilityLabel(isTrayOpen ? "Hide archive" : "Show archive")
+        .help(isArchiveOpen ? "Hide archive" : "Show archive")
+        .accessibilityLabel(isArchiveOpen ? "Hide archive" : "Show archive")
     }
 
     private var moreCell: some View {

@@ -80,7 +80,7 @@ struct PanelIconButton: View {
 // MARK: - PanelMoreMenuButton
 
 /// A caller-supplied command in the "⋯" menu, rendered above Settings/Quit.
-/// The tray uses these for its whole-tray actions; the main panel passes none.
+/// The archive uses these for its whole-archive actions; the main panel passes none.
 struct PanelMenuCommand {
     /// Localization key, also the item's identity for the rebuild check.
     let titleKey: String
@@ -218,8 +218,8 @@ struct PopUpMoreButtonWrapper: NSViewRepresentable {
 
 struct PanelMoreMenuButton: View {
     let metrics: NotchMetrics
-    /// Route-specific commands shown above Settings/Quit (the tray's
-    /// whole-tray actions); empty on the main panel.
+    /// Route-specific commands shown above Settings/Quit (the archive's
+    /// whole-archive actions); empty on the main panel.
     var extraCommands: [PanelMenuCommand] = []
 
     @State private var isHovered  = false

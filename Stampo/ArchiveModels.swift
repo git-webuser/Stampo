@@ -1,13 +1,13 @@
 import AppKit
 import Foundation
 
-// MARK: - Tray Item
+// MARK: - Archive Item
 
-enum TrayItem: Identifiable, Equatable {
-    case color(TrayColor)
-    case screenshot(TrayScreenshot)
-    case text(TrayText)
-    case stack(TrayStack)
+enum ArchiveItem: Identifiable, Equatable {
+    case color(ArchiveColor)
+    case screenshot(ArchiveScreenshot)
+    case text(ArchiveText)
+    case stack(ArchiveStack)
 
     var id: UUID {
         switch self {
@@ -19,24 +19,24 @@ enum TrayItem: Identifiable, Equatable {
     }
 }
 
-struct TrayColor: Identifiable, Equatable {
+struct ArchiveColor: Identifiable, Equatable {
     let id = UUID()
     let color: NSColor
     let hex: String
 }
 
-struct TrayScreenshot: Identifiable, Equatable {
+struct ArchiveScreenshot: Identifiable, Equatable {
     let id = UUID()
     let url: URL
 }
 
-/// A shelf-style pile of files the user dropped onto the tray. Files are
-/// grouped by their source folder: the tray keeps one stack per parent folder,
+/// A shelf-style pile of files the user dropped onto the archive. Files are
+/// grouped by their source folder: the archive keeps one stack per parent folder,
 /// so dropping from two folders yields two stacks. Consecutive drops from the
 /// same folder accumulate (deduplicated by standardized URL), and dragging a
 /// stack out carries every member at once. Members are references to the
 /// original files, never copies.
-struct TrayStack: Identifiable, Equatable {
+struct ArchiveStack: Identifiable, Equatable {
     let id = UUID()
     var urls: [URL]
 
@@ -61,15 +61,15 @@ struct TrayStack: Identifiable, Equatable {
         return order.map { (folder: $0, urls: buckets[$0]!) }
     }
 
-    /// Pure accumulate half of NotchTrayModel.add(droppedFiles:): standardizes
+    /// Pure accumulate half of NotchArchiveModel.add(droppedFiles:): standardizes
     /// URLs, dedupes within the batch and against the existing stack. Returns
     /// the resulting stack (the existing one keeps its identity) and the URLs
     /// that are actually new — the ones that need file watchers.
-    static func merging(_ existing: TrayStack?, droppedFiles urls: [URL]) -> (stack: TrayStack, fresh: [URL]) {
+    static func merging(_ existing: ArchiveStack?, droppedFiles urls: [URL]) -> (stack: ArchiveStack, fresh: [URL]) {
         var seen = Set<URL>()
         let incoming = urls.map(\.standardizedFileURL).filter { seen.insert($0).inserted }
         guard var stack = existing else {
-            return (TrayStack(urls: incoming), incoming)
+            return (ArchiveStack(urls: incoming), incoming)
         }
         let known = Set(stack.urls)
         let fresh = incoming.filter { !known.contains($0) }
@@ -77,9 +77,9 @@ struct TrayStack: Identifiable, Equatable {
         return (stack, fresh)
     }
 
-    /// Pure removal half of NotchTrayModel.removeStackMember: nil when the
-    /// last member leaves (the stack disappears from the tray).
-    func removingMember(_ url: URL) -> TrayStack? {
+    /// Pure removal half of NotchArchiveModel.removeStackMember: nil when the
+    /// last member leaves (the stack disappears from the archive).
+    func removingMember(_ url: URL) -> ArchiveStack? {
         let target = url.standardizedFileURL
         var copy = self
         copy.urls.removeAll { $0 == target }
@@ -88,7 +88,7 @@ struct TrayStack: Identifiable, Equatable {
 }
 
 /// A plain-text entity captured via OCR or Scan Code.
-struct TrayText: Identifiable, Equatable {
+struct ArchiveText: Identifiable, Equatable {
     let id = UUID()
     let text: String
 
@@ -129,17 +129,17 @@ enum ColorSchemeType: CaseIterable, Equatable {
     }
 }
 
-// MARK: - Tray Payload
+// MARK: - Archive Payload
 
-/// One tray entry flattened into something the pasteboard and the share sheet
+/// One archive entry flattened into something the pasteboard and the share sheet
 /// both understand. Files stay files (so a paste in Finder reproduces them and
 /// AirDrop carries the real bytes); colors and text become their string form.
-enum TrayPayloadItem: Equatable {
+enum ArchivePayloadItem: Equatable {
     case file(URL)
     case string(String)
 }
 
-extension Array where Element == TrayPayloadItem {
+extension Array where Element == ArchivePayloadItem {
     /// Boxed for `NSPasteboard.writeObjects` / `NSSharingServicePicker(items:)`,
     /// both of which take Objective-C objects rather than Swift values.
     var objects: [Any] {
@@ -152,9 +152,9 @@ extension Array where Element == TrayPayloadItem {
     }
 }
 
-// MARK: - Tray Persistence (Codable)
+// MARK: - Archive Persistence (Codable)
 
-private struct PersistedTrayItem: Codable {
+private struct PersistedArchiveItem: Codable {
     enum Kind: String, Codable { case color, screenshot, text, stack }
     let kind: Kind
     let hex:  String?    // color items
@@ -163,10 +163,10 @@ private struct PersistedTrayItem: Codable {
     let paths: [String]? // stack items (absent in pre-stack data)
 }
 
-// MARK: - NotchTrayModel
+// MARK: - NotchArchiveModel
 
-@Observable final class NotchTrayModel {
-    private(set) var items: [TrayItem] = []
+@Observable final class NotchArchiveModel {
+    private(set) var items: [ArchiveItem] = []
 
     private var persistWorkItem: DispatchWorkItem?
     @ObservationIgnored private var fileWatchers: [UUID: DispatchSourceFileSystemObject] = [:]
@@ -202,7 +202,7 @@ private struct PersistedTrayItem: Codable {
         }
     }
 
-    var colors: [TrayColor] {
+    var colors: [ArchiveColor] {
         items.compactMap {
             if case .color(let c) = $0 { return c } else { return nil }
         }
@@ -216,7 +216,7 @@ private struct PersistedTrayItem: Codable {
             if case .color(let existing) = $0 { return existing.hex == hex }
             return false
         }
-        items.insert(.color(TrayColor(color: c, hex: hex)), at: 0)
+        items.insert(.color(ArchiveColor(color: c, hex: hex)), at: 0)
         trim()
         schedulePersist()
     }
@@ -228,7 +228,7 @@ private struct PersistedTrayItem: Codable {
             if case .text(let existing) = $0 { return existing.text == trimmed }
             return false
         }
-        items.insert(.text(TrayText(text: trimmed)), at: 0)
+        items.insert(.text(ArchiveText(text: trimmed)), at: 0)
         trim()
         schedulePersist()
     }
@@ -244,7 +244,7 @@ private struct PersistedTrayItem: Codable {
             }
             return false
         }
-        let shot = TrayScreenshot(url: url)
+        let shot = ArchiveScreenshot(url: url)
         prepareThumbnail(for: shot)
         items.insert(.screenshot(shot), at: 0)
         startWatching(shot)
@@ -254,12 +254,12 @@ private struct PersistedTrayItem: Codable {
 
     // MARK: Stack (dropped files)
 
-    /// Every stack item currently in the tray (one per source folder).
-    var stacks: [TrayStack] {
+    /// Every stack item currently in the archive (one per source folder).
+    var stacks: [ArchiveStack] {
         items.compactMap { if case .stack(let s) = $0 { return s } else { return nil } }
     }
 
-    /// Ingest files dropped onto the tray. Files are grouped by parent folder:
+    /// Ingest files dropped onto the archive. Files are grouped by parent folder:
     /// each group accumulates into its folder's existing stack (deduplicated by
     /// standardized URL) or creates a new one. Every touched stack moves to the
     /// front so the user sees where the drop landed.
@@ -267,15 +267,15 @@ private struct PersistedTrayItem: Codable {
         guard !urls.isEmpty else { return }
         var didChange = false
 
-        for group in TrayStack.groupedByFolder(urls) {
+        for group in ArchiveStack.groupedByFolder(urls) {
             let existingIdx = items.firstIndex {
                 if case .stack(let s) = $0 { return s.folder == group.folder } else { return false }
             }
-            let existing: TrayStack? = existingIdx.flatMap {
+            let existing: ArchiveStack? = existingIdx.flatMap {
                 if case .stack(let s) = items[$0] { return s } else { return nil }
             }
 
-            let (stack, fresh) = TrayStack.merging(existing, droppedFiles: group.urls)
+            let (stack, fresh) = ArchiveStack.merging(existing, droppedFiles: group.urls)
             // A pure re-drop of files already in this folder's stack: nothing
             // new to show, don't even reorder.
             if existing != nil && fresh.isEmpty { continue }
@@ -291,12 +291,12 @@ private struct PersistedTrayItem: Codable {
     }
 
     /// Drop a single member from the stack (file deleted on disk, or removed
-    /// via UI). An emptied stack disappears from the tray entirely.
+    /// via UI). An emptied stack disappears from the archive entirely.
     func removeStackMember(url: URL) {
         let target = url.standardizedFileURL
         // A path has exactly one parent folder, so it belongs to exactly one
         // stack — find the stack that actually contains it, not merely the
-        // first stack in the tray.
+        // first stack in the archive.
         guard let idx = items.firstIndex(where: {
                   if case .stack(let s) = $0 { return s.urls.contains(target) } else { return false }
               }),
@@ -332,7 +332,7 @@ private struct PersistedTrayItem: Codable {
         schedulePersist()
     }
 
-    /// Empties the tray in one go (the "Clear Archive" command). Only tray
+    /// Empties the archive in one go (the "Clear Archive" command). Only archive
     /// membership is dropped — screenshots and dropped files stay on disk, same
     /// as the per-cell "Remove from archive".
     func removeAll() {
@@ -341,14 +341,14 @@ private struct PersistedTrayItem: Codable {
         schedulePersist()
     }
 
-    /// Everything in the tray, in display order, flattened for the pasteboard
+    /// Everything in the archive, in display order, flattened for the pasteboard
     /// and the share sheet. A stack contributes each of its members. Pure and
     /// static so "Copy All" and "Share All" can never disagree about what the
-    /// tray contains. `colorScheme` picks the notation for color entries — the
-    /// one currently selected in the tray header, so the copied text matches
+    /// archive contains. `colorScheme` picks the notation for color entries — the
+    /// one currently selected in the archive header, so the copied text matches
     /// what the cells display.
-    static func payload(for items: [TrayItem], colorScheme: ColorSchemeType) -> [TrayPayloadItem] {
-        items.flatMap { item -> [TrayPayloadItem] in
+    static func payload(for items: [ArchiveItem], colorScheme: ColorSchemeType) -> [ArchivePayloadItem] {
+        items.flatMap { item -> [ArchivePayloadItem] in
             switch item {
             case .color(let c):      return [.string(colorScheme.convert(c.color))]
             case .text(let t):       return [.string(t.text)]
@@ -371,7 +371,7 @@ private struct PersistedTrayItem: Codable {
 
     /// Watcher/loader teardown shared by remove(id:) and trim(). A stack owns
     /// per-member resources; every other kind owns at most one of each.
-    private func releaseResources(for item: TrayItem) {
+    private func releaseResources(for item: ArchiveItem) {
         if case .stack(let stack) = item {
             for url in stack.urls { stopWatchingStackMember(url) }
         } else {
@@ -382,14 +382,14 @@ private struct PersistedTrayItem: Codable {
 
     // MARK: Thumbnail Cache
 
-    func thumbnailLoader(for shot: TrayScreenshot) -> ThumbnailLoader {
+    func thumbnailLoader(for shot: ArchiveScreenshot) -> ThumbnailLoader {
         if let loader = thumbnailLoaders[shot.id] { return loader }
         // Defensive lazy path for data created by future import/migration code.
         return prepareThumbnail(for: shot)
     }
 
     @discardableResult
-    private func prepareThumbnail(for shot: TrayScreenshot) -> ThumbnailLoader {
+    private func prepareThumbnail(for shot: ArchiveScreenshot) -> ThumbnailLoader {
         let loader = ThumbnailLoader()
         thumbnailLoaders[shot.id] = loader
         loader.load(imageURL: shot.url)
@@ -409,7 +409,7 @@ private struct PersistedTrayItem: Codable {
 
     // MARK: File Watching
 
-    private func startWatching(_ shot: TrayScreenshot) {
+    private func startWatching(_ shot: ArchiveScreenshot) {
         let path = shot.url.path
         let fd = open(path, O_EVTONLY)
         guard fd >= 0 else { return }
@@ -473,25 +473,25 @@ private struct PersistedTrayItem: Codable {
         }
     }
 
-    /// Pure encode half of tray persistence. Internal so tests can round-trip
+    /// Pure encode half of archive persistence. Internal so tests can round-trip
     /// items without UserDefaults.
-    static func encodePersistedItems(_ items: [TrayItem]) -> Data? {
-        let encoded: [PersistedTrayItem] = items.map {
+    static func encodePersistedItems(_ items: [ArchiveItem]) -> Data? {
+        let encoded: [PersistedArchiveItem] = items.map {
             switch $0 {
             case .color(let c):
-                return PersistedTrayItem(kind: .color, hex: c.hex, path: nil, text: nil, paths: nil)
+                return PersistedArchiveItem(kind: .color, hex: c.hex, path: nil, text: nil, paths: nil)
             case .screenshot(let s):
-                return PersistedTrayItem(kind: .screenshot, hex: nil, path: s.url.path, text: nil, paths: nil)
+                return PersistedArchiveItem(kind: .screenshot, hex: nil, path: s.url.path, text: nil, paths: nil)
             case .text(let t):
-                return PersistedTrayItem(kind: .text, hex: nil, path: nil, text: t.text, paths: nil)
+                return PersistedArchiveItem(kind: .text, hex: nil, path: nil, text: t.text, paths: nil)
             case .stack(let s):
-                return PersistedTrayItem(kind: .stack, hex: nil, path: nil, text: nil, paths: s.urls.map(\.path))
+                return PersistedArchiveItem(kind: .stack, hex: nil, path: nil, text: nil, paths: s.urls.map(\.path))
             }
         }
         return try? JSONEncoder().encode(encoded)
     }
 
-    /// Pure decode half of tray persistence. With `deferFileChecks` the file
+    /// Pure decode half of archive persistence. With `deferFileChecks` the file
     /// system is never touched (the TCC-deferred restore path); otherwise
     /// entries whose files vanished are dropped, including individual stack
     /// members (an emptied stack is dropped whole). `fileExists` is
@@ -500,27 +500,27 @@ private struct PersistedTrayItem: Codable {
         _ data: Data,
         deferFileChecks: Bool,
         fileExists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }
-    ) -> [TrayItem] {
-        guard let decoded = try? JSONDecoder().decode([PersistedTrayItem].self, from: data)
+    ) -> [ArchiveItem] {
+        guard let decoded = try? JSONDecoder().decode([PersistedArchiveItem].self, from: data)
         else { return [] }
 
         return decoded.compactMap { p in
             switch p.kind {
             case .color:
                 guard let hex = p.hex, let color = NSColor(hexString: hex) else { return nil }
-                return .color(TrayColor(color: color, hex: hex))
+                return .color(ArchiveColor(color: color, hex: hex))
             case .screenshot:
                 guard let path = p.path else { return nil }
                 guard deferFileChecks || fileExists(path) else { return nil }
-                return .screenshot(TrayScreenshot(url: URL(fileURLWithPath: path)))
+                return .screenshot(ArchiveScreenshot(url: URL(fileURLWithPath: path)))
             case .text:
                 guard let text = p.text, !text.isEmpty else { return nil }
-                return .text(TrayText(text: text))
+                return .text(ArchiveText(text: text))
             case .stack:
                 guard let paths = p.paths, !paths.isEmpty else { return nil }
                 let kept = deferFileChecks ? paths : paths.filter(fileExists)
                 guard !kept.isEmpty else { return nil }
-                return .stack(TrayStack(urls: kept.map { URL(fileURLWithPath: $0) }))
+                return .stack(ArchiveStack(urls: kept.map { URL(fileURLWithPath: $0) }))
             }
         }
     }

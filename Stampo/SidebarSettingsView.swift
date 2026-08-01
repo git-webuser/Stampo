@@ -3,7 +3,7 @@ import SwiftUI
 // MARK: - SettingsTab
 
 enum SettingsTab: Int, CaseIterable, Identifiable, Hashable {
-    case general, capture, tray, hotkeys, about
+    case general, capture, archive, hotkeys, about
 
     var id: Int { rawValue }
 
@@ -14,7 +14,7 @@ enum SettingsTab: Int, CaseIterable, Identifiable, Hashable {
         // in English, but Russian names the pane (Съёмка) and the action
         // (Снять) differently, and one catalog key can't carry two values.
         case .capture:  return "Capture Settings"
-        case .tray:     return "Archive"
+        case .archive:  return "Archive"
         case .hotkeys:  return "Hotkeys"
         case .about:    return "About"
         }
@@ -25,7 +25,7 @@ enum SettingsTab: Int, CaseIterable, Identifiable, Hashable {
         switch self {
         case .general:  return "gearshape"
         case .capture:  return "camera"
-        case .tray:     return "archivebox"
+        case .archive:  return "archivebox"
         case .hotkeys:  return "keyboard"
         case .about:    return "info.circle"
         }
@@ -36,7 +36,7 @@ enum SettingsTab: Int, CaseIterable, Identifiable, Hashable {
         switch self {
         case .general:  return "tab-general"
         case .capture:  return "tab-capture"
-        case .tray:     return "tab-archive"
+        case .archive:  return "tab-archive"
         case .hotkeys:  return "tab-hotkeys"
         case .about:    return "tab-about"
         }
@@ -46,7 +46,7 @@ enum SettingsTab: Int, CaseIterable, Identifiable, Hashable {
         switch self {
         case .general:  GeneralSettingsView()
         case .capture:  CaptureSettingsView()
-        case .tray:     TraySettingsView()
+        case .archive:  ArchiveSettingsView()
         case .hotkeys:  HotkeySettingsView()
         case .about:    AboutSettingsView()
         }

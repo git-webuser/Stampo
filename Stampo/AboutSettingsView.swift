@@ -131,8 +131,8 @@ struct AboutSettingsView: View {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         saveDir = url.path.replacingOccurrences(of: home, with: "~")
 
-        let trayMax = UserDefaults.standard.object(forKey: AppSettings.Keys.trayMaxItems) as? Int ?? 20
-        let trayPersist = UserDefaults.standard.object(forKey: AppSettings.Keys.persistTray) as? Bool ?? true
+        let archiveMax = UserDefaults.standard.object(forKey: AppSettings.Keys.trayMaxItems) as? Int ?? 20
+        let archivePersist = UserDefaults.standard.object(forKey: AppSettings.Keys.persistTray) as? Bool ?? true
 
         let trace = DebugTrace.dump()
 
@@ -146,7 +146,7 @@ struct AboutSettingsView: View {
         Screen Recording: \(screenRecording)
         Input Monitoring: \(inputMonitoring)
         Save directory: \(saveDir)
-        Tray persist: \(trayPersist ? "on" : "off"), max \(trayMax) items
+        Archive persist: \(archivePersist ? "on" : "off"), max \(archiveMax) items
 
         --- Panel Trace ---
         \(trace)

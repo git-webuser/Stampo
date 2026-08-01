@@ -14,7 +14,7 @@ final class ScanCaptureCoordinator {
     private let capturer = ScreenshotCapturer()
 
     /// Called once per finding on success — each barcode payload separately,
-    /// then the recognized text — the owner stores them in the tray.
+    /// then the recognized text — the owner stores them in the archive.
     var addText: (String) -> Void = { _ in }
 
     /// Stops an active scan without showing a result HUD. A result that arrives
@@ -61,9 +61,9 @@ final class ScanCaptureCoordinator {
                 // are not opened or resolved.
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(result.clipboardText, forType: .string)
-                // The tray inserts each entry at the top, so add in reverse:
-                // the visually-topmost finding ends up as the topmost tray entry.
-                for entry in result.trayEntries.reversed() { self.addText(entry) }
+                // The archive inserts each entry at the top, so add in reverse:
+                // the visually-topmost finding ends up as the topmost archive entry.
+                for entry in result.archiveEntries.reversed() { self.addText(entry) }
                 self.hud.show(Self.outcome(for: result), on: resultScreen)
             }
         }

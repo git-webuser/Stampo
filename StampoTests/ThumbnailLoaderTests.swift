@@ -98,7 +98,7 @@ import Testing
         #expect(await wait { loader.image != nil })
     }
 
-    /// A tray entry whose file was moved or deleted behind the app's back still
+    /// A archive entry whose file was moved or deleted behind the app's back still
     /// gets a picture: Quick Look answers the `.icon` pass from the path's type
     /// alone, without touching the bytes. So a stale cell shows the generic PNG
     /// document icon rather than falling back to the placeholder glyph — worth
