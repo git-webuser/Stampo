@@ -422,6 +422,10 @@ struct Annotation: Identifiable, Equatable {
     var arrowRoute: ArrowRoute = .curved
     /// Endpoint(s) that receive a filled arrowhead.
     var arrowHeadPlacement: ArrowHeadPlacement = .end
+    /// Multiplier on the arrowhead's natural size (which follows the stroke).
+    /// 1 is the size arrows have always drawn at, so old annotations and new
+    /// ones agree until the slider is touched.
+    var arrowHeadScale: CGFloat = 1
     /// Quadratic Bézier control point for a curved `.arrow`; nil is straight.
     /// Internal geometry only — the user grabs `bendHandle`, which rides the
     /// curve rather than this point.
@@ -1284,21 +1288,24 @@ struct Annotation: Identifiable, Equatable {
 
     // MARK: Arrow geometry (pure — unit-testable)
 
-    /// Length of the filled arrowhead for a stroke width. A generous floor
-    /// keeps the head clearly readable on thin arrows without scaling the whole
-    /// annotation, while it still grows with thicker strokes. Shared by the
-    /// barb geometry and the renderer's shaft inset so they stay consistent.
-    static func arrowheadLength(lineWidth: CGFloat) -> CGFloat {
-        max(18, lineWidth * 3.5)
+    /// Length of the filled arrowhead for a stroke width, times the
+    /// annotation's own `arrowHeadScale`. A generous floor keeps the head
+    /// clearly readable on thin arrows without scaling the whole annotation,
+    /// while it still grows with thicker strokes. The scale multiplies the
+    /// result rather than the floor, so a smaller head stays proportionate on
+    /// a thin arrow instead of collapsing into the shaft.
+    static func arrowheadLength(lineWidth: CGFloat, scale: CGFloat = 1) -> CGFloat {
+        max(18, lineWidth * 3.5) * scale
     }
 
     /// The two barb points of the arrowhead for a shaft from `from` to `tip`.
     /// Head size scales with line width so thick arrows look proportionate.
-    static func arrowheadBarbs(from: CGPoint, tip: CGPoint, lineWidth: CGFloat)
+    static func arrowheadBarbs(from: CGPoint, tip: CGPoint, lineWidth: CGFloat,
+                               scale: CGFloat = 1)
         -> (CGPoint, CGPoint)
     {
         let angle = atan2(tip.y - from.y, tip.x - from.x)
-        let headLength = arrowheadLength(lineWidth: lineWidth)
+        let headLength = arrowheadLength(lineWidth: lineWidth, scale: scale)
         let spread: CGFloat = .pi / 7
         let b1 = CGPoint(x: tip.x - headLength * cos(angle - spread),
                          y: tip.y - headLength * sin(angle - spread))

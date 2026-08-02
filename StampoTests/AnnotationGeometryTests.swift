@@ -873,6 +873,32 @@ import Testing
         #expect(Annotation.arrowheadLength(lineWidth: 10) == 35)
     }
 
+    /// The head-size slider multiplies the natural length rather than the
+    /// floor, so a small head on a thin arrow shrinks proportionately instead
+    /// of being pinned at 18 pt.
+    @Test func arrowheadScaleMultipliesTheNaturalLength() {
+        #expect(Annotation.arrowheadLength(lineWidth: 4) == 18)
+        #expect(Annotation.arrowheadLength(lineWidth: 4, scale: 2) == 36)
+        #expect(Annotation.arrowheadLength(lineWidth: 4, scale: 0.5) == 9)
+        #expect(Annotation.arrowheadLength(lineWidth: 10, scale: 2) == 70)
+        // Omitting the scale is the size arrows have always drawn at.
+        #expect(Annotation.arrowheadLength(lineWidth: 10, scale: 1)
+                == Annotation.arrowheadLength(lineWidth: 10))
+    }
+
+    @Test func arrowheadBarbsFollowTheScale() {
+        let from = CGPoint(x: 0, y: 0), tip = CGPoint(x: 100, y: 0)
+        let (small, _) = Annotation.arrowheadBarbs(from: from, tip: tip, lineWidth: 4, scale: 0.5)
+        let (normal, _) = Annotation.arrowheadBarbs(from: from, tip: tip, lineWidth: 4)
+        let (large, _) = Annotation.arrowheadBarbs(from: from, tip: tip, lineWidth: 4, scale: 2)
+        // Barbs sit further back down the shaft as the head grows.
+        #expect(small.x > normal.x)
+        #expect(large.x < normal.x)
+        // …and spread wider from the axis, keeping the same angle.
+        #expect(abs(large.y) > abs(normal.y))
+        #expect(abs(small.y) < abs(normal.y))
+    }
+
     // MARK: elbow routing
 
     /// Every leg of a route is axis-aligned.

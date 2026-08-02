@@ -248,6 +248,7 @@ struct EditorView: View {
                 arrowStylePicker
                 arrowHeadPlacementPicker
                 thicknessSlider
+                arrowHeadSizeSlider
             default:
                 // Select tool with nothing selected: there is nothing to
                 // restyle, so the row offers a hint instead of orphaned
@@ -603,6 +604,17 @@ struct EditorView: View {
         .hoverTip("Line Style")
     }
 
+    /// Arrowhead size as a multiplier on what the stroke width already gives.
+    /// A multiplier rather than a length: the head is meant to stay
+    /// proportionate to the shaft, and this only says by how much.
+    private var arrowHeadSizeSlider: some View {
+        settingSlider("Head Size", systemImage: "arrowtriangle.right",
+                      value: arrowHeadScaleBinding, range: 0.5...2, step: 0.25,
+                      // %g, not %.2g: two significant digits would print the
+                      // ×1.25 detent as "×1.2".
+                      format: { String(format: "×%g", $0) })
+    }
+
     private var thicknessSlider: some View {
         settingSlider("Thickness", systemImage: "lineweight",
                       value: thicknessBinding, range: 4...32, step: 4)
@@ -748,6 +760,16 @@ struct EditorView: View {
     private func sliderEditingChanged(_ began: Bool) {
         guard document.selectedID != nil else { return }
         if began { document.beginChange() } else { document.commitChange() }
+    }
+
+    private var arrowHeadScaleBinding: Binding<CGFloat> {
+        Binding(
+            get: { document.selectedAnnotation?.arrowHeadScale ?? style.arrowHeadScale },
+            set: { newValue in
+                style.arrowHeadScale = newValue
+                document.updateSelected { $0.arrowHeadScale = newValue }
+            }
+        )
     }
 
     private var thicknessBinding: Binding<CGFloat> {

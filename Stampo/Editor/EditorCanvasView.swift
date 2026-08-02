@@ -126,6 +126,7 @@ struct ToolStyle {
     /// Whether elbowed arrows quantize their legs and endpoints to the grid.
     var snapsToGrid = true
     var arrowHeadPlacement: ArrowHeadPlacement = .end
+    var arrowHeadScale: CGFloat = 1
     var lineStyle: LineStyle = .solid
     /// Fill opacity (0…1) for new rect/oval; 0 is outline-only.
     var fillOpacity: CGFloat = 0
@@ -851,6 +852,7 @@ struct EditorCanvasView: View {
                     annotation.arrowStyle = style.arrowStyle
                     annotation.arrowRoute = style.arrowRoute
                     annotation.arrowHeadPlacement = style.arrowHeadPlacement
+                    annotation.arrowHeadScale = style.arrowHeadScale
                     annotation.lineStyle = style.lineStyle
                     annotation.fillOpacity = style.fillOpacity
                     annotation.polygonSides = style.polygonSides

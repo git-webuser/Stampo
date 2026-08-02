@@ -239,11 +239,12 @@ enum AnnotationRenderer {
             ctx.strokePath()
 
             if a.arrowHeadPlacement.includesStart {
-                drawChevron(from: route[1], tip: route[0], lineWidth: width, ctx: ctx)
+                drawChevron(from: route[1], tip: route[0], scale: a.arrowHeadScale,
+                            lineWidth: width, ctx: ctx)
             }
             if a.arrowHeadPlacement.includesEnd {
                 drawChevron(from: route[route.count - 2], tip: route[route.count - 1],
-                            lineWidth: width, ctx: ctx)
+                            scale: a.arrowHeadScale, lineWidth: width, ctx: ctx)
             }
             return
         }
@@ -272,12 +273,14 @@ enum AnnotationRenderer {
             if a.arrowHeadPlacement.includesStart {
                 let anchor = hypot(control.x - start.x, control.y - start.y) >= 1
                     ? control : end
-                drawChevron(from: anchor, tip: start, lineWidth: width, ctx: ctx)
+                drawChevron(from: anchor, tip: start, scale: a.arrowHeadScale,
+                            lineWidth: width, ctx: ctx)
             }
             if a.arrowHeadPlacement.includesEnd {
                 let anchor = hypot(control.x - end.x, control.y - end.y) >= 1
                     ? control : start
-                drawChevron(from: anchor, tip: end, lineWidth: width, ctx: ctx)
+                drawChevron(from: anchor, tip: end, scale: a.arrowHeadScale,
+                            lineWidth: width, ctx: ctx)
             }
             return
         }
@@ -303,10 +306,12 @@ enum AnnotationRenderer {
 
         // Open chevron heads point outwards at their respective endpoints.
         if a.arrowHeadPlacement.includesStart {
-            drawChevron(from: end, tip: start, lineWidth: width, ctx: ctx)
+            drawChevron(from: end, tip: start, scale: a.arrowHeadScale,
+                        lineWidth: width, ctx: ctx)
         }
         if a.arrowHeadPlacement.includesEnd {
-            drawChevron(from: start, tip: end, lineWidth: width, ctx: ctx)
+            drawChevron(from: start, tip: end, scale: a.arrowHeadScale,
+                        lineWidth: width, ctx: ctx)
         }
     }
 
@@ -366,9 +371,10 @@ enum AnnotationRenderer {
     /// An open "chevron" arrowhead — two strokes meeting at the tip
     /// (Figma-style), drawn in the shaft's own weight instead of a filled
     /// triangle. Round caps and join keep the point clean.
-    private static func drawChevron(from: CGPoint, tip: CGPoint,
+    private static func drawChevron(from: CGPoint, tip: CGPoint, scale: CGFloat = 1,
                                     lineWidth: CGFloat, ctx: CGContext) {
-        let (b1, b2) = Annotation.arrowheadBarbs(from: from, tip: tip, lineWidth: lineWidth)
+        let (b1, b2) = Annotation.arrowheadBarbs(from: from, tip: tip,
+                                                 lineWidth: lineWidth, scale: scale)
         ctx.setLineWidth(lineWidth)
         ctx.setLineCap(.round)
         ctx.setLineJoin(.round)
