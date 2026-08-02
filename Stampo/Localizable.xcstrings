@@ -2152,19 +2152,19 @@
         }
       }
     },
-    "Hold ⌥ while selecting text to keep line breaks" : {
+    "Hold ⌥ to keep line breaks" : {
       "comment" : "Hotkey row subtitle — the Scan action's modifier variant",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Hold ⌥ while selecting text to keep line breaks"
+            "value" : "Hold ⌥ to keep line breaks"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Удерживай ⌥ при выделении текста для сохранения переносов"
+            "value" : "Удерживайте ⌥ для сохранения переносов"
           }
         }
       }

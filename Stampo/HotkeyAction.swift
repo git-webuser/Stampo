@@ -56,7 +56,7 @@ enum HotkeyAction: UInt32, CaseIterable {
     var modifierHintKey: String? {
         switch self {
         case .scan:
-            return "Hold ⌥ while selecting text to keep line breaks"
+            return "Hold ⌥ to keep line breaks"
         default:
             return nil
         }

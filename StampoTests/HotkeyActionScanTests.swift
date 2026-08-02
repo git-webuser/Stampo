@@ -56,8 +56,7 @@ import Testing
     /// Scan is the one action whose behaviour changes under a modifier; the
     /// row subtitle is where that gets documented.
     @Test func onlyScanCarriesAModifierHint() {
-        #expect(HotkeyAction.scan.modifierHintKey
-                == "Hold ⌥ while selecting text to keep line breaks")
+        #expect(HotkeyAction.scan.modifierHintKey == "Hold ⌥ to keep line breaks")
         let withHints = HotkeyAction.allCases.filter { $0.modifierHintKey != nil }
         #expect(withHints == [.scan])
     }
