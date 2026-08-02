@@ -36,7 +36,12 @@ struct NotchArchiveView: View {
     /// Cell currently hovered via an ArchiveDragShim NSView (screenshot or stack
     /// cells — the AppKit shim owns hover tracking for drag-capable cells).
     @State private var hoveredDragCellID: UUID?
-    @State private var isDropTargeted = false
+    /// Which half of the drop band the pointer is over, nil when no external
+    /// drag is hovering.
+    @State private var targetedZone: ArchiveDropZone?
+    /// Panel width, needed to place the split; measured rather than derived
+    /// because the panel is as wide as the screen's notch band.
+    @State private var panelWidth: CGFloat = 0
     /// True while any archive cell is mid drag-out (its ArchiveDragShim reports through
     /// `InternalDraggingKey`). SwiftUI's `.onDrop` also fires `isDropTargeted`
     /// for the app's OWN drags, so this gates them out: without it, dragging a
@@ -111,9 +116,27 @@ struct NotchArchiveView: View {
         // icon+label stay visible and it fully covers an expanded stack while
         // targeting. `allowsHitTesting(false)` keeps the drop landing on the row.
         .overlay { dropHighlight }
-        .onDrop(of: [.fileURL], isTargeted: $isDropTargeted) { providers in
-            handleDrop(providers)
-        }
+        // Width for the split, measured without taking a single click: the
+        // drop itself still lands on the view below, exactly as before.
+        .background(
+            GeometryReader { geo in
+                Color.clear.preference(key: PanelWidthKey.self, value: geo.size.width)
+            }
+            .allowsHitTesting(false)
+        )
+        .onPreferenceChange(PanelWidthKey.self) { panelWidth = $0 }
+        // A DropDelegate rather than `.onDrop(isTargeted:)`: the band is split
+        // in two, so which half the pointer is over decides both the highlight
+        // and where the files go, and only the delegate reports the location.
+        .onDrop(of: [.fileURL], delegate: ArchiveDropDelegate(
+            layout: dropLayout(totalWidth: panelWidth),
+            isInternalDragging: isInternalDragging,
+            setZone: { zone in
+                guard targetedZone != zone else { return }
+                withAnimation(.easeInOut(duration: 0.12)) { targetedZone = zone }
+            },
+            perform: { zone, providers in handleDrop(providers, into: zone) }
+        ))
         // Ephemeral expansion: collapse whenever the archive closes so it always
         // reopens in the compact grid.
         .onChange(of: isContentVisible) {
@@ -129,57 +152,84 @@ struct NotchArchiveView: View {
         .onPreferenceChange(InternalDraggingKey.self) { isInternalDragging = $0 }
     }
 
-    /// Drop frame (user-designed mock, "Frame 1000001163"): not a contour
-    /// ring but a filled plate marking the drop band — top edge exactly at
-    /// the header boundary (panelHeight), 20pt side insets, 5pt off the
-    /// bottom, radii 9.6 top / 17.6 bottom, dashed system-blue outline.
-    /// Rendered as the view's background so cells ride on top of it.
+    /// Panel-style geometry shared by the plates and the drop delegate:
+    /// - shoulder styles (real notch, notch tab): side inset = wall(15) + 5pt
+    ///   gap; bottom radius 11 = the 16pt shoulder arc minus the gap
+    ///   (concentric), top radius = buttonRadius to match the controls.
+    /// - rounded style: straight sides at x=0, so a uniform 5pt gap all around
+    ///   and buttonRadius corners everywhere.
+    private var hasShoulders: Bool { metrics.hasNotch || metrics.pinnedToTopEdge }
+    private var platePad: CGFloat { 5 }
+    private var plateSideInset: CGFloat { hasShoulders ? 15 + platePad : platePad }
+    private var plateTopRadius: CGFloat { metrics.buttonRadius }
+    private var plateBottomRadius: CGFloat { hasShoulders ? 16 - platePad : metrics.buttonRadius }
+
+    private func dropLayout(totalWidth: CGFloat) -> ArchiveDropLayout {
+        ArchiveDropLayout(totalWidth: totalWidth, sideInset: plateSideInset)
+    }
+
+    /// Drop frame (user-designed mock, "Frame 1000001163"): not a contour ring
+    /// but filled plates marking the drop band — top edge exactly at the header
+    /// boundary (panelHeight), 5pt off the bottom, dashed system-blue outline.
+    /// Two of them since the band is split: a narrow AirDrop plate leading, the
+    /// archive plate taking the rest. Both are drawn for the whole drag so the
+    /// choice is visible before the user commits to a half; only the one under
+    /// the pointer lights up.
     private var dropHighlight: some View {
-        // Geometry adapts to the panel style:
-        // - shoulder styles (real notch, notch tab): side inset = wall(15) +
-        //   5pt gap; bottom radius 11 = the 16pt shoulder arc minus the gap
-        //   (concentric), top radius = buttonRadius to match the controls.
-        // - rounded style: straight sides at x=0, so a uniform 5pt gap all
-        //   around and buttonRadius corners everywhere.
-        let hasShoulders = metrics.hasNotch || metrics.pinnedToTopEdge
-        let pad: CGFloat = 5
-        let sideInset: CGFloat = hasShoulders ? 15 + pad : pad
-        let topRadius = metrics.buttonRadius
-        let bottomRadius: CGFloat = hasShoulders ? 16 - pad : metrics.buttonRadius
+        HStack(spacing: dropLayout(totalWidth: panelWidth).gap) {
+            plate(for: .airDrop, icon: "airplayaudio", label: "AirDrop")
+                .frame(width: dropLayout(totalWidth: panelWidth).airDropWidth)
+            plate(for: .archive, icon: "arrow.down.document.fill", label: "Drop Files Here")
+        }
+        // One backing in the panel's own colour spanning both plates: without
+        // it a cell shows through the gap between them, which reads as the
+        // plates floating over the content rather than replacing it.
+        .background(
+            UnevenRoundedRectangle(
+                topLeadingRadius: plateTopRadius,
+                bottomLeadingRadius: plateBottomRadius,
+                bottomTrailingRadius: plateBottomRadius,
+                topTrailingRadius: plateTopRadius,
+                style: .continuous
+            )
+            .fill(Color.black)
+        )
+        .padding(.top, metrics.panelHeight)
+        .padding(.horizontal, plateSideInset)
+        .padding(.bottom, platePad)
+        // Only for EXTERNAL drags — an internal drag-out must not paint the
+        // plates over the very cells being moved.
+        .opacity((targetedZone != nil && !isInternalDragging) ? 1 : 0)
+        .allowsHitTesting(false)
+        .animation(.easeInOut(duration: 0.15), value: targetedZone == nil)
+    }
+
+    /// One half of the drop band. The inactive half stays visible but muted, so
+    /// the split reads as two targets rather than as a plate that moved.
+    private func plate(for zone: ArchiveDropZone, icon: String, label: LocalizedStringKey) -> some View {
+        let isLeading = zone == .airDrop
+        let isActive = targetedZone == zone
         let shape = UnevenRoundedRectangle(
-            topLeadingRadius: topRadius,
-            bottomLeadingRadius: bottomRadius,
-            bottomTrailingRadius: bottomRadius,
-            topTrailingRadius: topRadius,
+            topLeadingRadius: plateTopRadius,
+            bottomLeadingRadius: isLeading ? plateBottomRadius : plateTopRadius,
+            bottomTrailingRadius: isLeading ? plateTopRadius : plateBottomRadius,
+            topTrailingRadius: plateTopRadius,
             style: .continuous
         )
         return shape
             .fill(Color(red: 0x2C / 255, green: 0x2C / 255, blue: 0x2E / 255))
             .overlay(
                 shape.stroke(
-                    Color(red: 0x0A / 255, green: 0x84 / 255, blue: 0xFF / 255),
+                    Color(red: 0x0A / 255, green: 0x84 / 255, blue: 0xFF / 255)
+                        .opacity(isActive ? 1 : 0.35),
                     style: StrokeStyle(lineWidth: 1, lineCap: .round, dash: [4, 4])
                 )
             )
-            .overlay {
-                // The plate's own state hint. Now that the plate is an overlay
-                // riding above the cells, it covers the whole drop band while
-                // targeting, so the hint shows for every external drop — not only
-                // the empty archive. (The plate itself is opacity-gated on
-                // isDropTargeted, so this is only visible mid-drop.)
-                archiveHint(icon: "arrow.down.document.fill", label: "Drop Files Here")
-            }
-            .padding(.top, metrics.panelHeight)
-            .padding(.horizontal, sideInset)
-            .padding(.bottom, pad)
-            // Only for EXTERNAL drags — an internal drag-out must not paint the
-            // plate over the very cells being moved.
-            .opacity((isDropTargeted && !isInternalDragging) ? 1 : 0)
-            .allowsHitTesting(false)
-            .animation(.easeInOut(duration: 0.15), value: isDropTargeted)
+            .overlay { archiveHint(icon: icon, label: label).opacity(isActive ? 1 : 0.45) }
+            .animation(.easeInOut(duration: 0.12), value: isActive)
     }
 
-    private func handleDrop(_ providers: [NSItemProvider]) -> Bool {
+    private func handleDrop(_ providers: [NSItemProvider], into zone: ArchiveDropZone) -> Bool {
         // Ignore the app's own drags: an archive cell dropped back onto the archive
         // would otherwise be re-ingested (e.g. a screenshot becomes a duplicate
         // stack). External file drops leave isInternalDragging false.
@@ -189,15 +239,44 @@ struct NotchArchiveView: View {
         }
         guard !fileProviders.isEmpty else { return false }
 
-        // loadObject completions race, so write each result into its own slot
-        // keyed by provider index — the drop's order is then preserved (fan
-        // order, and which folder-stack lands in front) instead of depending
-        // on which loads happen to finish first. The lock guards the array
-        // itself (concurrent Swift-array writes race even at disjoint indices).
+        loadURLs(from: fileProviders) { urls in
+            guard !urls.isEmpty else { return }
+            switch zone {
+            case .archive:
+                keep(urls)
+            case .airDrop:
+                // A refusal (AirDrop off, nothing it can take) must not eat the
+                // drop — the files fall back into the archive, where the user
+                // can retry from the context menu.
+                if !AirDropSender.send(urls) { keep(urls) }
+            }
+        }
+        return true
+    }
+
+    private func keep(_ urls: [URL]) {
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+            archiveModel.add(droppedFiles: urls)
+            // Collapse on a landed drop: show the (possibly reordered) stack
+            // in its compact form. This also sidesteps the reorder jank —
+            // add() moves a touched stack to the front, and an expanded group
+            // jumping across the row would read as broken.
+            expandedStackID = nil
+        }
+    }
+
+    /// Resolves every provider to a file URL, then reports on the main queue.
+    ///
+    /// loadObject completions race, so each result goes into its own slot keyed
+    /// by provider index — the drop's order is then preserved (fan order, and
+    /// which folder-stack lands in front) instead of depending on which loads
+    /// happen to finish first. The lock guards the array itself (concurrent
+    /// Swift-array writes race even at disjoint indices).
+    private func loadURLs(from providers: [NSItemProvider], completion: @escaping ([URL]) -> Void) {
         let group = DispatchGroup()
         let lock = NSLock()
-        var slots = [URL?](repeating: nil, count: fileProviders.count)
-        for (index, provider) in fileProviders.enumerated() {
+        var slots = [URL?](repeating: nil, count: providers.count)
+        for (index, provider) in providers.enumerated() {
             group.enter()
             _ = provider.loadObject(ofClass: URL.self) { url, _ in
                 if let url, url.isFileURL {
@@ -208,19 +287,7 @@ struct NotchArchiveView: View {
                 group.leave()
             }
         }
-        group.notify(queue: .main) {
-            let urls = slots.compactMap { $0 }
-            guard !urls.isEmpty else { return }
-            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                archiveModel.add(droppedFiles: urls)
-                // Collapse on a landed drop: show the (possibly reordered) stack
-                // in its compact form. This also sidesteps the reorder jank —
-                // add() moves a touched stack to the front, and an expanded group
-                // jumping across the row would read as broken.
-                expandedStackID = nil
-            }
-        }
-        return true
+        group.notify(queue: .main) { completion(slots.compactMap { $0 }) }
     }
 
     private var notchLayout: some View {
@@ -308,6 +375,11 @@ struct NotchArchiveView: View {
             Image(systemName: icon)
                 .font(.system(size: 15, weight: .medium))
                 .foregroundStyle(.white.opacity(0.35))
+                // Fixed height so glyphs of different heights don't shift the
+                // block: the hint is centred, so a shorter symbol
+                // (dot.radiowaves.right) would otherwise lift its label a
+                // couple of points above the neighbouring plate's.
+                .frame(height: 17)
             Text(label)
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.45))
@@ -317,10 +389,10 @@ struct NotchArchiveView: View {
     private var emptyState: some View {
         archiveHint(icon: "photo.on.rectangle.angled", label: "Nothing Here Yet")
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-        // The drop plate carries its own hint while a drag hovers — showing
+        // The drop plates carry their own hints while a drag hovers — showing
         // both indicators at once reads as overlapping clutter.
-        .opacity(isDropTargeted ? 0 : 1)
-        .animation(.easeInOut(duration: 0.15), value: isDropTargeted)
+        .opacity(targetedZone == nil ? 1 : 0)
+        .animation(.easeInOut(duration: 0.15), value: targetedZone == nil)
     }
 
     private var scrollContent: some View {
@@ -1621,6 +1693,48 @@ private struct InternalDraggingKey: PreferenceKey {
     static let defaultValue = false
     static func reduce(value: inout Bool, nextValue: () -> Bool) {
         value = value || nextValue()
+    }
+}
+
+/// Panel width, for placing the split in the drop band.
+private struct PanelWidthKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
+/// Routes an external file drop to one of the two plates.
+///
+/// `dropUpdated` fires on every mouse move, so the caller's `setZone` is
+/// expected to filter out repeats — this type reports, it doesn't debounce.
+private struct ArchiveDropDelegate: DropDelegate {
+    let layout: ArchiveDropLayout
+    let isInternalDragging: Bool
+    let setZone: (ArchiveDropZone?) -> Void
+    let perform: (ArchiveDropZone, [NSItemProvider]) -> Bool
+
+    func validateDrop(info: DropInfo) -> Bool {
+        !isInternalDragging && info.hasItemsConforming(to: [.fileURL])
+    }
+
+    func dropEntered(info: DropInfo) {
+        setZone(layout.zone(atX: info.location.x))
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        setZone(layout.zone(atX: info.location.x))
+        return DropProposal(operation: .copy)
+    }
+
+    func dropExited(info: DropInfo) {
+        setZone(nil)
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        let zone = layout.zone(atX: info.location.x)
+        setZone(nil)
+        return perform(zone, info.itemProviders(for: [.fileURL]))
     }
 }
 

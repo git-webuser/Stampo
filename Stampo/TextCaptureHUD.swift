@@ -26,6 +26,8 @@ final class TextCaptureHUD {
         case shareNotPrepared
         /// Shown only while a slow folder is being zipped for the share sheet.
         case preparingShare
+        /// A drop on the AirDrop plate that AirDrop refused to take.
+        case airDropUnavailable
     }
 
     private var panel: NSPanel?
@@ -159,6 +161,9 @@ private struct TextCaptureHUDView: View {
                     .fixedSize()
             case .preparingShare:
                 statusRow(title: "Preparing to share…", systemName: "shippingbox", iconOpacity: 0.6)
+                    .fixedSize()
+            case .airDropUnavailable:
+                statusRow(title: "AirDrop isn't available", systemName: "airplayaudio", iconOpacity: 0.6)
                     .fixedSize()
             case .shareNotPrepared:
                 statusRow(title: "Couldn't prepare the folder for sharing",

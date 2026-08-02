@@ -395,6 +395,40 @@
         }
       }
     },
+    "AirDrop" : {
+      "comment" : "Drop-zone label — send the dropped files straight to another device",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "AirDrop"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "AirDrop"
+          }
+        }
+      }
+    },
+    "AirDrop isn't available" : {
+      "comment" : "Toast — AirDrop refused the dropped files",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "AirDrop isn't available"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "AirDrop недоступен"
+          }
+        }
+      }
+    },
     "Already used by another Stampo action" : {
       "comment" : "Rejection: duplicate within Stampo",
       "extractionState" : "stale",
