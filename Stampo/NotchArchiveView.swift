@@ -670,7 +670,24 @@ private struct ArchiveColorCell: View {
     @State private var isPressed    = false
     @State private var isCopied     = false
     @State private var isBadgeActive = false
+    @State private var isDragging   = false
     @State private var shareAnchor  = SharePickerAnchor()
+
+    /// The drag image: the swatch itself, so what leaves the cell looks like
+    /// the cell. Drawn rather than snapshotted — a plain rounded square is
+    /// cheaper to render than to capture.
+    private var dragPreview: NSImage {
+        let side = height
+        let image = NSImage(size: NSSize(width: side, height: side))
+        image.lockFocus()
+        let rect = NSRect(x: 0, y: 0, width: side, height: side)
+        NSBezierPath(roundedRect: rect, xRadius: cornerRadius, yRadius: cornerRadius)
+            .addClip()
+        item.color.setFill()
+        rect.fill()
+        image.unlockFocus()
+        return image
+    }
 
     /// Copies `value` and flashes "Copied!" in the label — the same feedback the
     /// tap gesture gives, reused by every menu entry.
@@ -691,13 +708,6 @@ private struct ArchiveColorCell: View {
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .stroke(Color.white.opacity(isHovered ? 0.35 : 0.12), lineWidth: 1)
             )
-            .overlay(alignment: .topTrailing) {
-                ArchiveDeleteBadge(action: { onRemove() },
-                                isPressed: $isBadgeActive)
-                .opacity(isHovered ? 1 : 0)
-                .allowsHitTesting(isHovered)
-                .offset(x: badgeBleed, y: -badgeBleed)
-            }
             .overlay(alignment: .bottom) {
                 ZStack {
                     Text(scheme.convert(item.color))
@@ -742,24 +752,37 @@ private struct ArchiveColorCell: View {
                 Button("Remove from archive") { onRemove() }
             }
             .sharePickerAnchor(shareAnchor)
-            .scaleEffect(isPressed ? 0.88 : 1.0)
+            .scaleEffect(isPressed ? 0.88 : (isDragging ? 0.92 : 1.0))
+            .opacity(isDragging ? 0.45 : 1)
             .animation(.spring(response: 0.2, dampingFraction: 0.8), value: isHovered)
             .animation(.spring(response: 0.15, dampingFraction: 0.7), value: isPressed)
+            // The shim replaces the SwiftUI press gesture: it owns press, hover
+            // and tap the same way it does for file cells, and adds the drag
+            // out. The color leaves as a swatch *and* as text — see
+            // ArchiveDragPayload.
+            .overlay {
+                ArchiveDragShim(
+                    payload: ArchiveDragPayload.color(item.color,
+                                                      formatted: scheme.convert(item.color)),
+                    dragImages: [dragPreview],
+                    cellSize: CGSize(width: height, height: height),
+                    isPressed: $isPressed,
+                    isDragging: $isDragging,
+                    onHoverChange: { isHovered = $0 },
+                    onTap: { copy(scheme.convert(item.color)) }
+                )
+            }
+            // Badge after the shim, mirroring the file cells' z-order note.
+            .overlay(alignment: .topTrailing) {
+                ArchiveDeleteBadge(action: { onRemove() }, isPressed: $isBadgeActive)
+                    .opacity(isHovered ? 1 : 0)
+                    .allowsHitTesting(isHovered)
+                    .offset(x: badgeBleed, y: -badgeBleed)
+            }
+            .preference(key: InternalDraggingKey.self, value: isDragging)
             .accessibilityLabel("Color \(scheme.convert(item.color))")
-            .accessibilityHint("Tap to copy, hold to delete")
+            .accessibilityHint("Tap to copy, drag to carry the color out")
             .accessibilityAddTraits(.isButton)
-            .onHover { isHovered = $0 }
-            .simultaneousGesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { _ in
-                        if !isBadgeActive { isPressed = true }
-                    }
-                    .onEnded { _ in
-                        isPressed = false
-                        guard !isBadgeActive else { isBadgeActive = false; return }
-                        copy(scheme.convert(item.color))
-                    }
-            )
     }
 }
 
@@ -779,9 +802,32 @@ private struct ArchiveTextCell: View {
     @State private var isPressed    = false
     @State private var isCopied     = false
     @State private var isBadgeActive = false
+    @State private var isDragging   = false
     @State private var shareAnchor  = SharePickerAnchor()
 
     private var width: CGFloat { height * 1.6 }
+
+    /// Drag image: the first line on the cell's own plate, so the thing under
+    /// the cursor still says which snippet is being carried.
+    private var dragPreview: NSImage {
+        let size = NSSize(width: width, height: height)
+        let image = NSImage(size: size)
+        image.lockFocus()
+        let rect = NSRect(origin: .zero, size: size)
+        let plate = NSBezierPath(roundedRect: rect, xRadius: cornerRadius, yRadius: cornerRadius)
+        NSColor(calibratedWhite: 0.17, alpha: 1).setFill()
+        plate.fill()
+        NSColor(calibratedWhite: 1, alpha: 0.25).setStroke()
+        plate.stroke()
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 6),
+            .foregroundColor: NSColor(calibratedWhite: 1, alpha: 0.75)
+        ]
+        NSAttributedString(string: item.firstLine, attributes: attributes)
+            .draw(in: rect.insetBy(dx: 4, dy: 4))
+        image.unlockFocus()
+        return image
+    }
 
     private func copyText() {
         NSPasteboard.general.clearContents()
@@ -837,13 +883,6 @@ private struct ArchiveTextCell: View {
             .offset(y: labelOffset)
             .animation(.easeInOut(duration: 0.14), value: isCopied)
         }
-        .overlay(alignment: .topTrailing) {
-            ArchiveDeleteBadge(action: { onRemove() },
-                            isPressed: $isBadgeActive)
-            .opacity(isHovered ? 1 : 0)
-            .allowsHitTesting(isHovered)
-            .offset(x: badgeBleed, y: -badgeBleed)
-        }
         .contextMenu {
             Button("Copy") { copyText() }
             // Plain string, not a file: the share sheet offers Messages, Notes,
@@ -853,24 +892,33 @@ private struct ArchiveTextCell: View {
             Button("Remove from archive") { onRemove() }
         }
         .sharePickerAnchor(shareAnchor)
-        .scaleEffect(isPressed ? 0.88 : 1.0)
+        .scaleEffect(isPressed ? 0.88 : (isDragging ? 0.92 : 1.0))
+        .opacity(isDragging ? 0.45 : 1)
         .animation(.spring(response: 0.2, dampingFraction: 0.8), value: isHovered)
         .animation(.spring(response: 0.15, dampingFraction: 0.7), value: isPressed)
+        // As in the color cell: the shim takes over press/hover/tap and adds
+        // the drag out, so the snippet can be dropped straight into a document.
+        .overlay {
+            ArchiveDragShim(
+                payload: ArchiveDragPayload.text(item.text),
+                dragImages: [dragPreview],
+                cellSize: CGSize(width: width, height: height),
+                isPressed: $isPressed,
+                isDragging: $isDragging,
+                onHoverChange: { isHovered = $0 },
+                onTap: { copyText() }
+            )
+        }
+        .overlay(alignment: .topTrailing) {
+            ArchiveDeleteBadge(action: { onRemove() }, isPressed: $isBadgeActive)
+                .opacity(isHovered ? 1 : 0)
+                .allowsHitTesting(isHovered)
+                .offset(x: badgeBleed, y: -badgeBleed)
+        }
+        .preference(key: InternalDraggingKey.self, value: isDragging)
         .accessibilityLabel("Recognized text \(item.firstLine)")
-        .accessibilityHint("Tap to copy, hold to delete")
+        .accessibilityHint("Tap to copy, drag to carry the text out")
         .accessibilityAddTraits(.isButton)
-        .onHover { isHovered = $0 }
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 0)
-                .onChanged { _ in
-                    if !isBadgeActive { isPressed = true }
-                }
-                .onEnded { _ in
-                    isPressed = false
-                    guard !isBadgeActive else { isBadgeActive = false; return }
-                    copyText()
-                }
-        )
     }
 }
 
@@ -972,7 +1020,7 @@ private struct ArchiveFileCell<Menu: View>: View {
         .animation(.spring(response: 0.15, dampingFraction: 0.7), value: isPressed)
         .overlay {
             ArchiveDragShim(
-                urls: [url],
+                payload: ArchiveDragPayload.files([url]),
                 dragImages: [preview],
                 cellSize: CGSize(width: width, height: height),
                 isPressed: $isPressed,
@@ -1199,7 +1247,7 @@ private struct ArchiveStackCell: View {
         .animation(.spring(response: 0.15, dampingFraction: 0.7), value: isPressed)
         .overlay {
             ArchiveDragShim(
-                urls: stack.urls,
+                payload: ArchiveDragPayload.files(stack.urls),
                 dragImages: (0..<fanCount).map { previewImage(at: $0) },
                 cellSize: CGSize(width: width, height: height),
                 isPressed: $isPressed,
@@ -1739,7 +1787,9 @@ private struct ArchiveDropDelegate: DropDelegate {
 }
 
 private struct ArchiveDragShim: NSViewRepresentable {
-    let urls: [URL]
+    /// What the drag carries. Files are the common case, but a color or a
+    /// snippet of text is just as draggable — see ArchiveDragPayload.
+    let payload: [NSPasteboardWriting]
     let dragImages: [NSImage?]
     let cellSize: CGSize
     @Binding var isPressed: Bool
@@ -1756,7 +1806,7 @@ private struct ArchiveDragShim: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: ArchiveDragShimView, context: Context) {
-        nsView.urls = urls
+        nsView.payload = payload
         nsView.dragImages = dragImages
         nsView.cellSize = cellSize
         nsView.onHoverChange = onHoverChange
@@ -1765,7 +1815,7 @@ private struct ArchiveDragShim: NSViewRepresentable {
 }
 
 final class ArchiveDragShimView: NSView, NSDraggingSource {
-    var urls: [URL] = []
+    var payload: [NSPasteboardWriting] = []
     var dragImages: [NSImage?] = []
     var cellSize: CGSize = .zero
     var onDragCompleted: ((NSDragOperation) -> Void)?
@@ -1877,14 +1927,14 @@ final class ArchiveDragShimView: NSView, NSDraggingSource {
     }
 
     override func mouseDragged(with event: NSEvent) {
-        guard !urls.isEmpty else { return }
+        guard !payload.isEmpty else { return }
         DispatchQueue.main.async {
             self.isPressed = false
             self.isDragging = true
         }
         let previewSize = NSSize(width: cellSize.width * 0.75, height: cellSize.height * 0.75)
-        let items = urls.enumerated().map { idx, url -> NSDraggingItem in
-            let item = NSDraggingItem(pasteboardWriter: url as NSURL)
+        let items = payload.enumerated().map { idx, writer -> NSDraggingItem in
+            let item = NSDraggingItem(pasteboardWriter: writer)
             // Shallow cascade: the first few items carry previews, the rest
             // ride along without one (their payload still lands on the drop).
             let shift = CGFloat(min(idx, 2)) * 5
@@ -1898,7 +1948,10 @@ final class ArchiveDragShimView: NSView, NSDraggingSource {
 
     func draggingSession(_ session: NSDraggingSession,
                          sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
-        context == .outsideApplication ? [.copy, .link] : [.move]
+        guard context == .outsideApplication else { return [.move] }
+        // .link means "make an alias", which only exists for files — offering
+        // it for a color or a snippet would advertise a drop that can't happen.
+        return payload.contains { $0 is NSURL } ? [.copy, .link] : [.copy]
     }
 
     func draggingSession(_ session: NSDraggingSession,
