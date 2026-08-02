@@ -60,7 +60,8 @@ final class EditorWindowController: NSObject, NSWindowDelegate {
         let root = EditorView(
             document: document,
             saveHandler: { [weak self] doc in self?.performSave(doc) ?? false },
-            saveAsHandler: { [weak self] doc in self?.presentSaveAs(doc) }
+            saveAsHandler: { [weak self] doc in self?.presentSaveAs(doc) },
+            deleteHandler: { [weak self] doc in self?.performDelete(doc) }
         )
         .managedLocale()
 
@@ -163,6 +164,37 @@ final class EditorWindowController: NSObject, NSWindowDelegate {
                 alert.runModal()
             }
         }
+    }
+
+    // MARK: Delete
+
+    /// Sends the file this document was opened from to the Trash and closes the
+    /// editor. The Trash rather than an unlink: this is the one command here
+    /// that destroys the user's own file, and it should be as undoable as the
+    /// archive's "Move to Trash", which is the same gesture in another place.
+    ///
+    /// Nothing else has to be told. The archive and any pin of this file watch
+    /// it and drop themselves when it goes, exactly as they do for a file
+    /// trashed in Finder.
+    private func performDelete(_ document: EditorDocument) {
+        let url = document.sourceURL
+        // Deleting the file settles the question the close guard would ask:
+        // the annotations are being discarded on purpose, along with what they
+        // were drawn on.
+        document.markSaved()
+        NSWorkspace.shared.recycle([url]) { _, error in
+            guard let error else { return }
+            Log.capture.error("editor: delete failed: \(error)")
+            DispatchQueue.main.async {
+                let alert = NSAlert()
+                alert.alertStyle = .warning
+                alert.messageText = String(localized: "Could not delete the file")
+                alert.informativeText = error.localizedDescription
+                alert.addButton(withTitle: String(localized: "OK"))
+                alert.runModal()
+            }
+        }
+        window?.close()
     }
 
     // MARK: Unsaved-changes guard

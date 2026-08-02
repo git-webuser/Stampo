@@ -1255,6 +1255,23 @@
         }
       }
     },
+    "Copy and Delete" : {
+      "comment" : "Editor Save menu — copies the annotated image, then trashes the file it was opened from",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copy and Delete"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Копировать и удалить"
+          }
+        }
+      }
+    },
     "Copy As" : {
       "comment" : "Color cell context submenu — copy the color in another notation",
       "localizations" : {
@@ -1302,6 +1319,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Копировать в буфер обмена"
+          }
+        }
+      }
+    },
+    "Could not delete the file" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Could not delete the file"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не удалось удалить файл"
           }
         }
       }
@@ -1509,6 +1543,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Плотный"
+          }
+        }
+      }
+    },
+    "Delete" : {
+      "comment" : "Editor Save menu — trashes the file the editor was opened from",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Удалить"
           }
         }
       }

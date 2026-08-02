@@ -19,6 +19,10 @@ struct EditorView: View {
     /// Save As: runs a save panel, so it reports back through its own sheet
     /// rather than a return value (the toast is shown by the controller).
     var saveAsHandler: ((EditorDocument) -> Void)?
+    /// Delete: the file this document was opened from goes to the Trash and the
+    /// window closes. The controller owns both halves; anything the user wanted
+    /// to keep out of it (the clipboard copy) happens here first.
+    var deleteHandler: ((EditorDocument) -> Void)?
 
     @State private var tool: EditorTool = .select
     @State private var style = ToolStyle()
@@ -1471,6 +1475,18 @@ struct EditorView: View {
             Menu {
                 Button("Save As…") { saveAs() }
                     .disabled(saveAsHandler == nil)
+                Divider()
+                // The other way a capture can end: it was only ever wanted on
+                // the clipboard, and the file the app wrote on its own way out
+                // is litter. Copy renders the annotated composite exactly as
+                // the Copy button does — what leaves is what is on screen.
+                Button("Copy and Delete") {
+                    copyToClipboard()
+                    delete()
+                }
+                .disabled(deleteHandler == nil)
+                Button("Delete", role: .destructive) { delete() }
+                    .disabled(deleteHandler == nil)
             } label: {
                 actionLabel("Save", systemImage: "square.and.arrow.down", labelled: labelled)
             } primaryAction: {
@@ -1533,6 +1549,10 @@ struct EditorView: View {
 
     private func saveAs() {
         saveAsHandler?(document)
+    }
+
+    private func delete() {
+        deleteHandler?(document)
     }
 
     /// Text+icon when there's room, icon-only when the row is tight.
