@@ -695,6 +695,92 @@ struct ArchiveDeleteBadge: View {
     }
 }
 
+// MARK: - Menu icons
+
+/// One glyph per verb, shared by every archive context menu. The menus are long
+/// (a screenshot offers seven commands), and a symbol is faster to find than a
+/// word — but only while the same verb always wears the same symbol, so the
+/// vocabulary lives here rather than being spelled out at each call site.
+/// Two pairs are deliberately told apart: "Remove from archive" only drops the
+/// entry (xmark) while "Move to Trash" takes the file on disk with it (trash),
+/// and Copy/Share keep their base glyph in the "… As" submenus — what the
+/// submenu picks is the notation, not the verb.
+private enum ArchiveMenuIcon: String {
+    case edit     = "pencil"
+    case open     = "arrow.up.forward.app"
+    case pin      = "pin"
+    case finder   = "folder"
+    case copy     = "doc.on.doc"
+    case share    = "square.and.arrow.up"
+    /// The glyph the inline CollapseButton already shows, so the menu row and
+    /// the button on screen read as one command.
+    case collapse = "arrow.down.forward.and.arrow.up.backward"
+    case remove   = "xmark.circle"
+    case trash    = "trash"
+}
+
+/// Menu row label, spelled the one way that keeps its icon: macOS drops the
+/// symbol from `Button(_:systemImage:)` and from a plain `Label` once the row
+/// becomes an NSMenuItem — only an explicit `.titleAndIcon` style survives the
+/// trip (checked on 15.7). Everything goes through here so no row can quietly
+/// lose its glyph, which would also drag its title out of line with the rest.
+private struct ArchiveMenuLabel: View {
+    let titleKey: LocalizedStringKey
+    /// nil draws an empty icon of the same width — the row a submenu opens from
+    /// would only repeat the glyph of the command right above it, but dropping
+    /// the icon outright pulls its title left, out of line with every other row.
+    let icon: ArchiveMenuIcon?
+
+    init(_ titleKey: LocalizedStringKey, icon: ArchiveMenuIcon) {
+        self.titleKey = titleKey
+        self.icon = icon
+    }
+
+    init(indented titleKey: LocalizedStringKey) {
+        self.titleKey = titleKey
+        self.icon = nil
+    }
+
+    var body: some View {
+        Label {
+            Text(titleKey)
+        } icon: {
+            if let icon {
+                Image(systemName: icon.rawValue)
+            } else {
+                // An empty NSImage keeps the icon column's width without
+                // drawing into it; a clear SwiftUI shape gets collapsed away.
+                Image(nsImage: NSImage(size: NSSize(width: 14, height: 14)))
+            }
+        }
+        .labelStyle(.titleAndIcon)
+    }
+}
+
+/// A command row in an archive context menu — Button plus ArchiveMenuLabel.
+private struct ArchiveMenuButton: View {
+    let titleKey: LocalizedStringKey
+    let icon: ArchiveMenuIcon
+    var role: ButtonRole? = nil
+    let action: () -> Void
+
+    init(_ titleKey: LocalizedStringKey,
+         icon: ArchiveMenuIcon,
+         role: ButtonRole? = nil,
+         action: @escaping () -> Void) {
+        self.titleKey = titleKey
+        self.icon = icon
+        self.role = role
+        self.action = action
+    }
+
+    var body: some View {
+        Button(role: role, action: action) {
+            ArchiveMenuLabel(titleKey, icon: icon)
+        }
+    }
+}
+
 // MARK: - Archive Color Cell
 
 private struct ArchiveColorCell: View {
@@ -768,29 +854,6 @@ private struct ArchiveColorCell: View {
                 .offset(y: labelOffset)
                 .animation(.easeInOut(duration: 0.14), value: isCopied)
             }
-            .contextMenu {
-                // Tap already copies in the header's format; the submenu is for
-                // the other notations, so a user working in CSS doesn't have to
-                // switch the whole archive's format to grab one HSL value.
-                Button("Copy") { copy(scheme.convert(item.color)) }
-                Menu("Copy As") {
-                    ForEach(ColorSchemeType.allCases, id: \.title) { format in
-                        Button { copy(format.convert(item.color)) }
-                            label: { Text(verbatim: format.title) }
-                    }
-                }
-                Button("Share") { shareAnchor.present([scheme.convert(item.color)]) }
-                // Mirrors Copy As: what leaves in a message is a string, so the
-                // notation is as much a choice when sharing as when copying.
-                Menu("Share As") {
-                    ForEach(ColorSchemeType.allCases, id: \.title) { format in
-                        Button { shareAnchor.present([format.convert(item.color)]) }
-                            label: { Text(verbatim: format.title) }
-                    }
-                }
-                Divider()
-                Button("Remove from archive") { onRemove() }
-            }
             .sharePickerAnchor(shareAnchor)
             .scaleEffect(isPressed ? 0.88 : (isDragging ? 0.92 : 1.0))
             .opacity(isDragging ? 0.45 : 1)
@@ -818,6 +881,39 @@ private struct ArchiveColorCell: View {
                     .opacity(isHovered ? 1 : 0)
                     .allowsHitTesting(isHovered)
                     .offset(x: badgeBleed, y: -badgeBleed)
+            }
+            // After the shim, like the file cells: attached any earlier, the
+            // menu belongs to a view the shim's NSView covers, and the right
+            // click finds no menu at all.
+            .contextMenu {
+                // Tap already copies in the header's format; the submenu is for
+                // the other notations, so a user working in CSS doesn't have to
+                // switch the whole archive's format to grab one HSL value.
+                ArchiveMenuButton("Copy", icon: .copy) { copy(scheme.convert(item.color)) }
+                Menu {
+                    ForEach(ColorSchemeType.allCases, id: \.title) { format in
+                        Button { copy(format.convert(item.color)) }
+                            label: { Text(verbatim: format.title) }
+                    }
+                } label: {
+                    // No icon of its own: it would only repeat Copy's, one row up.
+                    ArchiveMenuLabel(indented: "Copy As")
+                }
+                ArchiveMenuButton("Share", icon: .share) {
+                    shareAnchor.present([scheme.convert(item.color)])
+                }
+                // Mirrors Copy As: what leaves in a message is a string, so the
+                // notation is as much a choice when sharing as when copying.
+                Menu {
+                    ForEach(ColorSchemeType.allCases, id: \.title) { format in
+                        Button { shareAnchor.present([format.convert(item.color)]) }
+                            label: { Text(verbatim: format.title) }
+                    }
+                } label: {
+                    ArchiveMenuLabel(indented: "Share As")
+                }
+                Divider()
+                ArchiveMenuButton("Remove from archive", icon: .remove) { onRemove() }
             }
             .preference(key: InternalDraggingKey.self, value: isDragging)
             .accessibilityLabel("Color \(scheme.convert(item.color))")
@@ -923,14 +1019,6 @@ private struct ArchiveTextCell: View {
             .offset(y: labelOffset)
             .animation(.easeInOut(duration: 0.14), value: isCopied)
         }
-        .contextMenu {
-            Button("Copy") { copyText() }
-            // Plain string, not a file: the share sheet offers Messages, Notes,
-            // Mail — the same payload the tap-to-copy puts on the pasteboard.
-            Button("Share") { shareAnchor.present([item.text]) }
-            Divider()
-            Button("Remove from archive") { onRemove() }
-        }
         .sharePickerAnchor(shareAnchor)
         .scaleEffect(isPressed ? 0.88 : (isDragging ? 0.92 : 1.0))
         .opacity(isDragging ? 0.45 : 1)
@@ -954,6 +1042,15 @@ private struct ArchiveTextCell: View {
                 .opacity(isHovered ? 1 : 0)
                 .allowsHitTesting(isHovered)
                 .offset(x: badgeBleed, y: -badgeBleed)
+        }
+        // After the shim, for the reason spelled out in ArchiveColorCell.
+        .contextMenu {
+            ArchiveMenuButton("Copy", icon: .copy) { copyText() }
+            // Plain string, not a file: the share sheet offers Messages, Notes,
+            // Mail — the same payload the tap-to-copy puts on the pasteboard.
+            ArchiveMenuButton("Share", icon: .share) { shareAnchor.present([item.text]) }
+            Divider()
+            ArchiveMenuButton("Remove from archive", icon: .remove) { onRemove() }
         }
         .preference(key: InternalDraggingKey.self, value: isDragging)
         .accessibilityLabel("Recognized text \(item.firstLine)")
@@ -1129,17 +1226,19 @@ private struct ArchiveScreenshotCell: View {
             accessibilityLabelText: Text("Screenshot \(displayName)"),
             accessibilityHintText: Text("Tap to open, hold to delete"),
             menu: {
-                Button("Edit") {
+                ArchiveMenuButton("Edit", icon: .edit) {
                     EditorWindowController.shared.open(url: shot.url)
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { onOpen() }
                 }
-                Button("Open") { open() }
-                Button("Pin to Screen") {
+                ArchiveMenuButton("Open", icon: .open) { open() }
+                ArchiveMenuButton("Pin to Screen", icon: .pin) {
                     PinnedScreenshotController.shared.pin(url: shot.url)
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { onOpen() }
                 }
-                Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([shot.url]) }
-                Button("Copy") {
+                ArchiveMenuButton("Show in Finder", icon: .finder) {
+                    NSWorkspace.shared.activateFileViewerSelecting([shot.url])
+                }
+                ArchiveMenuButton("Copy", icon: .copy) {
                     NSPasteboard.general.writeImage(at: shot.url)
                     withAnimation { isCopied = true }
                     DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
@@ -1150,9 +1249,11 @@ private struct ArchiveScreenshotCell: View {
                 // carry the actual PNG with its name instead of an untitled
                 // bitmap. (The editor shares an image because its composite
                 // isn't on disk yet.)
-                Button("Share") { shareAnchor.present([shot.url]) }
+                ArchiveMenuButton("Share", icon: .share) { shareAnchor.present([shot.url]) }
                 Divider()
-                Button("Move to Trash", role: .destructive) { onMoveToTrash() }
+                ArchiveMenuButton("Move to Trash", icon: .trash, role: .destructive) {
+                    onMoveToTrash()
+                }
             }
         )
         .sharePickerAnchor(shareAnchor)
@@ -1308,13 +1409,13 @@ private struct ArchiveStackCell: View {
             .offset(x: badgeBleed, y: -badgeBleed)
         }
         .contextMenu {
-            Button("Show in Finder") { revealInFinder() }
-            Button("Copy") { copyAll() }
+            ArchiveMenuButton("Show in Finder", icon: .finder) { revealInFinder() }
+            ArchiveMenuButton("Copy", icon: .copy) { copyAll() }
             // Every member in one sheet — the same payload the whole-cell drag
             // carries, so AirDrop sends the pile in a single transfer.
-            Button("Share") { shareAnchor.present(stack.urls) }
+            ArchiveMenuButton("Share", icon: .share) { shareAnchor.present(stack.urls) }
             Divider()
-            Button("Remove from archive") { onRemove() }
+            ArchiveMenuButton("Remove from archive", icon: .remove) { onRemove() }
         }
         .sharePickerAnchor(shareAnchor)
         .preference(key: InternalDraggingKey.self, value: isDragging)
@@ -1436,12 +1537,12 @@ private struct ExpandedStackGroup: View {
         // Left click collapses; right click opens the stack-level menu.
         .onTapGesture { onCollapse() }
         .contextMenu {
-            Button("Show in Finder") { onRevealAll() }
-            Button("Copy") { copyAll() }
-            Button("Share") { shareAnchor.present(stack.urls) }
-            Button("Collapse") { onCollapse() }
+            ArchiveMenuButton("Show in Finder", icon: .finder) { onRevealAll() }
+            ArchiveMenuButton("Copy", icon: .copy) { copyAll() }
+            ArchiveMenuButton("Share", icon: .share) { shareAnchor.present(stack.urls) }
+            ArchiveMenuButton("Collapse", icon: .collapse) { onCollapse() }
             Divider()
-            Button("Remove from archive") { onRemoveStack() }
+            ArchiveMenuButton("Remove from archive", icon: .remove) { onRemoveStack() }
         }
         .sharePickerAnchor(shareAnchor)
         .help("Collapse")
@@ -1517,14 +1618,16 @@ private struct StackMemberCell: View {
                 // window. Saving from the editor always writes a new file, so
                 // the dropped original is never touched.
                 if ArchiveFileKind.isEditableImage(url) {
-                    Button("Edit") {
+                    ArchiveMenuButton("Edit", icon: .edit) {
                         EditorWindowController.shared.open(url: url)
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { onOpen() }
                     }
                 }
-                Button("Open") { open() }
-                Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([url]) }
-                Button("Copy") {
+                ArchiveMenuButton("Open", icon: .open) { open() }
+                ArchiveMenuButton("Show in Finder", icon: .finder) {
+                    NSWorkspace.shared.activateFileViewerSelecting([url])
+                }
+                ArchiveMenuButton("Copy", icon: .copy) {
                     // Arbitrary file type → put the file itself on the
                     // pasteboard (pastes in Finder and file-aware apps).
                     copyFilesToPasteboard([url])
@@ -1533,9 +1636,9 @@ private struct StackMemberCell: View {
                         withAnimation { isCopied = false }
                     }
                 }
-                Button("Share") { shareAnchor.present([url]) }
+                ArchiveMenuButton("Share", icon: .share) { shareAnchor.present([url]) }
                 Divider()
-                Button("Move to Trash", role: .destructive) {
+                ArchiveMenuButton("Move to Trash", icon: .trash, role: .destructive) {
                     onRemove()
                     NSWorkspace.shared.recycle([url])
                 }
