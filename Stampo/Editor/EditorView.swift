@@ -1480,13 +1480,26 @@ struct EditorView: View {
                 // the clipboard, and the file the app wrote on its own way out
                 // is litter. Copy renders the annotated composite exactly as
                 // the Copy button does — what leaves is what is on screen.
-                Button("Copy and Delete") {
+                //
+                // Both are red, and by hand: on macOS a destructive role
+                // changes nothing about how a row is drawn, and the colour only
+                // survives into the NSMenuItem when the Text itself carries it.
+                // Both throw the file away, so colouring only one of them would
+                // read as an oversight rather than a distinction — and the
+                // warning is earned: the file comes back from the Trash, its
+                // place in the archive does not. The archive drops an entry
+                // when its file goes, and Finder's Put Back tells nobody.
+                Button(role: .destructive) {
                     copyToClipboard()
                     delete()
+                } label: {
+                    Text("Copy and Delete").foregroundStyle(.red)
                 }
                 .disabled(deleteHandler == nil)
-                Button("Delete", role: .destructive) { delete() }
-                    .disabled(deleteHandler == nil)
+                Button(role: .destructive) { delete() } label: {
+                    Text("Delete").foregroundStyle(.red)
+                }
+                .disabled(deleteHandler == nil)
             } label: {
                 actionLabel("Save", systemImage: "square.and.arrow.down", labelled: labelled)
             } primaryAction: {
