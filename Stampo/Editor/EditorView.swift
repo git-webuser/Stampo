@@ -363,10 +363,13 @@ struct EditorView: View {
 
     /// Which side of a bubble carries the tail — the same icon-only segmented
     /// pattern as the loupe pickers.
+    /// Default (right) first, like every other segmented control here. The
+    /// segments show which side the tail lands on, so the icons no longer run
+    /// left-to-right — consistency of "default leads" won that trade.
     private var bubbleTailPicker: some View {
         Picker("Tail Side", selection: bubbleTailBinding) {
-            Image(systemName: "bubble.left").tag(BubbleTailDirection.left)
             Image(systemName: "bubble.right").tag(BubbleTailDirection.right)
+            Image(systemName: "bubble.left").tag(BubbleTailDirection.left)
         }
         .pickerStyle(.segmented)
         .labelsHidden()
