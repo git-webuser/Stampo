@@ -779,8 +779,8 @@ private struct ArchiveColorCell: View {
             // ArchiveDragPayload.
             .overlay {
                 ArchiveDragShim(
-                    payload: ArchiveDragPayload.color(item.color,
-                                                      formatted: scheme.convert(item.color)),
+                    payload: { ArchiveDragPayload.color(item.color,
+                                                        formatted: scheme.convert(item.color)) },
                     dragImages: [dragPreview],
                     cellSize: CGSize(width: height, height: height),
                     isPressed: $isPressed,
@@ -942,7 +942,7 @@ private struct ArchiveTextCell: View {
         // the drag out, so the snippet can be dropped straight into a document.
         .overlay {
             ArchiveDragShim(
-                payload: ArchiveDragPayload.text(item.text),
+                payload: { ArchiveDragPayload.text(item.text) },
                 dragImages: [dragPreview],
                 cellSize: CGSize(width: width, height: height),
                 isPressed: $isPressed,
@@ -1001,6 +1001,10 @@ private struct ArchiveFileCell<Menu: View>: View {
     let cornerRadius: CGFloat
     /// Swaps the name label for "Copied!" (driven by the caller's copy action).
     var isCopied: Bool = false
+    /// What a drag out of this cell carries, built when the drag starts. The
+    /// caller decides: a capture leaves in the format the user picked, a file
+    /// someone dropped into the archive leaves exactly as it is.
+    let dragPayload: () -> [NSPasteboardWriting]
     let onTap: () -> Void
     let onRemove: () -> Void
     let accessibilityLabelText: Text
@@ -1071,7 +1075,7 @@ private struct ArchiveFileCell<Menu: View>: View {
         .animation(.spring(response: 0.15, dampingFraction: 0.7), value: isPressed)
         .overlay {
             ArchiveDragShim(
-                payload: ArchiveDragPayload.files([url]),
+                payload: dragPayload,
                 dragImages: [preview],
                 cellSize: CGSize(width: width, height: height),
                 isPressed: $isPressed,
@@ -1135,6 +1139,7 @@ private struct ArchiveScreenshotCell: View {
             labelOffset: labelOffset,
             cornerRadius: cornerRadius,
             isCopied: isCopied,
+            dragPayload: { ArchiveDragPayload.capture(shot.url) },
             onTap: { open() },
             onRemove: onRemove,
             accessibilityLabelText: Text("Screenshot \(displayName)"),
@@ -1304,7 +1309,7 @@ private struct ArchiveStackCell: View {
         .animation(.spring(response: 0.15, dampingFraction: 0.7), value: isPressed)
         .overlay {
             ArchiveDragShim(
-                payload: ArchiveDragPayload.files(stack.urls),
+                payload: { ArchiveDragPayload.files(stack.urls) },
                 dragImages: (0..<fanCount).map { previewImage(at: $0) },
                 cellSize: CGSize(width: width, height: height),
                 isPressed: $isPressed,
@@ -1522,6 +1527,9 @@ private struct StackMemberCell: View {
             labelOffset: labelOffset,
             cornerRadius: cornerRadius,
             isCopied: isCopied,
+            // Whatever the user dropped in, unchanged: it is their file, not
+            // one of our captures.
+            dragPayload: { ArchiveDragPayload.files([url]) },
             onTap: { open() },
             onRemove: onRemove,
             accessibilityLabelText: Text("File \(displayName)"),
@@ -1858,7 +1866,10 @@ private struct ArchiveDropDelegate: DropDelegate {
 private struct ArchiveDragShim: NSViewRepresentable {
     /// What the drag carries. Files are the common case, but a color or a
     /// snippet of text is just as draggable — see ArchiveDragPayload.
-    let payload: [NSPasteboardWriting]
+    /// Built when the drag starts rather than held ready: a capture whose
+    /// format disagrees with the setting is re-encoded in here, and doing that
+    /// on every SwiftUI update would be absurd.
+    let payload: () -> [NSPasteboardWriting]
     let dragImages: [NSImage?]
     let cellSize: CGSize
     @Binding var isPressed: Bool
@@ -1875,7 +1886,7 @@ private struct ArchiveDragShim: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: ArchiveDragShimView, context: Context) {
-        nsView.payload = payload
+        nsView.makePayload = payload
         nsView.dragImages = dragImages
         nsView.cellSize = cellSize
         nsView.onHoverChange = onHoverChange
@@ -1884,7 +1895,10 @@ private struct ArchiveDragShim: NSViewRepresentable {
 }
 
 final class ArchiveDragShimView: NSView, NSDraggingSource {
-    var payload: [NSPasteboardWriting] = []
+    var makePayload: () -> [NSPasteboardWriting] = { [] }
+    /// What the running session is carrying, kept so the operation mask can be
+    /// decided from the same items the drag actually began with.
+    private var payload: [NSPasteboardWriting] = []
     var dragImages: [NSImage?] = []
     var cellSize: CGSize = .zero
     var onDragCompleted: ((NSDragOperation) -> Void)?
@@ -1996,6 +2010,7 @@ final class ArchiveDragShimView: NSView, NSDraggingSource {
     }
 
     override func mouseDragged(with event: NSEvent) {
+        payload = makePayload()
         guard !payload.isEmpty else { return }
         DispatchQueue.main.async {
             self.isPressed = false

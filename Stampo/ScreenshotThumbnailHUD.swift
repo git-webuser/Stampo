@@ -276,7 +276,10 @@ final class ThumbnailHostingView: NSHostingView<ScreenshotThumbnailView> {
     private func startFileDrag(url: URL, event: NSEvent) {
         fileDragStarted = true
 
-        let item        = NSDraggingItem(pasteboardWriter: url as NSURL)
+        // In the format the user picked, like every other way a capture leaves
+        // — a capture already in it is dragged as itself, untouched.
+        let dragged     = CaptureExport.fileURL(for: url)
+        let item        = NSDraggingItem(pasteboardWriter: dragged as NSURL)
         let previewSize = NSSize(width: max(bounds.width * 0.75, 1),
                                  height: max(bounds.height * 0.75, 1))
         let dragImage   = NSImage(size: previewSize, flipped: false) { _ in true }

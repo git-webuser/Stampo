@@ -13,6 +13,16 @@ enum ArchiveDragPayload {
         urls.map { $0 as NSURL }
     }
 
+    /// A capture rather than any old file: it leaves in the format the user
+    /// picked, the same as it would through the clipboard. Only for the app's
+    /// own screenshots — a file dropped into the archive is whatever it is and
+    /// leaves untouched. Built when the drag starts, not when the cell draws:
+    /// a mismatched capture is re-encoded here.
+    static func capture(_ url: URL,
+                        as format: EditorExportFormat = .fromSettings()) -> [NSPasteboardWriting] {
+        [CaptureExport.fileURL(for: url, as: format) as NSURL]
+    }
+
     static func text(_ text: String) -> [NSPasteboardWriting] {
         let item = NSPasteboardItem()
         item.setString(text, forType: .string)
