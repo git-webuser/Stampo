@@ -4691,19 +4691,36 @@
         }
       }
     },
-    "Tap to copy, hold to delete" : {
-      "comment" : "Accessibility hint for color swatch cells in the tray",
+    "Tap to copy, drag to carry the color out" : {
+      "comment" : "Accessibility hint for color cells in the archive",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Tap to copy, hold to delete"
+            "value" : "Tap to copy, drag to carry the color out"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Нажмите для копирования, удерживайте для удаления"
+            "value" : "Нажмите для копирования, перетащите, чтобы вынести цвет"
+          }
+        }
+      }
+    },
+    "Tap to copy, drag to carry the text out" : {
+      "comment" : "Accessibility hint for recognized-text cells in the archive",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tap to copy, drag to carry the text out"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Нажмите для копирования, перетащите, чтобы вынести текст"
           }
         }
       }
