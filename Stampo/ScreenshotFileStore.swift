@@ -65,6 +65,12 @@ final class ScreenshotFileStore {
         guard let data = rep.representation(using: fileType, properties: properties) else {
             throw SaveError.encodingFailed
         }
+        return try writeTemporaryExport(data, named: name, format: format)
+    }
+
+    /// The same throwaway file from bytes that are already encoded — the
+    /// pasteboard path has them in hand and would otherwise encode twice.
+    func writeTemporaryExport(_ data: Data, named name: String, format: String) throws -> URL {
         let root = fm.temporaryDirectory.appendingPathComponent("Share", isDirectory: true)
         sweepStaleExports(in: root)
         let dir = root.appendingPathComponent(UUID().uuidString, isDirectory: true)
