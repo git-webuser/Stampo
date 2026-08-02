@@ -354,24 +354,24 @@ struct ScreenshotThumbnailView: View {
             if !isPinned { onDismiss() }
         }
         .contextMenu {
-            Button("Edit") {
+            MenuCommandButton("Edit", icon: .edit) {
                 EditorWindowController.shared.open(url: imageURL)
                 if !isPinned { onDismiss() }
             }
-            Button("Copy") {
+            MenuCommandButton("Copy", icon: .copy) {
                 NSPasteboard.general.writeImage(at: imageURL)
             }
             // Distinct from the HUD's own pin badge, which merely keeps the
             // HUD from auto-dismissing — this creates a floating pin window.
-            Button("Pin to Screen") {
+            MenuCommandButton("Pin to Screen", icon: .pin) {
                 PinnedScreenshotController.shared.pin(url: imageURL)
                 if !isPinned { onDismiss() }
             }
-            Button("Show in Finder") {
+            MenuCommandButton("Show in Finder", icon: .finder) {
                 NSWorkspace.shared.activateFileViewerSelecting([imageURL])
             }
             Divider()
-            Button("Move to Trash", role: .destructive) {
+            MenuCommandButton("Move to Trash", icon: .trash, role: .destructive) {
                 NSWorkspace.shared.recycle([imageURL]) { _, _ in
                     DispatchQueue.main.async {
                         onDelete()
