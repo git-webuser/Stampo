@@ -50,23 +50,32 @@ final class PinnedScreenshotPanel: NSPanel {
         collectionBehavior   = [.canJoinAllSpaces, .fullScreenAuxiliary]
         isOpaque             = false
         backgroundColor      = .clear
-        hasShadow            = true
+        // No drop shadow. AppKit cuts one from whatever a transparent window's
+        // content last drew and keeps that shape: the pin's outline changes
+        // whenever the plate appears or the picture is resized, and the old
+        // shadow stayed behind as a grey line with a rounding of its own,
+        // visibly not the corner it sat under. Reshaping it on every change is
+        // a race against the redraw — the capture thumbnail does without a
+        // shadow too, and leans on its plate.
+        hasShadow            = false
         hidesOnDeactivate    = false
         ignoresMouseEvents   = false
         isReleasedWhenClosed = false
         appearance           = NSAppearance(named: .darkAqua)
 
         // NSWindow clamps every setFrame to these, so they have to admit both
-        // states: the bare image at its floor and the plated window at its
-        // ceiling. The image's own bounds are enforced by the resize math.
-        minSize = minImageSize
+        // states: the picture at its floor inside the resting plate, and the
+        // picture at its ceiling inside the hovered one. The picture's own
+        // bounds are enforced by the resize math.
+        let resting = PinnedWindowGeometry.restingBand
+        minSize = CGSize(width: minImageSize.width + 2 * resting,
+                         height: minImageSize.height + 2 * resting)
         maxSize = CGSize(width: maxImageSize.width + 2 * band,
                          height: maxImageSize.height + 2 * band)
 
         let view = PinnedScreenshotView(
             imageURL: imageURL,
             maxPixelSize: maxPixelSize,
-            imageSize: frame.size,   // at rest the window is exactly the picture
             onClose: { [weak self] in self?.requestClose() },
             onHoverChanged: { [weak self] hovering in
                 guard let self else { return }
@@ -86,16 +95,25 @@ final class PinnedScreenshotPanel: NSPanel {
     private func setPlate(shown: Bool) {
         guard isPlated != shown else { return }
         isPlated = shown
-        let band = PinnedWindowGeometry.plateBand
-        // The picture's size is not touched here — that is the whole point.
-        setFrame(shown ? PinnedWindowGeometry.plated(frame, band: band)
-                       : PinnedWindowGeometry.unplated(frame, band: band),
-                 display: true)
+        // Only the difference: the resting plate is already around the picture,
+        // so the window gains what the hovered one adds on top of it.
+        let growth = PinnedWindowGeometry.hoverGrowth
+        setFrameWithoutAnimating(shown ? PinnedWindowGeometry.plated(frame, band: growth)
+                                       : PinnedWindowGeometry.unplated(frame, band: growth))
         if let view = contentView as? PinnedHostingView {
-            view.plateBand = shown ? band : 0
+            view.plateBand = shown ? PinnedWindowGeometry.plateBand : 0
             // The corner cursors only exist while the plate does.
             view.updateTrackingAreas()
         }
+    }
+
+    /// A frame change with no layer animation — sixty interpolations a second
+    /// is a shimmer of its own during a live resize.
+    private func setFrameWithoutAnimating(_ frame: NSRect) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        setFrame(frame, display: true)
+        CATransaction.commit()
     }
 
     // MARK: Plate-corner resize
@@ -125,12 +143,12 @@ final class PinnedScreenshotPanel: NSPanel {
                                                        band: band,
                                                        minImageSize: self.minImageSize,
                                                        maxImageSize: self.maxImageSize)
-            // Picture first, window second: setFrame lays the content view out
-            // on the spot, so it picks up the new size in the same step rather
-            // than filling the new frame for a beat.
-            (self.contentView as? PinnedHostingView)?.rootView.imageSize =
-                PinnedWindowGeometry.unplated(resized, band: band).size
-            self.setFrame(resized, display: true)
+            // Only the window: the picture is what is left of it after the
+            // plate, so it follows in the same layout pass. Nothing here is
+            // SwiftUI state, and nothing can therefore arrive a pass late.
+            // Actions off so no layer interpolates its way to the new size —
+            // sixty of those a second is a shimmer of its own.
+            self.setFrameWithoutAnimating(resized)
         }
     }
 
@@ -266,14 +284,6 @@ final class PinnedHostingView: NSHostingView<PinnedScreenshotView> {
 struct PinnedScreenshotView: View {
     let imageURL: URL
     let maxPixelSize: CGFloat
-    /// The picture's size in points, and the one thing here that never follows
-    /// the window. The window is this plus a band on every side while the plate
-    /// is up, so plating cannot scale or move what is on screen — only a resize
-    /// changes this value, and then the window follows it, not the other way
-    /// round. Deriving it from the window instead (fill, minus a padding) puts
-    /// the picture one layout pass behind every frame change, which is visible
-    /// as a jump in the image and in the corner radii.
-    var imageSize: CGSize
     let onClose: () -> Void
     let onHoverChanged: (Bool) -> Void
 
@@ -282,6 +292,18 @@ struct PinnedScreenshotView: View {
     @State private var isCloseBadgePressed = false
 
     private let cornerRadius: CGFloat = 10
+
+    /// The plate's width: a hairline at rest, a grabbable band under the
+    /// pointer. The picture is what is left of the window after it, which is
+    /// the whole trick: during a resize the window changes and the picture
+    /// follows it inside the same layout pass, with nothing to fall behind.
+    /// Holding the picture's size as state instead — and setting it beside
+    /// every `setFrame` — put it one pass behind the window for the length of a
+    /// drag, and the band pulsed with every event: a tremor of its own, in
+    /// place of the one that was fixed before it.
+    private var band: CGFloat {
+        isHovered ? PinnedWindowGeometry.plateBand : PinnedWindowGeometry.restingBand
+    }
 
     var body: some View {
         ZStack {
@@ -296,11 +318,12 @@ struct PinnedScreenshotView: View {
                 }
             }
         }
-        .frame(width: imageSize.width, height: imageSize.height)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                 .stroke(Color.white.opacity(isHovered ? 0.35 : 0.15), lineWidth: 1)
+                .animation(.easeInOut(duration: 0.15), value: isHovered)
         )
         // Badge over the image's corner, not the plate's: the plate's four
         // corners are the resize grips, and a badge would sit on one of them.
@@ -313,22 +336,19 @@ struct PinnedScreenshotView: View {
                 .opacity(isHovered ? 1 : 0)
                 .allowsHitTesting(isHovered)
                 .help("Close")
+                .animation(.easeInOut(duration: 0.15), value: isHovered)
         }
-        // Centred in whatever the window currently is: at rest the window is
-        // exactly the picture, while hovered it is one band larger all round.
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        // The plate the capture thumbnail already uses, on the same errand:
-        // something to grab that isn't the picture. Only while hovered — a pin
-        // at rest is the image and nothing else. Its corners are concentric
-        // with the picture's: one band further out, one band wider a radius.
+        // The window grew by this much when the pointer arrived, so the picture
+        // keeps the size and the place it had — the plate widens around it.
+        .padding(band)
+        // The plate the capture thumbnail already uses, on two errands here: a
+        // hairline that stands the pin off its background in place of the drop
+        // shadow, widening under the pointer into something to grab that isn't
+        // the picture. Its corners stay concentric with the picture's — one
+        // band further out, one band wider a radius.
         .background {
-            RoundedRectangle(cornerRadius: cornerRadius + PinnedWindowGeometry.plateBand,
-                             style: .continuous)
+            RoundedRectangle(cornerRadius: cornerRadius + band, style: .continuous)
                 .fill(Color.black.opacity(0.72))
-                .opacity(isHovered ? 1 : 0)
-                // Not faded in: the window grows in one step, and a plate
-                // easing in behind it lags the edge it is supposed to be.
-                .animation(nil, value: isHovered)
         }
         .contentShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
         .onTapGesture(count: 2) { onClose() }
@@ -354,7 +374,10 @@ struct PinnedScreenshotView: View {
             isHovered = hovering
             onHoverChanged(hovering)
         }
-        .animation(.easeInOut(duration: 0.15), value: isHovered)
+        // No blanket animation on the hover state: it would take the padding
+        // with it and ease the picture between two sizes while the window has
+        // already jumped. The stroke and the badge ask for their own fade,
+        // above; the geometry stays instant.
         .task(id: imageURL) { loader.load(imageURL: imageURL, maxPixelSize: maxPixelSize) }
         .managedLocale()
         .accessibilityLabel("Pinned screenshot")

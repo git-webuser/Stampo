@@ -119,6 +119,24 @@ import Testing
 
     private let band = PinnedWindowGeometry.plateBand
 
+    /// The plate is there at rest too, standing the pin off its background now
+    /// that the window has no shadow — so hovering only adds the difference.
+    @Test func hoverAddsOnlyWhatTheRestingPlateDoesNot() {
+        #expect(PinnedWindowGeometry.restingBand > 0)
+        #expect(PinnedWindowGeometry.restingBand < PinnedWindowGeometry.plateBand)
+        #expect(PinnedWindowGeometry.hoverGrowth
+                == PinnedWindowGeometry.plateBand - PinnedWindowGeometry.restingBand)
+
+        // Resting window → hovered window → back: the picture ends where it
+        // started, and is one full band inside the plate while hovered.
+        let picture = CGRect(x: 300, y: 400, width: 480, height: 300)
+        let resting = PinnedWindowGeometry.plated(picture, band: PinnedWindowGeometry.restingBand)
+        let hovered = PinnedWindowGeometry.plated(resting, band: PinnedWindowGeometry.hoverGrowth)
+        #expect(PinnedWindowGeometry.unplated(hovered, band: band) == picture)
+        #expect(PinnedWindowGeometry.unplated(hovered, band: PinnedWindowGeometry.hoverGrowth)
+                == resting)
+    }
+
     /// The whole point of growing the window: the image must not move or
     /// change size when the plate appears under the pointer.
     @Test func platingGrowsAroundTheImageAndUndoesExactly() {
@@ -173,7 +191,9 @@ import Testing
     // MARK: plate resize
 
     /// Dragging a corner outward: the image keeps its aspect and the corner
-    /// across from the dragged one does not move.
+    /// across from the dragged one does not move. A pull along one axis alone
+    /// cannot be honoured exactly — no aspect-true size has that corner — so
+    /// the size grows towards it without overshooting it.
     @Test func draggingACornerKeepsTheAspectAndTheOppositeCorner() {
         let frame = CGRect(x: 200, y: 200, width: 400 + 2 * band, height: 250 + 2 * band)
         let resized = PinnedWindowGeometry.resized(
@@ -185,8 +205,28 @@ import Testing
         #expect(resized.minX == frame.minX)          // anchored bottom-left
         #expect(resized.minY == frame.minY)
         let image = PinnedWindowGeometry.unplated(resized, band: band)
-        #expect(abs(image.width - 500) < 0.5)
+        #expect(image.width > 400)
+        #expect(image.width <= 500)
         #expect(abs(image.width / image.height - 400.0 / 250.0) < 0.001)
+    }
+
+    /// A drag along the image's own diagonal is the one the pointer can be
+    /// honoured on exactly, and it must be: that is the gesture someone makes
+    /// when they want the corner to end up under their cursor.
+    @Test func aDragAlongTheDiagonalFollowsThePointerExactly() {
+        let aspect = 400.0 / 250.0
+        let frame = CGRect(x: 200, y: 200, width: 400 + 2 * band, height: 250 + 2 * band)
+        for pull in [CGFloat(40), 120, -80] {
+            let resized = PinnedWindowGeometry.resized(
+                frame, corner: .topRight,
+                translation: CGSize(width: pull * aspect, height: pull),
+                imageAspect: aspect, band: band,
+                minImageSize: CGSize(width: 120, height: 75),
+                maxImageSize: CGSize(width: 1400, height: 875))
+            let image = PinnedWindowGeometry.unplated(resized, band: band)
+            #expect(abs(image.height - (250 + pull)) < 0.001, "pull \(pull)")
+            #expect(abs(image.width - (400 + pull * aspect)) < 0.001, "pull \(pull)")
+        }
     }
 
     @Test func draggingTheBottomLeftAnchorsTheTopRight() {
@@ -235,6 +275,41 @@ import Testing
         let image = PinnedWindowGeometry.unplated(resized, band: band)
         #expect(abs(resized.width - image.width - 2 * band) < 0.001)
         #expect(abs(resized.height - image.height - 2 * band) < 0.001)
+    }
+
+    /// A hand dragging a corner diagonally wobbles by a point or two either
+    /// side of the diagonal. The size must follow that smoothly: if the rule
+    /// switches which axis it reads as the wobble crosses, the window jumps
+    /// between two sizes on every tremor and the picture shakes in steps.
+    @Test func aWobblingDiagonalDragDoesNotShakeTheSize() {
+        let frame = CGRect(x: 200, y: 200, width: 400 + 2 * band, height: 250 + 2 * band)
+        let aspect = 400.0 / 250.0
+
+        var previous: CGFloat = 0
+        for step in 0...60 {
+            // Straight out along the diagonal, plus a tremor across it.
+            let along = CGFloat(step) * 4
+            let tremor = CGFloat(step % 2 == 0 ? 3 : -3)
+            let resized = PinnedWindowGeometry.resized(
+                frame, corner: .topRight,
+                translation: CGSize(width: along + tremor, height: along - tremor),
+                imageAspect: aspect, band: band,
+                minImageSize: CGSize(width: 120, height: 75),
+                maxImageSize: CGSize(width: 4000, height: 2500))
+            let width = PinnedWindowGeometry.unplated(resized, band: band).width
+
+            // Each step moves outward, so no size is smaller than the last —
+            // and none is a leap the tremor cannot account for. Not strictly
+            // bigger: sizes are whole points, and a small step can round to
+            // the same one twice.
+            #expect(width >= previous, "step \(step) went backwards: \(previous) → \(width)")
+            #expect(width == width.rounded(), "step \(step) landed on a fraction: \(width)")
+            if step > 0 {
+                #expect(width - previous < 20,
+                        "step \(step) jumped \(width - previous) pt on a 4 pt move")
+            }
+            previous = width
+        }
     }
 
     @Test func bodyZoneIsNeverAResize() {

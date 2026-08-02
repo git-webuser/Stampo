@@ -90,9 +90,19 @@ enum PinnedWindowGeometry {
 
     // MARK: - Hover plate
 
-    /// Width of the plate that grows around a pin while the pointer is over it.
-    /// Matches the capture thumbnail's inset, so the two read as one idiom.
+    /// Width of the plate under the pointer. Matches the capture thumbnail's
+    /// inset, so the two read as one idiom.
     static let plateBand: CGFloat = 10
+
+    /// Width of the plate the rest of the time. A pin has no drop shadow —
+    /// AppKit shapes one from the content and then keeps the stale shape, which
+    /// showed as a grey line rounded unlike the corner it sat under — so this
+    /// hairline of plate is what separates a pin from what is behind it.
+    static let restingBand: CGFloat = 2
+
+    /// What the window gains when the pointer arrives: the difference between
+    /// the two, since the resting plate is already there.
+    static var hoverGrowth: CGFloat { plateBand - restingBand }
 
     /// How far a corner's grab zone reaches along each edge. The band alone is
     /// a 10×10 target — big enough to see, too small to aim at.
@@ -149,8 +159,15 @@ enum PinnedWindowGeometry {
     /// put, the image keeps its aspect, and the plate keeps its width on every
     /// side — so `imageAspect` constrains the frame minus two bands, not the
     /// frame itself. `translation` is the pointer's movement in screen
-    /// coordinates (y up). The axis the pointer moved further along drives the
-    /// new size; the other follows from the aspect.
+    /// coordinates (y up).
+    ///
+    /// The size the pointer asks for is almost never one the aspect allows, so
+    /// it is projected onto the sizes that are: the nearest one, which is the
+    /// least-squares fit below. Reading the axis the pointer moved further
+    /// along instead — the obvious rule — has a seam down the diagonal, and a
+    /// hand dragging along it wobbles across that seam several times a second:
+    /// a 3 pt tremor swung the width by 15 pt each way and the picture shook in
+    /// steps. A drag exactly along the diagonal still maps one to one.
     static func resized(_ frame: CGRect,
                         corner: PlateZone,
                         translation: CGSize,
@@ -168,12 +185,13 @@ enum PinnedWindowGeometry {
         let dw = growsRight ? translation.width  : -translation.width
         let dh = growsUp    ? translation.height : -translation.height
 
-        // Everything is derived from a width, kept positive: a drag can easily
-        // run past the opposite corner, and a negative size would come back
-        // through the clamps below with its sign flipped.
-        let width = max(abs(dw) >= abs(dh) ? inner.width + dw
-                                           : (inner.height + dh) * imageAspect, 1)
-        var size = CGSize(width: width, height: width / imageAspect)
+        // The size the pointer is asking for, and the nearest one to it that
+        // keeps the aspect. Kept positive: a drag can easily run past the
+        // opposite corner, and a negative size would come back through the
+        // clamps below with its sign flipped.
+        let asked = CGSize(width: inner.width + dw, height: inner.height + dh)
+        let height = max((imageAspect * asked.width + asked.height) / (imageAspect * imageAspect + 1), 1)
+        var size = CGSize(width: height * imageAspect, height: height)
 
         // Clamp on whichever bound bites first — one scale factor for both
         // axes, or the aspect would not survive the clamping.
@@ -182,10 +200,16 @@ enum PinnedWindowGeometry {
         let ceiling = min(maxImageSize.width / size.width, maxImageSize.height / size.height)
         if ceiling < 1 { size = CGSize(width: size.width * ceiling, height: size.height * ceiling) }
 
-        let outer = CGSize(width: size.width + 2 * band, height: size.height + 2 * band)
+        // Whole points, and the anchor on one too. A projection lands on
+        // fractions, and a window whose edge sits at x.4 one frame and x.6 the
+        // next has its picture resampled to a different pixel grid each time:
+        // the last of the shimmer, and the cheapest to be rid of. A point of
+        // aspect error is nothing next to that.
+        let outer = CGSize(width: (size.width + 2 * band).rounded(),
+                           height: (size.height + 2 * band).rounded())
         // The dragged corner moves, the one across from it does not.
-        let x = growsRight ? frame.minX : frame.maxX - outer.width
-        let y = growsUp    ? frame.minY : frame.maxY - outer.height
+        let x = growsRight ? frame.minX.rounded() : (frame.maxX.rounded() - outer.width)
+        let y = growsUp    ? frame.minY.rounded() : (frame.maxY.rounded() - outer.height)
         return CGRect(origin: CGPoint(x: x, y: y), size: outer)
     }
 
@@ -265,8 +289,12 @@ final class PinnedScreenshotController {
         let origin = PinnedWindowGeometry.origin(size: size, visibleFrame: vf,
                                                  cascadeIndex: cascadeIndex)
         cascadeIndex += 1
+        // The window is the picture plus the resting plate on every side, so
+        // `size` is what the picture actually gets.
         let frame = PinnedWindowGeometry.clampedFrame(
-            NSRect(origin: origin, size: size), to: vf)
+            PinnedWindowGeometry.plated(NSRect(origin: origin, size: size),
+                                        band: PinnedWindowGeometry.restingBand),
+            to: vf)
 
         // Decode enough pixels for the largest window this screen can host at
         // its backing scale — a fixed cap would render large pins on Retina/4K
