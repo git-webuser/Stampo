@@ -1567,10 +1567,9 @@ struct EditorView: View {
 
     private func copyToClipboard() {
         guard let rep = renderComposite() else { return }
-        let image = NSImage(size: rep.size)
-        image.addRepresentation(rep)
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.writeObjects([image])
+        // In the format the captures are saved in, not the TIFF an NSImage on
+        // the pasteboard turns into.
+        NSPasteboard.general.writeImage(rep, as: .fromSettings())
         showCaptureHUD(.copied)
     }
 
