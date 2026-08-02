@@ -58,6 +58,17 @@ import Testing
         max(image.size.width, image.size.height)
     }
 
+    /// What the file actually holds — `makePNG` draws through NSImage, so its
+    /// arguments are points and the written pixels may differ on a Retina host.
+    private func pixelSize(of url: URL) -> CGSize? {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+              let width = props[kCGImagePropertyPixelWidth] as? NSNumber,
+              let height = props[kCGImagePropertyPixelHeight] as? NSNumber
+        else { return nil }
+        return CGSize(width: width.doubleValue, height: height.doubleValue)
+    }
+
     // MARK: - Loading
 
     @Test func loadsAThumbnailForAnImageFile() async throws {
@@ -84,6 +95,25 @@ import Testing
         // source stays landscape and neither edge outgrows the request.
         #expect(longestEdge(image) <= 64)
         #expect(image.size.width > image.size.height)
+    }
+
+    /// Pinned screenshots ask for the whole screen in backing pixels, which is
+    /// past the ~3 megapixel ceiling Quick Look will render a `.thumbnail` at —
+    /// it fails there, and the loader used to settle for the generic PNG
+    /// document icon, so a pin of any larger capture came up blank. The image
+    /// must come back at its own resolution: real content, never upscaled.
+    @Test func largeRequestStillYieldsTheImageAndNotItsIcon() async throws {
+        let url = try makePNG(width: 2560, height: 1596)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let source = try #require(pixelSize(of: url))
+
+        let loader = ThumbnailLoader()
+        loader.load(imageURL: url, maxPixelSize: 5120)
+        #expect(await wait { loader.image != nil })
+
+        let image = try #require(loader.image)
+        #expect(longestEdge(image) == max(source.width, source.height))
+        #expect(image.size.width / image.size.height == source.width / source.height)
     }
 
     /// The two-pass request in `generate(for:maxPixelSize:)`: a file nothing can
