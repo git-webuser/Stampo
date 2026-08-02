@@ -42,6 +42,11 @@ struct NotchArchiveView: View {
     /// Panel width, needed to place the split; measured rather than derived
     /// because the panel is as wide as the screen's notch band.
     @State private var panelWidth: CGFloat = 0
+    /// Files of the cell under the pointer, and the Space hotkey held while
+    /// there is one. Space is claimed system-wide while registered, so it is
+    /// held only while the pointer actually rests on a previewable cell.
+    @State private var hoveredPreviewURLs: [URL] = []
+    @State private var spaceToken: UUID?
     /// True while any archive cell is mid drag-out (its ArchiveDragShim reports through
     /// `InternalDraggingKey`). SwiftUI's `.onDrop` also fires `isDropTargeted`
     /// for the app's OWN drags, so this gates them out: without it, dragging a
@@ -150,6 +155,22 @@ struct NotchArchiveView: View {
         }
         // Aggregate drag state from every ArchiveDragShim-backed cell below.
         .onPreferenceChange(InternalDraggingKey.self) { isInternalDragging = $0 }
+        .onPreferenceChange(HoveredPreviewKey.self) { urls in
+            hoveredPreviewURLs = urls
+            updateSpaceHotkey()
+        }
+        // The pointer can leave with the archive itself (Esc, hotkey, auto-hide),
+        // and no cell reports a hover-out then — the key must still come back.
+        .onChange(of: isContentVisible) {
+            if !isContentVisible {
+                hoveredPreviewURLs = []
+                updateSpaceHotkey()
+            }
+        }
+        .onDisappear {
+            hoveredPreviewURLs = []
+            updateSpaceHotkey()
+        }
     }
 
     /// Panel-style geometry shared by the plates and the drop delegate:
@@ -163,6 +184,25 @@ struct NotchArchiveView: View {
     private var plateSideInset: CGFloat { hasShoulders ? 15 + platePad : platePad }
     private var plateTopRadius: CGFloat { metrics.buttonRadius }
     private var plateBottomRadius: CGFloat { hasShoulders ? 16 - platePad : metrics.buttonRadius }
+
+    /// Holds the Space hotkey exactly while a previewable cell is hovered.
+    ///
+    /// Re-pushed on every change of the hovered files rather than kept: the
+    /// action captures them by value, so an owner left over from the previous
+    /// cell would preview whatever the pointer has already left. Hovering out
+    /// only gives the key back — an open preview stays up, the way it does in
+    /// Finder once the pointer moves on.
+    private func updateSpaceHotkey() {
+        if let token = spaceToken {
+            TransientHotkeyCenter.space.remove(token)
+            spaceToken = nil
+        }
+        guard isContentVisible, !hoveredPreviewURLs.isEmpty else { return }
+        let urls = hoveredPreviewURLs
+        spaceToken = TransientHotkeyCenter.space.push {
+            QuickLookPresenter.shared.toggle(urls)
+        }
+    }
 
     private func dropLayout(totalWidth: CGFloat) -> ArchiveDropLayout {
         ArchiveDropLayout(totalWidth: totalWidth, sideInset: plateSideInset)
@@ -1039,6 +1079,8 @@ private struct ArchiveFileCell<Menu: View>: View {
         }
         .contextMenu { menu() }
         .preference(key: InternalDraggingKey.self, value: isDragging)
+        // Space previews whatever the pointer rests on (see updateSpaceHotkey).
+        .preference(key: HoveredPreviewKey.self, value: isHovered ? [url] : [])
         .accessibilityLabel(accessibilityLabelText)
         .accessibilityHint(accessibilityHintText)
         .accessibilityAddTraits(.isButton)
@@ -1276,6 +1318,7 @@ private struct ArchiveStackCell: View {
         }
         .sharePickerAnchor(shareAnchor)
         .preference(key: InternalDraggingKey.self, value: isDragging)
+        .preference(key: HoveredPreviewKey.self, value: isHovered ? stack.urls : [])
         .accessibilityLabel(accessibilityTitle)
         .accessibilityHint("Tap to open the stack, drag to move all files")
         .accessibilityAddTraits(.isButton)
@@ -1741,6 +1784,15 @@ private struct InternalDraggingKey: PreferenceKey {
     static let defaultValue = false
     static func reduce(value: inout Bool, nextValue: () -> Bool) {
         value = value || nextValue()
+    }
+}
+
+/// Files of the cell currently under the pointer, for Space-to-preview.
+/// First non-empty wins — cells never overlap, so at most one publishes.
+private struct HoveredPreviewKey: PreferenceKey {
+    static let defaultValue: [URL] = []
+    static func reduce(value: inout [URL], nextValue: () -> [URL]) {
+        if value.isEmpty { value = nextValue() }
     }
 }
 

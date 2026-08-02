@@ -46,7 +46,7 @@ enum CGSCursorBridge {
 
 /// Esc handling for a capture overlay's lifetime.
 ///
-/// The primary path is a Carbon hotkey via EscapeHotkeyCenter: permission-free
+/// The primary path is a Carbon hotkey via TransientHotkeyCenter.escape: permission-free
 /// and independent of key-window status. (The old global keyDown NSEvent
 /// monitor silently required Input Monitoring — with the permission gone it
 /// received nothing, so Esc-cancel died whenever the nonactivating overlay
@@ -58,7 +58,7 @@ final class EscObservation {
     private var localMonitor: Any?
 
     init(action: @escaping () -> Void) {
-        token = EscapeHotkeyCenter.shared.push(action)
+        token = TransientHotkeyCenter.escape.push(action)
         localMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
             if event.keyCode == KeyCode.escape { action(); return nil }
             return event
@@ -69,7 +69,7 @@ final class EscObservation {
     /// center token is held, Esc is consumed system-wide.
     func cancel() {
         if let token {
-            EscapeHotkeyCenter.shared.remove(token)
+            TransientHotkeyCenter.escape.remove(token)
             self.token = nil
         }
         if let localMonitor {

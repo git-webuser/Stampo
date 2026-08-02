@@ -242,7 +242,7 @@ final class NotchHoverController: NSObject {
             )
             guard status == noErr else { return noErr }
             // Dispatch only our own action hotkeys ('STMP'): the Esc hotkey
-            // (EscapeHotkeyCenter, 'STES') also uses id 1, which would
+            // (TransientHotkeyCenter.escape, 'STES') also uses id 1, which would
             // otherwise collide with togglePanel if its event ever reaches
             // this handler.
             guard incomingHotKeyID.signature == fourCharCode("STMP") else {

@@ -1,5 +1,6 @@
 import AppKit
 import CoreGraphics
+import Quartz
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private lazy var panel = NotchPanelController()
@@ -15,6 +16,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Called before any nib/window is loaded — the right place to set
     /// AppleLanguages so the entire SwiftUI hierarchy picks up the override.
+    // MARK: - Quick Look
+
+    /// QLPreviewPanel asks the responder chain who drives it, and NSApp's
+    /// delegate is the last link that is always there — the notch panel is a
+    /// non-activating window and never becomes the first responder. Everything
+    /// is forwarded to QuickLookPresenter, which owns the item list.
+    override func acceptsPreviewPanelControl(_ panel: QLPreviewPanel!) -> Bool {
+        !QuickLookPresenter.shared.urls.isEmpty
+    }
+
+    override func beginPreviewPanelControl(_ panel: QLPreviewPanel!) {
+        QuickLookPresenter.shared.attach(to: panel)
+    }
+
+    override func endPreviewPanelControl(_ panel: QLPreviewPanel!) {
+        QuickLookPresenter.shared.detach(from: panel)
+    }
+
     func applicationWillFinishLaunching(_ notification: Notification) {
         let lang = UserDefaults.standard.string(forKey: AppSettings.Keys.preferredLanguage) ?? "system"
         switch lang {

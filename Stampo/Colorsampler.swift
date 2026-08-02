@@ -16,7 +16,7 @@ final class ColorSampler {
     private var localMouseMonitor: Any?
     private var rightClickMonitor: Any?
     private var leftClickMonitor: Any?
-    /// Token in EscapeHotkeyCenter for the lifetime of the picking session.
+    /// Token in TransientHotkeyCenter.escape for the lifetime of the picking session.
     private var escToken: UUID?
 
     private var lastColor: NSColor = .black
@@ -95,12 +95,12 @@ final class ColorSampler {
             }
         }
 
-        // Esc via EscapeHotkeyCenter — a Carbon hotkey fires even when another
+        // Esc via TransientHotkeyCenter.escape — a Carbon hotkey fires even when another
         // app has focus (where a global NSEvent keyboard monitor would need
         // Input Monitoring), and needs no TCC permission at all. Registered
         // per-session only (removed in removeMonitors); consuming Esc during an
         // active picking session is the desired behavior.
-        escToken = EscapeHotkeyCenter.shared.push { [weak self] in
+        escToken = TransientHotkeyCenter.escape.push { [weak self] in
             guard let self, !self.isStopped else { return }
             self.cancel()
         }
@@ -116,7 +116,7 @@ final class ColorSampler {
         rightClickMonitor = nil
 
         if let token = escToken {
-            EscapeHotkeyCenter.shared.remove(token)
+            TransientHotkeyCenter.escape.remove(token)
             escToken = nil
         }
     }

@@ -320,6 +320,9 @@ final class NotchPanelController: NSObject {
     /// SharePicker.swift). The share sheet is its own window, so the panel it
     /// was opened from must not slide away underneath it.
     private var isSharePickerOpen: Bool = false
+    /// True while the Quick Look panel is up (see QuickLookPresenter) — the
+    /// preview is anchored to nothing, so the panel behind it must stay put.
+    private var isQuickLookOpen: Bool = false
     /// Anchor for every share sheet opened from the archive — the "⋯" menu's
     /// Share All and the Share Last Screenshot hotkey. Owned here rather than
     /// by the view so the hotkey can reach it without the archive being on screen
@@ -340,7 +343,7 @@ final class NotchPanelController: NSObject {
             syncEscapeHotkey()
         }
     }
-    /// Token in EscapeHotkeyCenter while the panel is on screen; Esc closes it.
+    /// Token in TransientHotkeyCenter.escape while the panel is on screen; Esc closes it.
     private var escToken: UUID?
     private var notificationObservers: [NSObjectProtocol] = []
 
@@ -619,7 +622,22 @@ final class NotchPanelController: NSObject {
             self?.syncEscapeHotkey()
         }
 
-        notificationObservers = [t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11]
+        // Quick Look is a window of ours too: hold the panel open under it, and
+        // let the presenter own Esc so the first press closes the preview.
+        let t12 = NotificationCenter.default.addObserver(
+            forName: .quickLookDidOpen,
+            object: nil, queue: .main
+        ) { [weak self] _ in
+            self?.isQuickLookOpen = true
+        }
+        let t13 = NotificationCenter.default.addObserver(
+            forName: .quickLookDidClose,
+            object: nil, queue: .main
+        ) { [weak self] _ in
+            self?.isQuickLookOpen = false
+        }
+
+        notificationObservers = [t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11, t12, t13]
     }
 
     deinit {
@@ -709,6 +727,7 @@ final class NotchPanelController: NSObject {
         removeEscMonitor()
         state = .stale(reason: reason)
         isSharePickerOpen = false
+        isQuickLookOpen = false
         interactionState.isEnabled = true
         route = .main
         rootState.progress = 0.0
@@ -725,6 +744,7 @@ final class NotchPanelController: NSObject {
         !state.allowsAutoHide
             || isMenuTracking
             || isSharePickerOpen
+            || isQuickLookOpen
             || colorPicker.isInFlight
             || rootState.isArchivePinned
     }
@@ -963,6 +983,7 @@ final class NotchPanelController: NSObject {
         // The panel is going away with the sheet's anchor: drop the hold so a
         // close notification that never arrives can't wedge auto-hide.
         isSharePickerOpen = false
+        isQuickLookOpen = false
 
         // Cancel any active countdown before hiding
         if case .countdown = state {
@@ -1133,7 +1154,7 @@ final class NotchPanelController: NSObject {
     private func syncEscapeHotkey() {
         let wantsEsc = state.wantsEscapeHotkey(isSharePickerOpen: isSharePickerOpen)
         if wantsEsc, escToken == nil {
-            escToken = EscapeHotkeyCenter.shared.push { [weak self] in
+            escToken = TransientHotkeyCenter.escape.push { [weak self] in
                 guard let self, self.isVisible else { return }
                 switch self.state.escapeAction(hasExpandedStack: self.archiveExpansion.stackID != nil) {
                 case .collapseStack:
@@ -1145,7 +1166,7 @@ final class NotchPanelController: NSObject {
                 }
             }
         } else if !wantsEsc, let token = escToken {
-            EscapeHotkeyCenter.shared.remove(token)
+            TransientHotkeyCenter.escape.remove(token)
             escToken = nil
         }
     }
@@ -1154,7 +1175,7 @@ final class NotchPanelController: NSObject {
     /// обычно это делает syncEscapeHotkey при смене state).
     private func removeEscMonitor() {
         if let token = escToken {
-            EscapeHotkeyCenter.shared.remove(token)
+            TransientHotkeyCenter.escape.remove(token)
             escToken = nil
         }
     }
