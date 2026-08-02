@@ -1,6 +1,63 @@
 import AppKit
 import SwiftUI
 
+// MARK: - ThumbnailHUDGeometry
+
+/// Pure layout math for the capture thumbnail, kept free of AppKit state so it
+/// is unit-testable — the same arrangement as `PinnedWindowGeometry`.
+///
+/// The picture is sized first and the panel is that plus a band on every side,
+/// never the other way round: sizing the panel to the capture's aspect and then
+/// insetting the picture inside it leaves the band uneven for every shape but
+/// one (a 16:10 capture came out with 12.8 pt down the sides against 8 pt top
+/// and bottom).
+enum ThumbnailHUDGeometry {
+    /// The plate showing around the picture on every side.
+    static let inset: CGFloat = 8
+    /// Corner radius of the plate; the picture's own is this minus the inset,
+    /// so the two roundings are concentric.
+    static let plateRadius: CGFloat = 16
+    static var imageRadius: CGFloat { plateRadius - inset }
+
+    /// Largest and smallest the picture itself may be. The floor is what the
+    /// chrome needs: two 28 pt badges side by side in the bar that slides in
+    /// across the top, plus the band.
+    static let maxImageBox = CGSize(width: 204, height: 144)
+    static let minImageBox = CGSize(width: 64, height: 44)
+
+    struct Layout: Equatable {
+        /// Where the picture is drawn, inside the panel, band excluded.
+        var imageBox: CGSize
+        /// True when the capture is too far from square to be shown whole at
+        /// this size: it fills the box and is clipped instead of shrinking to a
+        /// thread down the middle of a plate.
+        var cropsToFill: Bool
+
+        var panelSize: CGSize {
+            CGSize(width: imageBox.width + 2 * inset, height: imageBox.height + 2 * inset)
+        }
+    }
+
+    /// Aspect-fits the capture into `maxImageBox`, then raises whichever side
+    /// falls under the floor. Raising a side is exactly what makes a crop
+    /// necessary — and only by as much as was raised, so the crop starts at
+    /// nothing on the threshold and grows from there rather than jumping.
+    static func layout(imagePixels: CGSize) -> Layout {
+        guard imagePixels.width > 0, imagePixels.height > 0 else {
+            return Layout(imageBox: maxImageBox, cropsToFill: false)
+        }
+        let aspect = imagePixels.width / imagePixels.height
+        var box = aspect >= maxImageBox.width / maxImageBox.height
+            ? CGSize(width: maxImageBox.width, height: maxImageBox.width / aspect)
+            : CGSize(width: maxImageBox.height * aspect, height: maxImageBox.height)
+
+        let cropped = box.width < minImageBox.width || box.height < minImageBox.height
+        box.width = max(box.width, minImageBox.width)
+        box.height = max(box.height, minImageBox.height)
+        return Layout(imageBox: box, cropsToFill: cropped)
+    }
+}
+
 // MARK: - ScreenshotThumbnailHUD
 
 final class ScreenshotThumbnailHUD {
@@ -15,10 +72,8 @@ final class ScreenshotThumbnailHUD {
 
     // Reads image pixel dimensions inside the active security scope so CGImageSource
     // can open sandboxed files in user-chosen save directories.
-    private func thumbnailSize(for imageURL: URL) -> CGSize {
-        let maxW: CGFloat = 220, maxH: CGFloat = 160
-        let minW: CGFloat = 80,  minH: CGFloat = 60
-        let fallback = CGSize(width: maxW, height: maxH)
+    private func thumbnailLayout(for imageURL: URL) -> ThumbnailHUDGeometry.Layout {
+        let fallback = ThumbnailHUDGeometry.layout(imagePixels: .zero)
 
         let result = try? AppSettings.withSaveDirectoryAccess { _ in
             guard let src = CGImageSourceCreateWithURL(imageURL as CFURL, nil),
@@ -27,15 +82,8 @@ final class ScreenshotThumbnailHUD {
                   let phNum = props[kCGImagePropertyPixelHeight] as? NSNumber
             else { return fallback }
 
-            let pw = CGFloat(pwNum.intValue)
-            let ph = CGFloat(phNum.intValue)
-            guard pw > 0, ph > 0 else { return fallback }
-
-            let ar = pw / ph
-            var w = maxW
-            var h = w / ar
-            if h > maxH { h = maxH; w = h * ar }
-            return CGSize(width: max(w, minW), height: max(h, minH))
+            return ThumbnailHUDGeometry.layout(
+                imagePixels: CGSize(width: pwNum.intValue, height: phNum.intValue))
         }
         return result ?? fallback
     }
@@ -47,8 +95,8 @@ final class ScreenshotThumbnailHUD {
             self.dismissWorkItem = nil
 
             let screen = screen ?? NSScreen.main ?? NSScreen.screens.first
-            let size = self.thumbnailSize(for: imageURL)
-            let frame = self.frameBottomRight(size: size, on: screen)
+            let layout = self.thumbnailLayout(for: imageURL)
+            let frame = self.frameBottomRight(size: layout.panelSize, on: screen)
 
             if self.panel == nil {
                 self.panel = self.makePanel(frame: frame)
@@ -59,6 +107,7 @@ final class ScreenshotThumbnailHUD {
 
             let view = ScreenshotThumbnailView(
                 imageURL: imageURL,
+                layout: layout,
                 onDismiss: { [weak self] in self?.hide(animated: true) },
                 onDelete: { [weak self] in self?.onDelete?() },
                 onHoverChanged: { [weak self] hovering, pinned in
@@ -259,6 +308,10 @@ private final class DragSource: NSObject, NSDraggingSource {
 
 struct ScreenshotThumbnailView: View {
     let imageURL: URL
+    /// Where the picture goes inside the panel, and whether it has to be
+    /// cropped to get there. Decided once, by the HUD that sized the panel, so
+    /// the band around the picture is the same 8 pt the panel was built with.
+    var layout: ThumbnailHUDGeometry.Layout = ThumbnailHUDGeometry.layout(imagePixels: .zero)
     let onDismiss: () -> Void
     let onDelete: () -> Void
     let onHoverChanged: (_ hovering: Bool, _ isPinned: Bool) -> Void
@@ -274,21 +327,28 @@ struct ScreenshotThumbnailView: View {
     var body: some View {
         ZStack(alignment: .top) {
             // Background
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
+            RoundedRectangle(cornerRadius: ThumbnailHUDGeometry.plateRadius, style: .continuous)
                 .fill(Color.black.opacity(0.72))
 
-            // Screenshot image
+            // Screenshot image, in the box the panel was sized around: the
+            // plate is then the same width on every side by construction. A
+            // capture too far from square to be shown whole at this size fills
+            // the box and is clipped — see ThumbnailHUDGeometry.
             if let image = loader.image {
                 Image(nsImage: image)
                     .resizable()
-                    .scaledToFit()
-                    .cornerRadius(12)
-                    .padding(8)
+                    .aspectRatio(contentMode: layout.cropsToFill ? .fill : .fit)
+                    .frame(width: layout.imageBox.width, height: layout.imageBox.height)
+                    .clipShape(RoundedRectangle(cornerRadius: ThumbnailHUDGeometry.imageRadius,
+                                                style: .continuous))
                     .overlay(
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        RoundedRectangle(cornerRadius: ThumbnailHUDGeometry.imageRadius,
+                                         style: .continuous)
                             .stroke(Color.white.opacity(0.08), lineWidth: 1)
-                            .padding(8)
                     )
+                    // Centred in the panel: the ZStack aligns to the top for
+                    // the title bar's sake, which is not where a picture goes.
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 VStack(spacing: 6) {
                     ProgressView().controlSize(.small)
