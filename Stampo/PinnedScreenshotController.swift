@@ -88,6 +88,107 @@ enum PinnedWindowGeometry {
         return s
     }
 
+    // MARK: - Hover plate
+
+    /// Width of the plate that grows around a pin while the pointer is over it.
+    /// Matches the capture thumbnail's inset, so the two read as one idiom.
+    static let plateBand: CGFloat = 10
+
+    /// How far a corner's grab zone reaches along each edge. The band alone is
+    /// a 10×10 target — big enough to see, too small to aim at.
+    static let cornerReach: CGFloat = 30
+
+    /// The window frame that shows `band` of plate around an unchanged image:
+    /// the image keeps its size and position, the window grows around it.
+    /// Deliberately unclamped — pulling a plated window back onto the screen
+    /// would drag the picture with it, and a pin parked half off the edge would
+    /// jump the moment the pointer touched it.
+    static func plated(_ imageFrame: CGRect, band: CGFloat) -> CGRect {
+        imageFrame.insetBy(dx: -band, dy: -band)
+    }
+
+    /// The image frame inside a plated window — the inverse of `plated`, used
+    /// when the pointer leaves and the plate goes away.
+    static func unplated(_ windowFrame: CGRect, band: CGFloat) -> CGRect {
+        windowFrame.insetBy(dx: band, dy: band)
+    }
+
+    /// Which grab zone a point in the plate belongs to. Corners resize; the
+    /// straight runs between them move the window, like the image itself.
+    enum PlateZone: Equatable {
+        case topLeft, topRight, bottomLeft, bottomRight
+        /// The plate's straight edges and the image: drag moves the window.
+        case body
+    }
+
+    /// Zone for a point in view coordinates with the origin at the bottom left
+    /// (AppKit's default for an unflipped view), given the view's size.
+    static func zone(at point: CGPoint,
+                     in size: CGSize,
+                     band: CGFloat = plateBand,
+                     reach: CGFloat = cornerReach) -> PlateZone {
+        // Inside the image, past the plate on every side: nothing to resize.
+        let inset = CGRect(origin: .zero, size: size).insetBy(dx: band, dy: band)
+        if inset.contains(point) { return .body }
+
+        let nearLeft   = point.x <= reach
+        let nearRight  = point.x >= size.width - reach
+        let nearBottom = point.y <= reach
+        let nearTop    = point.y >= size.height - reach
+
+        switch (nearLeft, nearRight, nearBottom, nearTop) {
+        case (true, _, true, _):  return .bottomLeft
+        case (true, _, _, true):  return .topLeft
+        case (_, true, true, _):  return .bottomRight
+        case (_, true, _, true):  return .topRight
+        default:                  return .body
+        }
+    }
+
+    /// New window frame while a corner is dragged. The opposite corner stays
+    /// put, the image keeps its aspect, and the plate keeps its width on every
+    /// side — so `imageAspect` constrains the frame minus two bands, not the
+    /// frame itself. `translation` is the pointer's movement in screen
+    /// coordinates (y up). The axis the pointer moved further along drives the
+    /// new size; the other follows from the aspect.
+    static func resized(_ frame: CGRect,
+                        corner: PlateZone,
+                        translation: CGSize,
+                        imageAspect: CGFloat,
+                        band: CGFloat,
+                        minImageSize: CGSize,
+                        maxImageSize: CGSize) -> CGRect {
+        guard corner != .body, imageAspect > 0 else { return frame }
+
+        let inner = CGSize(width: frame.width - 2 * band, height: frame.height - 2 * band)
+        guard inner.width > 0, inner.height > 0 else { return frame }
+
+        let growsRight = corner == .topRight || corner == .bottomRight
+        let growsUp    = corner == .topLeft  || corner == .topRight
+        let dw = growsRight ? translation.width  : -translation.width
+        let dh = growsUp    ? translation.height : -translation.height
+
+        // Everything is derived from a width, kept positive: a drag can easily
+        // run past the opposite corner, and a negative size would come back
+        // through the clamps below with its sign flipped.
+        let width = max(abs(dw) >= abs(dh) ? inner.width + dw
+                                           : (inner.height + dh) * imageAspect, 1)
+        var size = CGSize(width: width, height: width / imageAspect)
+
+        // Clamp on whichever bound bites first — one scale factor for both
+        // axes, or the aspect would not survive the clamping.
+        let floor = max(minImageSize.width / size.width, minImageSize.height / size.height)
+        if floor > 1 { size = CGSize(width: size.width * floor, height: size.height * floor) }
+        let ceiling = min(maxImageSize.width / size.width, maxImageSize.height / size.height)
+        if ceiling < 1 { size = CGSize(width: size.width * ceiling, height: size.height * ceiling) }
+
+        let outer = CGSize(width: size.width + 2 * band, height: size.height + 2 * band)
+        // The dragged corner moves, the one across from it does not.
+        let x = growsRight ? frame.minX : frame.maxX - outer.width
+        let y = growsUp    ? frame.minY : frame.maxY - outer.height
+        return CGRect(origin: CGPoint(x: x, y: y), size: outer)
+    }
+
     /// Shrinks and shifts `frame` as needed so it lies inside `visibleFrame`.
     static func clampedFrame(_ frame: CGRect, to visibleFrame: CGRect) -> CGRect {
         var f = frame

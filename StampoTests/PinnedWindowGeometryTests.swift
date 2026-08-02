@@ -114,6 +114,137 @@ import Testing
         let frame = CGRect(x: 100, y: 100, width: 400, height: 300)
         #expect(PinnedWindowGeometry.clampedFrame(frame, to: screen) == frame)
     }
+
+    // MARK: hover plate
+
+    private let band = PinnedWindowGeometry.plateBand
+
+    /// The whole point of growing the window: the image must not move or
+    /// change size when the plate appears under the pointer.
+    @Test func platingGrowsAroundTheImageAndUndoesExactly() {
+        let image = CGRect(x: 300, y: 400, width: 480, height: 300)
+        let plated = PinnedWindowGeometry.plated(image, band: band)
+        #expect(plated.width == image.width + 2 * band)
+        #expect(plated.height == image.height + 2 * band)
+        #expect(plated.midX == image.midX)
+        #expect(plated.midY == image.midY)
+        #expect(PinnedWindowGeometry.unplated(plated, band: band) == image)
+    }
+
+    /// A pin parked half off the screen must not be yanked back by a plate: the
+    /// picture stays where the user put it, the window just grows past the edge.
+    @Test func platingNeverPullsAPinBackOntoTheScreen() {
+        let image = CGRect(x: screen.maxX - 60, y: 400, width: 400, height: 260)
+        let plated = PinnedWindowGeometry.plated(image, band: band)
+        #expect(plated.midX == image.midX)
+        #expect(plated.midY == image.midY)
+        #expect(PinnedWindowGeometry.unplated(plated, band: band) == image)
+    }
+
+    // MARK: plate zones
+
+    @Test func plateCornersResizeAndEverythingElseMoves() {
+        let size = CGSize(width: 400, height: 300)
+        let reach = PinnedWindowGeometry.cornerReach
+        // Corners, in the bottom-left origin the geometry works in.
+        #expect(PinnedWindowGeometry.zone(at: CGPoint(x: 3, y: 3), in: size) == .bottomLeft)
+        #expect(PinnedWindowGeometry.zone(at: CGPoint(x: 397, y: 3), in: size) == .bottomRight)
+        #expect(PinnedWindowGeometry.zone(at: CGPoint(x: 3, y: 297), in: size) == .topLeft)
+        #expect(PinnedWindowGeometry.zone(at: CGPoint(x: 397, y: 297), in: size) == .topRight)
+        // The straight run of plate between two corners moves the window.
+        #expect(PinnedWindowGeometry.zone(at: CGPoint(x: 200, y: 3), in: size) == .body)
+        #expect(PinnedWindowGeometry.zone(at: CGPoint(x: 3, y: 150), in: size) == .body)
+        // A corner's reach ends where it says it does.
+        #expect(PinnedWindowGeometry.zone(at: CGPoint(x: reach + 5, y: 3), in: size) == .body)
+        // Inside the image, past the plate: the picture drags the window.
+        #expect(PinnedWindowGeometry.zone(at: CGPoint(x: 200, y: 150), in: size) == .body)
+        #expect(PinnedWindowGeometry.zone(at: CGPoint(x: 20, y: 20), in: size) == .body)
+    }
+
+    /// A pin of a very narrow image is the case the plate exists for: the
+    /// image is a sliver, but the plate around it still has real corners.
+    @Test func narrowPinStillHasGrabbableCorners() {
+        let size = CGSize(width: 600, height: 2 * PinnedWindowGeometry.plateBand + 14)
+        #expect(PinnedWindowGeometry.zone(at: CGPoint(x: 2, y: 2), in: size) == .bottomLeft)
+        #expect(PinnedWindowGeometry.zone(at: CGPoint(x: 598, y: size.height - 2), in: size) == .topRight)
+        #expect(PinnedWindowGeometry.zone(at: CGPoint(x: 300, y: size.height / 2), in: size) == .body)
+    }
+
+    // MARK: plate resize
+
+    /// Dragging a corner outward: the image keeps its aspect and the corner
+    /// across from the dragged one does not move.
+    @Test func draggingACornerKeepsTheAspectAndTheOppositeCorner() {
+        let frame = CGRect(x: 200, y: 200, width: 400 + 2 * band, height: 250 + 2 * band)
+        let resized = PinnedWindowGeometry.resized(
+            frame, corner: .topRight, translation: CGSize(width: 100, height: 0),
+            imageAspect: 400.0 / 250.0, band: band,
+            minImageSize: CGSize(width: 120, height: 75),
+            maxImageSize: CGSize(width: 1400, height: 875))
+
+        #expect(resized.minX == frame.minX)          // anchored bottom-left
+        #expect(resized.minY == frame.minY)
+        let image = PinnedWindowGeometry.unplated(resized, band: band)
+        #expect(abs(image.width - 500) < 0.5)
+        #expect(abs(image.width / image.height - 400.0 / 250.0) < 0.001)
+    }
+
+    @Test func draggingTheBottomLeftAnchorsTheTopRight() {
+        let frame = CGRect(x: 200, y: 200, width: 400 + 2 * band, height: 250 + 2 * band)
+        let resized = PinnedWindowGeometry.resized(
+            frame, corner: .bottomLeft, translation: CGSize(width: -100, height: 0),
+            imageAspect: 400.0 / 250.0, band: band,
+            minImageSize: CGSize(width: 120, height: 75),
+            maxImageSize: CGSize(width: 1400, height: 875))
+
+        #expect(abs(resized.maxX - frame.maxX) < 0.001)
+        #expect(abs(resized.maxY - frame.maxY) < 0.001)
+        #expect(resized.width > frame.width)
+    }
+
+    @Test func resizeStopsAtTheFloorAndTheCeiling() {
+        let frame = CGRect(x: 200, y: 200, width: 400 + 2 * band, height: 250 + 2 * band)
+        let aspect = 400.0 / 250.0
+        let minImage = CGSize(width: 120, height: 75)
+        let maxImage = CGSize(width: 800, height: 500)
+
+        let shrunk = PinnedWindowGeometry.resized(
+            frame, corner: .topRight, translation: CGSize(width: -5000, height: 0),
+            imageAspect: aspect, band: band, minImageSize: minImage, maxImageSize: maxImage)
+        let smallImage = PinnedWindowGeometry.unplated(shrunk, band: band)
+        #expect(abs(smallImage.width - minImage.width) < 0.5)
+        #expect(abs(smallImage.width / smallImage.height - aspect) < 0.001)
+
+        let grown = PinnedWindowGeometry.resized(
+            frame, corner: .topRight, translation: CGSize(width: 5000, height: 0),
+            imageAspect: aspect, band: band, minImageSize: minImage, maxImageSize: maxImage)
+        let bigImage = PinnedWindowGeometry.unplated(grown, band: band)
+        #expect(abs(bigImage.width - maxImage.width) < 0.5)
+        #expect(abs(bigImage.width / bigImage.height - aspect) < 0.001)
+    }
+
+    /// The plate keeps its width on every side while the image is resized —
+    /// so the aspect is the image's, never the window's.
+    @Test func theBandSurvivesAResize() {
+        let frame = CGRect(x: 200, y: 200, width: 400 + 2 * band, height: 250 + 2 * band)
+        let resized = PinnedWindowGeometry.resized(
+            frame, corner: .bottomRight, translation: CGSize(width: 60, height: -40),
+            imageAspect: 400.0 / 250.0, band: band,
+            minImageSize: CGSize(width: 120, height: 75),
+            maxImageSize: CGSize(width: 1400, height: 875))
+        let image = PinnedWindowGeometry.unplated(resized, band: band)
+        #expect(abs(resized.width - image.width - 2 * band) < 0.001)
+        #expect(abs(resized.height - image.height - 2 * band) < 0.001)
+    }
+
+    @Test func bodyZoneIsNeverAResize() {
+        let frame = CGRect(x: 200, y: 200, width: 420, height: 270)
+        #expect(PinnedWindowGeometry.resized(
+            frame, corner: .body, translation: CGSize(width: 100, height: 100),
+            imageAspect: 1.6, band: band,
+            minImageSize: CGSize(width: 120, height: 75),
+            maxImageSize: CGSize(width: 1400, height: 875)) == frame)
+    }
 }
 
 @Suite struct PinLastCaptureHotkeyTests {
