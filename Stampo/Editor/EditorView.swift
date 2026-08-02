@@ -549,11 +549,13 @@ struct EditorView: View {
     /// Free placement vs. snapping to the layout grid. Elbowed arrows put
     /// their legs and endpoints on this grid; free mode drops the quantization
     /// for pixel-exact placement.
+    /// Grid first, free second: every other segmented control in this row puts
+    /// its default in the leading segment, and snapping is on by default.
     private var snapPicker: some View {
         Picker("Snapping", selection: $style.snapsToGrid) {
+            Image(systemName: "grid").tag(true)
             Image(systemName: "arrow.up.and.down.and.arrow.left.and.right")
                 .tag(false)
-            Image(systemName: "grid").tag(true)
         }
         .pickerStyle(.segmented)
         .labelsHidden()
