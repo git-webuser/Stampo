@@ -57,7 +57,7 @@ import Testing
     /// row subtitle is where that gets documented.
     @Test func onlyScanCarriesAModifierHint() {
         #expect(HotkeyAction.scan.modifierHintKey
-                == "Hold ⌥ when releasing the selection to keep line breaks")
+                == "Hold ⌥ while selecting text to keep line breaks")
         let withHints = HotkeyAction.allCases.filter { $0.modifierHintKey != nil }
         #expect(withHints == [.scan])
     }

@@ -185,18 +185,20 @@ import Testing
     }
 }
 
-// MARK: - Collect Files hotkey metadata
+// MARK: - Pin Panel hotkey metadata
 
-@Suite struct CollectFilesHotkeyTests {
+@Suite struct PinPanelHotkeyTests {
 
-    @Test func collectFilesRowMetadataIsFilledIn() {
+    /// The row is named for what the action does — it pins the panel open —
+    /// rather than for the flow it enables (collecting files).
+    @Test func pinPanelRowMetadataIsFilledIn() {
         #expect(HotkeyAction.collectFiles.rawValue == 9)
-        #expect(HotkeyAction.collectFiles.labelKey == "Collect Files")
+        #expect(HotkeyAction.collectFiles.labelKey == "Pin Panel")
         #expect(HotkeyAction.collectFiles.icon == "arrow.down.document")
         #expect(HotkeyAction.collectFiles.defaultCombo.displayString == "⌃⌥⌘T")
     }
 
-    @Test func collectFilesDefaultComboIsNotSystemReserved() {
+    @Test func pinPanelDefaultComboIsNotSystemReserved() {
         let result = HotkeyValidator.validate(
             HotkeyAction.collectFiles.defaultCombo, for: .collectFiles)
         #expect(result != .systemReserved)

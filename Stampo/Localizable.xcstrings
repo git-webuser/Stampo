@@ -1064,23 +1064,6 @@
         }
       }
     },
-    "Collect Files" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Collect Files"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Собрать файлы"
-          }
-        }
-      }
-    },
     "Color" : {
       "comment" : "Settings section header for color tray options",
       "localizations" : {
@@ -2124,6 +2107,7 @@
     },
     "Head Size" : {
       "comment" : "Editor slider — arrowhead size, as a multiple of its natural size",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -2168,20 +2152,19 @@
         }
       }
     },
-    "Hold ⌥ when releasing the selection to keep line breaks" : {
-      "comment" : "Hotkey row subtitle — the Scan action’s modifier variant",
-      "extractionState" : "stale",
+    "Hold ⌥ while selecting text to keep line breaks" : {
+      "comment" : "Hotkey row subtitle — the Scan action's modifier variant",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Hold ⌥ when releasing the selection to keep line breaks"
+            "value" : "Hold ⌥ while selecting text to keep line breaks"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "⌥ при отпускании выделения сохраняет переносы строк"
+            "value" : "Удерживай ⌥ при выделении текста для сохранения переносов"
           }
         }
       }
@@ -3361,6 +3344,23 @@
         }
       }
     },
+    "Pin Panel" : {
+      "comment" : "Hotkey row label — opens the panel pinned, ready to receive drops",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pin Panel"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Закрепить панель"
+          }
+        }
+      }
+    },
     "Pin Last Screenshot" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -4226,7 +4226,7 @@
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Скриншот выделения"
+            "value" : "Скриншот области"
           }
         }
       }

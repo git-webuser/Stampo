@@ -56,7 +56,7 @@ enum HotkeyAction: UInt32, CaseIterable {
     var modifierHintKey: String? {
         switch self {
         case .scan:
-            return "Hold ⌥ when releasing the selection to keep line breaks"
+            return "Hold ⌥ while selecting text to keep line breaks"
         default:
             return nil
         }
@@ -72,7 +72,7 @@ enum HotkeyAction: UInt32, CaseIterable {
         case .color:       return "Pick Color"
         case .scan:        return "Scan"
         case .pinLastCapture: return "Pin Last Screenshot"
-        case .collectFiles: return "Collect Files"
+        case .collectFiles: return "Pin Panel"
         case .shareLastItem: return "Share Last Item"
         }
     }
