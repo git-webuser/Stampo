@@ -275,7 +275,16 @@ private struct NotchPanelRootView: View {
                 expansion: archiveExpansion,
                 shareAnchor: shareAnchor,
                 isPinned: rootState.isArchivePinned,
-                isContentVisible: rootState.archiveContentVisible > 0.5,
+                // Both halves are needed, and the route is the load-bearing one.
+                // `archiveContentVisible` is an animation value that a close
+                // pre-fades to 0 and then puts back to 1 while the panel is
+                // still going away — "reset for next open". On its own it told
+                // the archive it was on screen again a beat after it left, and
+                // a cell still reporting a hover (the window vanished under the
+                // pointer, so no mouse-exit ever arrived) re-armed Space for a
+                // panel the user had just closed.
+                isContentVisible: rootState.archiveContentVisible > 0.5
+                    && rootState.route == .archive,
                 onBack: onBack,
                 onHidePanel: onHidePanel,
                 onTogglePin: onTogglePin

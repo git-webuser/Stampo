@@ -37,7 +37,7 @@ struct ArchiveSettingsView: View {
             } header: {
                 Text("Preview")
             } footer: {
-                Text("Space opens Quick Look for the item under the pointer. While the pointer rests there, Space belongs to Stampo rather than the app underneath")
+                Text("Hover an item in the archive and Space opens a preview")
             }
 
             // MARK: Color

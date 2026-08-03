@@ -2239,6 +2239,22 @@
         }
       }
     },
+    "Hover an item in the archive and Space opens a preview" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hover an item in the archive and Space opens a preview"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Наведите курсор на элемент в архиве, и пробел откроет предварительный просмотр"
+          }
+        }
+      }
+    },
     "Include cursor" : {
       "localizations" : {
         "en" : {
@@ -3584,7 +3600,6 @@
     },
     "Preview" : {
       "comment" : "Label for the filename preview row in capture settings",
-      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -4618,22 +4633,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Привязка"
-          }
-        }
-      }
-    },
-    "Space opens Quick Look for the item under the pointer. While the pointer rests there, Space belongs to Stampo rather than the app underneath" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Space opens Quick Look for the item under the pointer. While the pointer rests there, Space belongs to Stampo rather than the app underneath"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Пробел открывает Quick Look для элемента под курсором. Пока курсор на нём, пробел принадлежит Stampo, а не приложению под ним"
           }
         }
       }
