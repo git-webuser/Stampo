@@ -289,6 +289,16 @@ struct PinnedScreenshotView: View {
 
     @State private var loader = ThumbnailLoader()
     @State private var isHovered = false
+    /// The title bar's own state, moved a beat by `withAnimation` rather than
+    /// by an `.animation(_:value:)` on `isHovered` — the one departure from the
+    /// thumbnail, which needs none of this because its panel does not change
+    /// size when the pointer arrives. That modifier animates everything the bar
+    /// does when the hover changes, and here the plate widens in the same
+    /// breath: the picture's trailing edge lands a fraction elsewhere and the
+    /// badge pinned to it visibly travelled in X as well as Y, as if something
+    /// invisible were scaling under it. Driven from here, only the slide is
+    /// animated and the rest of the layout settles in the frame it happens.
+    @State private var isBadgeShown = false
     @State private var isCloseBadgePressed = false
 
     private let cornerRadius: CGFloat = 10
@@ -319,25 +329,29 @@ struct PinnedScreenshotView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .stroke(Color.white.opacity(isHovered ? 0.35 : 0.15), lineWidth: 1)
-                .animation(.easeInOut(duration: 0.15), value: isHovered)
-        )
-        // Badge over the image's corner, not the plate's: the plate's four
+        // The capture thumbnail's title bar, as it is there: the badge rides in
+        // on a gradient that darkens the top edge under it, which is what keeps
+        // a white glyph legible over a bright capture. One badge instead of two
+        // — a pin has nothing to pin — and it lives inside the clip so it can
+        // wait out of sight above the top edge.
+        //
+        // Over the picture's corner rather than the plate's: the plate's four
         // corners are the resize grips, and a badge would sit on one of them.
-        .overlay(alignment: .topTrailing) {
-            ArchiveDeleteBadge(accessibilityLabelOverride: "Close",
-                            action: onClose,
-                            isPressed: $isCloseBadgePressed)
-                .frame(width: 24, height: 24)
-                .padding(2)
-                .opacity(isHovered ? 1 : 0)
-                .allowsHitTesting(isHovered)
-                .help("Close")
-                .animation(.easeInOut(duration: 0.15), value: isHovered)
+        .overlay(alignment: .top) {
+            HStack(spacing: 0) {
+                Spacer()
+                ArchiveDeleteBadge(accessibilityLabelOverride: "Close",
+                                action: onClose,
+                                isPressed: $isCloseBadgePressed)
+                    .frame(width: 28, height: 28)
+                    .help("Close")
+            }
+            .padding(.horizontal, 2)
+            .background(alignment: .top) { BadgeBarScrim() }
+            .offset(y: isBadgeShown ? 0 : -34)
+            .allowsHitTesting(isBadgeShown)
         }
+        .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
         // The window grew by this much when the pointer arrived, so the picture
         // keeps the size and the place it had — the plate widens around it.
         .padding(band)
@@ -371,7 +385,13 @@ struct PinnedScreenshotView: View {
             }
         }
         .onHover { hovering in
+            // The plate and the window it lives in change on the spot; only the
+            // badge is given a beat, and only for the slide.
             isHovered = hovering
+            // The thumbnail's spring, to the number.
+            withAnimation(.spring(response: 0.22, dampingFraction: 0.85)) {
+                isBadgeShown = hovering
+            }
             onHoverChanged(hovering)
         }
         // No blanket animation on the hover state: it would take the padding

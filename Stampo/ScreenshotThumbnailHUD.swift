@@ -387,12 +387,7 @@ struct ScreenshotThumbnailView: View {
                 .help("Close")
             }
             .padding(.horizontal, 2)
-            .background(
-                LinearGradient(
-                    colors: [Color.black.opacity(0.5), Color.clear],
-                    startPoint: .top, endPoint: .bottom
-                )
-            )
+            .background(alignment: .top) { BadgeBarScrim() }
             .offset(y: isHovered ? 0 : -34)
             .animation(.spring(response: 0.22, dampingFraction: 0.85), value: isHovered)
         }

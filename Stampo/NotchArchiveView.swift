@@ -661,6 +661,35 @@ struct NotchArchiveView: View {
     }
 }
 
+// MARK: - Badge bar scrim
+
+/// The darkening under a bar of badges — the capture thumbnail's and the pinned
+/// window's — so a white glyph stays legible over a bright capture.
+///
+/// It runs well past the bar it sits behind and fades on an eased ramp rather
+/// than a straight one. A linear gradient the height of the bar ends in a line
+/// you can see: harmless on a thumbnail 160 pt tall, plain as day across a
+/// pinned screenshot.
+struct BadgeBarScrim: View {
+    /// Roughly twice a badge bar's height, so the tail lands where nothing is
+    /// looking for it.
+    static let height: CGFloat = 56
+
+    var body: some View {
+        LinearGradient(
+            stops: [
+                .init(color: .black.opacity(0.50), location: 0),
+                .init(color: .black.opacity(0.28), location: 0.35),
+                .init(color: .black.opacity(0.10), location: 0.65),
+                .init(color: .clear, location: 1)
+            ],
+            startPoint: .top, endPoint: .bottom
+        )
+        .frame(height: Self.height)
+        .allowsHitTesting(false)
+    }
+}
+
 // MARK: - Delete Badge
 
 struct ArchiveDeleteBadge: View {
