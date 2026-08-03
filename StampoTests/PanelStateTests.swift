@@ -43,19 +43,37 @@ import Testing
 @Suite struct PanelEscapeTests {
 
     @Test func expandedStackSwallowsTheFirstEscape() {
-        #expect(PanelState.archive.escapeAction(hasExpandedStack: true) == .collapseStack)
+        #expect(PanelState.archive.escapeAction(hasExpandedStack: true, isSelecting: false)
+                == .collapseStack)
     }
 
     @Test func escapeClosesThePanelOnceNothingIsExpanded() {
-        #expect(PanelState.archive.escapeAction(hasExpandedStack: false) == .hidePanel)
+        #expect(PanelState.archive.escapeAction(hasExpandedStack: false, isSelecting: false)
+                == .hidePanel)
+    }
+
+    @Test func selectionIsTheLayerBetweenTheStackAndThePanel() {
+        #expect(PanelState.archive.escapeAction(hasExpandedStack: false, isSelecting: true)
+                == .exitSelection)
+    }
+
+    /// One press, one layer, innermost first: a stack expanded inside a
+    /// selection collapses before the mode is touched, so neither press has to
+    /// undo two things at once.
+    @Test func theStackUnwindsBeforeTheSelectionDoes() {
+        #expect(PanelState.archive.escapeAction(hasExpandedStack: true, isSelecting: true)
+                == .collapseStack)
     }
 
     /// A stack can only be expanded inside the archive, but the flag outlives
     /// the route by an instant while the archive morphs away — the press must
     /// close the panel then, not collapse something the user can no longer see.
+    /// The selection flag is cleared on the same close and outlives it the same
+    /// way, so it is read under the same guard.
     @Test(arguments: [PanelState.main, .showing, .countdown, .transitioning(to: .main)])
-    func onlyTheArchiveCollapsesInsteadOfClosing(state: PanelState) {
-        #expect(state.escapeAction(hasExpandedStack: true) == .hidePanel)
+    func onlyTheArchiveUnwindsInsteadOfClosing(state: PanelState) {
+        #expect(state.escapeAction(hasExpandedStack: true, isSelecting: false) == .hidePanel)
+        #expect(state.escapeAction(hasExpandedStack: false, isSelecting: true) == .hidePanel)
     }
 
     @Test(arguments: [PanelState.showing, .main, .archive, .countdown])

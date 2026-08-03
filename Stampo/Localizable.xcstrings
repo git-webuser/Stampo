@@ -787,6 +787,23 @@
         }
       }
     },
+    "Cancel selection" : {
+      "comment" : "Archive back button while selecting — the press leaves the mode rather than returning to the main panel",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cancel selection"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Отменить выделение"
+          }
+        }
+      }
+    },
     "Capture" : {
       "comment" : "Panel button that takes the screenshot",
       "localizations" : {

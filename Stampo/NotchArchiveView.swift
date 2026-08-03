@@ -89,6 +89,15 @@ struct NotchArchiveView: View {
     }
 
     private func handleBack() {
+        // In selection mode the chevron is the mode's off switch and nothing
+        // else: it does not also return to Main, which is what the second press
+        // is for. Each control keeps one meaning — this one turns the mode off
+        // whatever else is open, while Esc unwinds the layers in order and
+        // reaches the mode only once no stack is expanded.
+        if selection.isActive {
+            selection.clear()
+            return
+        }
         onBack()  // controller drives the content fade-out
     }
 
@@ -641,10 +650,13 @@ struct NotchArchiveView: View {
     // MARK: - Buttons
 
     private var backButton: some View {
-        PanelIconButton(systemName: "chevron.left", size: 14, weight: .semibold, action: handleBack)
+        // The label follows what the press will actually do, or VoiceOver goes
+        // on promising a return to Main that this press is not going to make.
+        let title: LocalizedStringKey = selection.isActive ? "Cancel selection" : "Back to panel"
+        return PanelIconButton(systemName: "chevron.left", size: 14, weight: .semibold, action: handleBack)
             .frame(width: metrics.cellWidth, height: metrics.iconSize)
-            .help("Back to panel")
-            .accessibilityLabel("Back to panel")
+            .help(title)
+            .accessibilityLabel(title)
     }
 
     private var pinButton: some View {

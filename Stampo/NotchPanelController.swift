@@ -125,14 +125,18 @@ extension PanelState {
         }
     }
 
-    /// Which layer Esc unwinds. The archive expands one stack at a time into an
-    /// inline accordion, and that accordion is the only panel state with no
-    /// keyboard way out — so Esc collapses it first and closes the panel on the
-    /// press after. It stops there: returning to Main is what the back button
-    /// is for, and a third press before the panel disappears would undo the
-    /// "Esc means gone" reflex.
-    func escapeAction(hasExpandedStack: Bool) -> EscapeAction {
-        if case .archive = self, hasExpandedStack { return .collapseStack }
+    /// Which layer Esc unwinds — one press, one layer, innermost first.
+    ///
+    /// The archive can be two layers deep: a stack expanded into an inline
+    /// accordion, inside a selection the user is halfway through making.
+    /// Neither has any other keyboard way out, so Esc collapses the accordion,
+    /// then leaves the mode, then closes the panel. It stops there: returning
+    /// to Main is what the back button is for, and a further press before the
+    /// panel disappears would undo the "Esc means gone" reflex.
+    func escapeAction(hasExpandedStack: Bool, isSelecting: Bool) -> EscapeAction {
+        guard case .archive = self else { return .hidePanel }
+        if hasExpandedStack { return .collapseStack }
+        if isSelecting      { return .exitSelection }
         return .hidePanel
     }
 }
@@ -140,6 +144,7 @@ extension PanelState {
 /// What a press of Esc does at a given moment (see `PanelState.escapeAction`).
 enum EscapeAction: Equatable {
     case collapseStack
+    case exitSelection
     case hidePanel
 }
 
@@ -1177,10 +1182,15 @@ final class NotchPanelController: NSObject {
         if wantsEsc, escToken == nil {
             escToken = TransientHotkeyCenter.escape.push { [weak self] in
                 guard let self, self.isVisible else { return }
-                switch self.state.escapeAction(hasExpandedStack: self.archiveExpansion.stackID != nil) {
+                switch self.state.escapeAction(hasExpandedStack: self.archiveExpansion.stackID != nil,
+                                               isSelecting: self.archiveSelection.isActive) {
                 case .collapseStack:
                     withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
                         self.archiveExpansion.stackID = nil
+                    }
+                case .exitSelection:
+                    withAnimation(.easeInOut(duration: 0.18)) {
+                        self.archiveSelection.clear()
                     }
                 case .hidePanel:
                     self.hideAnimated(reason: .escKey)
