@@ -15,26 +15,31 @@ struct HotkeySettingsView: View {
     var body: some View {
         Form {
             // MARK: Global shortcuts (editable), one section per group.
-            // Reset covers every group, so it lives in the last one's footer.
-            ForEach(Array(HotkeyGroup.allCases.enumerated()), id: \.element) { index, group in
-                Section {
+            ForEach(HotkeyGroup.allCases, id: \.self) { group in
+                Section(LocalizedStringKey(group.titleKey)) {
                     ForEach(group.actions, id: \.self) { action in
                         EditableHotkeyRow(action: action, combo: combos[action] ?? nil) { newCombo in
                             action.setCombo(newCombo)    // persists → controller reinstalls
                             combos[action] = newCombo
                         }
                     }
-                } header: {
-                    Text(LocalizedStringKey(group.titleKey))
-                } footer: {
-                    if index == HotkeyGroup.allCases.count - 1 {
-                        HStack {
-                            Spacer()
-                            Button("Reset") { restoreDefaults() }
-                                .buttonStyle(.bordered)
-                        }
-                        .padding(.top, 2)
-                    }
+                }
+            }
+
+            // MARK: Reset
+            // A section of its own, because Reset covers all three groups above
+            // and nothing below. It used to hang in the last group's footer,
+            // from when the shortcuts were a single list — once they were split
+            // into groups, that put it under "Tools" and made it look like it
+            // reset the tools.
+            Section {
+                SettingRow(
+                    icon: "arrow.uturn.backward",
+                    title: "Reset shortcuts",
+                    description: "Restores the defaults for all three groups above; the element controls below are unaffected"
+                ) {
+                    Button("Reset") { restoreDefaults() }
+                        .buttonStyle(.bordered)
                 }
             }
 

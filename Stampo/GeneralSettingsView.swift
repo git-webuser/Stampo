@@ -158,7 +158,7 @@ struct GeneralSettingsView: View {
             }
 
             // MARK: Thumbnail Preview
-            Section {
+            Section("Thumbnail Preview") {
                 SettingRow(icon: "photo.stack", title: "Show after capture") {
                     Toggle("", isOn: $showThumbnailHUD).labelsHidden()
                 }
@@ -175,7 +175,11 @@ struct GeneralSettingsView: View {
                     .disabled(!showThumbnailHUD)
                 }
 
-                SettingRow(icon: "cursorarrow.click", title: "On thumbnail click") {
+                SettingRow(
+                    icon: "cursorarrow.click",
+                    title: "On thumbnail click",
+                    description: "Click the preview thumbnail to edit or open the screenshot"
+                ) {
                     Picker("", selection: $thumbnailClickAction) {
                         Text("Open editor").tag(ThumbnailClickAction.editor)
                         Text("Open preview").tag(ThumbnailClickAction.preview)
@@ -184,10 +188,6 @@ struct GeneralSettingsView: View {
                     .labelsHidden()
                     .disabled(!showThumbnailHUD)
                 }
-            } header: {
-                Text("Thumbnail Preview")
-            } footer: {
-                Text("Click the preview thumbnail to edit or open the screenshot")
             }
         }
         .formStyle(.grouped)

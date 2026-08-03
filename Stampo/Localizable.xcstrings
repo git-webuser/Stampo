@@ -3852,6 +3852,22 @@
         }
       }
     },
+    "Reset shortcuts" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reset shortcuts"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сбросить сочетания"
+          }
+        }
+      }
+    },
     "Restarting Stampo" : {
       "comment" : "Onboarding status shown while applying a newly granted permission",
       "localizations" : {
@@ -3865,6 +3881,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Перезапуск Stampo"
+          }
+        }
+      }
+    },
+    "Restores the defaults for all three groups above; the element controls below are unaffected" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restores the defaults for all three groups above; the element controls below are unaffected"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Возвращает сочетания по умолчанию во всех трёх группах выше; управление элементами ниже не затрагивается"
           }
         }
       }
