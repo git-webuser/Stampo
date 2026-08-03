@@ -338,18 +338,18 @@ struct PinnedScreenshotView: View {
         // Over the picture's corner rather than the plate's: the plate's four
         // corners are the resize grips, and a badge would sit on one of them.
         .overlay(alignment: .top) {
-            HStack(spacing: 0) {
-                Spacer()
-                ArchiveDeleteBadge(accessibilityLabelOverride: "Close",
-                                action: onClose,
-                                isPressed: $isCloseBadgePressed)
-                    .frame(width: 28, height: 28)
-                    .help("Close")
+            // A hair off the picture's corner, the same on both sides and the
+            // top: flush against a rounded corner is not a place for a badge.
+            BadgeBar(isShown: isBadgeShown, inset: 2) {
+                HStack(spacing: 0) {
+                    Spacer()
+                    ArchiveDeleteBadge(accessibilityLabelOverride: "Close",
+                                    action: onClose,
+                                    isPressed: $isCloseBadgePressed)
+                        .frame(width: 28, height: 28)
+                        .help("Close")
+                }
             }
-            .padding(.horizontal, 2)
-            .background(alignment: .top) { BadgeBarScrim() }
-            .offset(y: isBadgeShown ? 0 : -34)
-            .allowsHitTesting(isBadgeShown)
         }
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
         // The window grew by this much when the pointer arrived, so the picture

@@ -661,15 +661,54 @@ struct NotchArchiveView: View {
     }
 }
 
-// MARK: - Badge bar scrim
+// MARK: - Badge bar
 
-/// The darkening under a bar of badges — the capture thumbnail's and the pinned
-/// window's — so a white glyph stays legible over a bright capture.
+/// The bar of badges that slides in over a capture on hover — the thumbnail's
+/// and the pinned window's, one implementation.
+///
+/// `inset` is how far in from the surrounding plate the bar sits. Both use the
+/// picture's own edge, so the badges land on the picture's corners rather than
+/// the plate's: the pin's bar is already inside the picture's clip and asks for
+/// nothing, the thumbnail's spans the plate and insets by its band.
+struct BadgeBar<Content: View>: View {
+    /// Height of a badge, and so of the bar.
+    static var height: CGFloat { 28 }
+
+    let isShown: Bool
+    var inset: CGFloat = 0
+    @ViewBuilder let content: () -> Content
+
+    /// Far enough up to take the badges out of sight; the scrim goes with them
+    /// on its own, since it fades rather than travels its whole height.
+    private var hiddenOffset: CGFloat { -(inset + Self.height + 6) }
+
+    var body: some View {
+        content()
+            .frame(height: Self.height)
+            // One inset, the same on all three sides. The bar used to carry a
+            // couple of points of its own along the sides, from when it ran
+            // edge to edge with nothing above it, and those quietly added
+            // themselves to whatever was asked for here.
+            .padding(.horizontal, inset)
+            .padding(.top, inset)
+            // Scrim across the full width and from the very top: it is what
+            // makes the badges legible, and darkening everything but the
+            // corners would be a strange place to stop.
+            .background(alignment: .top) { BadgeBarScrim().opacity(isShown ? 1 : 0) }
+            .offset(y: isShown ? 0 : hiddenOffset)
+            .allowsHitTesting(isShown)
+    }
+}
+
+/// The darkening under a bar of badges, so a white glyph stays legible over a
+/// bright capture.
 ///
 /// It runs well past the bar it sits behind and fades on an eased ramp rather
 /// than a straight one. A linear gradient the height of the bar ends in a line
 /// you can see: harmless on a thumbnail 160 pt tall, plain as day across a
-/// pinned screenshot.
+/// pinned screenshot. Being taller than the bar, it cannot ride out of sight
+/// with it — it fades instead, or its tail would linger over the picture with
+/// the badges long gone.
 struct BadgeBarScrim: View {
     /// Roughly twice a badge bar's height, so the tail lands where nothing is
     /// looking for it.

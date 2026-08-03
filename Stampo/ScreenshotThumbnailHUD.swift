@@ -362,33 +362,35 @@ struct ScreenshotThumbnailView: View {
                 .padding(10)
             }
 
-            // Title bar — slides in from the top edge on hover,
-            // clipped by the rounded rectangle so it never overlaps outside.
-            HStack(spacing: 0) {
-                ArchiveDeleteBadge(
-                    systemName: "pin.circle.fill",
-                    isOn: isPinned,
-                    action: {
-                        isPinned.toggle()
-                        isPinned ? onPin() : onUnpin()
-                    },
-                    isPressed: $isPinBadgePressed
-                )
-                .frame(width: 28, height: 28)
-                .help(isPinned ? "Unpin" : "Pin")
+            // Title bar — slides in from the top edge on hover, clipped by the
+            // rounded rectangle so it never overlaps outside. Inset towards the
+            // picture's corners rather than the plate's, where a pin's badge
+            // sits; half the band, because on a panel this small the full one
+            // pushes the badges further in than they look right.
+            BadgeBar(isShown: isHovered, inset: ThumbnailHUDGeometry.inset / 2) {
+                HStack(spacing: 0) {
+                    ArchiveDeleteBadge(
+                        systemName: "pin.circle.fill",
+                        isOn: isPinned,
+                        action: {
+                            isPinned.toggle()
+                            isPinned ? onPin() : onUnpin()
+                        },
+                        isPressed: $isPinBadgePressed
+                    )
+                    .frame(width: 28, height: 28)
+                    .help(isPinned ? "Unpin" : "Pin")
 
-                Spacer()
+                    Spacer()
 
-                ArchiveDeleteBadge(
-                    action: { onDismiss() },
-                    isPressed: $isCloseBadgePressed
-                )
-                .frame(width: 28, height: 28)
-                .help("Close")
+                    ArchiveDeleteBadge(
+                        action: { onDismiss() },
+                        isPressed: $isCloseBadgePressed
+                    )
+                    .frame(width: 28, height: 28)
+                    .help("Close")
+                }
             }
-            .padding(.horizontal, 2)
-            .background(alignment: .top) { BadgeBarScrim() }
-            .offset(y: isHovered ? 0 : -34)
             .animation(.spring(response: 0.22, dampingFraction: 0.85), value: isHovered)
         }
         // clipShape keeps the sliding bar clipped to the rounded rectangle —
