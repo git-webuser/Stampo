@@ -33,6 +33,10 @@ struct NotchArchiveView: View {
     let onTogglePin: () -> Void
 
     @AppStorage(AppSettings.Keys.defaultColorFormat) private var scheme: ColorSchemeType = .hex
+    /// Whether Space over a cell opens a preview. Read here rather than from
+    /// `AppSettings` at the point of use so flipping the switch takes effect on
+    /// the open panel — including handing the key back mid-hover.
+    @AppStorage(AppSettings.Keys.archiveSpacePreview) private var spacePreviewEnabled = true
     /// Cell currently hovered via an ArchiveDragShim NSView (screenshot or stack
     /// cells — the AppKit shim owns hover tracking for drag-capable cells).
     @State private var hoveredDragCellID: UUID?
@@ -167,6 +171,13 @@ struct NotchArchiveView: View {
             hoveredPreviewURLs = urls
             updateSpaceHotkey()
         }
+        // Turning the preview off gives the key back on the spot, even with the
+        // pointer still resting on a cell: the whole point of the switch is that
+        // Space stops being ours, and "after you move the mouse" is not that.
+        .onChange(of: spacePreviewEnabled) {
+            if !spacePreviewEnabled { QuickLookPresenter.shared.close() }
+            updateSpaceHotkey()
+        }
         .onDisappear {
             hoveredPreviewURLs = []
             updateSpaceHotkey()
@@ -185,6 +196,18 @@ struct NotchArchiveView: View {
     private var plateTopRadius: CGFloat { metrics.buttonRadius }
     private var plateBottomRadius: CGFloat { hasShoulders ? 16 - platePad : metrics.buttonRadius }
 
+    /// Whether Space should be claimed right now.
+    ///
+    /// Pure, and kept apart from the pushing below for the same reason
+    /// `PanelState.wantsEscapeHotkey` is: while the key is held it is taken
+    /// from every app on the machine, so the three things that have to be true
+    /// belong in one readable line that can be checked on its own.
+    static func wantsSpaceHotkey(enabled: Bool,
+                                 isContentVisible: Bool,
+                                 hoveredURLs: [URL]) -> Bool {
+        enabled && isContentVisible && !hoveredURLs.isEmpty
+    }
+
     /// Holds the Space hotkey exactly while a previewable cell is hovered.
     ///
     /// Re-pushed on every change of the hovered files rather than kept: the
@@ -197,7 +220,10 @@ struct NotchArchiveView: View {
             TransientHotkeyCenter.space.remove(token)
             spaceToken = nil
         }
-        guard isContentVisible, !hoveredPreviewURLs.isEmpty else { return }
+        guard Self.wantsSpaceHotkey(enabled: spacePreviewEnabled,
+                                    isContentVisible: isContentVisible,
+                                    hoveredURLs: hoveredPreviewURLs)
+        else { return }
         let urls = hoveredPreviewURLs
         spaceToken = TransientHotkeyCenter.space.push {
             QuickLookPresenter.shared.toggle(urls)

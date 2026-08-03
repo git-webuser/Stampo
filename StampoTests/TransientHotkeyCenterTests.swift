@@ -95,3 +95,38 @@ import Testing
         #expect(!TransientHotkeyCenter.escape.isArmed)
     }
 }
+
+/// When the archive claims Space, and — since 'Preview with Space' — when it
+/// declines to. The key is taken from every app on the machine while it is
+/// held, so each of the three conditions is worth stating outright.
+@MainActor
+@Suite struct ArchiveSpaceHotkeyTests {
+
+    private let hovered = [URL(fileURLWithPath: "/tmp/space-test.png")]
+
+    @Test func claimedWhileACellIsHovered() {
+        #expect(NotchArchiveView.wantsSpaceHotkey(
+            enabled: true, isContentVisible: true, hoveredURLs: hovered))
+    }
+
+    /// The switch is the point of the whole setting: off means the key is never
+    /// ours, not even with the pointer parked on a cell.
+    @Test func neverClaimedWhenThePreviewIsTurnedOff() {
+        #expect(!NotchArchiveView.wantsSpaceHotkey(
+            enabled: false, isContentVisible: true, hoveredURLs: hovered))
+    }
+
+    /// The archive can close with the pointer still on a cell (Esc, hotkey,
+    /// auto-hide), and no cell reports a hover-out then.
+    @Test func notClaimedWhileTheArchiveIsHidden() {
+        #expect(!NotchArchiveView.wantsSpaceHotkey(
+            enabled: true, isContentVisible: false, hoveredURLs: hovered))
+    }
+
+    /// Pointer between cells, or over a colour or a snippet — nothing to
+    /// preview, so nothing to hold the key for.
+    @Test func notClaimedWithNothingUnderThePointer() {
+        #expect(!NotchArchiveView.wantsSpaceHotkey(
+            enabled: true, isContentVisible: true, hoveredURLs: []))
+    }
+}

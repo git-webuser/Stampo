@@ -4,6 +4,7 @@ struct ArchiveSettingsView: View {
     @AppStorage(AppSettings.Keys.trayMaxItems)       private var trayMaxItems       = 20
     @AppStorage(AppSettings.Keys.persistTray)        private var persistTray        = false
     @AppStorage(AppSettings.Keys.defaultColorFormat) private var defaultColorFormat = ColorSchemeType.hex
+    @AppStorage(AppSettings.Keys.archiveSpacePreview) private var spacePreview      = true
 
     var body: some View {
         Form {
@@ -26,6 +27,17 @@ struct ArchiveSettingsView: View {
                 Text("History")
             } footer: {
                 Text("Older items are removed when the limit is reached — files on disk are not affected")
+            }
+
+            // MARK: Preview
+            Section {
+                SettingRow(icon: "eye", title: "Preview with Space") {
+                    Toggle("", isOn: $spacePreview).labelsHidden()
+                }
+            } header: {
+                Text("Preview")
+            } footer: {
+                Text("Space opens Quick Look for the item under the pointer. While the pointer rests there, Space belongs to Stampo rather than the app underneath")
             }
 
             // MARK: Color

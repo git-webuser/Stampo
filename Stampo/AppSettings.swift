@@ -44,6 +44,9 @@ enum AppSettings {
         static let persistTray           = "persistTray"
         static let trayPersistedData     = "trayPersistedData"
         static let defaultColorFormat    = "defaultColorFormat"
+        /// Space-to-preview over an archive cell. Off means the key is never
+        /// claimed at all — see `TransientHotkeyCenter`.
+        static let archiveSpacePreview   = "archiveSpacePreview"
         // Updates
         static let checkForUpdates        = "checkForUpdates"
         static let lastUpdateCheck        = "lastUpdateCheck"
@@ -243,6 +246,14 @@ enum AppSettings {
     static var defaultColorFormat: ColorSchemeType {
         let raw = UserDefaults.standard.string(forKey: Keys.defaultColorFormat) ?? "HEX"
         return ColorSchemeType(rawValue: raw) ?? .hex
+    }
+    /// On by default: previewing what the pointer rests on is the reason the
+    /// archive shows files at all, and the key is only claimed while the
+    /// pointer is parked on one of its cells. The switch exists because that
+    /// claim is system-wide — a user who would rather Space always be a space
+    /// should not have to take the archive's word for when it lets go.
+    static var archiveSpacePreview: Bool {
+        UserDefaults.standard.object(forKey: Keys.archiveSpacePreview) as? Bool ?? true
     }
 
     // MARK: Hotkeys
