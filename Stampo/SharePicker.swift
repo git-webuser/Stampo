@@ -28,6 +28,9 @@ extension Notification.Name {
     /// service reports back through `NSSharingServiceDelegate`.
     private var picker: NSSharingServicePicker?
     private var service: NSSharingService?
+    /// Closes the session if the chosen service never reports back — see
+    /// `armSilenceTimeout`.
+    private var silenceTimeout: DispatchWorkItem?
     /// Toast for a folder that couldn't be zipped (unreadable, or a location
     /// the app has no permission for).
     private let feedbackHUD = TextCaptureHUD()
@@ -92,10 +95,38 @@ extension Notification.Name {
     }
 
     fileprivate func finish() {
+        silenceTimeout?.cancel()
+        silenceTimeout = nil
         picker = nil
         service = nil
         NotificationCenter.default.post(name: .sharePickerDidClose, object: nil)
     }
+
+    /// Ends the session by the clock if the service never says a word.
+    ///
+    /// Both ways out of a chosen service are delegate callbacks, and a service
+    /// is under no obligation to make either — one that opens its own window
+    /// and is then quit, or an extension that crashes, simply goes quiet. The
+    /// open bracket it left behind holds the notch panel through
+    /// `suppressesGlobalAutoHide`, so the panel stops hiding on mouse-exit and
+    /// only Esc or the hotkey clears it. Not a dead end, but a mystery, and the
+    /// kind that is never reported.
+    ///
+    /// Long enough to be sure it is silence and not work: a share that is
+    /// genuinely still uploading calls back when it lands, and cancelling this
+    /// is the first thing `finish` does.
+    private func armSilenceTimeout() {
+        silenceTimeout?.cancel()
+        let timeout = DispatchWorkItem { [weak self] in
+            guard let self, self.service != nil else { return }
+            Log.share.error("share service reported neither success nor failure; releasing the panel")
+            self.finish()
+        }
+        silenceTimeout = timeout
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.silenceTimeoutDelay, execute: timeout)
+    }
+
+    private static let silenceTimeoutDelay: TimeInterval = 5 * 60
 }
 
 // @preconcurrency: neither delegate protocol is main-actor annotated, but
@@ -112,6 +143,7 @@ extension SharePickerAnchor: @preconcurrency NSSharingServicePickerDelegate {
             return
         }
         self.service = service
+        armSilenceTimeout()
     }
 
     /// The documented hook for supplying the service's delegate — set here
@@ -218,16 +250,18 @@ enum ShareItemPreparer {
         return result
     }
 
-    /// One directory per share, under a single parent that is wiped at the
-    /// start of the next one — the service may still be reading its copy when
-    /// the picker closes, so nothing is deleted while it could still be in use.
+    /// One directory per share, cleared by age rather than by count.
+    ///
+    /// This used to wipe the whole parent on the way in, on the reasoning that
+    /// the previous share's picker had closed by then. It hasn't: a service
+    /// reads the items lazily and a zipped folder of any size is still
+    /// uploading long after the sheet is gone, so a second share deleted the
+    /// first one's file out from under a transfer in progress. Age is the only
+    /// thing that can be known here — see `TemporaryStaging`.
     private static func freshScratchDirectory() -> URL? {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("StampoShare", isDirectory: true)
-        try? FileManager.default.removeItem(at: root)
-        let session = root.appendingPathComponent(UUID().uuidString, isDirectory: true)
         do {
-            try FileManager.default.createDirectory(at: session, withIntermediateDirectories: true)
-            return session
+            return try TemporaryStaging.makeDirectory(in: root)
         } catch {
             Log.share.error("could not create the share staging directory: \(error.localizedDescription, privacy: .public)")
             return nil

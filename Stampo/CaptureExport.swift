@@ -22,11 +22,28 @@ enum CaptureExport {
         let url: URL
     }
 
+    /// Where a re-encoded copy is parked. The two doors keep the file for
+    /// different lengths of time, and each throwaway is swept by the rule of
+    /// the door it went out of — see `ScreenshotFileStore`.
+    private enum Destination {
+        /// The clipboard, which holds one thing at a time and can be pasted
+        /// from at any distance from the copy.
+        case clipboard
+        /// A drag, which is over by the time the mouse comes up.
+        case drag
+    }
+
     /// Bytes, type and file for `url`, or nil when it cannot be read or is not
     /// an image at all. A re-encode that fails falls back to the capture as it
     /// lies — better the wrong format than nothing.
     static func payload(for url: URL,
                         as format: EditorExportFormat = .fromSettings()) -> Payload? {
+        payload(for: url, as: format, to: .clipboard)
+    }
+
+    private static func payload(for url: URL,
+                                as format: EditorExportFormat,
+                                to destination: Destination) -> Payload? {
         autoreleasepool {
             guard let data = try? Data(contentsOf: url),
                   let source = CGImageSourceCreateWithData(data as CFData, nil),
@@ -41,14 +58,27 @@ enum CaptureExport {
             let (fileType, properties) = format.encoding
             guard let converted = NSBitmapImageRep(cgImage: cgImage)
                     .representation(using: fileType, properties: properties),
-                  let exported = try? ScreenshotFileStore().writeTemporaryExport(
-                    converted,
-                    named: url.deletingPathExtension().lastPathComponent,
-                    format: format.rawValue)
+                  let exported = try? stage(converted,
+                                            named: url.deletingPathExtension().lastPathComponent,
+                                            format: format,
+                                            to: destination)
             else { return asIs }
             return Payload(data: converted,
                            type: NSPasteboard.PasteboardType(wanted),
                            url: exported)
+        }
+    }
+
+    private static func stage(_ data: Data,
+                              named name: String,
+                              format: EditorExportFormat,
+                              to destination: Destination) throws -> URL {
+        let store = ScreenshotFileStore()
+        switch destination {
+        case .clipboard:
+            return try store.writeClipboardExport(data, named: name, format: format.rawValue)
+        case .drag:
+            return try store.writeTemporaryExport(data, named: name, format: format.rawValue)
         }
     }
 
@@ -57,6 +87,6 @@ enum CaptureExport {
     /// capture's own again if anything went wrong on the way.
     static func fileURL(for url: URL,
                         as format: EditorExportFormat = .fromSettings()) -> URL {
-        payload(for: url, as: format)?.url ?? url
+        payload(for: url, as: format, to: .drag)?.url ?? url
     }
 }

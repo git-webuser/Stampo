@@ -6,6 +6,16 @@ import AppKit
 final class ScreenshotFileStore {
     private let fm = FileManager.default
 
+    /// Parent of the staging directories the throwaway exports live under.
+    /// Overridable so a test can work somewhere of its own: the sweeping rules
+    /// below are about deleting other people's files, and two tests sharing the
+    /// app's real temp directory would be deleting each other's.
+    private let stagingRoot: URL
+
+    init(stagingRoot: URL? = nil) {
+        self.stagingRoot = stagingRoot ?? FileManager.default.temporaryDirectory
+    }
+
     enum SaveError: Error {
         case encodingFailed
     }
@@ -58,7 +68,7 @@ final class ScreenshotFileStore {
     /// the document's, with no uniquing suffix, and so a second share never
     /// pulls the file out from under the first — an AirDrop transfer or a Mail
     /// draft may still be reading it. Older exports are swept on the way in
-    /// (see `sweepStaleExports`).
+    /// (see `TemporaryStaging`).
     func writeTemporaryExport(_ rep: NSBitmapImageRep, named name: String) throws -> URL {
         let format = AppSettings.fileFormat
         let (fileType, properties) = Self.encoding(for: format)
@@ -71,10 +81,38 @@ final class ScreenshotFileStore {
     /// The same throwaway file from bytes that are already encoded — the
     /// pasteboard path has them in hand and would otherwise encode twice.
     func writeTemporaryExport(_ data: Data, named name: String, format: String) throws -> URL {
-        let root = fm.temporaryDirectory.appendingPathComponent("Share", isDirectory: true)
-        sweepStaleExports(in: root)
-        let dir = root.appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        try write(data, named: name, format: format,
+                  in: stagingRoot.appendingPathComponent("Share", isDirectory: true))
+    }
+
+    /// A throwaway for the *clipboard*, which is swept on a clock of its own.
+    ///
+    /// A capture whose format disagrees with the setting is re-encoded on its
+    /// way to the pasteboard, and it is that copy — not the capture — that goes
+    /// on beside the image data: a receiver preferring files (Finder, Mail)
+    /// would otherwise take the original back in the old format and undo the
+    /// exercise. But a clipboard is not a share sheet. Pasting an hour after
+    /// copying is an ordinary way to use one, and staged with everything else
+    /// the copy quietly stopped working a quarter of an hour in — the picture
+    /// still pasted, the file behind it did not.
+    ///
+    /// The clipboard holds one thing at a time, and can only be pointing at the
+    /// newest export — so that one is spared whatever its age and the rest go on
+    /// the ordinary clock (`TemporaryStaging.Retention.byAgeSparingNewest`).
+    /// Kept in a root of its own because a share sheet's file has no such
+    /// guarantee: several of those can be live at once.
+    func writeClipboardExport(_ data: Data, named name: String, format: String) throws -> URL {
+        try write(data, named: name, format: format,
+                  in: stagingRoot.appendingPathComponent("Clipboard", isDirectory: true),
+                  retention: .byAgeSparingNewest)
+    }
+
+    private func write(_ data: Data,
+                       named name: String,
+                       format: String,
+                       in root: URL,
+                       retention: TemporaryStaging.Retention = .byAge) throws -> URL {
+        let dir = try TemporaryStaging.makeDirectory(in: root, retention: retention)
         // A document whose name is empty (or all extension) would otherwise
         // produce a bare ".png" — invisible in Finder and useless in Mail.
         let base = name.isEmpty ? "Screenshot" : name
@@ -83,24 +121,6 @@ final class ScreenshotFileStore {
         try data.write(to: dest)
         return dest
     }
-
-    /// Deletes export directories older than `exportLifetime`. Runs only when
-    /// a new export is made, so the temp directory can't grow without bound
-    /// across a long session, while a share sheet the user left open keeps its
-    /// file for as long as anyone plausibly needs it.
-    private func sweepStaleExports(in root: URL) {
-        let cutoff = Date().addingTimeInterval(-Self.exportLifetime)
-        let dirs = (try? fm.contentsOfDirectory(at: root,
-                                                includingPropertiesForKeys: [.creationDateKey],
-                                                options: .skipsHiddenFiles)) ?? []
-        for dir in dirs {
-            let created = (try? dir.resourceValues(forKeys: [.creationDateKey]))?.creationDate
-            if let created, created > cutoff { continue }
-            try? fm.removeItem(at: dir)
-        }
-    }
-
-    private static let exportLifetime: TimeInterval = 15 * 60
 
     /// Maps the user-facing format string (png/jpg/tiff) onto bitmap encoding
     /// parameters. Pure — unit-testable.
