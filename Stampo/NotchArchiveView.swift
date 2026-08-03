@@ -1958,6 +1958,13 @@ private struct ArchiveDragShim: NSViewRepresentable {
         nsView.dragImages = dragImages
         nsView.cellSize = cellSize
         nsView.onHoverChange = onHoverChange
+        // Refreshed like the rest, not captured once at creation: the NSView
+        // outlives every re-render of its cell, so a closure kept from the
+        // first one goes on answering with the state that render saw. A color
+        // cell's tap converts through the archive's current notation — held
+        // from creation, it copied the format the header showed when the cell
+        // first appeared, while the label under the swatch said the new one.
+        nsView.onTap = onTap
         nsView.onDragCompleted = onDragCompleted
     }
 }
@@ -1981,7 +1988,8 @@ final class ArchiveDragShimView: NSView, NSDraggingSource {
     /// `hoveredScreenshotID` on every mouse-move event.
     var localIsInHoverZone: Bool = false
     var onHoverChange: (Bool) -> Void
-    let onTap: () -> Void
+    /// Reassigned on every `updateNSView` — see the note there.
+    var onTap: () -> Void
 
     private var mouseDownPoint: NSPoint?
 
