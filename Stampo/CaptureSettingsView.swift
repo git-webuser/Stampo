@@ -58,8 +58,16 @@ struct CaptureSettingsView: View {
             }
 
             // MARK: Filename
-            Section {
-                SettingRow(icon: "textformat", title: "Style") {
+            Section("Filename") {
+                // The description is the live result of the choice beside it,
+                // which is why it belongs on the row rather than under the
+                // section: it reads as an answer to the picker, not a note
+                // about the group.
+                SettingRow(
+                    icon: "textformat",
+                    title: "Style",
+                    description: "Saved as \(filenamePreview)"
+                ) {
                     Picker("", selection: $filenamePreset) {
                         ForEach(FilenamePreset.allCases, id: \.rawValue) { preset in
                             Text(LocalizedStringKey(preset.name)).tag(preset.rawValue)
@@ -68,11 +76,6 @@ struct CaptureSettingsView: View {
                     .pickerStyle(.menu)
                     .labelsHidden()
                 }
-            } header: {
-                Text("Filename")
-            } footer: {
-                // macOS-style helper caption showing the live result.
-                Text("Saved as \(filenamePreview)")
             }
 
             // MARK: Behavior

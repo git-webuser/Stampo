@@ -9,8 +9,12 @@ struct ArchiveSettingsView: View {
     var body: some View {
         Form {
             // MARK: History
-            Section {
-                SettingRow(icon: "archivebox", title: "Maximum items") {
+            Section("History") {
+                SettingRow(
+                    icon: "archivebox",
+                    title: "Maximum items",
+                    description: "Older items are removed when the limit is reached — files on disk are not affected"
+                ) {
                     HStack {
                         Stepper(value: $trayMaxItems, in: 5...50, step: 5) { EmptyView() }
                             .labelsHidden()
@@ -23,21 +27,17 @@ struct ArchiveSettingsView: View {
                 SettingRow(icon: "arrow.triangle.2.circlepath", title: "Persist between sessions") {
                     Toggle("", isOn: $persistTray).labelsHidden()
                 }
-            } header: {
-                Text("History")
-            } footer: {
-                Text("Older items are removed when the limit is reached — files on disk are not affected")
             }
 
             // MARK: Preview
-            Section {
-                SettingRow(icon: "eye", title: "Preview with Space") {
+            Section("Preview") {
+                SettingRow(
+                    icon: "eye",
+                    title: "Preview with Space",
+                    description: "Hover an item in the archive and Space opens a preview"
+                ) {
                     Toggle("", isOn: $spacePreview).labelsHidden()
                 }
-            } header: {
-                Text("Preview")
-            } footer: {
-                Text("Hover an item in the archive and Space opens a preview")
             }
 
             // MARK: Color
