@@ -758,16 +758,6 @@ struct BadgeBarScrim: View {
 // MARK: - Delete Badge
 
 struct ArchiveDeleteBadge: View {
-    /// Side of the badge, and so of its hit target.
-    static let side: CGFloat = 16
-
-    /// How much of the cell's own top-right corner the badge covers once it has
-    /// been offset outward by `bleed`. The drag shim yields exactly this much
-    /// and no more: yielding the whole side left a band of pixels along the
-    /// inside of the badge that the shim had stepped out of and the badge had
-    /// moved off, so a click there reached nothing at all.
-    static func cornerCoverage(bleed: CGFloat) -> CGFloat { max(0, side - bleed) }
-
     var systemName: String = "xmark.circle.fill"
     var isOn: Bool = false
     /// Overrides the archive-specific default labels below — reusers outside the
@@ -889,7 +879,6 @@ private struct ArchiveColorCell: View {
                                                         formatted: scheme.convert(item.color)) },
                     dragImages: [dragPreview],
                     cellSize: CGSize(width: height, height: height),
-                    badgeBleed: badgeBleed,
                     isPressed: $isPressed,
                     isDragging: $isDragging,
                     onHoverChange: { isHovered = $0 },
@@ -1051,7 +1040,6 @@ private struct ArchiveTextCell: View {
                 payload: { ArchiveDragPayload.text(item.text) },
                 dragImages: [dragPreview],
                 cellSize: CGSize(width: width, height: height),
-                badgeBleed: badgeBleed,
                 isPressed: $isPressed,
                 isDragging: $isDragging,
                 onHoverChange: { isHovered = $0 },
@@ -1184,7 +1172,6 @@ private struct ArchiveFileCell<Menu: View>: View {
                 payload: dragPayload,
                 dragImages: [preview],
                 cellSize: CGSize(width: width, height: height),
-                badgeBleed: badgeBleed,
                 isPressed: $isPressed,
                 isDragging: $isDragging,
                 onHoverChange: { isHovered = $0 },
@@ -1418,7 +1405,6 @@ private struct ArchiveStackCell: View {
                 payload: { ArchiveDragPayload.files(stack.urls) },
                 dragImages: (0..<fanCount).map { previewImage(at: $0) },
                 cellSize: CGSize(width: width, height: height),
-                badgeBleed: badgeBleed,
                 isPressed: $isPressed,
                 isDragging: $isDragging,
                 onHoverChange: setHovered,
@@ -1978,9 +1964,6 @@ private struct ArchiveDragShim: NSViewRepresentable {
     let payload: () -> [NSPasteboardWriting]
     let dragImages: [NSImage?]
     let cellSize: CGSize
-    /// How far the delete badge is offset out past the cell's corner. Decides
-    /// how much of that corner the shim leaves to it.
-    var badgeBleed: CGFloat = 3
     @Binding var isPressed: Bool
     @Binding var isDragging: Bool
     let onHoverChange: (Bool) -> Void
@@ -1998,7 +1981,6 @@ private struct ArchiveDragShim: NSViewRepresentable {
         nsView.makePayload = payload
         nsView.dragImages = dragImages
         nsView.cellSize = cellSize
-        nsView.badgeCorner = ArchiveDeleteBadge.cornerCoverage(bleed: badgeBleed)
         nsView.onHoverChange = onHoverChange
         // Refreshed like the rest, not captured once at creation: the NSView
         // outlives every re-render of its cell, so a closure kept from the
@@ -2019,10 +2001,6 @@ final class ArchiveDragShimView: NSView, NSDraggingSource {
     var dragImages: [NSImage?] = []
     var cellSize: CGSize = .zero
     var onDragCompleted: ((NSDragOperation) -> Void)?
-    /// Side of the top-right corner to leave to the delete badge, which is what
-    /// the badge actually covers there — see `ArchiveDeleteBadge.cornerCoverage`.
-    /// Stepping out of more than that leaves pixels nothing answers for.
-    var badgeCorner: CGFloat = ArchiveDeleteBadge.cornerCoverage(bleed: 3)
 
     @Binding var isPressed: Bool
     @Binding var isDragging: Bool
@@ -2084,8 +2062,9 @@ final class ArchiveDragShimView: NSView, NSDraggingSource {
         // mouse moves in the gap toggle hovered state between cells.
         // The badge view sits at offset (badgeBleed, -badgeBleed) past the
         // cell, so 3 pt of bleed is enough on the badge sides.
-        // (Note: `badgeCorner` is how much of the cell's corner the badge
-        // covers, which `hitTest` steps out of — separate concern.)
+        // (The badge takes its own clicks by sitting above this view in the
+        // SwiftUI overlay order; this view yields no rect to it — see the
+        // note on `mouseDown`.)
         let bleed: CGFloat = 3
         let hoverRect = NSRect(
             x: bounds.minX,
@@ -2102,21 +2081,17 @@ final class ArchiveDragShimView: NSView, NSDraggingSource {
     }
 
     /// Exclude top-right badge corner so the delete badge can receive events
-    /// Steps out of the corner the badge covers so the click reaches it — the
-    /// view is flipped, so small `y` is the top.
+    /// No `hitTest` override: the delete badge is a SwiftUI overlay placed
+    /// after this view and wins the click on its own, measured on the real
+    /// hierarchy rather than assumed.
     ///
-    /// The rect has to be the badge's, not a round number near it. This yielded
-    /// a 16 pt square while the badge, offset 3 pt outward, only reaches 13 pt
-    /// back into the cell: the 3 pt border between the two answered to neither,
-    /// and a click landing there — which is most of a near miss under a small
-    /// badge — did nothing at all.
-    override func hitTest(_ point: NSPoint) -> NSView? {
-        if point.x >= bounds.width - badgeCorner && point.y <= badgeCorner {
-            return nil
-        }
-        return super.hitTest(point)
-    }
-
+    /// There used to be one, stepping out of a square at the top-right corner
+    /// so the badge could be reached. It stepped out of the *bottom*-right one:
+    /// `hitTest` is given its point in the superview's coordinates, and the
+    /// superview SwiftUI wraps a representable in is not flipped while this view
+    /// is — so the rect was mirrored, and the corner it actually freed had
+    /// nothing in it but cell. A click just under the badge reached neither and
+    /// silently did nothing.
     override func mouseDown(with event: NSEvent) {
         mouseDownPoint = convert(event.locationInWindow, from: nil)
         DispatchQueue.main.async { self.isPressed = true }

@@ -3,87 +3,112 @@ import SwiftUI
 import Testing
 @testable import Stampo
 
-/// Where a click on an archive cell lands.
+/// Where a click on an archive cell actually lands.
 ///
-/// The shim is an NSView covering the whole cell, and it steps out of the
-/// top-right corner so the delete badge overlaid above it gets the click. The
-/// corner it steps out of has to be the one the badge actually covers: it used
-/// to yield a round 16 pt while the badge, offset 3 pt outward, reaches only
-/// 13 pt back into the cell, and the 3 pt border between them answered to
-/// neither — a click there did nothing at all, which is where a near miss under
-/// a badge this small usually lands.
+/// Hosted rather than unit-tested, because the bug this replaces could only be
+/// seen in a real hierarchy. The shim used to override `hitTest` to step out of
+/// the badge's corner — but `hitTest` is handed its point in the *superview's*
+/// coordinates, and the view SwiftUI wraps a representable in is not flipped
+/// while the shim is. The rect came out mirrored: it freed the bottom-right
+/// corner, which holds nothing but cell, and a click just under the badge
+/// reached neither the badge nor the cell. Reasoning about that on paper is how
+/// it survived two attempts; asking the hierarchy settles it.
+///
+/// The cell is reproduced rather than imported — the real ones are `private` —
+/// but with the layout the geometry depends on: the shim as an overlay, the
+/// badge as a later overlay bled out past the corner by the same 3 pt.
 @MainActor
 @Suite struct ArchiveCellHitTests {
 
-    private let size = CGSize(width: 51, height: 32)   // a file cell: 32 × 1.6
+    private static let cell = CGSize(width: 51, height: 32)   // a file cell: 32 × 1.6
+    private static let bleed: CGFloat = 3
 
-    private func makeShim(bleed: CGFloat = 3) -> ArchiveDragShimView {
-        var pressed = false
-        var dragging = false
-        let view = ArchiveDragShimView(
-            isPressed: Binding(get: { pressed }, set: { pressed = $0 }),
-            isDragging: Binding(get: { dragging }, set: { dragging = $0 }),
-            onHoverChange: { _ in },
-            onTap: {}
-        )
-        view.frame = NSRect(origin: .zero, size: size)
-        view.badgeCorner = ArchiveDeleteBadge.cornerCoverage(bleed: bleed)
-        return view
-    }
-
-    /// Points go in raw, in the shim's own flipped space where small y is the
-    /// top — which is the space the override compares against `bounds`, and the
-    /// space it gets in the real hierarchy because the shim fills its parent at
-    /// the origin. Converting here instead would land in window coordinates,
-    /// which are not flipped, and quietly test the cell upside down.
-    private func yields(_ shim: ArchiveDragShimView, at point: CGPoint) -> Bool {
-        shim.hitTest(point) == nil
-    }
-
-    @Test func theBadgesOwnCornerIsYielded() {
-        let shim = makeShim()
-        // Well inside the 13 pt the badge covers.
-        #expect(yields(shim, at: CGPoint(x: size.width - 4, y: 4)))
-    }
-
-    /// The regression: 13 pt in from the corner is the badge's inner edge, and
-    /// everything past it belongs to the cell again. This band used to be dead.
-    @Test func justInsideTheBadgeTheCellAnswersAgain() {
-        let shim = makeShim()
-        let coverage = ArchiveDeleteBadge.cornerCoverage(bleed: 3)
-        // The band the old 16 pt square swallowed: between the badge's reach
-        // and the round number it was approximated with.
-        for x in stride(from: size.width - 16, to: size.width - coverage, by: 0.5) {
-            #expect(!yields(shim, at: CGPoint(x: x, y: 4)), "dead pixel at x=\(x)")
+    private struct Shim: NSViewRepresentable {
+        @Binding var pressed: Bool
+        @Binding var dragging: Bool
+        func makeNSView(context: Context) -> ArchiveDragShimView {
+            ArchiveDragShimView(isPressed: $pressed, isDragging: $dragging,
+                                onHoverChange: { _ in }, onTap: {})
         }
-        for y in stride(from: coverage + 0.5, through: 16, by: 0.5) {
-            #expect(!yields(shim, at: CGPoint(x: size.width - 4, y: y)), "dead pixel at y=\(y)")
+        func updateNSView(_ view: ArchiveDragShimView, context: Context) {}
+    }
+
+    private struct Cell: View {
+        @State var pressed = false
+        @State var dragging = false
+        var body: some View {
+            Color.gray
+                .frame(width: cell.width, height: cell.height)
+                .overlay { Shim(pressed: $pressed, dragging: $dragging) }
+                .overlay(alignment: .topTrailing) {
+                    ArchiveDeleteBadge(action: {})
+                        .offset(x: bleed, y: -bleed)
+                }
         }
     }
 
-    /// The seam itself belongs to the badge on both axes. Which side gets the
-    /// boundary matters less than it being the same side on each — a point can
-    /// only be claimed once, and this is where it is claimed.
-    @Test func theEdgeOfTheCoveredCornerGoesToTheBadge() {
-        let shim = makeShim()
-        let coverage = ArchiveDeleteBadge.cornerCoverage(bleed: 3)
-        #expect(yields(shim, at: CGPoint(x: size.width - 4, y: coverage)))
-        #expect(yields(shim, at: CGPoint(x: size.width - coverage, y: 4)))
+    /// Hosts a cell on screen and returns a probe answering "does the shim get
+    /// the click here", addressed as points down-and-right from the cell's
+    /// top-left corner.
+    ///
+    /// Addressed through the window, deliberately. Every coordinate space in
+    /// between disagrees about which way is up — the shim is flipped, the
+    /// `PlatformViewHost` SwiftUI wraps it in is not, the hosting view is again
+    /// — and a probe that converts through them lands upside down and reports a
+    /// dead zone at the wrong end of the cell. The window is the one space that
+    /// is unambiguous, and the cell's own rect in it is asked for, not assumed.
+    private func hosted(_ body: (_ shimGets: (_ fromLeft: CGFloat, _ fromTop: CGFloat) -> Bool) -> Void) throws {
+        let hosting = NSHostingView(rootView: Cell().padding(20))
+        hosting.frame = NSRect(x: 0, y: 0, width: 120, height: 100)
+        let window = NSWindow(contentRect: hosting.frame, styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.contentView = hosting
+        window.orderFrontRegardless()
+        defer { window.orderOut(nil) }
+        // Layout, not async work: pumping the run loop is the right tool here.
+        RunLoop.main.run(until: Date().addingTimeInterval(0.6))
+
+        let shim = try #require(findShim(hosting))
+        let cell = shim.convert(shim.bounds, to: nil)   // window space, y up
+        body { fromLeft, fromTop in
+            hosting.hitTest(CGPoint(x: cell.minX + fromLeft, y: cell.maxY - fromTop)) === shim
+        }
     }
 
-    @Test func therestOfTheCellIsTheCells() {
-        let shim = makeShim()
-        #expect(!yields(shim, at: CGPoint(x: 4, y: 4)))                        // top-left
-        #expect(!yields(shim, at: CGPoint(x: size.width / 2, y: size.height / 2)))
-        #expect(!yields(shim, at: CGPoint(x: size.width - 4, y: size.height - 4)))  // bottom-right
+    private func findShim(_ view: NSView) -> ArchiveDragShimView? {
+        if let shim = view as? ArchiveDragShimView { return shim }
+        for sub in view.subviews { if let found = findShim(sub) { return found } }
+        return nil
     }
 
-    /// The coverage is derived, not written down twice: a badge that stopped
-    /// bleeding out would hand its whole side back to the shim.
-    @Test func coverageFollowsTheBleed() {
-        #expect(ArchiveDeleteBadge.cornerCoverage(bleed: 0) == ArchiveDeleteBadge.side)
-        #expect(ArchiveDeleteBadge.cornerCoverage(bleed: 3) == ArchiveDeleteBadge.side - 3)
-        // A bleed past the badge's own size can't invert the rect.
-        #expect(ArchiveDeleteBadge.cornerCoverage(bleed: 99) == 0)
+    /// The regression, and the one the user hit: everything below the badge is
+    /// the cell's, all the way into the bottom-right corner.
+    @Test func theCellAnswersEverywhereBelowTheBadge() throws {
+        try hosted { shimGets in
+            for fromTop in stride(from: CGFloat(18), through: Self.cell.height - 1, by: 1) {
+                for fromLeft in stride(from: CGFloat(30), through: Self.cell.width - 1, by: 1) {
+                    #expect(shimGets(fromLeft, fromTop), "dead pixel \(fromLeft) from left, \(fromTop) from top")
+                }
+            }
+        }
+    }
+
+    /// The badge keeps its own clicks — by sitting above the shim in the
+    /// overlay order, with the shim yielding nothing. Also the control for the
+    /// test above: if this passed too, the probe would be addressing the cell
+    /// upside down and proving nothing.
+    @Test func theBadgeTakesItsOwn() throws {
+        try hosted { shimGets in
+            #expect(!shimGets(Self.cell.width - 4, 4))
+        }
+    }
+
+    @Test func therestOfTheCellIsTheCells() throws {
+        try hosted { shimGets in
+            #expect(shimGets(4, 4))                                        // top-left
+            #expect(shimGets(Self.cell.width / 2, Self.cell.height / 2))
+            #expect(shimGets(4, Self.cell.height - 4))                     // bottom-left
+            #expect(shimGets(Self.cell.width - 4, Self.cell.height - 4))   // bottom-right
+        }
     }
 }
