@@ -18,6 +18,9 @@ struct NotchArchiveView: View {
     let metrics: NotchMetrics
     var archiveModel: NotchArchiveModel
     var expansion: ArchiveExpansionState
+    /// Multi-select, owned by the controller for the same reason `expansion` is:
+    /// Esc has to be able to switch the mode off from outside this view.
+    var selection: ArchiveSelectionState
     /// Owned by the panel controller, not by this view: the "Share Last
     /// Screenshot" hotkey presents through the same anchor, so the sheet always
     /// hangs off the "⋯" button whether it was opened from the menu or the
@@ -148,14 +151,17 @@ struct NotchArchiveView: View {
         ))
         // Everything the archive closing has to undo, in one place.
         //
-        // Expansion is ephemeral, so the archive always reopens in the compact
-        // grid. And the pointer can leave with the archive itself (Esc, hotkey,
+        // Expansion and selection are both ephemeral, so the archive always
+        // reopens in the compact grid with nothing picked — a set of checkboxes
+        // surviving a close would be a decision the user made in a session they
+        // have already left. And the pointer can leave with the archive itself (Esc, hotkey,
         // auto-hide) without any cell reporting a hover-out, so the Space key —
         // claimed system-wide while a cell is under the pointer — has to be
         // handed back from here or it never is.
         .onChange(of: isContentVisible) {
             guard !isContentVisible else { return }
             expandedStackID = nil
+            selection.clear()
             hoveredPreviewURLs = []
             updateSpaceHotkey()
         }
@@ -472,6 +478,7 @@ struct NotchArchiveView: View {
                             ArchiveScreenshotCell(
                                 shot: shot,
                                 loader: archiveModel.thumbnailLoader(for: shot),
+                                selection: selection,
                                 height: cellH,
                                 badgeBleed: badgeBleed,
                                 labelOffset: labelOffset,
@@ -493,6 +500,7 @@ struct NotchArchiveView: View {
                             ArchiveColorCell(
                                 item: c,
                                 scheme: scheme,
+                                selection: selection,
                                 height: cellH,
                                 badgeBleed: badgeBleed,
                                 labelOffset: labelOffset,
@@ -506,6 +514,7 @@ struct NotchArchiveView: View {
                         case .text(let t):
                             ArchiveTextCell(
                                 item: t,
+                                selection: selection,
                                 height: cellH,
                                 badgeBleed: badgeBleed,
                                 labelOffset: labelOffset,
@@ -521,6 +530,7 @@ struct NotchArchiveView: View {
                                 ExpandedStackGroup(
                                     stack: stack,
                                     archiveModel: archiveModel,
+                                    selection: selection,
                                     height: cellH,
                                     cornerRadius: metrics.buttonRadius,
                                     badgeBleed: badgeBleed,
@@ -542,6 +552,7 @@ struct NotchArchiveView: View {
                                 ArchiveStackCell(
                                     stack: stack,
                                     loaders: stack.urls.prefix(3).map { archiveModel.stackThumbnailLoader(for: $0) },
+                                    selection: selection,
                                     height: cellH,
                                     badgeBleed: badgeBleed,
                                     labelOffset: labelOffset,
@@ -792,11 +803,94 @@ struct ArchiveDeleteBadge: View {
     }
 }
 
+// MARK: - Selection Badge
+
+/// The checkbox that stands in for the delete badge while the archive is in
+/// selection mode.
+///
+/// A view of its own rather than a third state on `ArchiveDeleteBadge`: that one
+/// is shared with the capture thumbnail and the pinned screenshot window, and
+/// neither of them has anything that could be half-chosen. It borrows the
+/// badge's disc, ring and 16pt sizing so the two read as the same fixture in
+/// the same corner.
+///
+/// Unlike the delete badge it is always on screen while the mode is on — a
+/// checkbox that appears on hover would make the user sweep the row to find out
+/// what they have picked.
+struct ArchiveSelectionBadge: View {
+    let state: ArchiveCheckState
+    let action: () -> Void
+
+    private var systemName: String {
+        switch state {
+        case .empty: return "circle"
+        case .mixed: return "minus.circle.fill"
+        case .full:  return "checkmark.circle.fill"
+        }
+    }
+
+    var body: some View {
+        Image(systemName: systemName)
+            .symbolRenderingMode(.palette)
+            .foregroundStyle(
+                state == .empty ? Color(red: 0.125, green: 0.125, blue: 0.125) : Color.white,
+                Color(red: 0.25, green: 0.55, blue: 1.0)
+            )
+            .font(.system(size: 16))
+            // `circle` is an outline with nothing behind it, so on a bright
+            // capture it would be a thin ring on white. The filled states bring
+            // their own disc in the second palette colour.
+            .background { if state == .empty { Circle().fill(Color(white: 0.914)) } }
+            .overlay(Circle().strokeBorder(Color.black.opacity(0.25), lineWidth: 1))
+            .frame(width: 16, height: 16)
+            .contentShape(Rectangle())
+            // Same gesture as the delete badge, for the same reason: the badge
+            // sits above the drag shim in the overlay order and takes the click
+            // before the cell can act on it.
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 0).onEnded { _ in action() }
+            )
+            .accessibilityAddTraits(.isButton)
+            .accessibilityLabel(state == .empty ? "Select item" : "Deselect item")
+    }
+}
+
+/// What sits in a cell's top-right corner: the ✕ that drops the entry, or —
+/// while the archive is selecting — the checkbox that picks it. One place for
+/// the swap, so the four cells can't drift apart on when a badge shows.
+private struct ArchiveCellBadge: View {
+    var selection: ArchiveSelectionState
+    /// A leaf passes `.full`/`.empty` for its own key; a stack passes what its
+    /// members add up to.
+    let checkState: ArchiveCheckState
+    let isHovered: Bool
+    let badgeBleed: CGFloat
+    let onToggle: () -> Void
+    let onRemove: () -> Void
+
+    var body: some View {
+        Group {
+            if selection.isActive {
+                ArchiveSelectionBadge(state: checkState, action: onToggle)
+            } else {
+                ArchiveDeleteBadge(action: onRemove)
+            }
+        }
+        // Hover only gates the ✕. A checkbox has to stay put: it is not an
+        // action offered on the cell under the pointer but the answer to "what
+        // have I picked", which the whole row has to be able to give at once.
+        .opacity((selection.isActive || isHovered) ? 1 : 0)
+        .allowsHitTesting(selection.isActive || isHovered)
+        .offset(x: badgeBleed, y: -badgeBleed)
+    }
+}
+
 // MARK: - Archive Color Cell
 
 private struct ArchiveColorCell: View {
     let item: ArchiveColor
     let scheme: ColorSchemeType
+    var selection: ArchiveSelectionState
     let height: CGFloat
     let badgeBleed: CGFloat
     let labelOffset: CGFloat
@@ -824,6 +918,8 @@ private struct ArchiveColorCell: View {
         image.unlockFocus()
         return image
     }
+
+    private var selectionKey: ArchiveSelectionKey { .item(item.id) }
 
     /// Copies `value` and flashes "Copied!" in the label — the same feedback the
     /// tap gesture gives, reused by every menu entry.
@@ -882,15 +978,28 @@ private struct ArchiveColorCell: View {
                     isPressed: $isPressed,
                     isDragging: $isDragging,
                     onHoverChange: { isHovered = $0 },
-                    onTap: { copy(scheme.convert(item.color)) }
+                    // In the mode a tap picks the swatch instead of copying it:
+                    // a mis-click that quietly replaced the clipboard while the
+                    // user was assembling a selection would be its own bug.
+                    onTap: {
+                        if selection.isActive {
+                            selection.toggle(selectionKey)
+                        } else {
+                            copy(scheme.convert(item.color))
+                        }
+                    }
                 )
             }
             // Badge after the shim, mirroring the file cells' z-order note.
             .overlay(alignment: .topTrailing) {
-                ArchiveDeleteBadge(action: { onRemove() })
-                    .opacity(isHovered ? 1 : 0)
-                    .allowsHitTesting(isHovered)
-                    .offset(x: badgeBleed, y: -badgeBleed)
+                ArchiveCellBadge(
+                    selection: selection,
+                    checkState: selection.contains(selectionKey) ? .full : .empty,
+                    isHovered: isHovered,
+                    badgeBleed: badgeBleed,
+                    onToggle: { selection.toggle(selectionKey) },
+                    onRemove: { onRemove() }
+                )
             }
             // After the shim, like the file cells: attached any earlier, the
             // menu belongs to a view the shim's NSView covers, and the right
@@ -938,6 +1047,7 @@ private struct ArchiveColorCell: View {
 /// clipboard (mirrors ArchiveColorCell); the context menu offers Copy / Remove.
 private struct ArchiveTextCell: View {
     let item: ArchiveText
+    var selection: ArchiveSelectionState
     let height: CGFloat
     let badgeBleed: CGFloat
     let labelOffset: CGFloat
@@ -951,6 +1061,7 @@ private struct ArchiveTextCell: View {
     @State private var shareAnchor  = SharePickerAnchor()
 
     private var width: CGFloat { height * 1.6 }
+    private var selectionKey: ArchiveSelectionKey { .item(item.id) }
 
     /// Drag image: the first line on the cell's own plate, so the thing under
     /// the cursor still says which snippet is being carried.
@@ -1043,14 +1154,24 @@ private struct ArchiveTextCell: View {
                 isPressed: $isPressed,
                 isDragging: $isDragging,
                 onHoverChange: { isHovered = $0 },
-                onTap: { copyText() }
+                onTap: {
+                    if selection.isActive {
+                        selection.toggle(selectionKey)
+                    } else {
+                        copyText()
+                    }
+                }
             )
         }
         .overlay(alignment: .topTrailing) {
-            ArchiveDeleteBadge(action: { onRemove() })
-                .opacity(isHovered ? 1 : 0)
-                .allowsHitTesting(isHovered)
-                .offset(x: badgeBleed, y: -badgeBleed)
+            ArchiveCellBadge(
+                selection: selection,
+                checkState: selection.contains(selectionKey) ? .full : .empty,
+                isHovered: isHovered,
+                badgeBleed: badgeBleed,
+                onToggle: { selection.toggle(selectionKey) },
+                onRemove: { onRemove() }
+            )
         }
         // After the shim, for the reason spelled out in ArchiveColorCell.
         .contextMenu {
@@ -1089,6 +1210,9 @@ private struct ArchiveFileCell<Menu: View>: View {
     let url: URL
     /// nil → generic placeholder glyph (a still-decoding screenshot thumbnail).
     let preview: NSImage?
+    var selection: ArchiveSelectionState
+    /// This cell's leaf in the selection — a capture's id, a stack member's URL.
+    let selectionKey: ArchiveSelectionKey
     let displayName: String
     let height: CGFloat
     let badgeBleed: CGFloat
@@ -1175,16 +1299,31 @@ private struct ArchiveFileCell<Menu: View>: View {
                 isPressed: $isPressed,
                 isDragging: $isDragging,
                 onHoverChange: { isHovered = $0 },
-                onTap: onTap
+                // Selecting takes the tap over from whatever the caller does
+                // with it. It matters most here: a tap on a capture opens it in
+                // Preview *and* hides the panel, so a mis-click while picking
+                // would launch another app and take the half-built selection
+                // down with it.
+                onTap: {
+                    if selection.isActive {
+                        selection.toggle(selectionKey)
+                    } else {
+                        onTap()
+                    }
+                }
             )
         }
         // Badge is placed AFTER ArchiveDragShim so it sits above the NSView in z-order
         // and receives SwiftUI hit-testing before the NSView can intercept.
         .overlay(alignment: .topTrailing) {
-            ArchiveDeleteBadge(action: onRemove)
-                .opacity(isHovered ? 1 : 0)
-                .allowsHitTesting(isHovered)
-                .offset(x: badgeBleed, y: -badgeBleed)
+            ArchiveCellBadge(
+                selection: selection,
+                checkState: selection.contains(selectionKey) ? .full : .empty,
+                isHovered: isHovered,
+                badgeBleed: badgeBleed,
+                onToggle: { selection.toggle(selectionKey) },
+                onRemove: onRemove
+            )
         }
         .contextMenu { menu() }
         .preference(key: InternalDraggingKey.self, value: isDragging)
@@ -1201,6 +1340,7 @@ private struct ArchiveFileCell<Menu: View>: View {
 private struct ArchiveScreenshotCell: View {
     let shot: ArchiveScreenshot
     let loader: ThumbnailLoader
+    var selection: ArchiveSelectionState
     let height: CGFloat
     let badgeBleed: CGFloat
     let labelOffset: CGFloat
@@ -1227,6 +1367,8 @@ private struct ArchiveScreenshotCell: View {
         ArchiveFileCell(
             url: shot.url,
             preview: loader.image,
+            selection: selection,
+            selectionKey: .item(shot.id),
             displayName: displayName,
             height: height,
             badgeBleed: badgeBleed,
@@ -1283,6 +1425,7 @@ private struct ArchiveScreenshotCell: View {
 private struct ArchiveStackCell: View {
     let stack: ArchiveStack
     let loaders: [ThumbnailLoader]
+    var selection: ArchiveSelectionState
     let height: CGFloat
     let badgeBleed: CGFloat
     let labelOffset: CGFloat
@@ -1408,16 +1551,27 @@ private struct ArchiveStackCell: View {
                 isPressed: $isPressed,
                 isDragging: $isDragging,
                 onHoverChange: setHovered,
+                // The one cell whose tap does not change in the mode. A
+                // mis-click here only opens an accordion, and the members
+                // behind it are exactly what the user came to pick from — the
+                // checkbox is how the stack itself is chosen.
                 onTap: { onExpand() },
                 onDragCompleted: { _ in onDragOutCompleted() }
             )
         }
         // Badge after the shim, mirroring ArchiveScreenshotCell's z-order note.
         .overlay(alignment: .topTrailing) {
-            ArchiveDeleteBadge(action: { onRemove() })
-                .opacity(isHovered ? 1 : 0)
-                .allowsHitTesting(isHovered)
-                .offset(x: badgeBleed, y: -badgeBleed)
+            ArchiveCellBadge(
+                selection: selection,
+                // Over every member, not the three the fan draws: a stack whose
+                // hidden members are all picked is full, and saying "mixed"
+                // would send the user looking for a member they never left out.
+                checkState: selection.checkState(forMembers: stack.urls),
+                isHovered: isHovered,
+                badgeBleed: badgeBleed,
+                onToggle: { selection.toggleMembers(stack.urls) },
+                onRemove: { onRemove() }
+            )
         }
         .contextMenu {
             MenuCommandButton("Show in Finder", icon: .finder) { revealInFinder() }
@@ -1446,6 +1600,7 @@ private struct ArchiveStackCell: View {
 private struct ExpandedStackGroup: View {
     let stack: ArchiveStack
     var archiveModel: NotchArchiveModel
+    var selection: ArchiveSelectionState
     let height: CGFloat
     let cornerRadius: CGFloat
     let badgeBleed: CGFloat
@@ -1489,6 +1644,7 @@ private struct ExpandedStackGroup: View {
                 StackMemberCell(
                     url: url,
                     loader: archiveModel.stackThumbnailLoader(for: url),
+                    selection: selection,
                     height: height,
                     badgeBleed: badgeBleed,
                     labelOffset: labelOffset,
@@ -1581,6 +1737,7 @@ private struct ExpandedStackGroup: View {
 private struct StackMemberCell: View {
     let url: URL
     let loader: ThumbnailLoader
+    var selection: ArchiveSelectionState
     let height: CGFloat
     let badgeBleed: CGFloat
     let labelOffset: CGFloat
@@ -1613,6 +1770,8 @@ private struct StackMemberCell: View {
         ArchiveFileCell(
             url: url,
             preview: previewImage,
+            selection: selection,
+            selectionKey: .file(url),
             displayName: displayName,
             height: height,
             badgeBleed: badgeBleed,

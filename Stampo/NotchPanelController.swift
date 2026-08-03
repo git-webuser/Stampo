@@ -163,6 +163,7 @@ private struct NotchPanelRootView: View {
     var model: NotchPanelModel
     var archiveModel: NotchArchiveModel
     var archiveExpansion: ArchiveExpansionState
+    var archiveSelection: ArchiveSelectionState
     let shareAnchor: SharePickerAnchor
 
     let onClose: () -> Void
@@ -273,6 +274,7 @@ private struct NotchPanelRootView: View {
                 metrics: m,
                 archiveModel: archiveModel,
                 expansion: archiveExpansion,
+                selection: archiveSelection,
                 shareAnchor: shareAnchor,
                 isPinned: rootState.isArchivePinned,
                 // Both halves are needed, and the route is the load-bearing one.
@@ -446,6 +448,9 @@ final class NotchPanelController: NSObject {
     /// Lives here rather than inside the archive view so the Esc handler can see
     /// (and clear) an open accordion — see `PanelState.escapeAction`.
     let archiveExpansion = ArchiveExpansionState()
+    /// Lives here for the same reason, and one layer further out: Esc unwinds
+    /// an expanded stack, then the selection mode, then the panel.
+    let archiveSelection = ArchiveSelectionState()
     let screenshot = ScreenshotService()
     let colorPicker = ColorPickingCoordinator()
     let scanCapture = ScanCaptureCoordinator()
@@ -1203,6 +1208,7 @@ final class NotchPanelController: NSObject {
             model: model,
             archiveModel: archiveModel,
             archiveExpansion: archiveExpansion,
+            archiveSelection: archiveSelection,
             shareAnchor: archiveShareAnchor,
             onClose: { [weak self] in self?.hideAnimated(reason: .closeButton) },
             onCapture: { [weak self] mode, delay in

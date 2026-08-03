@@ -1547,6 +1547,23 @@
         }
       }
     },
+    "Deselect item" : {
+      "comment" : "VoiceOver label of an archive cell's checkbox while it is selected",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deselect item"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Снять выделение"
+          }
+        }
+      }
+    },
     "Details: %@" : {
       "comment" : "Suffix appended to an error message when a technical detail is available; %@ is the detail string",
       "extractionState" : "stale",
@@ -4274,6 +4291,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Выберите аннотацию, чтобы изменить её стиль"
+          }
+        }
+      }
+    },
+    "Select item" : {
+      "comment" : "VoiceOver label of an archive cell's checkbox while it is not selected",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Select item"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Выделить элемент"
           }
         }
       }
