@@ -43,6 +43,23 @@ enum ArchiveCheckState: Equatable {
 
     private(set) var keys: Set<ArchiveSelectionKey> = []
 
+    // MARK: Entering
+
+    /// Turning the mode on from a cell's own context menu. The cell that was
+    /// right-clicked comes in selected: it is the one the user pointed at, and
+    /// entering with an empty row would make them click it again to say so.
+    /// (The "⋯" menu's way in has nothing to point at, and just sets `isActive`.)
+    func begin(selecting key: ArchiveSelectionKey) {
+        isActive = true
+        keys.insert(key)
+    }
+
+    /// The same, from a stack's menu — a stack is chosen through its members.
+    func begin(selectingMembers urls: [URL]) {
+        isActive = true
+        setMembers(urls, selected: true)
+    }
+
     // MARK: Leaves
 
     func contains(_ key: ArchiveSelectionKey) -> Bool { keys.contains(key) }
@@ -123,6 +140,11 @@ enum ArchiveCheckState: Equatable {
     }
 
     // MARK: Leaving
+
+    /// Forgets the selection but stays in the mode — what a command that
+    /// consumed the selection leaves behind. Deleting what was picked ends that
+    /// round of picking, not the picking.
+    func deselectAll() { keys = [] }
 
     /// Leaves the mode and forgets what was in it. One call, because the two
     /// halves have no meaning apart: nothing draws a selection once the mode

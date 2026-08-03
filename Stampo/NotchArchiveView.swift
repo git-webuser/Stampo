@@ -671,11 +671,27 @@ struct NotchArchiveView: View {
             .sharePickerAnchor(shareAnchor)
     }
 
-    /// Whole-archive commands in the "⋯" menu. All three are disabled on an empty
-    /// archive rather than hidden, so the menu never changes shape under the user.
+    /// The "⋯" menu's archive commands.
+    ///
+    /// Selection mode re-scopes the three that are already here rather than
+    /// adding three more beside them: copy, share and clear are the same three
+    /// verbs whether they apply to everything or to what is picked, and a menu
+    /// offering both would make the user read four titles to find out which
+    /// pair is live.
     private var archiveCommands: [PanelMenuCommand] {
+        selection.isActive ? selectionCommands : wholeArchiveCommands
+    }
+
+    /// All three are disabled on an empty archive rather than hidden, so the
+    /// menu never changes shape under the user. "Select Items" leads, keeping
+    /// the destructive Clear Archive last where a slipped click is least likely
+    /// to find it.
+    private var wholeArchiveCommands: [PanelMenuCommand] {
         let isEmpty = archiveModel.items.isEmpty
         return [
+            PanelMenuCommand(titleKey: "Select Items", isEnabled: !isEmpty) {
+                selection.isActive = true
+            },
             PanelMenuCommand(titleKey: "Copy All", isEnabled: !isEmpty) {
                 let payload = NotchArchiveModel.payload(for: archiveModel.items, colorScheme: scheme)
                 NSPasteboard.general.clearContents()
@@ -689,6 +705,50 @@ struct NotchArchiveView: View {
                 withAnimation(.easeInOut(duration: 0.18)) { archiveModel.removeAll() }
             }
         ]
+    }
+
+    /// The same three against the selection. Enablement asks what the keys still
+    /// resolve to, not whether there are any: a picked capture whose file
+    /// vanished leaves its key behind, and a live "Share Selected" that shares
+    /// nothing is worse than a greyed one.
+    private var selectionCommands: [PanelMenuCommand] {
+        let chosen = selection.selectedItems(in: archiveModel.items)
+        let hasAny = !chosen.isEmpty
+        return [
+            PanelMenuCommand(titleKey: "Copy Selected", isEnabled: hasAny) {
+                let payload = NotchArchiveModel.payload(for: chosen, colorScheme: scheme)
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.writeObjects(payload.objects.compactMap { $0 as? NSPasteboardWriting })
+            },
+            PanelMenuCommand(titleKey: "Share Selected", isEnabled: hasAny) {
+                let payload = NotchArchiveModel.payload(for: chosen, colorScheme: scheme)
+                shareAnchor.present(payload.objects)
+            },
+            PanelMenuCommand(titleKey: "Delete Selected", isEnabled: hasAny) {
+                removeSelected(chosen)
+            }
+        ]
+    }
+
+    /// Drops every picked leaf from the archive — the entries only, exactly like
+    /// the per-cell "Remove from archive"; the files stay on disk. Stack members
+    /// leave one at a time, and a stack that loses its last one goes with it.
+    ///
+    /// The mode stays on afterwards: what ended is this round of picking, not
+    /// the picking. Back and Esc are how the mode ends.
+    private func removeSelected(_ chosen: [ArchiveItem]) {
+        withAnimation(.easeInOut(duration: 0.18)) {
+            for item in chosen {
+                // A resolved stack is a fresh value carrying only the picked
+                // members, so its id is not the archive's — remove by member.
+                if case .stack(let stack) = item {
+                    for url in stack.urls { archiveModel.removeStackMember(url: url) }
+                } else {
+                    archiveModel.remove(id: item.id)
+                }
+            }
+            selection.deselectAll()
+        }
     }
 
     private var schemeMenu: some View {
@@ -1031,6 +1091,11 @@ private struct ArchiveColorCell: View {
                 } label: {
                     MenuCommandLabel(indented: "Share As")
                 }
+                if !selection.isActive {
+                    MenuCommandButton("Select Items", icon: .select) {
+                        selection.begin(selecting: selectionKey)
+                    }
+                }
                 Divider()
                 MenuCommandButton("Remove from archive", icon: .remove) { onRemove() }
             }
@@ -1179,6 +1244,11 @@ private struct ArchiveTextCell: View {
             // Plain string, not a file: the share sheet offers Messages, Notes,
             // Mail — the same payload the tap-to-copy puts on the pasteboard.
             MenuCommandButton("Share", icon: .share) { shareAnchor.present([item.text]) }
+            if !selection.isActive {
+                MenuCommandButton("Select Items", icon: .select) {
+                    selection.begin(selecting: selectionKey)
+                }
+            }
             Divider()
             MenuCommandButton("Remove from archive", icon: .remove) { onRemove() }
         }
@@ -1405,6 +1475,11 @@ private struct ArchiveScreenshotCell: View {
                 // bitmap. (The editor shares an image because its composite
                 // isn't on disk yet.)
                 MenuCommandButton("Share", icon: .share) { shareAnchor.present([shot.url]) }
+                if !selection.isActive {
+                    MenuCommandButton("Select Items", icon: .select) {
+                        selection.begin(selecting: .item(shot.id))
+                    }
+                }
                 Divider()
                 MenuCommandButton("Move to Trash", icon: .trash, role: .destructive) {
                     onMoveToTrash()
@@ -1579,6 +1654,13 @@ private struct ArchiveStackCell: View {
             // Every member in one sheet — the same payload the whole-cell drag
             // carries, so AirDrop sends the pile in a single transfer.
             MenuCommandButton("Share", icon: .share) { shareAnchor.present(stack.urls) }
+            if !selection.isActive {
+                // A stack is picked through its members, so "Select" here means
+                // all of them — the same thing its checkbox does.
+                MenuCommandButton("Select Items", icon: .select) {
+                    selection.begin(selectingMembers: stack.urls)
+                }
+            }
             Divider()
             MenuCommandButton("Remove from archive", icon: .remove) { onRemove() }
         }
@@ -1708,6 +1790,11 @@ private struct ExpandedStackGroup: View {
             MenuCommandButton("Copy", icon: .copy) { copyAll() }
             MenuCommandButton("Share", icon: .share) { shareAnchor.present(stack.urls) }
             MenuCommandButton("Collapse", icon: .collapse) { onCollapse() }
+            if !selection.isActive {
+                MenuCommandButton("Select Items", icon: .select) {
+                    selection.begin(selectingMembers: stack.urls)
+                }
+            }
             Divider()
             MenuCommandButton("Remove from archive", icon: .remove) { onRemoveStack() }
         }
@@ -1810,6 +1897,11 @@ private struct StackMemberCell: View {
                     }
                 }
                 MenuCommandButton("Share", icon: .share) { shareAnchor.present([url]) }
+                if !selection.isActive {
+                    MenuCommandButton("Select Items", icon: .select) {
+                        selection.begin(selecting: .file(url))
+                    }
+                }
                 Divider()
                 MenuCommandButton("Move to Trash", icon: .trash, role: .destructive) {
                     onRemove()

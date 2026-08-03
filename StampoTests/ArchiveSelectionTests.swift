@@ -196,7 +196,45 @@ import Testing
         #expect(!state.allowsDrag(fromMembers: [b, c]))
     }
 
+    // MARK: Entering from a cell
+
+    /// A cell's own "Select" both turns the mode on and picks the cell — the
+    /// user already pointed at it by right-clicking.
+    @Test func aCellsMenuEntersTheModeWithThatCellPicked() {
+        let capture = ArchiveScreenshot(url: shot)
+        let state = ArchiveSelectionState()
+        state.begin(selecting: .item(capture.id))
+        #expect(state.isActive)
+        #expect(state.contains(.item(capture.id)))
+    }
+
+    @Test func aStacksMenuEntersTheModeWithEveryMemberPicked() {
+        let state = ArchiveSelectionState()
+        state.begin(selectingMembers: [a, b, c])
+        #expect(state.isActive)
+        #expect(state.checkState(forMembers: [a, b, c]) == .full)
+    }
+
+    /// Entering from a second cell adds to what is picked instead of replacing
+    /// it — the mode is already on, and the menu is just another way to check a
+    /// box.
+    @Test func enteringAgainAddsRatherThanReplaces() {
+        let state = ArchiveSelectionState()
+        state.begin(selecting: .file(a))
+        state.begin(selecting: .file(b))
+        #expect(state.keys == [.file(a), .file(b)])
+    }
+
     // MARK: Leaving the mode
+
+    /// What "Delete Selected" leaves behind: nothing picked, but still picking.
+    @Test func consumingTheSelectionKeepsTheMode() {
+        let state = ArchiveSelectionState()
+        state.begin(selecting: .file(a))
+        state.deselectAll()
+        #expect(state.keys.isEmpty)
+        #expect(state.isActive)
+    }
 
     @Test func clearingLeavesTheModeAndForgetsTheSelection() {
         let state = ArchiveSelectionState()

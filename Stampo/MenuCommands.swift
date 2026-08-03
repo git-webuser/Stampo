@@ -26,6 +26,10 @@ enum MenuIcon: String {
     /// The glyph the archive's inline CollapseButton already shows, so the menu
     /// row and the button on screen read as one command.
     case collapse = "arrow.down.forward.and.arrow.up.backward"
+    /// The archive's multi-select mode. Deliberately the checkbox the cells put
+    /// on themselves once it is on, so the row that turns it on and the badges
+    /// it produces are recognisably the same thing.
+    case select   = "checkmark.circle"
     case remove   = "xmark.circle"
     case trash    = "trash"
 }
