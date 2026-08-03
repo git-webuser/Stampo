@@ -41,6 +41,50 @@ import Testing
         #expect(!centre.isArmed)
     }
 
+    /// The safety net for an owner whose token died with it (the archive keeps
+    /// its Space token in SwiftUI `@State`, which a panel teardown can take
+    /// away before `onDisappear` runs). Every owner goes, however many there
+    /// are and whether or not anyone still holds the token.
+    @Test func releasingEverythingHandsTheKeyBack() {
+        let centre = TransientHotkeyCenter.space
+        centre.push {}
+        centre.push {}
+        #expect(centre.isArmed)
+
+        centre.releaseAll()
+        #expect(!centre.isArmed)
+    }
+
+    /// Called on every teardown, most of which claim nothing — and a stray
+    /// `unregisterHotKey` on a key that was never registered is not something
+    /// to find out about in production.
+    @Test func releasingWhenNobodyOwnsTheKeyIsHarmless() {
+        let centre = TransientHotkeyCenter.space
+        centre.releaseAll()
+        #expect(!centre.isArmed)
+
+        // And the centre still works afterwards.
+        let token = centre.push {}
+        #expect(centre.isArmed)
+        centre.remove(token)
+        #expect(!centre.isArmed)
+    }
+
+    /// A released Space must not take Esc with it: the panel teardown that
+    /// calls `releaseAll()` runs while a Quick Look window can still be up,
+    /// and that window's Esc is the only way out of it.
+    @Test func releasingSpaceLeavesEscapeAlone() {
+        let token = TransientHotkeyCenter.escape.push {}
+        TransientHotkeyCenter.space.push {}
+
+        TransientHotkeyCenter.space.releaseAll()
+        #expect(!TransientHotkeyCenter.space.isArmed)
+        #expect(TransientHotkeyCenter.escape.isArmed)
+
+        TransientHotkeyCenter.escape.remove(token)
+        #expect(!TransientHotkeyCenter.escape.isArmed)
+    }
+
     /// Esc and Space are separate claims — pushing one must not arm the other,
     /// or opening the panel would swallow Space for the whole machine.
     @Test func escapeAndSpaceAreIndependent() {

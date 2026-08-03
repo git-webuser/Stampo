@@ -70,6 +70,23 @@ final class TransientHotkeyCenter {
         if owners.isEmpty { unregisterHotKey() }
     }
 
+    /// Drops every owner and hands the key back, whether or not anyone
+    /// remembered their token.
+    ///
+    /// The safety net for owners whose token dies with them. The panel's Esc
+    /// token is a field on the controller and is removed by hand when the panel
+    /// is torn down; the archive's Space token lives in SwiftUI `@State`, and a
+    /// teardown that releases the hosting view outright (sleep, wake, a display
+    /// change — see `invalidatePanelAfterEnvironmentChange`) takes that state
+    /// with it before `onDisappear` is guaranteed to have run. The token would
+    /// be gone and the owner still pushed: Space swallowed system-wide, with
+    /// nothing left holding the handle to let go of it.
+    func releaseAll() {
+        guard !owners.isEmpty else { return }
+        owners.removeAll()
+        unregisterHotKey()
+    }
+
     private func fireTopOwner() {
         owners.last?.action()
     }
