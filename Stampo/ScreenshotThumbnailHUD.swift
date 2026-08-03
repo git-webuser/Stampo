@@ -324,8 +324,6 @@ struct ScreenshotThumbnailView: View {
     @State private var loader = ThumbnailLoader()
     @State private var isPinned = false
     @State private var isHovered = false
-    @State private var isPinBadgePressed = false
-    @State private var isCloseBadgePressed = false
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -375,20 +373,16 @@ struct ScreenshotThumbnailView: View {
                         action: {
                             isPinned.toggle()
                             isPinned ? onPin() : onUnpin()
-                        },
-                        isPressed: $isPinBadgePressed
+                        }
                     )
                     .frame(width: 28, height: 28)
                     .help(isPinned ? "Unpin" : "Pin")
 
                     Spacer()
 
-                    ArchiveDeleteBadge(
-                        action: { onDismiss() },
-                        isPressed: $isCloseBadgePressed
-                    )
-                    .frame(width: 28, height: 28)
-                    .help("Close")
+                    ArchiveDeleteBadge(action: { onDismiss() })
+                        .frame(width: 28, height: 28)
+                        .help("Close")
                 }
             }
             .animation(.spring(response: 0.22, dampingFraction: 0.85), value: isHovered)

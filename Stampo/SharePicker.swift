@@ -31,9 +31,21 @@ extension Notification.Name {
     /// Closes the session if the chosen service never reports back — see
     /// `armSilenceTimeout`.
     private var silenceTimeout: DispatchWorkItem?
+    /// The scheduled "preparing…" toast for a share slow enough to look dead.
+    /// Held here rather than as a local in `present` so the preparation running
+    /// on a background queue doesn't have to carry it across: `DispatchWorkItem`
+    /// is not `Sendable`, and captured into a `@Sendable` closure it warns, with
+    /// reason — the cancel and the schedule would be on different threads.
+    private var preparationHint: DispatchWorkItem?
     /// Toast for a folder that couldn't be zipped (unreadable, or a location
     /// the app has no permission for).
-    private let feedbackHUD = TextCaptureHUD()
+    ///
+    /// Lazy because most anchors never say anything. Every draggable archive
+    /// cell holds one of these in `@State`, and SwiftUI evaluates a `@State`
+    /// default on every re-init of the struct — so a hover that redraws the row
+    /// builds an anchor per cell and throws them all away. Nothing to lose sleep
+    /// over, but there is no reason for each of those to drag a HUD along.
+    private lazy var feedbackHUD = TextCaptureHUD()
 
     func present(_ items: [Any]) {
         guard view != nil, !items.isEmpty else { return }
@@ -52,15 +64,20 @@ extension Notification.Name {
         // and until the sheet appears nothing on screen says the click landed.
         // The toast is scheduled rather than shown outright so the common,
         // instant case stays silent.
-        let waitHint = DispatchWorkItem { [weak self] in
+        let hint = DispatchWorkItem { [weak self] in
             self?.feedbackHUD.show(.preparingShare, on: nil, autoHideAfter: 30)
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.preparationHintDelay, execute: waitHint)
+        preparationHint = hint
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.preparationHintDelay, execute: hint)
 
+        // `self` strongly on purpose: preparation ends by either showing the
+        // sheet or, if the anchor's view went away meanwhile, calling `finish`
+        // — and letting the anchor die here would skip both, leaving the panel
+        // held open by a bracket nothing will ever close.
         DispatchQueue.global(qos: .userInitiated).async {
             let result = ShareItemPreparer.prepare(boxed)
             DispatchQueue.main.async {
-                waitHint.cancel()
+                self.cancelPreparationHint()
                 self.feedbackHUD.hide(animated: false)
                 self.show(result.items)
                 // An item that couldn't be staged is still handed over as the
@@ -94,7 +111,13 @@ extension Notification.Name {
         picker.show(relativeTo: view.bounds, of: view, preferredEdge: below)
     }
 
+    private func cancelPreparationHint() {
+        preparationHint?.cancel()
+        preparationHint = nil
+    }
+
     fileprivate func finish() {
+        cancelPreparationHint()
         silenceTimeout?.cancel()
         silenceTimeout = nil
         picker = nil

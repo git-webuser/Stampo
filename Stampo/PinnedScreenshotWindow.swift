@@ -299,7 +299,6 @@ struct PinnedScreenshotView: View {
     /// invisible were scaling under it. Driven from here, only the slide is
     /// animated and the rest of the layout settles in the frame it happens.
     @State private var isBadgeShown = false
-    @State private var isCloseBadgePressed = false
 
     private let cornerRadius: CGFloat = 10
 
@@ -343,9 +342,7 @@ struct PinnedScreenshotView: View {
             BadgeBar(isShown: isBadgeShown, inset: 2) {
                 HStack(spacing: 0) {
                     Spacer()
-                    ArchiveDeleteBadge(accessibilityLabelOverride: "Close",
-                                    action: onClose,
-                                    isPressed: $isCloseBadgePressed)
+                    ArchiveDeleteBadge(accessibilityLabelOverride: "Close", action: onClose)
                         .frame(width: 28, height: 28)
                         .help("Close")
                 }

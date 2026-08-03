@@ -112,9 +112,9 @@ final class EditorWindowController: NSObject, NSWindowDelegate {
             Log.capture.error("editor: save failed: \(error)")
             let alert = NSAlert()
             alert.alertStyle = .warning
-            alert.messageText = String(localized: "Could not save the edited image")
+            alert.messageText = LocaleManager.shared.string("Could not save the edited image")
             alert.informativeText = error.localizedDescription
-            alert.addButton(withTitle: String(localized: "OK"))
+            alert.addButton(withTitle: LocaleManager.shared.string("OK"))
             alert.runModal()
             return false
         }
@@ -158,9 +158,9 @@ final class EditorWindowController: NSObject, NSWindowDelegate {
                 Log.capture.error("editor: save-as failed: \(error)")
                 let alert = NSAlert()
                 alert.alertStyle = .warning
-                alert.messageText = String(localized: "Could not save the edited image")
+                alert.messageText = LocaleManager.shared.string("Could not save the edited image")
                 alert.informativeText = error.localizedDescription
-                alert.addButton(withTitle: String(localized: "OK"))
+                alert.addButton(withTitle: LocaleManager.shared.string("OK"))
                 alert.runModal()
             }
         }
@@ -188,9 +188,9 @@ final class EditorWindowController: NSObject, NSWindowDelegate {
             DispatchQueue.main.async {
                 let alert = NSAlert()
                 alert.alertStyle = .warning
-                alert.messageText = String(localized: "Could not delete the file")
+                alert.messageText = LocaleManager.shared.string("Could not delete the file")
                 alert.informativeText = error.localizedDescription
-                alert.addButton(withTitle: String(localized: "OK"))
+                alert.addButton(withTitle: LocaleManager.shared.string("OK"))
                 alert.runModal()
             }
         }
@@ -203,11 +203,11 @@ final class EditorWindowController: NSObject, NSWindowDelegate {
     private func resolveUnsavedChanges(_ document: EditorDocument) -> Bool {
         let alert = NSAlert()
         alert.alertStyle = .warning
-        alert.messageText = String(localized: "Save changes before closing?")
-        alert.informativeText = String(localized: "Your annotations will be lost otherwise.")
-        alert.addButton(withTitle: String(localized: "Save"))
-        alert.addButton(withTitle: String(localized: "Discard"))
-        alert.addButton(withTitle: String(localized: "Cancel"))
+        alert.messageText = LocaleManager.shared.string("Save changes before closing?")
+        alert.informativeText = LocaleManager.shared.string("Your annotations will be lost otherwise.")
+        alert.addButton(withTitle: LocaleManager.shared.string("Save"))
+        alert.addButton(withTitle: LocaleManager.shared.string("Discard"))
+        alert.addButton(withTitle: LocaleManager.shared.string("Cancel"))
 
         NSApp.activate(ignoringOtherApps: true)
         switch alert.runModal() {

@@ -142,10 +142,18 @@ struct NotchArchiveView: View {
             },
             perform: { zone, providers in handleDrop(providers, into: zone) }
         ))
-        // Ephemeral expansion: collapse whenever the archive closes so it always
-        // reopens in the compact grid.
+        // Everything the archive closing has to undo, in one place.
+        //
+        // Expansion is ephemeral, so the archive always reopens in the compact
+        // grid. And the pointer can leave with the archive itself (Esc, hotkey,
+        // auto-hide) without any cell reporting a hover-out, so the Space key —
+        // claimed system-wide while a cell is under the pointer — has to be
+        // handed back from here or it never is.
         .onChange(of: isContentVisible) {
-            if !isContentVisible { expandedStackID = nil }
+            guard !isContentVisible else { return }
+            expandedStackID = nil
+            hoveredPreviewURLs = []
+            updateSpaceHotkey()
         }
         // Clear the stored id once its stack is gone (last member removed, trim,
         // Remove) — effectiveExpandedID already masks the render; this dedupes
@@ -158,14 +166,6 @@ struct NotchArchiveView: View {
         .onPreferenceChange(HoveredPreviewKey.self) { urls in
             hoveredPreviewURLs = urls
             updateSpaceHotkey()
-        }
-        // The pointer can leave with the archive itself (Esc, hotkey, auto-hide),
-        // and no cell reports a hover-out then — the key must still come back.
-        .onChange(of: isContentVisible) {
-            if !isContentVisible {
-                hoveredPreviewURLs = []
-                updateSpaceHotkey()
-            }
         }
         .onDisappear {
             hoveredPreviewURLs = []
@@ -739,7 +739,6 @@ struct ArchiveDeleteBadge: View {
     /// "Remove from archive".
     var accessibilityLabelOverride: LocalizedStringKey? = nil
     let action: () -> Void
-    @Binding var isPressed: Bool
 
     var body: some View {
         Image(systemName: systemName)
@@ -752,10 +751,14 @@ struct ArchiveDeleteBadge: View {
             .overlay(Circle().strokeBorder(Color.black.opacity(0.25), lineWidth: 1))
             .frame(width: 16, height: 16)
             .contentShape(Rectangle())
+            // The press used to be reported back to the cell through an
+            // `isPressed` binding, which every cell guarded its own tap with so
+            // that clicking the badge didn't also copy or open. The drag shim
+            // took that job over: the badge is overlaid after it and takes the
+            // hit first, so the binding had stopped being read anywhere and the
+            // gesture only has to fire the action.
             .simultaneousGesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { _ in isPressed = true }
-                    .onEnded   { _ in action() }
+                DragGesture(minimumDistance: 0).onEnded { _ in action() }
             )
             .accessibilityAddTraits(.isButton)
             .accessibilityLabel(accessibilityLabelOverride
@@ -777,7 +780,6 @@ private struct ArchiveColorCell: View {
     @State private var isHovered    = false
     @State private var isPressed    = false
     @State private var isCopied     = false
-    @State private var isBadgeActive = false
     @State private var isDragging   = false
     @State private var shareAnchor  = SharePickerAnchor()
 
@@ -859,7 +861,7 @@ private struct ArchiveColorCell: View {
             }
             // Badge after the shim, mirroring the file cells' z-order note.
             .overlay(alignment: .topTrailing) {
-                ArchiveDeleteBadge(action: { onRemove() }, isPressed: $isBadgeActive)
+                ArchiveDeleteBadge(action: { onRemove() })
                     .opacity(isHovered ? 1 : 0)
                     .allowsHitTesting(isHovered)
                     .offset(x: badgeBleed, y: -badgeBleed)
@@ -919,7 +921,6 @@ private struct ArchiveTextCell: View {
     @State private var isHovered    = false
     @State private var isPressed    = false
     @State private var isCopied     = false
-    @State private var isBadgeActive = false
     @State private var isDragging   = false
     @State private var shareAnchor  = SharePickerAnchor()
 
@@ -1020,7 +1021,7 @@ private struct ArchiveTextCell: View {
             )
         }
         .overlay(alignment: .topTrailing) {
-            ArchiveDeleteBadge(action: { onRemove() }, isPressed: $isBadgeActive)
+            ArchiveDeleteBadge(action: { onRemove() })
                 .opacity(isHovered ? 1 : 0)
                 .allowsHitTesting(isHovered)
                 .offset(x: badgeBleed, y: -badgeBleed)
@@ -1081,7 +1082,6 @@ private struct ArchiveFileCell<Menu: View>: View {
 
     @State private var isHovered     = false
     @State private var isPressed     = false
-    @State private var isBadgeActive = false
     @State private var isDragging    = false
 
     private var width: CGFloat { height * 1.6 }
@@ -1155,7 +1155,7 @@ private struct ArchiveFileCell<Menu: View>: View {
         // Badge is placed AFTER ArchiveDragShim so it sits above the NSView in z-order
         // and receives SwiftUI hit-testing before the NSView can intercept.
         .overlay(alignment: .topTrailing) {
-            ArchiveDeleteBadge(action: onRemove, isPressed: $isBadgeActive)
+            ArchiveDeleteBadge(action: onRemove)
                 .opacity(isHovered ? 1 : 0)
                 .allowsHitTesting(isHovered)
                 .offset(x: badgeBleed, y: -badgeBleed)
@@ -1268,7 +1268,6 @@ private struct ArchiveStackCell: View {
     let onRemove: () -> Void
 
     @State private var isPressed     = false
-    @State private var isBadgeActive = false
     @State private var isDragging    = false
     @State private var isCopied      = false
     @State private var shareAnchor   = SharePickerAnchor()
@@ -1389,11 +1388,10 @@ private struct ArchiveStackCell: View {
         }
         // Badge after the shim, mirroring ArchiveScreenshotCell's z-order note.
         .overlay(alignment: .topTrailing) {
-            ArchiveDeleteBadge(action: { onRemove() },
-                            isPressed: $isBadgeActive)
-            .opacity(isHovered ? 1 : 0)
-            .allowsHitTesting(isHovered)
-            .offset(x: badgeBleed, y: -badgeBleed)
+            ArchiveDeleteBadge(action: { onRemove() })
+                .opacity(isHovered ? 1 : 0)
+                .allowsHitTesting(isHovered)
+                .offset(x: badgeBleed, y: -badgeBleed)
         }
         .contextMenu {
             MenuCommandButton("Show in Finder", icon: .finder) { revealInFinder() }
