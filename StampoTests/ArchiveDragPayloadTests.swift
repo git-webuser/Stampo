@@ -7,6 +7,56 @@ import Testing
 /// itself needs a real mouse, but the payload is data — and data is testable.
 @Suite struct ArchiveDragPayloadTests {
 
+    /// A multi-selection drag fans its entries out exactly the way "Share
+    /// Selected" does — one item per colour, snippet and capture, one per member
+    /// of a stack. It has to: `ArchiveDragShimView` pairs the payload with its
+    /// preview images by index, and a stack expanded on one side only would put
+    /// the picture of the colour beside it under a file.
+    @Test func aSelectionDragFansOutTheSameWayItsShareDoes() {
+        let items: [ArchiveItem] = [
+            .color(ArchiveColor(color: NSColor(hexString: "#FF0000")!, hex: "#FF0000")),
+            .stack(ArchiveStack(urls: [URL(fileURLWithPath: "/tmp/drop/a.pdf"),
+                                       URL(fileURLWithPath: "/tmp/drop/b.pdf"),
+                                       URL(fileURLWithPath: "/tmp/drop/c.pdf")])),
+            .text(ArchiveText(text: "hello")),
+            .screenshot(ArchiveScreenshot(url: URL(fileURLWithPath: "/tmp/archive/shot.png")))
+        ]
+        let dragged = NotchArchiveModel.dragPayload(for: items, colorScheme: .hex, format: .png)
+        let shared = NotchArchiveModel.payload(for: items, colorScheme: .hex)
+        #expect(dragged.count == shared.count)
+        #expect(dragged.count == 6)
+    }
+
+    /// Order is the archive's display order, so the cascade of previews under
+    /// the cursor runs left to right the way the row does.
+    @Test func aSelectionDragKeepsTheArchivesOrder() {
+        let a = URL(fileURLWithPath: "/tmp/drop/a.pdf")
+        let b = URL(fileURLWithPath: "/tmp/drop/b.pdf")
+        let items: [ArchiveItem] = [
+            .stack(ArchiveStack(urls: [a, b])),
+            .text(ArchiveText(text: "hello"))
+        ]
+        let payload = NotchArchiveModel.dragPayload(for: items, colorScheme: .hex, format: .png)
+        #expect((payload[0] as? NSURL) as URL? == a)
+        #expect((payload[1] as? NSURL) as URL? == b)
+        #expect((payload[2] as? NSPasteboardItem)?.string(forType: .string) == "hello")
+    }
+
+    /// Each kind still leaves encoded the way its own cell's drag encodes it —
+    /// a colour in the header's notation, and as a colour a well can take.
+    @Test func aSelectionDragKeepsEachKindsOwnEncoding() {
+        let red = NSColor(hexString: "#FF0000")!
+        let payload = NotchArchiveModel.dragPayload(for: [.color(ArchiveColor(color: red, hex: "#FF0000"))],
+                                                    colorScheme: .rgb, format: .png)
+        let item = try? #require(payload.first as? NSPasteboardItem)
+        #expect(item?.string(forType: .string) == red.rgbString)
+        #expect(item?.data(forType: .color) != nil)
+    }
+
+    @Test func nothingSelectedDragsNothing() {
+        #expect(NotchArchiveModel.dragPayload(for: [], colorScheme: .hex, format: .png).isEmpty)
+    }
+
     @Test func filesRideOutAsURLs() {
         let a = URL(fileURLWithPath: "/tmp/archive/a.png")
         let b = URL(fileURLWithPath: "/tmp/archive/b.pdf")

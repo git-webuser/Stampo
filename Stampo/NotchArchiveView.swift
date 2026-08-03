@@ -488,6 +488,7 @@ struct NotchArchiveView: View {
                                 shot: shot,
                                 loader: archiveModel.thumbnailLoader(for: shot),
                                 selection: selection,
+                                selectionDrag: selectionDrag,
                                 height: cellH,
                                 badgeBleed: badgeBleed,
                                 labelOffset: labelOffset,
@@ -510,6 +511,7 @@ struct NotchArchiveView: View {
                                 item: c,
                                 scheme: scheme,
                                 selection: selection,
+                                selectionDrag: selectionDrag,
                                 height: cellH,
                                 badgeBleed: badgeBleed,
                                 labelOffset: labelOffset,
@@ -524,6 +526,7 @@ struct NotchArchiveView: View {
                             ArchiveTextCell(
                                 item: t,
                                 selection: selection,
+                                selectionDrag: selectionDrag,
                                 height: cellH,
                                 badgeBleed: badgeBleed,
                                 labelOffset: labelOffset,
@@ -540,6 +543,7 @@ struct NotchArchiveView: View {
                                     stack: stack,
                                     archiveModel: archiveModel,
                                     selection: selection,
+                                    selectionDrag: selectionDrag,
                                     height: cellH,
                                     cornerRadius: metrics.buttonRadius,
                                     badgeBleed: badgeBleed,
@@ -562,6 +566,7 @@ struct NotchArchiveView: View {
                                     stack: stack,
                                     loaders: stack.urls.prefix(3).map { archiveModel.stackThumbnailLoader(for: $0) },
                                     selection: selection,
+                                    selectionDrag: selectionDrag,
                                     height: cellH,
                                     badgeBleed: badgeBleed,
                                     labelOffset: labelOffset,
@@ -760,6 +765,41 @@ struct NotchArchiveView: View {
                 }
             }
             selection.deselectAll()
+        }
+    }
+
+    // MARK: - Dragging the selection
+
+    /// Everything picked, encoded the way each cell's own drag encodes it.
+    /// Handed to every draggable cell, because a drag started anywhere in the
+    /// selection carries all of it.
+    private var selectionDrag: ArchiveSelectionDrag {
+        ArchiveSelectionDrag(payload: selectionDragPayload, images: selectionDragImages)
+    }
+
+    private func selectionDragPayload() -> [NSPasteboardWriting] {
+        NotchArchiveModel.dragPayload(for: selection.selectedItems(in: archiveModel.items),
+                                      colorScheme: scheme)
+    }
+
+    /// The pictures for that drag, one per payload item and in the same order —
+    /// `ArchiveDragShimView` pairs them by index, so this switch has to fan a
+    /// stack out exactly the way `dragPayload` does, one image per member.
+    private func selectionDragImages() -> [NSImage?] {
+        selection.selectedItems(in: archiveModel.items).flatMap { item -> [NSImage?] in
+            switch item {
+            case .color(let c):
+                return [archiveColorDragImage(c.color, side: cellH,
+                                              cornerRadius: metrics.buttonRadius)]
+            case .text(let t):
+                return [archiveTextDragImage(t.firstLine,
+                                             size: NSSize(width: cellH * 1.6, height: cellH),
+                                             cornerRadius: metrics.buttonRadius)]
+            case .screenshot(let s):
+                return [archiveModel.thumbnailLoader(for: s).image]
+            case .stack(let stack):
+                return stack.urls.map { archiveModel.stackThumbnailLoader(for: $0).image }
+            }
         }
     }
 
@@ -963,6 +1003,9 @@ private struct ArchiveColorCell: View {
     let item: ArchiveColor
     let scheme: ColorSchemeType
     var selection: ArchiveSelectionState
+    /// The whole selection, resolved when a drag starts. Built by the archive —
+    /// a cell knows what it holds, not what else is picked.
+    let selectionDrag: ArchiveSelectionDrag
     let height: CGFloat
     let badgeBleed: CGFloat
     let labelOffset: CGFloat
@@ -975,20 +1018,8 @@ private struct ArchiveColorCell: View {
     @State private var isDragging   = false
     @State private var shareAnchor  = SharePickerAnchor()
 
-    /// The drag image: the swatch itself, so what leaves the cell looks like
-    /// the cell. Drawn rather than snapshotted — a plain rounded square is
-    /// cheaper to render than to capture.
     private var dragPreview: NSImage {
-        let side = height
-        let image = NSImage(size: NSSize(width: side, height: side))
-        image.lockFocus()
-        let rect = NSRect(x: 0, y: 0, width: side, height: side)
-        NSBezierPath(roundedRect: rect, xRadius: cornerRadius, yRadius: cornerRadius)
-            .addClip()
-        item.color.setFill()
-        rect.fill()
-        image.unlockFocus()
-        return image
+        archiveColorDragImage(item.color, side: height, cornerRadius: cornerRadius)
     }
 
     private var selectionKey: ArchiveSelectionKey { .item(item.id) }
@@ -1043,9 +1074,19 @@ private struct ArchiveColorCell: View {
             // ArchiveDragPayload.
             .overlay {
                 ArchiveDragShim(
-                    payload: { ArchiveDragPayload.color(item.color,
-                                                        formatted: scheme.convert(item.color)) },
-                    dragImages: [dragPreview],
+                    payload: {
+                        archiveDragContents(isSelecting: selection.isActive,
+                                            isPicked: selection.contains(selectionKey),
+                                            fromSelection: selectionDrag.payload,
+                                            fromCell: { ArchiveDragPayload.color(item.color,
+                                                                                 formatted: scheme.convert(item.color)) })
+                    },
+                    dragImages: {
+                        archiveDragContents(isSelecting: selection.isActive,
+                                            isPicked: selection.contains(selectionKey),
+                                            fromSelection: selectionDrag.images,
+                                            fromCell: { [dragPreview] })
+                    },
                     cellSize: CGSize(width: height, height: height),
                     isPressed: $isPressed,
                     isDragging: $isDragging,
@@ -1125,6 +1166,9 @@ private struct ArchiveColorCell: View {
 private struct ArchiveTextCell: View {
     let item: ArchiveText
     var selection: ArchiveSelectionState
+    /// The whole selection, resolved when a drag starts. Built by the archive —
+    /// a cell knows what it holds, not what else is picked.
+    let selectionDrag: ArchiveSelectionDrag
     let height: CGFloat
     let badgeBleed: CGFloat
     let labelOffset: CGFloat
@@ -1140,26 +1184,10 @@ private struct ArchiveTextCell: View {
     private var width: CGFloat { height * 1.6 }
     private var selectionKey: ArchiveSelectionKey { .item(item.id) }
 
-    /// Drag image: the first line on the cell's own plate, so the thing under
-    /// the cursor still says which snippet is being carried.
     private var dragPreview: NSImage {
-        let size = NSSize(width: width, height: height)
-        let image = NSImage(size: size)
-        image.lockFocus()
-        let rect = NSRect(origin: .zero, size: size)
-        let plate = NSBezierPath(roundedRect: rect, xRadius: cornerRadius, yRadius: cornerRadius)
-        NSColor(calibratedWhite: 0.17, alpha: 1).setFill()
-        plate.fill()
-        NSColor(calibratedWhite: 1, alpha: 0.25).setStroke()
-        plate.stroke()
-        let attributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 6),
-            .foregroundColor: NSColor(calibratedWhite: 1, alpha: 0.75)
-        ]
-        NSAttributedString(string: item.firstLine, attributes: attributes)
-            .draw(in: rect.insetBy(dx: 4, dy: 4))
-        image.unlockFocus()
-        return image
+        archiveTextDragImage(item.firstLine,
+                             size: NSSize(width: width, height: height),
+                             cornerRadius: cornerRadius)
     }
 
     private func copyText() {
@@ -1225,8 +1253,18 @@ private struct ArchiveTextCell: View {
         // the drag out, so the snippet can be dropped straight into a document.
         .overlay {
             ArchiveDragShim(
-                payload: { ArchiveDragPayload.text(item.text) },
-                dragImages: [dragPreview],
+                payload: {
+                    archiveDragContents(isSelecting: selection.isActive,
+                                        isPicked: selection.contains(selectionKey),
+                                        fromSelection: selectionDrag.payload,
+                                        fromCell: { ArchiveDragPayload.text(item.text) })
+                },
+                dragImages: {
+                    archiveDragContents(isSelecting: selection.isActive,
+                                        isPicked: selection.contains(selectionKey),
+                                        fromSelection: selectionDrag.images,
+                                        fromCell: { [dragPreview] })
+                },
                 cellSize: CGSize(width: width, height: height),
                 isPressed: $isPressed,
                 isDragging: $isDragging,
@@ -1271,6 +1309,69 @@ private struct ArchiveTextCell: View {
     }
 }
 
+// MARK: - Drawn drag previews
+
+/// The picture a dragged colour travels as: the swatch itself, so what leaves
+/// the cell looks like the cell. Drawn rather than snapshotted — a plain rounded
+/// square is cheaper to render than to capture.
+///
+/// A free function because a multi-selection drag needs it too, and a colour
+/// should look the same leaving on its own as it does in a pile.
+private func archiveColorDragImage(_ color: NSColor, side: CGFloat, cornerRadius: CGFloat) -> NSImage {
+    let image = NSImage(size: NSSize(width: side, height: side))
+    image.lockFocus()
+    let rect = NSRect(x: 0, y: 0, width: side, height: side)
+    NSBezierPath(roundedRect: rect, xRadius: cornerRadius, yRadius: cornerRadius).addClip()
+    color.setFill()
+    rect.fill()
+    image.unlockFocus()
+    return image
+}
+
+/// The same for a snippet: its first line on the cell's own plate, so the thing
+/// under the cursor still says which snippet is being carried.
+private func archiveTextDragImage(_ firstLine: String, size: NSSize, cornerRadius: CGFloat) -> NSImage {
+    let image = NSImage(size: size)
+    image.lockFocus()
+    let rect = NSRect(origin: .zero, size: size)
+    let plate = NSBezierPath(roundedRect: rect, xRadius: cornerRadius, yRadius: cornerRadius)
+    NSColor(calibratedWhite: 0.17, alpha: 1).setFill()
+    plate.fill()
+    NSColor(calibratedWhite: 1, alpha: 0.25).setStroke()
+    plate.stroke()
+    let attributes: [NSAttributedString.Key: Any] = [
+        .font: NSFont.systemFont(ofSize: 6),
+        .foregroundColor: NSColor(calibratedWhite: 1, alpha: 0.75)
+    ]
+    NSAttributedString(string: firstLine, attributes: attributes)
+        .draw(in: rect.insetBy(dx: 4, dy: 4))
+    image.unlockFocus()
+    return image
+}
+
+/// The two halves of a multi-selection drag, handed to every draggable cell.
+/// Closures, not values: they resolve when the drag starts — see the note on
+/// `ArchiveDragShim.payload`.
+struct ArchiveSelectionDrag {
+    let payload: () -> [NSPasteboardWriting]
+    let images: () -> [NSImage?]
+}
+
+/// What a cell's drag actually carries.
+///
+/// Outside selection mode, whatever the cell holds. Inside it, the whole
+/// selection — but only from a cell that is part of it: an unpicked cell yields
+/// nothing, and nothing is what stops `ArchiveDragShimView` from ever opening a
+/// session, so a slipped drag leaves the selection exactly as it was rather
+/// than replacing it with the one cell the pointer happened to be on.
+private func archiveDragContents<T>(isSelecting: Bool,
+                                    isPicked: Bool,
+                                    fromSelection: () -> [T],
+                                    fromCell: () -> [T]) -> [T] {
+    guard isSelecting else { return fromCell() }
+    return isPicked ? fromSelection() : []
+}
+
 /// Finder-style copy: puts the given files on the general pasteboard so a paste
 /// in Finder (or any file-aware app) reproduces them.
 private func copyFilesToPasteboard(_ urls: [URL]) {
@@ -1295,6 +1396,9 @@ private struct ArchiveFileCell<Menu: View>: View {
     var selection: ArchiveSelectionState
     /// This cell's leaf in the selection — a capture's id, a stack member's URL.
     let selectionKey: ArchiveSelectionKey
+    /// The whole selection, resolved when a drag starts. Built by the archive —
+    /// a cell knows what it holds, not what else is picked.
+    let selectionDrag: ArchiveSelectionDrag
     let displayName: String
     let height: CGFloat
     let badgeBleed: CGFloat
@@ -1375,8 +1479,18 @@ private struct ArchiveFileCell<Menu: View>: View {
         .animation(.spring(response: 0.15, dampingFraction: 0.7), value: isPressed)
         .overlay {
             ArchiveDragShim(
-                payload: dragPayload,
-                dragImages: [preview],
+                payload: {
+                    archiveDragContents(isSelecting: selection.isActive,
+                                        isPicked: selection.contains(selectionKey),
+                                        fromSelection: selectionDrag.payload,
+                                        fromCell: dragPayload)
+                },
+                dragImages: {
+                    archiveDragContents(isSelecting: selection.isActive,
+                                        isPicked: selection.contains(selectionKey),
+                                        fromSelection: selectionDrag.images,
+                                        fromCell: { [preview] })
+                },
                 cellSize: CGSize(width: width, height: height),
                 isPressed: $isPressed,
                 isDragging: $isDragging,
@@ -1423,6 +1537,9 @@ private struct ArchiveScreenshotCell: View {
     let shot: ArchiveScreenshot
     let loader: ThumbnailLoader
     var selection: ArchiveSelectionState
+    /// The whole selection, resolved when a drag starts. Built by the archive —
+    /// a cell knows what it holds, not what else is picked.
+    let selectionDrag: ArchiveSelectionDrag
     let height: CGFloat
     let badgeBleed: CGFloat
     let labelOffset: CGFloat
@@ -1451,6 +1568,7 @@ private struct ArchiveScreenshotCell: View {
             preview: loader.image,
             selection: selection,
             selectionKey: .item(shot.id),
+            selectionDrag: selectionDrag,
             displayName: displayName,
             height: height,
             badgeBleed: badgeBleed,
@@ -1513,6 +1631,9 @@ private struct ArchiveStackCell: View {
     let stack: ArchiveStack
     let loaders: [ThumbnailLoader]
     var selection: ArchiveSelectionState
+    /// The whole selection, resolved when a drag starts. Built by the archive —
+    /// a cell knows what it holds, not what else is picked.
+    let selectionDrag: ArchiveSelectionDrag
     let height: CGFloat
     let badgeBleed: CGFloat
     let labelOffset: CGFloat
@@ -1530,6 +1651,9 @@ private struct ArchiveStackCell: View {
 
     private var width: CGFloat { height * 1.6 }
     private var fanCount: Int { min(stack.urls.count, 3) }
+    /// A stack is part of the selection as soon as any member is — mixed is
+    /// still visibly picked, so a drag may start here.
+    private var isPicked: Bool { selection.checkState(forMembers: stack.urls) != .empty }
     /// Source folder name for the label, or nil for the filesystem root
     /// ("/".lastPathComponent is "/", which reads as noise) so the label and
     /// VoiceOver fall back to the file count.
@@ -1632,8 +1756,18 @@ private struct ArchiveStackCell: View {
         .animation(.spring(response: 0.15, dampingFraction: 0.7), value: isPressed)
         .overlay {
             ArchiveDragShim(
-                payload: { ArchiveDragPayload.files(stack.urls) },
-                dragImages: (0..<fanCount).map { previewImage(at: $0) },
+                payload: {
+                    archiveDragContents(isSelecting: selection.isActive,
+                                        isPicked: isPicked,
+                                        fromSelection: selectionDrag.payload,
+                                        fromCell: { ArchiveDragPayload.files(stack.urls) })
+                },
+                dragImages: {
+                    archiveDragContents(isSelecting: selection.isActive,
+                                        isPicked: isPicked,
+                                        fromSelection: selectionDrag.images,
+                                        fromCell: { (0..<fanCount).map { previewImage(at: $0) } })
+                },
                 cellSize: CGSize(width: width, height: height),
                 isPressed: $isPressed,
                 isDragging: $isDragging,
@@ -1643,7 +1777,14 @@ private struct ArchiveStackCell: View {
                 // behind it are exactly what the user came to pick from — the
                 // checkbox is how the stack itself is chosen.
                 onTap: { onExpand() },
-                onDragCompleted: { _ in onDragOutCompleted() }
+                // A stack that lands somewhere else leaves the archive: a
+                // dropped pile is transit, not stored history. Not in the mode,
+                // though — there the drag carried a selection that can reach
+                // well past this stack, and removing the one cell it happened
+                // to start from is not what "it landed" means any more.
+                onDragCompleted: { _ in
+                    if !selection.isActive { onDragOutCompleted() }
+                }
             )
         }
         // Badge after the shim, mirroring ArchiveScreenshotCell's z-order note.
@@ -1695,6 +1836,9 @@ private struct ExpandedStackGroup: View {
     let stack: ArchiveStack
     var archiveModel: NotchArchiveModel
     var selection: ArchiveSelectionState
+    /// The whole selection, resolved when a drag starts. Built by the archive —
+    /// a cell knows what it holds, not what else is picked.
+    let selectionDrag: ArchiveSelectionDrag
     let height: CGFloat
     let cornerRadius: CGFloat
     let badgeBleed: CGFloat
@@ -1739,6 +1883,7 @@ private struct ExpandedStackGroup: View {
                     url: url,
                     loader: archiveModel.stackThumbnailLoader(for: url),
                     selection: selection,
+                    selectionDrag: selectionDrag,
                     height: height,
                     badgeBleed: badgeBleed,
                     labelOffset: labelOffset,
@@ -1837,6 +1982,9 @@ private struct StackMemberCell: View {
     let url: URL
     let loader: ThumbnailLoader
     var selection: ArchiveSelectionState
+    /// The whole selection, resolved when a drag starts. Built by the archive —
+    /// a cell knows what it holds, not what else is picked.
+    let selectionDrag: ArchiveSelectionDrag
     let height: CGFloat
     let badgeBleed: CGFloat
     let labelOffset: CGFloat
@@ -1871,6 +2019,7 @@ private struct StackMemberCell: View {
             preview: previewImage,
             selection: selection,
             selectionKey: .file(url),
+            selectionDrag: selectionDrag,
             displayName: displayName,
             height: height,
             badgeBleed: badgeBleed,
@@ -2225,7 +2374,10 @@ private struct ArchiveDragShim: NSViewRepresentable {
     /// format disagrees with the setting is re-encoded in here, and doing that
     /// on every SwiftUI update would be absurd.
     let payload: () -> [NSPasteboardWriting]
-    let dragImages: [NSImage?]
+    /// A closure for the same reason `payload` is, and now for one more: in
+    /// selection mode the pictures belong to everything that is picked, which
+    /// the cell the drag started from has no way of knowing until it starts.
+    let dragImages: () -> [NSImage?]
     let cellSize: CGSize
     @Binding var isPressed: Bool
     @Binding var isDragging: Bool
@@ -2242,7 +2394,7 @@ private struct ArchiveDragShim: NSViewRepresentable {
 
     func updateNSView(_ nsView: ArchiveDragShimView, context: Context) {
         nsView.makePayload = payload
-        nsView.dragImages = dragImages
+        nsView.makeDragImages = dragImages
         nsView.cellSize = cellSize
         nsView.onHoverChange = onHoverChange
         // Refreshed like the rest, not captured once at creation: the NSView
@@ -2261,7 +2413,7 @@ final class ArchiveDragShimView: NSView, NSDraggingSource {
     /// What the running session is carrying, kept so the operation mask can be
     /// decided from the same items the drag actually began with.
     private var payload: [NSPasteboardWriting] = []
-    var dragImages: [NSImage?] = []
+    var makeDragImages: () -> [NSImage?] = { [] }
     var cellSize: CGSize = .zero
     var onDragCompleted: ((NSDragOperation) -> Void)?
 
@@ -2383,6 +2535,7 @@ final class ArchiveDragShimView: NSView, NSDraggingSource {
             self.isDragging = true
         }
         let previewSize = NSSize(width: cellSize.width * 0.75, height: cellSize.height * 0.75)
+        let dragImages = makeDragImages()
         let items = payload.enumerated().map { idx, writer -> NSDraggingItem in
             let item = NSDraggingItem(pasteboardWriter: writer)
             // Shallow cascade: the first few items carry previews, the rest

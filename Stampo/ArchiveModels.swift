@@ -378,6 +378,29 @@ private struct PersistedArchiveItem: Codable {
         }
     }
 
+    /// The same entries flattened for a *drag* instead of for the pasteboard
+    /// and the share sheet.
+    ///
+    /// Identical fan-out — one item per colour, snippet and capture, one per
+    /// member of a stack — but each kind is encoded the way its own cell's drag
+    /// already encodes it: a capture in the format the user picked rather than
+    /// the one on disk, a colour as a swatch *and* as text so a colour well and
+    /// a text editor both accept the drop. None of which the share sheet wants,
+    /// which is why this is a second function and not a flag on `payload`.
+    static func dragPayload(for items: [ArchiveItem],
+                            colorScheme: ColorSchemeType,
+                            format: EditorExportFormat = .fromSettings()) -> [NSPasteboardWriting] {
+        items.flatMap { item -> [NSPasteboardWriting] in
+            switch item {
+            case .color(let c):
+                return ArchiveDragPayload.color(c.color, formatted: colorScheme.convert(c.color))
+            case .text(let t):       return ArchiveDragPayload.text(t.text)
+            case .screenshot(let s): return ArchiveDragPayload.capture(s.url, as: format)
+            case .stack(let stack):  return ArchiveDragPayload.files(stack.urls)
+            }
+        }
+    }
+
     private func trim() {
         let limit = AppSettings.trayMaxItems
         guard items.count > limit else { return }
