@@ -965,23 +965,6 @@
         }
       }
     },
-    "Click the preview thumbnail to edit or open the screenshot" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Click the preview thumbnail to edit or open the screenshot"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Клик по миниатюре редактирует или открывает скриншот"
-          }
-        }
-      }
-    },
     "Close" : {
       "comment" : "Tooltip for the close button on screenshot thumbnail HUD",
       "localizations" : {
@@ -3885,18 +3868,18 @@
         }
       }
     },
-    "Restores the defaults for all three groups above; the element controls below are unaffected" : {
+    "Restores every shortcut to its default" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Restores the defaults for all three groups above; the element controls below are unaffected"
+            "value" : "Restores every shortcut to its default"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Возвращает сочетания по умолчанию во всех трёх группах выше; управление элементами ниже не затрагивается"
+            "value" : "Восстанавливает все сочетания клавиш до исходных"
           }
         }
       }
@@ -4971,23 +4954,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Размер текста"
-          }
-        }
-      }
-    },
-    "The arrow-key steps also work in the editor; these shortcuts can't be changed" : {
-      "comment" : "Footer of the fixed element-control shortcuts section",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The arrow-key steps also work in the editor; these shortcuts can't be changed"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Шаги стрелками работают и в редакторе, сочетания не настраиваются"
           }
         }
       }

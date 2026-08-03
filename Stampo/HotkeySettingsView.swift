@@ -36,7 +36,10 @@ struct HotkeySettingsView: View {
                 SettingRow(
                     icon: "arrow.uturn.backward",
                     title: "Reset shortcuts",
-                    description: "Restores the defaults for all three groups above; the element controls below are unaffected"
+                    // "Every shortcut" without spelling out which: the ones
+                    // above are the editable ones, which is the whole reason
+                    // the element controls sit apart from them.
+                    description: "Restores every shortcut to its default"
                 ) {
                     Button("Reset") { restoreDefaults() }
                         .buttonStyle(.bordered)
@@ -44,7 +47,7 @@ struct HotkeySettingsView: View {
             }
 
             // MARK: Color picker (fixed, toggleable)
-            Section {
+            Section("Element Controls") {
                 FixedHotkeyRow(icon: "arrow.2.squarepath",
                                action: "Cycle Color Format in the Color Picker",
                                caps: ["F"],
@@ -52,10 +55,6 @@ struct HotkeySettingsView: View {
                 ArrowStepRow(icon: "1.circle",  title: "Move 1 pt",  modifiers: [],         isEnabled: $move1Enabled)
                 ArrowStepRow(icon: "10.circle", title: "Move 10 pt", modifiers: ["⇧"],      isEnabled: $move10Enabled)
                 ArrowStepRow(icon: "50.circle", title: "Move 50 pt", modifiers: ["⇧", "⌥"], isEnabled: $move50Enabled)
-            } header: {
-                Text("Element Controls")
-            } footer: {
-                Text("The arrow-key steps also work in the editor; these shortcuts can't be changed")
             }
         }
         .formStyle(.grouped)

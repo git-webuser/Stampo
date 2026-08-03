@@ -175,11 +175,7 @@ struct GeneralSettingsView: View {
                     .disabled(!showThumbnailHUD)
                 }
 
-                SettingRow(
-                    icon: "cursorarrow.click",
-                    title: "On thumbnail click",
-                    description: "Click the preview thumbnail to edit or open the screenshot"
-                ) {
+                SettingRow(icon: "cursorarrow.click", title: "On thumbnail click") {
                     Picker("", selection: $thumbnailClickAction) {
                         Text("Open editor").tag(ThumbnailClickAction.editor)
                         Text("Open preview").tag(ThumbnailClickAction.preview)
