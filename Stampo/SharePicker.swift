@@ -37,6 +37,15 @@ extension Notification.Name {
     /// is not `Sendable`, and captured into a `@Sendable` closure it warns, with
     /// reason — the cancel and the schedule would be on different threads.
     private var preparationHint: DispatchWorkItem?
+    /// True between the `didOpen` this posted and the `didClose` answering it.
+    ///
+    /// The bracket has to balance however the session is entered and left, and
+    /// both ends can happen more than once: `present` can be called again while
+    /// the first folder is still zipping, and `finish` is reached twice when the
+    /// silence timeout gives up on a service that then reports late. Two opens
+    /// and one close leave the panel pinned; one open and two closes let it
+    /// slide away under a sheet that is still up.
+    private var isSessionOpen = false
     /// Toast for a folder that couldn't be zipped (unreadable, or a location
     /// the app has no permission for).
     ///
@@ -49,12 +58,16 @@ extension Notification.Name {
 
     func present(_ items: [Any]) {
         guard view != nil, !items.isEmpty else { return }
+        // A second Share while the first is still zipping supersedes it, and
+        // the toast scheduled for that first one is now waiting to announce a
+        // wait nobody is having. This call schedules its own if it needs one.
+        cancelPreparationHint()
         // Every call site funnels through the same boxing, so a Swift URL and
         // an NSURL reach the service identically.
         let boxed = items.map { item -> Any in (item as? URL).map { $0 as NSURL } ?? item }
         // Hold the panel open across preparation too — zipping a big folder can
         // take a moment, and the panel must still be there to anchor the sheet.
-        NotificationCenter.default.post(name: .sharePickerDidOpen, object: nil)
+        openSession()
 
         guard boxed.contains(where: { ShareItemPreparer.isDirectory($0) }) else {
             show(boxed)  // plain files and strings: no preparation, no delay
@@ -116,12 +129,20 @@ extension Notification.Name {
         preparationHint = nil
     }
 
+    private func openSession() {
+        guard !isSessionOpen else { return }
+        isSessionOpen = true
+        NotificationCenter.default.post(name: .sharePickerDidOpen, object: nil)
+    }
+
     fileprivate func finish() {
         cancelPreparationHint()
         silenceTimeout?.cancel()
         silenceTimeout = nil
         picker = nil
         service = nil
+        guard isSessionOpen else { return }
+        isSessionOpen = false
         NotificationCenter.default.post(name: .sharePickerDidClose, object: nil)
     }
 
