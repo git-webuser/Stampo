@@ -1119,11 +1119,12 @@ private struct ArchiveColorCell: View {
                     // In the mode a tap picks the swatch instead of copying it:
                     // a mis-click that quietly replaced the clipboard while the
                     // user was assembling a selection would be its own bug.
-                    onTap: {
-                        if selection.isActive {
-                            selection.toggle(selectionKey)
-                        } else {
-                            copy(scheme.convert(item.color))
+                    onTap: { modifiers in
+                        switch archiveTapIntent(kind: .leaf,
+                                                isSelecting: selection.isActive,
+                                                isCommandHeld: modifiers.contains(.command)) {
+                        case .pick:     selection.pick(selectionKey)
+                        case .activate: copy(scheme.convert(item.color))
                         }
                     }
                 )
@@ -1171,7 +1172,7 @@ private struct ArchiveColorCell: View {
                 }
                 if !selection.isActive {
                     MenuCommandButton("Select Items", icon: .select) {
-                        selection.begin(selecting: selectionKey)
+                        selection.pick(selectionKey)
                     }
                 }
                 Divider()
@@ -1294,11 +1295,12 @@ private struct ArchiveTextCell: View {
                 isPressed: $isPressed,
                 isDragging: $isDragging,
                 onHoverChange: { isHovered = $0 },
-                onTap: {
-                    if selection.isActive {
-                        selection.toggle(selectionKey)
-                    } else {
-                        copyText()
+                onTap: { modifiers in
+                    switch archiveTapIntent(kind: .leaf,
+                                            isSelecting: selection.isActive,
+                                            isCommandHeld: modifiers.contains(.command)) {
+                    case .pick:     selection.pick(selectionKey)
+                    case .activate: copyText()
                     }
                 }
             )
@@ -1321,7 +1323,7 @@ private struct ArchiveTextCell: View {
             MenuCommandButton("Share", icon: .share) { shareAnchor.present([item.text]) }
             if !selection.isActive {
                 MenuCommandButton("Select Items", icon: .select) {
-                    selection.begin(selecting: selectionKey)
+                    selection.pick(selectionKey)
                 }
             }
             Divider()
@@ -1525,11 +1527,12 @@ private struct ArchiveFileCell<Menu: View>: View {
                 // Preview *and* hides the panel, so a mis-click while picking
                 // would launch another app and take the half-built selection
                 // down with it.
-                onTap: {
-                    if selection.isActive {
-                        selection.toggle(selectionKey)
-                    } else {
-                        onTap()
+                onTap: { modifiers in
+                    switch archiveTapIntent(kind: .leaf,
+                                            isSelecting: selection.isActive,
+                                            isCommandHeld: modifiers.contains(.command)) {
+                    case .pick:     selection.pick(selectionKey)
+                    case .activate: onTap()
                     }
                 }
             )
@@ -1632,7 +1635,7 @@ private struct ArchiveScreenshotCell: View {
                 MenuCommandButton("Share", icon: .share) { shareAnchor.present([shot.url]) }
                 if !selection.isActive {
                     MenuCommandButton("Select Items", icon: .select) {
-                        selection.begin(selecting: .item(shot.id))
+                        selection.pick(.item(shot.id))
                     }
                 }
                 Divider()
@@ -1801,7 +1804,14 @@ private struct ArchiveStackCell: View {
                 // mis-click here only opens an accordion, and the members
                 // behind it are exactly what the user came to pick from — the
                 // checkbox is how the stack itself is chosen.
-                onTap: { onExpand() },
+                onTap: { modifiers in
+                    switch archiveTapIntent(kind: .stack,
+                                            isSelecting: selection.isActive,
+                                            isCommandHeld: modifiers.contains(.command)) {
+                    case .pick:     selection.pickMembers(stack.urls)
+                    case .activate: onExpand()
+                    }
+                },
                 // A stack that lands somewhere else leaves the archive: a
                 // dropped pile is transit, not stored history. Not in the mode,
                 // though — there the drag carried a selection that can reach
@@ -1836,7 +1846,7 @@ private struct ArchiveStackCell: View {
                 // A stack is picked through its members, so "Select" here means
                 // all of them — the same thing its checkbox does.
                 MenuCommandButton("Select Items", icon: .select) {
-                    selection.begin(selectingMembers: stack.urls)
+                    selection.pickMembers(stack.urls)
                 }
             }
             Divider()
@@ -1974,7 +1984,7 @@ private struct ExpandedStackGroup: View {
             MenuCommandButton("Collapse", icon: .collapse) { onCollapse() }
             if !selection.isActive {
                 MenuCommandButton("Select Items", icon: .select) {
-                    selection.begin(selectingMembers: stack.urls)
+                    selection.pickMembers(stack.urls)
                 }
             }
             Divider()
@@ -2085,7 +2095,7 @@ private struct StackMemberCell: View {
                 MenuCommandButton("Share", icon: .share) { shareAnchor.present([url]) }
                 if !selection.isActive {
                     MenuCommandButton("Select Items", icon: .select) {
-                        selection.begin(selecting: .file(url))
+                        selection.pick(.file(url))
                     }
                 }
                 Divider()
@@ -2407,7 +2417,8 @@ private struct ArchiveDragShim: NSViewRepresentable {
     @Binding var isPressed: Bool
     @Binding var isDragging: Bool
     let onHoverChange: (Bool) -> Void
-    let onTap: () -> Void
+    /// Handed the click's modifiers: ⌘ turns any cell's click into a pick.
+    let onTap: (NSEvent.ModifierFlags) -> Void
     /// Fired when a drag session ends outside this window with a non-empty
     /// operation (i.e. the payload actually landed somewhere external).
     var onDragCompleted: ((NSDragOperation) -> Void)? = nil
@@ -2451,12 +2462,18 @@ final class ArchiveDragShimView: NSView, NSDraggingSource {
     var localIsInHoverZone: Bool = false
     var onHoverChange: (Bool) -> Void
     /// Reassigned on every `updateNSView` — see the note there.
-    var onTap: () -> Void
+    var onTap: (NSEvent.ModifierFlags) -> Void
 
     private var mouseDownPoint: NSPoint?
+    /// Modifiers as they were when the button went down, not when it came up.
+    /// Selection gestures are decided at press time everywhere on the Mac, and
+    /// letting go of ⌘ before the button — which is what a hand actually does —
+    /// must not turn the pick back into a plain click.
+    private var mouseDownModifiers: NSEvent.ModifierFlags = []
 
     init(isPressed: Binding<Bool>, isDragging: Binding<Bool>,
-         onHoverChange: @escaping (Bool) -> Void, onTap: @escaping () -> Void) {
+         onHoverChange: @escaping (Bool) -> Void,
+         onTap: @escaping (NSEvent.ModifierFlags) -> Void) {
         self._isPressed = isPressed
         self._isDragging = isDragging
         self.onHoverChange = onHoverChange
@@ -2534,6 +2551,7 @@ final class ArchiveDragShimView: NSView, NSDraggingSource {
     /// silently did nothing.
     override func mouseDown(with event: NSEvent) {
         mouseDownPoint = convert(event.locationInWindow, from: nil)
+        mouseDownModifiers = event.modifierFlags
         DispatchQueue.main.async { self.isPressed = true }
     }
 
@@ -2548,7 +2566,9 @@ final class ArchiveDragShimView: NSView, NSDraggingSource {
             let current = convert(event.locationInWindow, from: nil)
             // NSEvent.startDragDistance is not exposed to Swift; 4 pt matches
             // the AppKit internal threshold used by NSWindow drag detection.
-            if hypot(current.x - start.x, current.y - start.y) < 4 { onTap() }
+            if hypot(current.x - start.x, current.y - start.y) < 4 {
+                onTap(mouseDownModifiers)
+            }
         }
     }
 

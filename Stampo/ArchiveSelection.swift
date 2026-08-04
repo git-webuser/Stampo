@@ -51,6 +51,44 @@ func archiveUnwindStep(hasExpandedStack: Bool, isSelecting: Bool) -> ArchiveUnwi
     return .leaveArchive
 }
 
+// MARK: - What a click means
+
+/// The two things a cell can be clicked for.
+enum ArchiveTapIntent: Equatable {
+    /// The cell's own action. It is a different one on every kind of cell —
+    /// copy the colour, copy the snippet, open the capture, expand the stack.
+    case activate
+    /// Add the cell to the selection or take it out, turning the mode on first
+    /// if it is off.
+    case pick
+}
+
+/// Whether a cell is picked by a plain click while selecting.
+enum ArchiveCellKind {
+    /// A colour, a snippet, a capture, one member of a stack.
+    case leaf
+    /// A collapsed stack, whose click keeps opening its accordion.
+    case stack
+}
+
+/// The whole click model in one place, because left click already means four
+/// different things across these cells and a fifth rule spread over four call
+/// sites would be a rule nobody could read.
+///
+/// ⌘ picks, always — the Mac gesture for adding to a selection, and the way
+/// into the mode without going through a menu. Once the mode is on a plain
+/// click picks too, except on a stack: its click opens the accordion, which is
+/// where its members are, and a mis-click there costs nothing. Leaves give
+/// their click up because theirs costs something — a capture would open in
+/// Preview and take the panel down with it.
+func archiveTapIntent(kind: ArchiveCellKind,
+                      isSelecting: Bool,
+                      isCommandHeld: Bool) -> ArchiveTapIntent {
+    if isCommandHeld { return .pick }
+    if isSelecting, kind == .leaf { return .pick }
+    return .activate
+}
+
 // MARK: - Selection state
 
 /// The archive's multi-select mode, held outside the view for the same reason
@@ -67,21 +105,22 @@ func archiveUnwindStep(hasExpandedStack: Bool, isSelecting: Bool) -> ArchiveUnwi
 
     private(set) var keys: Set<ArchiveSelectionKey> = []
 
-    // MARK: Entering
+    // MARK: Picking
 
-    /// Turning the mode on from a cell's own context menu. The cell that was
-    /// right-clicked comes in selected: it is the one the user pointed at, and
-    /// entering with an empty row would make them click it again to say so.
-    /// (The "⋯" menu's way in has nothing to point at, and just sets `isActive`.)
-    func begin(selecting key: ArchiveSelectionKey) {
+    /// Picking a cell, from its context menu or from a ⌘-click. Turns the mode
+    /// on first, so the same call works whether it is already running or this is
+    /// the way in — and a fresh mode has nothing in it, so the toggle can only
+    /// add. (The "⋯" menu's way in has no cell to point at and just sets
+    /// `isActive`.)
+    func pick(_ key: ArchiveSelectionKey) {
         isActive = true
-        keys.insert(key)
+        toggle(key)
     }
 
-    /// The same, from a stack's menu — a stack is chosen through its members.
-    func begin(selectingMembers urls: [URL]) {
+    /// The same for a stack, which is picked through its members.
+    func pickMembers(_ urls: [URL]) {
         isActive = true
-        setMembers(urls, selected: true)
+        toggleMembers(urls)
     }
 
     // MARK: Leaves

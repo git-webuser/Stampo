@@ -241,33 +241,84 @@ import Testing
         #expect(!state.allowsDrag(fromMembers: [b, c]))
     }
 
-    // MARK: Entering from a cell
+    // MARK: Picking a cell
 
-    /// A cell's own "Select" both turns the mode on and picks the cell — the
-    /// user already pointed at it by right-clicking.
-    @Test func aCellsMenuEntersTheModeWithThatCellPicked() {
+    /// A ⌘-click, or a cell's own "Select", both turns the mode on and picks
+    /// the cell — the user already pointed at it.
+    @Test func pickingACellEntersTheModeWithThatCellPicked() {
         let capture = ArchiveScreenshot(url: shot)
         let state = ArchiveSelectionState()
-        state.begin(selecting: .item(capture.id))
+        state.pick(.item(capture.id))
         #expect(state.isActive)
         #expect(state.contains(.item(capture.id)))
     }
 
-    @Test func aStacksMenuEntersTheModeWithEveryMemberPicked() {
+    @Test func pickingAStackEntersTheModeWithEveryMemberPicked() {
         let state = ArchiveSelectionState()
-        state.begin(selectingMembers: [a, b, c])
+        state.pickMembers([a, b, c])
         #expect(state.isActive)
         #expect(state.checkState(forMembers: [a, b, c]) == .full)
     }
 
-    /// Entering from a second cell adds to what is picked instead of replacing
-    /// it — the mode is already on, and the menu is just another way to check a
-    /// box.
-    @Test func enteringAgainAddsRatherThanReplaces() {
+    @Test func pickingASecondCellAddsRatherThanReplaces() {
         let state = ArchiveSelectionState()
-        state.begin(selecting: .file(a))
-        state.begin(selecting: .file(b))
+        state.pick(.file(a))
+        state.pick(.file(b))
         #expect(state.keys == [.file(a), .file(b)])
+    }
+
+    /// The way in and the way back out are the same gesture: ⌘-clicking a cell
+    /// that is already picked lets go of it. Entering can only ever add, since
+    /// a fresh mode holds nothing.
+    @Test func pickingAPickedCellLetsGoOfIt() {
+        let state = ArchiveSelectionState()
+        state.pick(.file(a))
+        state.pick(.file(a))
+        #expect(state.isActive)
+        #expect(state.keys.isEmpty)
+    }
+
+    @Test func pickingAFullStackLetsGoOfEveryMember() {
+        let state = ArchiveSelectionState()
+        state.pickMembers([a, b])
+        state.pickMembers([a, b])
+        #expect(state.checkState(forMembers: [a, b]) == .empty)
+    }
+
+    // MARK: What a click means
+
+    /// Outside the mode a click does what the cell has always done.
+    @Test func aPlainClickActivatesWhileNotSelecting() {
+        #expect(archiveTapIntent(kind: .leaf, isSelecting: false, isCommandHeld: false)
+                == .activate)
+        #expect(archiveTapIntent(kind: .stack, isSelecting: false, isCommandHeld: false)
+                == .activate)
+    }
+
+    /// ⌘ picks from anywhere, which is what makes it the way into the mode
+    /// without a menu.
+    @Test func commandPicksFromEitherKindAndEitherMode() {
+        for kind in [ArchiveCellKind.leaf, .stack] {
+            for selecting in [true, false] {
+                #expect(archiveTapIntent(kind: kind,
+                                         isSelecting: selecting,
+                                         isCommandHeld: true) == .pick)
+            }
+        }
+    }
+
+    /// In the mode a leaf gives its click up, because a capture's click opens
+    /// Preview and hides the panel.
+    @Test func aLeafPicksOnAPlainClickWhileSelecting() {
+        #expect(archiveTapIntent(kind: .leaf, isSelecting: true, isCommandHeld: false)
+                == .pick)
+    }
+
+    /// A stack keeps its click even while selecting: it opens the accordion the
+    /// members are in, and a mis-click there costs nothing.
+    @Test func aStackKeepsItsClickWhileSelecting() {
+        #expect(archiveTapIntent(kind: .stack, isSelecting: true, isCommandHeld: false)
+                == .activate)
     }
 
     // MARK: Leaving the mode
