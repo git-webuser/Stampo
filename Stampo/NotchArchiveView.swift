@@ -728,7 +728,7 @@ struct NotchArchiveView: View {
             // keeps the destructive row last, where a slipped click is least
             // likely to find it.
             PanelMenuCommand(titleKey: "Select All",
-                             isEnabled: !selection.isEverythingSelected(in: archiveModel.items)) {
+                             isEnabled: selection.canSelectAll(in: archiveModel.items)) {
                 withAnimation(.easeInOut(duration: 0.18)) {
                     selection.selectAll(in: archiveModel.items)
                 }

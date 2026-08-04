@@ -187,9 +187,26 @@ import Testing
     }
 
     /// An empty archive has nothing to pick, which is not the same as having
-    /// picked everything — "Select All" must not read as already done.
+    /// picked everything.
     @Test func anEmptyArchiveIsNotEverythingSelected() {
         #expect(!ArchiveSelectionState().isEverythingSelected(in: []))
+    }
+
+    /// …and that difference is exactly why the menu asks `canSelectAll` instead
+    /// of negating the line above: on an empty archive the negation says yes,
+    /// and the row would be live with nothing to add.
+    @Test func thereIsNothingToSelectInAnEmptyArchive() {
+        #expect(!ArchiveSelectionState().canSelectAll(in: []))
+    }
+
+    @Test func selectAllIsOfferedWhileSomethingIsUnpicked() {
+        let items: [ArchiveItem] = [.stack(ArchiveStack(urls: [a, b]))]
+        let state = ArchiveSelectionState()
+        #expect(state.canSelectAll(in: items))
+        state.setMembers([a], selected: true)
+        #expect(state.canSelectAll(in: items))
+        state.setMembers([b], selected: true)
+        #expect(!state.canSelectAll(in: items))
     }
 
     // MARK: Which cells a drag may start from

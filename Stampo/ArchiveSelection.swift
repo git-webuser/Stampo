@@ -135,8 +135,16 @@ func archiveUnwindStep(hasExpandedStack: Bool, isSelecting: Bool) -> ArchiveUnwi
         }
     }
 
-    /// Whether there is anything left for "Select All" to add. An empty archive
-    /// has nothing to select, which is not the same as everything being picked.
+    /// Whether "Select All" has anything left to add — the question the menu
+    /// actually asks. Spelled out here rather than negated at the call site:
+    /// an empty archive is neither everything-picked nor anything to pick, and
+    /// `!isEverythingSelected` answers that with a live row that does nothing.
+    func canSelectAll(in items: [ArchiveItem]) -> Bool {
+        !items.isEmpty && !isEverythingSelected(in: items)
+    }
+
+    /// Whether every entry is picked. An empty archive is not: it has nothing
+    /// to pick, which is a different thing — see `canSelectAll`.
     func isEverythingSelected(in items: [ArchiveItem]) -> Bool {
         guard !items.isEmpty else { return false }
         return items.allSatisfy { item in
