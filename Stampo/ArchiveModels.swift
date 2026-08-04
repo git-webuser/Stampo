@@ -352,19 +352,9 @@ private struct PersistedArchiveItem: Codable {
         schedulePersist()
     }
 
-    /// Empties the archive in one go (the "Clear Archive" command). Only archive
-    /// membership is dropped — screenshots and dropped files stay on disk, same
-    /// as the per-cell "Remove from archive".
-    func removeAll() {
-        for item in items { releaseResources(for: item) }
-        items.removeAll()
-        schedulePersist()
-    }
-
-    /// Everything in the archive, in display order, flattened for the pasteboard
+    /// The given entries, in display order, flattened for the pasteboard
     /// and the share sheet. A stack contributes each of its members. Pure and
-    /// static so "Copy All" and "Share All" can never disagree about what the
-    /// archive contains. `colorScheme` picks the notation for color entries — the
+    /// static so Copy and Share can never disagree about what was picked. `colorScheme` picks the notation for color entries — the
     /// one currently selected in the archive header, so the copied text matches
     /// what the cells display.
     static func payload(for items: [ArchiveItem], colorScheme: ColorSchemeType) -> [ArchivePayloadItem] {

@@ -164,6 +164,34 @@ import Testing
         #expect(state.selectedItems(in: []).isEmpty)
     }
 
+    // MARK: Select All
+
+    @Test func selectAllPicksLeavesAndEveryStackMember() {
+        let red = color("#FF0000")
+        let capture = ArchiveScreenshot(url: shot)
+        let items: [ArchiveItem] = [.color(red), .stack(ArchiveStack(urls: [a, b, c])),
+                                    .screenshot(capture)]
+        let state = ArchiveSelectionState()
+        state.selectAll(in: items)
+        #expect(state.contains(.item(red.id)))
+        #expect(state.contains(.item(capture.id)))
+        #expect(state.checkState(forMembers: [a, b, c]) == .full)
+        #expect(state.isEverythingSelected(in: items))
+    }
+
+    @Test func oneMissingMemberIsNotEverything() {
+        let items: [ArchiveItem] = [.stack(ArchiveStack(urls: [a, b, c]))]
+        let state = ArchiveSelectionState()
+        state.setMembers([a, b], selected: true)
+        #expect(!state.isEverythingSelected(in: items))
+    }
+
+    /// An empty archive has nothing to pick, which is not the same as having
+    /// picked everything — "Select All" must not read as already done.
+    @Test func anEmptyArchiveIsNotEverythingSelected() {
+        #expect(!ArchiveSelectionState().isEverythingSelected(in: []))
+    }
+
     // MARK: Which cells a drag may start from
 
     @Test func outsideTheModeEveryCellDrags() {

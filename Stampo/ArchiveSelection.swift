@@ -121,6 +121,32 @@ func archiveUnwindStep(hasExpandedStack: Bool, isSelecting: Bool) -> ArchiveUnwi
         }
     }
 
+    // MARK: Everything
+
+    /// Picks the whole archive. Leaves by id, stacks member by member — the set
+    /// only ever holds leaves, so "all" is spelled out rather than flagged.
+    func selectAll(in items: [ArchiveItem]) {
+        for item in items {
+            if case .stack(let stack) = item {
+                setMembers(stack.urls, selected: true)
+            } else {
+                keys.insert(.item(item.id))
+            }
+        }
+    }
+
+    /// Whether there is anything left for "Select All" to add. An empty archive
+    /// has nothing to select, which is not the same as everything being picked.
+    func isEverythingSelected(in items: [ArchiveItem]) -> Bool {
+        guard !items.isEmpty else { return false }
+        return items.allSatisfy { item in
+            if case .stack(let stack) = item {
+                return checkState(forMembers: stack.urls) == .full
+            }
+            return keys.contains(.item(item.id))
+        }
+    }
+
     // MARK: Drag
 
     /// A drag carries the whole selection, so it may only start from a cell that

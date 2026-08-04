@@ -702,58 +702,47 @@ struct NotchArchiveView: View {
 
     /// The "⋯" menu's archive commands.
     ///
-    /// Selection mode re-scopes the three that are already here rather than
-    /// adding three more beside them: copy, share and clear are the same three
-    /// verbs whether they apply to everything or to what is picked, and a menu
-    /// offering both would make the user read four titles to find out which
-    /// pair is live.
+    /// Every verb lives on the selection now. There used to be a whole-archive
+    /// Copy / Share / Clear beside it, but acting on everything is the edge case
+    /// of acting on what is picked — "Select" then "Select All" reaches it in
+    /// two more clicks — and keeping both meant three commands whose scope the
+    /// user had to work out from their titles. One scope, one set of verbs, and
+    /// the menu outside the mode is a single row: the way in.
     private var archiveCommands: [PanelMenuCommand] {
-        selection.isActive ? selectionCommands : wholeArchiveCommands
-    }
-
-    /// All three are disabled on an empty archive rather than hidden, so the
-    /// menu never changes shape under the user. "Select Items" leads, keeping
-    /// the destructive Clear Archive last where a slipped click is least likely
-    /// to find it.
-    private var wholeArchiveCommands: [PanelMenuCommand] {
-        let isEmpty = archiveModel.items.isEmpty
-        return [
-            PanelMenuCommand(titleKey: "Select Items", isEnabled: !isEmpty) {
+        selection.isActive ? selectionCommands : [
+            PanelMenuCommand(titleKey: "Select Items",
+                             isEnabled: !archiveModel.items.isEmpty) {
                 selection.isActive = true
-            },
-            PanelMenuCommand(titleKey: "Copy All", isEnabled: !isEmpty) {
-                let payload = NotchArchiveModel.payload(for: archiveModel.items, colorScheme: scheme)
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.writeObjects(payload.objects.compactMap { $0 as? NSPasteboardWriting })
-            },
-            PanelMenuCommand(titleKey: "Share All", isEnabled: !isEmpty) {
-                let payload = NotchArchiveModel.payload(for: archiveModel.items, colorScheme: scheme)
-                shareAnchor.present(payload.objects)
-            },
-            PanelMenuCommand(titleKey: "Clear Archive", isEnabled: !isEmpty) {
-                withAnimation(.easeInOut(duration: 0.18)) { archiveModel.removeAll() }
             }
         ]
     }
 
-    /// The same three against the selection. Enablement asks what the keys still
-    /// resolve to, not whether there are any: a picked capture whose file
-    /// vanished leaves its key behind, and a live "Share Selected" that shares
-    /// nothing is worse than a greyed one.
+    /// Enablement asks what the keys still resolve to, not whether there are
+    /// any: a picked capture whose file vanished leaves its key behind, and a
+    /// live "Share" that shares nothing is worse than a greyed one.
     private var selectionCommands: [PanelMenuCommand] {
         let chosen = selection.selectedItems(in: archiveModel.items)
         let hasAny = !chosen.isEmpty
         return [
-            PanelMenuCommand(titleKey: "Copy Selected", isEnabled: hasAny) {
+            // Leads, because it is what the other three are aimed with — and it
+            // keeps the destructive row last, where a slipped click is least
+            // likely to find it.
+            PanelMenuCommand(titleKey: "Select All",
+                             isEnabled: !selection.isEverythingSelected(in: archiveModel.items)) {
+                withAnimation(.easeInOut(duration: 0.18)) {
+                    selection.selectAll(in: archiveModel.items)
+                }
+            },
+            PanelMenuCommand(titleKey: "Copy", isEnabled: hasAny) {
                 let payload = NotchArchiveModel.payload(for: chosen, colorScheme: scheme)
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.writeObjects(payload.objects.compactMap { $0 as? NSPasteboardWriting })
             },
-            PanelMenuCommand(titleKey: "Share Selected", isEnabled: hasAny) {
+            PanelMenuCommand(titleKey: "Share", isEnabled: hasAny) {
                 let payload = NotchArchiveModel.payload(for: chosen, colorScheme: scheme)
                 shareAnchor.present(payload.objects)
             },
-            PanelMenuCommand(titleKey: "Delete Selected", isEnabled: hasAny) {
+            PanelMenuCommand(titleKey: "Delete", isEnabled: hasAny) {
                 removeSelected(chosen)
             }
         ]
