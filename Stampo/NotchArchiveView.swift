@@ -88,17 +88,25 @@ struct NotchArchiveView: View {
         return id
     }
 
+    /// The chevron climbs the same ladder Esc does, one rung per press: collapse
+    /// the open stack, leave selection mode, then go. Deliberately identical, so
+    /// the user does not have to remember which of the two they reached for —
+    /// the only difference is at the bottom, where Esc closes the panel and this
+    /// returns to Main.
+    private var backStep: ArchiveUnwindStep {
+        archiveUnwindStep(hasExpandedStack: effectiveExpandedID != nil,
+                          isSelecting: selection.isActive)
+    }
+
     private func handleBack() {
-        // In selection mode the chevron is the mode's off switch and nothing
-        // else: it does not also return to Main, which is what the second press
-        // is for. Each control keeps one meaning — this one turns the mode off
-        // whatever else is open, while Esc unwinds the layers in order and
-        // reaches the mode only once no stack is expanded.
-        if selection.isActive {
-            selection.clear()
-            return
+        switch backStep {
+        case .collapseStack:
+            collapseStack()
+        case .exitSelection:
+            withAnimation(.easeInOut(duration: 0.18)) { selection.clear() }
+        case .leaveArchive:
+            onBack()  // controller drives the content fade-out
         }
-        onBack()  // controller drives the content fade-out
     }
 
     // Real notch has a large corner radius and wide flared shape, so it needs
@@ -657,7 +665,11 @@ struct NotchArchiveView: View {
     private var backButton: some View {
         // The label follows what the press will actually do, or VoiceOver goes
         // on promising a return to Main that this press is not going to make.
-        let title: LocalizedStringKey = selection.isActive ? "Cancel selection" : "Back to panel"
+        let title: LocalizedStringKey = switch backStep {
+        case .collapseStack: "Collapse"
+        case .exitSelection: "Cancel selection"
+        case .leaveArchive:  "Back to panel"
+        }
         return PanelIconButton(systemName: "chevron.left", size: 14, weight: .semibold, action: handleBack)
             .frame(width: metrics.cellWidth, height: metrics.iconSize)
             .help(title)

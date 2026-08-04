@@ -125,19 +125,18 @@ extension PanelState {
         }
     }
 
-    /// Which layer Esc unwinds — one press, one layer, innermost first.
-    ///
-    /// The archive can be two layers deep: a stack expanded into an inline
-    /// accordion, inside a selection the user is halfway through making.
-    /// Neither has any other keyboard way out, so Esc collapses the accordion,
-    /// then leaves the mode, then closes the panel. It stops there: returning
-    /// to Main is what the back button is for, and a further press before the
+    /// Which layer Esc unwinds — one press, one layer, innermost first, along
+    /// the ladder in `archiveUnwindStep`. The back chevron climbs the same one;
+    /// they differ only at the bottom, where Esc closes the panel outright and
+    /// Back returns to Main. Nothing below that: a further press before the
     /// panel disappears would undo the "Esc means gone" reflex.
     func escapeAction(hasExpandedStack: Bool, isSelecting: Bool) -> EscapeAction {
         guard case .archive = self else { return .hidePanel }
-        if hasExpandedStack { return .collapseStack }
-        if isSelecting      { return .exitSelection }
-        return .hidePanel
+        switch archiveUnwindStep(hasExpandedStack: hasExpandedStack, isSelecting: isSelecting) {
+        case .collapseStack: return .collapseStack
+        case .exitSelection: return .exitSelection
+        case .leaveArchive:  return .hidePanel
+        }
     }
 }
 

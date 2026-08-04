@@ -27,6 +27,30 @@ enum ArchiveCheckState: Equatable {
     case full
 }
 
+// MARK: - Unwinding
+
+/// One rung of the archive's ladder: what a single "undo one step" press has
+/// to undo right now.
+///
+/// The archive can be two layers deep — a stack expanded into an accordion,
+/// inside a selection the user is halfway through making — and both Esc and the
+/// back chevron climb down it one rung per press, innermost first. They part
+/// only at the bottom, where there is nothing left inside the archive to undo:
+/// Esc closes the panel, Back returns to Main. Shared so that being the same
+/// ladder is structural rather than two switches that happen to agree.
+enum ArchiveUnwindStep: Equatable {
+    case collapseStack
+    case exitSelection
+    /// The archive is plain: whatever the caller does when it is done here.
+    case leaveArchive
+}
+
+func archiveUnwindStep(hasExpandedStack: Bool, isSelecting: Bool) -> ArchiveUnwindStep {
+    if hasExpandedStack { return .collapseStack }
+    if isSelecting      { return .exitSelection }
+    return .leaveArchive
+}
+
 // MARK: - Selection state
 
 /// The archive's multi-select mode, held outside the view for the same reason

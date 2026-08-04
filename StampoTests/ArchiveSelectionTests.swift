@@ -143,8 +143,8 @@ import Testing
                                           colorScheme: .hex) == [.file(shot)])
     }
 
-    /// Colours resolve through the header's notation, exactly as "Share All"
-    /// does — the selection changes what is shared, never how.
+    /// Colours resolve through the header's notation — the selection changes
+    /// what is shared, never how.
     @Test func selectedColorsUseTheArchivesNotation() {
         let red = color("#FF0000")
         let state = ArchiveSelectionState()

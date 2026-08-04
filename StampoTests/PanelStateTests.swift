@@ -42,6 +42,15 @@ import Testing
 /// are pure functions on the state rather than branches buried in the handler.
 @Suite struct PanelEscapeTests {
 
+    /// Esc and the back chevron climb one ladder, so it is checked once here
+    /// and each control's own last rung separately below.
+    @Test func theLadderRunsInnermostFirst() {
+        #expect(archiveUnwindStep(hasExpandedStack: true, isSelecting: true) == .collapseStack)
+        #expect(archiveUnwindStep(hasExpandedStack: true, isSelecting: false) == .collapseStack)
+        #expect(archiveUnwindStep(hasExpandedStack: false, isSelecting: true) == .exitSelection)
+        #expect(archiveUnwindStep(hasExpandedStack: false, isSelecting: false) == .leaveArchive)
+    }
+
     @Test func expandedStackSwallowsTheFirstEscape() {
         #expect(PanelState.archive.escapeAction(hasExpandedStack: true, isSelecting: false)
                 == .collapseStack)
