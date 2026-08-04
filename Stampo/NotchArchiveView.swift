@@ -737,10 +737,12 @@ struct NotchArchiveView: View {
                 let payload = NotchArchiveModel.payload(for: chosen, colorScheme: scheme)
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.writeObjects(payload.objects.compactMap { $0 as? NSPasteboardWriting })
+                finishSelecting()
             },
             PanelMenuCommand(titleKey: "Share", isEnabled: hasAny) {
                 let payload = NotchArchiveModel.payload(for: chosen, colorScheme: scheme)
                 shareAnchor.present(payload.objects)
+                finishSelecting()
             },
             PanelMenuCommand(titleKey: "Delete", isEnabled: hasAny) {
                 removeSelected(chosen)
@@ -748,12 +750,19 @@ struct NotchArchiveView: View {
         ]
     }
 
+    /// Leaving the mode, because the scenario it was entered for is over.
+    ///
+    /// Copy, Share and Delete are the ends of that scenario — you turn selecting
+    /// on in order to reach one of them — so each of the three switches it off
+    /// rather than leaving the row checkboxed behind a finished job. "Select
+    /// All" is not one of them: it aims the three, it does not finish anything.
+    private func finishSelecting() {
+        withAnimation(.easeInOut(duration: 0.18)) { selection.clear() }
+    }
+
     /// Drops every picked leaf from the archive — the entries only, exactly like
     /// the per-cell "Remove from archive"; the files stay on disk. Stack members
     /// leave one at a time, and a stack that loses its last one goes with it.
-    ///
-    /// The mode stays on afterwards: what ended is this round of picking, not
-    /// the picking. Back and Esc are how the mode ends.
     private func removeSelected(_ chosen: [ArchiveItem]) {
         withAnimation(.easeInOut(duration: 0.18)) {
             for item in chosen {
@@ -765,7 +774,7 @@ struct NotchArchiveView: View {
                     archiveModel.remove(id: item.id)
                 }
             }
-            selection.deselectAll()
+            selection.clear()
         }
     }
 

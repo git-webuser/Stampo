@@ -272,15 +272,6 @@ import Testing
 
     // MARK: Leaving the mode
 
-    /// What "Delete Selected" leaves behind: nothing picked, but still picking.
-    @Test func consumingTheSelectionKeepsTheMode() {
-        let state = ArchiveSelectionState()
-        state.begin(selecting: .file(a))
-        state.deselectAll()
-        #expect(state.keys.isEmpty)
-        #expect(state.isActive)
-    }
-
     @Test func clearingLeavesTheModeAndForgetsTheSelection() {
         let state = ArchiveSelectionState()
         state.isActive = true

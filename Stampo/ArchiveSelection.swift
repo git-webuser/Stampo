@@ -199,11 +199,6 @@ func archiveUnwindStep(hasExpandedStack: Bool, isSelecting: Bool) -> ArchiveUnwi
 
     // MARK: Leaving
 
-    /// Forgets the selection but stays in the mode — what a command that
-    /// consumed the selection leaves behind. Deleting what was picked ends that
-    /// round of picking, not the picking.
-    func deselectAll() { keys = [] }
-
     /// Leaves the mode and forgets what was in it. One call, because the two
     /// halves have no meaning apart: nothing draws a selection once the mode
     /// is off, so a set left behind could only come back as a surprise.
