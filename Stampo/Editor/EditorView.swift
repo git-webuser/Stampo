@@ -110,6 +110,7 @@ struct EditorView: View {
                 .frame(width: 26, height: 22)
         }
         .buttonStyle(.borderless)
+        .toolbarFocusRing()
         .background(
             RoundedRectangle(cornerRadius: 5, style: .continuous)
                 .fill(tool == t ? Color.accentColor.opacity(0.22) : .clear)
@@ -538,6 +539,7 @@ struct EditorView: View {
             Image(systemName: systemImage).frame(width: 24, height: 22)
         }
         .buttonStyle(.borderless)
+        .toolbarFocusRing()
         .background(
             RoundedRectangle(cornerRadius: 5, style: .continuous)
                 .fill(binding.wrappedValue ? Color.accentColor.opacity(0.22) : .clear)
@@ -738,6 +740,7 @@ struct EditorView: View {
                     .frame(width: 22, height: 20)
             }
             .buttonStyle(.borderless)
+            .toolbarFocusRing()
             .background(
                 RoundedRectangle(cornerRadius: 5, style: .continuous)
                     .fill(Color.primary.opacity(0.06))
@@ -1283,6 +1286,7 @@ struct EditorView: View {
                     .frame(width: 26, height: 22)
             }
             .buttonStyle(.borderless)
+            .toolbarFocusRing()
             .keyboardShortcut("z", modifiers: .command)
             .disabled(!document.canUndo || textEditingActive)
             .hoverTip("Undo")
@@ -1292,6 +1296,7 @@ struct EditorView: View {
                     .frame(width: 26, height: 22)
             }
             .buttonStyle(.borderless)
+            .toolbarFocusRing()
             .keyboardShortcut("z", modifiers: [.command, .shift])
             .disabled(!document.canRedo || textEditingActive)
             .hoverTip("Redo")
@@ -1304,6 +1309,7 @@ struct EditorView: View {
                 Image(systemName: "minus.magnifyingglass").frame(width: 24, height: 22)
             }
             .buttonStyle(.borderless)
+            .toolbarFocusRing()
             .keyboardShortcut("-", modifiers: .command)
             .disabled(textEditingActive || zoomFactor <= 0.25)
             .hoverTip("Zoom Out")
@@ -1317,6 +1323,7 @@ struct EditorView: View {
                 Image(systemName: "plus.magnifyingglass").frame(width: 24, height: 22)
             }
             .buttonStyle(.borderless)
+            .toolbarFocusRing()
             .keyboardShortcut("+", modifiers: .command)
             .disabled(textEditingActive || zoomFactor >= 8)
             .hoverTip("Zoom In")
@@ -1331,6 +1338,7 @@ struct EditorView: View {
                 .frame(width: 24, height: 22)
         }
         .buttonStyle(.borderless)
+        .toolbarFocusRing()
         .keyboardShortcut("0", modifiers: .command)
         .disabled(textEditingActive)
         .hoverTip("Zoom to Fit")
@@ -1349,6 +1357,7 @@ struct EditorView: View {
                 .frame(width: 24, height: 22)
         }
         .buttonStyle(.borderless)
+        .toolbarFocusRing()
         .disabled(textEditingActive)
         .onModifierKeysChanged(mask: .option) { _, new in
             rotateOptionHeld = !new.isEmpty
@@ -1384,6 +1393,7 @@ struct EditorView: View {
                 .foregroundStyle(tool == .crop ? Color.accentColor : Color.primary)
         }
         .buttonStyle(.borderless)
+        .toolbarFocusRing()
         .disabled(textEditingActive)
         .hoverTip("Crop")
     }
@@ -1405,6 +1415,7 @@ struct EditorView: View {
                 .foregroundStyle(tool == .scan ? Color.accentColor : Color.primary)
         }
         .buttonStyle(.borderless)
+        .toolbarFocusRing()
         .disabled(textEditingActive)
         .hoverTip("Scan")
     }

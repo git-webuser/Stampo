@@ -51,6 +51,7 @@ struct ShapeToolButton: View {
             .frame(width: 34, height: 22)
         }
         .buttonStyle(.borderless)
+        .toolbarFocusRing()
         .background(
             RoundedRectangle(cornerRadius: 5, style: .continuous)
                 .fill(isActive ? Color.accentColor.opacity(0.22) : .clear)
