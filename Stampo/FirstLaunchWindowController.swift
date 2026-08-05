@@ -23,6 +23,18 @@ extension NSImage {
 
 // MARK: - Window Controller
 
+/// Esc closes the wizard, the way the title-bar button already does.
+///
+/// The usual route — `.keyboardShortcut(.cancelAction)` — has nowhere to go
+/// here: the only button on the closing step is the primary one, and it is
+/// already spoken for by `.defaultAction`. Taking `cancelOperation` on the
+/// window catches Esc wherever focus sits. It belongs on the window rather
+/// than the controller below, which is a plain NSObject and so is not in the
+/// responder chain at all.
+private final class FirstLaunchWindow: NSWindow {
+    override func cancelOperation(_ sender: Any?) { close() }
+}
+
 final class FirstLaunchWindowController: NSObject, NSWindowDelegate {
     static let shared = FirstLaunchWindowController()
     private var window: NSWindow?
@@ -45,7 +57,7 @@ final class FirstLaunchWindowController: NSObject, NSWindowDelegate {
         )
         hosting.sizingOptions = .preferredContentSize
 
-        let win = NSWindow(contentViewController: hosting)
+        let win = FirstLaunchWindow(contentViewController: hosting)
         win.styleMask = [.titled, .closable]
         win.title = LocaleManager.shared.string("Welcome to Stampo")
         win.titleVisibility = .hidden
@@ -295,10 +307,13 @@ struct FirstLaunchView: View {
         _ description: LocalizedStringKey
     ) -> some View {
         HStack(alignment: .top, spacing: 16) {
+            // Decorative, like SettingRow's: the title beside it already says
+            // what the feature is.
             Image(systemName: icon)
                 .font(.system(size: 26, weight: .medium))
                 .foregroundStyle(.tint)
                 .frame(width: 34, height: 34)
+                .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)

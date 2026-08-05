@@ -317,6 +317,9 @@ struct EditorView: View {
                 }
                 .buttonStyle(.plain)
                 .hoverTip(colorNames[index])
+                // The accent ring is the only thing marking the current
+                // colour, and a ring is not a thing VoiceOver reads.
+                .accessibilityAddTraits(style.color == preset ? [.isButton, .isSelected] : .isButton)
             }
         }
         .accessibilityLabel("Color")

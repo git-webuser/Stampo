@@ -216,7 +216,7 @@ private struct FixedHotkeyRow: View {
                 HStack(spacing: 3) {
                     ForEach(caps, id: \.self) { KeyCapView(key: $0, dimmed: !isEnabled) }
                 }
-                Toggle("", isOn: $isEnabled).labelsHidden().toggleStyle(.switch)
+                Toggle(LocalizedStringKey(action), isOn: $isEnabled).labelsHidden().toggleStyle(.switch)
             }
         }
     }
@@ -239,7 +239,7 @@ private struct ArrowStepRow: View {
                     ForEach(modifiers, id: \.self) { KeyCapView(key: $0, dimmed: !isEnabled) }
                     ArrowClusterView().opacity(isEnabled ? 1 : 0.4)
                 }
-                Toggle("", isOn: $isEnabled).labelsHidden().toggleStyle(.switch)
+                Toggle(LocalizedStringKey(title), isOn: $isEnabled).labelsHidden().toggleStyle(.switch)
             }
         }
     }

@@ -16,7 +16,7 @@ struct ArchiveSettingsView: View {
                     description: "Older items are removed when the limit is reached — files on disk are not affected"
                 ) {
                     HStack {
-                        Stepper(value: $trayMaxItems, in: 5...50, step: 5) { EmptyView() }
+                        Stepper(value: $trayMaxItems, in: 5...50, step: 5) { Text("Maximum items") }
                             .labelsHidden()
                         Text("\(trayMaxItems)")
                             .foregroundStyle(.secondary)
@@ -25,7 +25,7 @@ struct ArchiveSettingsView: View {
                 }
 
                 SettingRow(icon: "arrow.triangle.2.circlepath", title: "Persist between sessions") {
-                    Toggle("", isOn: $persistTray).labelsHidden()
+                    Toggle("Persist between sessions", isOn: $persistTray).labelsHidden()
                 }
             }
 
@@ -36,14 +36,14 @@ struct ArchiveSettingsView: View {
                     title: "Preview with Space",
                     description: "Hover an item in the archive and Space opens a preview"
                 ) {
-                    Toggle("", isOn: $spacePreview).labelsHidden()
+                    Toggle("Preview with Space", isOn: $spacePreview).labelsHidden()
                 }
             }
 
             // MARK: Color
             Section("Color") {
                 SettingRow(icon: "eyedropper", title: "Default format") {
-                    Picker("", selection: $defaultColorFormat) {
+                    Picker("Default format", selection: $defaultColorFormat) {
                         ForEach(ColorSchemeType.allCases, id: \.self) { fmt in
                             Text(fmt.title).tag(fmt)
                         }
