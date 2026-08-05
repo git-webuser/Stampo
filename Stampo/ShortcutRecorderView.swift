@@ -15,7 +15,7 @@ private struct Shake: GeometryEffect {
 
 // MARK: - ShortcutRecorderView
 
-/// Click-to-record shortcut field, styled with the app's key caps.
+/// Click- or key-to-record shortcut field, styled with the app's key caps.
 /// Inspired by Snapzy's ShortcutRecorderView (BSD 3-Clause), rebuilt on
 /// Stampo's KeyCapView and HotkeyValidator.
 struct ShortcutRecorderView: View {
@@ -29,6 +29,7 @@ struct ShortcutRecorderView: View {
     @State private var shake: CGFloat = 0
     @State private var monitor: Any?
     @State private var clickMonitor: Any?
+    @FocusState private var isFocused: Bool
 
     /// Field width measured while the × button is present. When the shortcut is
     /// cleared the × disappears, so the field grows to (this + gap + ×) and the
@@ -53,6 +54,10 @@ struct ShortcutRecorderView: View {
                     }
                     .buttonStyle(.plain)
                     .help(Text("Remove shortcut"))
+                    // The glyph is the whole label, so it is also the whole
+                    // thing VoiceOver has to go on: unnamed it reads out as
+                    // "xmark circle fill".
+                    .accessibilityLabel(Text("Remove shortcut"))
                 }
             }
 
@@ -100,9 +105,60 @@ struct ShortcutRecorderView: View {
             RoundedRectangle(cornerRadius: 6, style: .continuous)
                 .stroke(borderColor, lineWidth: isRecording || rejectionKey != nil ? 2 : 1)
         )
+        // Focus ring, drawn rather than inherited: the field is a plain shape
+        // with its own corner radius and border, and the system effect lands
+        // on the rectangle around it. `focusEffectDisabled` below keeps the
+        // two from stacking.
+        //
+        // The halo is the whole focus signal — the border above stays neutral.
+        // Tinting it accent as well reads as the armed state, which is exactly
+        // what a focused-but-not-recording field is not.
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(Color.accentColor.opacity(0.5), lineWidth: 3)
+                .padding(-2)
+                .opacity(isFocused ? 1 : 0)
+        )
         .modifier(Shake(animatableData: shake))
 
-        content.onTapGesture { toggleRecording() }
+        content
+            .onTapGesture {
+                isFocused = true
+                toggleRecording()
+            }
+            .focusable()
+            .focusEffectDisabled()
+            .focused($isFocused)
+            // Space and Return arm the field; from there the local monitor
+            // owns the keyboard, so Escape — which it already handles — is
+            // what backs out. Both keys are swallowed while recording, so
+            // there is no second meaning to disambiguate here.
+            .onKeyPress(.space) { toggleRecording(); return .handled }
+            .onKeyPress(.return) { toggleRecording(); return .handled }
+            // Tabbing away has to disarm: the monitor is global to the app and
+            // would otherwise keep swallowing keys for a field the user left.
+            .onChange(of: isFocused) { _, focused in
+                if !focused { stopRecording() }
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(accessibilityLabelText)
+            .accessibilityValue(accessibilityValueText)
+            .accessibilityHint(Text("Press Space to record a shortcut, Escape to cancel"))
+            .accessibilityAddTraits(.isButton)
+    }
+
+    /// The row's own title is not part of this control, and until SettingRow
+    /// groups itself for VoiceOver the field is announced on its own — so it
+    /// names the action it binds.
+    private var accessibilityLabelText: Text {
+        let name = String(localized: String.LocalizationValue(action.labelKey))
+        return Text("\(name) shortcut")
+    }
+
+    private var accessibilityValueText: Text {
+        if isRecording { return Text("Press keys…") }
+        if let combo { return Text(combo.spokenDescription) }
+        return Text("None")
     }
 
     /// Remember the field width only while the × is showing — that's the size to
