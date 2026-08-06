@@ -464,7 +464,13 @@ struct NotchArchiveView: View {
     private var scrollContent: some View {
         ScrollViewReader { proxy in
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(alignment: .top, spacing: cellSpacing) {
+            // Lazy so the cells off the end of the strip don't each spin up a
+            // ThumbnailLoader on the way in. The cap of 50 keeps the saving
+            // modest, but nothing is paid for it: removal still animates the
+            // same — measured frame by frame against the eager stack, the
+            // shrink-and-fade below and the neighbours closing the gap are
+            // identical in both.
+            LazyHStack(alignment: .top, spacing: cellSpacing) {
                 ForEach(archiveModel.items) { item in
                     Group {
                         switch item {
