@@ -464,13 +464,15 @@ struct NotchArchiveView: View {
     private var scrollContent: some View {
         ScrollViewReader { proxy in
         ScrollView(.horizontal, showsIndicators: false) {
-            // Lazy so the cells off the end of the strip don't each spin up a
-            // ThumbnailLoader on the way in. The cap of 50 keeps the saving
-            // modest, but nothing is paid for it: removal still animates the
-            // same — measured frame by frame against the eager stack, the
-            // shrink-and-fade below and the neighbours closing the gap are
-            // identical in both.
-            LazyHStack(alignment: .top, spacing: cellSpacing) {
+            // Eager on purpose. A lazy stack would drop the cells scrolled off
+            // the end, and with them the @State of a cell being dragged: the
+            // drag publishes isDragging through InternalDraggingKey, and the
+            // NSView carrying the drag belongs to the cell, so a strip that
+            // scrolls mid-gesture would tear both away. The saving it would buy
+            // is close to nothing anyway — ThumbnailLoaders are cached in the
+            // model by id and deliberately outlive their cells, so a cell built
+            // on the way in does not decode anything twice.
+            HStack(alignment: .top, spacing: cellSpacing) {
                 ForEach(archiveModel.items) { item in
                     Group {
                         switch item {
@@ -811,8 +813,6 @@ private struct ArchiveColorCell: View {
 
     @Environment(\.colorSchemeContrast) private var contrast
 
-
-    
     @State private var isHovered    = false
     @State private var isPressed    = false
     @State private var isCopied     = false
@@ -956,8 +956,6 @@ private struct ArchiveTextCell: View {
 
     @Environment(\.colorSchemeContrast) private var contrast
 
-
-    
     @State private var isHovered    = false
     @State private var isPressed    = false
     @State private var isCopied     = false
@@ -1000,7 +998,7 @@ private struct ArchiveTextCell: View {
     var body: some View {
         ZStack(alignment: .topLeading) {
             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .fill(Color.white.opacity(0.08))
+                .fill(PanelChrome.fill(0.08, contrast))
                 .overlay(
                     RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                         .stroke(PanelChrome.stroke(isHovered ? 0.35 : 0.12, contrast), lineWidth: 1)
@@ -1122,8 +1120,6 @@ private struct ArchiveFileCell<Menu: View>: View {
 
     @Environment(\.colorSchemeContrast) private var contrast
 
-
-    
     @State private var isHovered     = false
     @State private var isPressed     = false
     @State private var isDragging    = false
@@ -1133,7 +1129,7 @@ private struct ArchiveFileCell<Menu: View>: View {
     var body: some View {
         ZStack {
             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .fill(Color.white.opacity(0.08))
+                .fill(PanelChrome.fill(0.08, contrast))
                 .overlay(
                     RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                         .stroke(PanelChrome.stroke(isHovered ? 0.35 : 0.12, contrast), lineWidth: 1)
@@ -1313,8 +1309,6 @@ private struct ArchiveStackCell: View {
 
     @Environment(\.colorSchemeContrast) private var contrast
 
-
-    
     @State private var isPressed     = false
     @State private var isDragging    = false
     @State private var isCopied      = false
@@ -1363,7 +1357,7 @@ private struct ArchiveStackCell: View {
     var body: some View {
         ZStack {
             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .fill(Color.white.opacity(0.08))
+                .fill(PanelChrome.fill(0.08, contrast))
                 .overlay(
                     RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                         .stroke(PanelChrome.stroke(isHovered ? 0.35 : 0.12, contrast), lineWidth: 1)
@@ -1699,15 +1693,13 @@ private struct OverflowTailCell: View {
 
     @Environment(\.colorSchemeContrast) private var contrast
 
-
-    
     @State private var isHovered = false
     private var width: CGFloat { height * 1.6 }
 
     var body: some View {
         ZStack {
             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .fill(Color.white.opacity(0.08))
+                .fill(PanelChrome.fill(0.08, contrast))
                 .overlay(
                     RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                         .stroke(PanelChrome.stroke(isHovered ? 0.35 : 0.12, contrast), lineWidth: 1)
@@ -1743,14 +1735,12 @@ private struct CollapseButton: View {
 
     @Environment(\.colorSchemeContrast) private var contrast
 
-
-    
     @State private var isHovered = false
 
     var body: some View {
         ZStack {
             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .fill(Color.white.opacity(0.08))
+                .fill(PanelChrome.fill(0.08, contrast))
                 .overlay(
                     RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                         .stroke(PanelChrome.stroke(isHovered ? 0.35 : 0.12, contrast), lineWidth: 1)

@@ -668,7 +668,7 @@ private struct PanelCaptureButton: View {
 struct CountdownView: View {
     @Environment(\.colorSchemeContrast) private var contrast
 
-        let metrics: NotchMetrics
+    let metrics: NotchMetrics
     var interaction: NotchPanelInteractionState
     let secondsRemaining: Int
     let totalSeconds: Int

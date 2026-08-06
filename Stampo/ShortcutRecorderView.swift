@@ -151,7 +151,10 @@ struct ShortcutRecorderView: View {
     /// groups itself for VoiceOver the field is announced on its own — so it
     /// names the action it binds.
     private var accessibilityLabelText: Text {
-        let name = String(localized: String.LocalizationValue(action.labelKey))
+        // Through LocaleManager, not `String(localized:)`: the latter reads the
+        // process locale and would keep announcing the English action name
+        // while the row beside it is drawn in the language chosen in Settings.
+        let name = LocaleManager.shared.string(action.labelKey)
         return Text("\(name) shortcut")
     }
 
