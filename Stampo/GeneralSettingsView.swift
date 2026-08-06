@@ -37,7 +37,7 @@ struct GeneralSettingsView: View {
             // MARK: Startup
             Section("Startup") {
                 SettingRow(icon: "power.circle", title: "Launch at Login") {
-                    Toggle("Launch at Login", isOn: $launchAtLogin)
+                    Toggle("", isOn: $launchAtLogin)
                         .labelsHidden()
                         .onChange(of: launchAtLogin) { _, v in
                             AppSettings.setLaunchAtLogin(v)
@@ -118,7 +118,7 @@ struct GeneralSettingsView: View {
                     title: "Panel shape",
                     description: "On displays without a notch — applies next time the panel opens"
                 ) {
-                    Picker("Panel shape", selection: $noNotchPanelStyle) {
+                    Picker("", selection: $noNotchPanelStyle) {
                         Text("Pill").tag(NoNotchPanelStyle.rounded)
                         Text("Notch").tag(NoNotchPanelStyle.notch)
                     }
@@ -132,7 +132,7 @@ struct GeneralSettingsView: View {
                         title: "Notch panel scale",
                         description: "Fine-tune the size — applies next time the panel opens"
                     ) {
-                        Picker("Notch panel scale", selection: $noNotchNotchScale) {
+                        Picker("", selection: $noNotchNotchScale) {
                             Text(verbatim: "80%").tag(0.8)
                             Text(verbatim: "90%").tag(0.9)
                             Text(verbatim: "100%").tag(1.0)
@@ -147,7 +147,7 @@ struct GeneralSettingsView: View {
 
                 // Language change takes effect immediately via LocaleManager — no restart needed.
                 SettingRow(icon: "globe", title: "App language") {
-                    Picker("App language", selection: $preferredLanguage) {
+                    Picker("", selection: $preferredLanguage) {
                         Text("System").tag("system")
                         Text("English").tag("en")
                         Text("Русский").tag("ru")
@@ -160,11 +160,11 @@ struct GeneralSettingsView: View {
             // MARK: Thumbnail Preview
             Section("Thumbnail Preview") {
                 SettingRow(icon: "photo.stack", title: "Show after capture") {
-                    Toggle("Show after capture", isOn: $showThumbnailHUD).labelsHidden()
+                    Toggle("", isOn: $showThumbnailHUD).labelsHidden()
                 }
 
                 SettingRow(icon: "timer", title: "Auto-dismiss after") {
-                    Picker("Auto-dismiss after", selection: $thumbnailDismissDelay) {
+                    Picker("", selection: $thumbnailDismissDelay) {
                         Text("1 second").tag(1.0)
                         Text("2 seconds").tag(2.0)
                         Text("3 seconds").tag(3.0)
@@ -176,7 +176,7 @@ struct GeneralSettingsView: View {
                 }
 
                 SettingRow(icon: "cursorarrow.click", title: "On thumbnail click") {
-                    Picker("On thumbnail click", selection: $thumbnailClickAction) {
+                    Picker("", selection: $thumbnailClickAction) {
                         Text("Open editor").tag(ThumbnailClickAction.editor)
                         Text("Open preview").tag(ThumbnailClickAction.preview)
                     }

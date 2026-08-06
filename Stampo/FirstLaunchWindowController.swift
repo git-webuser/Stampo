@@ -307,13 +307,10 @@ struct FirstLaunchView: View {
         _ description: LocalizedStringKey
     ) -> some View {
         HStack(alignment: .top, spacing: 16) {
-            // Decorative, like SettingRow's: the title beside it already says
-            // what the feature is.
             Image(systemName: icon)
                 .font(.system(size: 26, weight: .medium))
                 .foregroundStyle(.tint)
                 .frame(width: 34, height: 34)
-                .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)

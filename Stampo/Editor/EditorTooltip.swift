@@ -31,17 +31,10 @@ private final class PassthroughTooltipView: NSView {
 extension View {
     /// Attaches a hover tooltip (and matching accessibility label) resolved
     /// from `key` in the app's string catalog via the current in-app language.
-    ///
-    /// The tooltip says "Copy (⌘C)" because the eye takes both in at once. The
-    /// name and the shortcut split for VoiceOver: rolled into the label they
-    /// become one run-on phrase the user has to sit through every time the
-    /// button is passed, while a hint is spoken after a pause and can be
-    /// turned off entirely.
     func hoverTip(_ key: String, shortcut: String? = nil) -> some View {
         let localized = LocaleManager.shared.string(key)
         let text = shortcut.map { "\(localized) (\($0))" } ?? localized
         return overlay(TooltipCarrier(text: text).allowsHitTesting(false))
-            .accessibilityLabel(Text(verbatim: localized))
-            .accessibilityHint(Text(verbatim: shortcut.map(KeyGlyphSpeech.spokenRun) ?? ""))
+            .accessibilityLabel(Text(verbatim: text))
     }
 }

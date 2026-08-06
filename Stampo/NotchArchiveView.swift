@@ -939,11 +939,6 @@ private struct ArchiveColorCell: View {
             .accessibilityLabel("Color \(scheme.convert(item.color))")
             .accessibilityHint("Tap to copy, drag to carry the color out")
             .accessibilityAddTraits(.isButton)
-            // The delete badge only exists under the pointer, and the menu
-            // entry needs a right click to reach — neither is a route
-            // VoiceOver has. Same wording as the menu, so the archive has
-            // one name for the action.
-            .accessibilityAction(named: Text("Remove from archive")) { onRemove() }
     }
 }
 
@@ -1084,11 +1079,6 @@ private struct ArchiveTextCell: View {
         .accessibilityLabel("Recognized text \(item.firstLine)")
         .accessibilityHint("Tap to copy, drag to carry the text out")
         .accessibilityAddTraits(.isButton)
-        // The delete badge only exists under the pointer, and the menu
-        // entry needs a right click to reach — neither is a route
-        // VoiceOver has. Same wording as the menu, so the archive has
-        // one name for the action.
-        .accessibilityAction(named: Text("Remove from archive")) { onRemove() }
     }
 }
 
@@ -1221,11 +1211,6 @@ private struct ArchiveFileCell<Menu: View>: View {
         .accessibilityLabel(accessibilityLabelText)
         .accessibilityHint(accessibilityHintText)
         .accessibilityAddTraits(.isButton)
-        // The delete badge only exists under the pointer, and the menu
-        // entry needs a right click to reach — neither is a route
-        // VoiceOver has. Same wording as the menu, so the archive has
-        // one name for the action.
-        .accessibilityAction(named: Text("Remove from archive")) { onRemove() }
     }
 }
 
@@ -1471,11 +1456,6 @@ private struct ArchiveStackCell: View {
         .accessibilityLabel(accessibilityTitle)
         .accessibilityHint("Tap to open the stack, drag to move all files")
         .accessibilityAddTraits(.isButton)
-        // The delete badge only exists under the pointer, and the menu
-        // entry needs a right click to reach — neither is a route
-        // VoiceOver has. Same wording as the menu, so the archive has
-        // one name for the action.
-        .accessibilityAction(named: Text("Remove from archive")) { onRemove() }
     }
 }
 
@@ -1603,11 +1583,6 @@ private struct ExpandedStackGroup: View {
         .accessibilityLabel(accessibilityTitle)
         .accessibilityHint("Tap to collapse")
         .accessibilityAddTraits(.isButton)
-        // The delete badge only exists under the pointer, and the menu
-        // entry needs a right click to reach — neither is a route
-        // VoiceOver has. Same wording as the menu, so the archive has
-        // one name for the action.
-        .accessibilityAction(named: Text("Remove from archive")) { onRemoveStack() }
     }
 
     /// Reuses ArchiveStackCell's wording so the (already translated) catalog

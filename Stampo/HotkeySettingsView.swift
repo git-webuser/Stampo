@@ -121,12 +121,6 @@ public struct KeyCapView: View {
             }
         }
         .opacity(dimmed ? 0.4 : 1)
-        // A cap draws a glyph, and a glyph is not a word: left alone,
-        // VoiceOver reads ⌘ as "place of interest sign". The modifier caps
-        // carry an engraved "cmd"/"shift" label too, which would be read as a
-        // second element — one name for the whole cap instead.
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text(KeyGlyphSpeech.spoken(key)))
     }
 
     /// Single key — square (widens only for multi-char labels like F12).
@@ -222,7 +216,7 @@ private struct FixedHotkeyRow: View {
                 HStack(spacing: 3) {
                     ForEach(caps, id: \.self) { KeyCapView(key: $0, dimmed: !isEnabled) }
                 }
-                Toggle(LocalizedStringKey(action), isOn: $isEnabled).labelsHidden().toggleStyle(.switch)
+                Toggle("", isOn: $isEnabled).labelsHidden().toggleStyle(.switch)
             }
         }
     }
@@ -245,7 +239,7 @@ private struct ArrowStepRow: View {
                     ForEach(modifiers, id: \.self) { KeyCapView(key: $0, dimmed: !isEnabled) }
                     ArrowClusterView().opacity(isEnabled ? 1 : 0.4)
                 }
-                Toggle(LocalizedStringKey(title), isOn: $isEnabled).labelsHidden().toggleStyle(.switch)
+                Toggle("", isOn: $isEnabled).labelsHidden().toggleStyle(.switch)
             }
         }
     }

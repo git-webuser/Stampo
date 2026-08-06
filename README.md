@@ -119,7 +119,7 @@ The archive shows recent screenshots, color swatches, and scanned text — and i
 
 - **Click** a screenshot to open it.
 - **Right-click** for options: Edit, Open, Pin to Screen, Show in Finder, Copy, Move to Trash.
-- **X button** (on hover) removes the item from the archive — the file is not deleted. The same is on the right-click menu, and on the item's VoiceOver actions.
+- **X button** (on hover) removes the item from the archive — the file is not deleted. The same is on the right-click menu.
 - **Drag** a screenshot out of the archive to copy it anywhere.
 
 ### Collect files
@@ -138,11 +138,10 @@ Pinned screenshots stay on top of everything, follow you across Spaces, and neve
 
 ## Accessibility
 
-- **VoiceOver** reads the panel, the archive, the settings and the editor's toolbar by name. Shortcuts are spoken as words — "Shift Command S", not the glyphs — and every icon-only control says what it does rather than which symbol it draws.
-- **Removing an archive item** does not require the pointer: it is a VoiceOver action on the item itself, alongside the hover badge and the right-click menu.
-- **The shortcut recorder** works from the keyboard. Tab to it, press Space or Return to arm it, type the combination, or press Esc to back out.
+- **The shortcut recorder** works from the keyboard. Tab to it, press Space or Return to arm it, type the combination, or press Esc to back out. (Tab reaches it once **System Settings → Keyboard → Keyboard navigation** is on, as with any non-text control on macOS.)
 - **Increase Contrast** (System Settings → Accessibility → Display) is honoured: the panel's hover, pressed and active states come back stronger instead of separating by a few percent of alpha.
-- Not there yet: **Reduce Motion** is not observed, and the editor's toolbar cannot be walked with Tab — its buttons answer to their own shortcuts instead (V, L, A, R, O, T, P, E, B, S, M, plus `⌘Z`, `⌘±`, `⌘0`).
+- **Esc** closes the welcome window, and cancels the panel, the colour picker, a capture overlay or a hovered pin.
+- Not there yet: **VoiceOver** support, **Reduce Motion**, and walking the editor's toolbar with Tab — its buttons answer to their own shortcuts instead (V, L, A, R, O, T, P, E, B, S, M, plus `⌘Z`, `⌘±`, `⌘0`).
 
 ## Known Limitations
 

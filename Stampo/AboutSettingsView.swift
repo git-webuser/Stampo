@@ -40,7 +40,7 @@ struct AboutSettingsView: View {
                     title: "Check for updates automatically",
                     description: "Asks GitHub once a day. No other data is sent"
                 ) {
-                    Toggle("Check for updates automatically", isOn: $checkForUpdates).labelsHidden()
+                    Toggle("", isOn: $checkForUpdates).labelsHidden()
                 }
 
                 SettingRow(icon: "clock", title: "Last checked") {
@@ -73,19 +73,11 @@ struct AboutSettingsView: View {
                     Link(destination: URL(string: "https://github.com/git-webuser/Stampo")!) {
                         Image(systemName: "arrow.up.right.square")
                     }
-                    // The row draws the name; the link itself is a
-                    // bare glyph, and unnamed it reads out as
-                    // "arrow up right square".
-                    .accessibilityLabel("View on GitHub")
                 }
                 SettingRow(icon: "exclamationmark.bubble", title: "Report an Issue") {
                     Link(destination: URL(string: "https://github.com/git-webuser/Stampo/issues")!) {
                         Image(systemName: "arrow.up.right.square")
                     }
-                    // The row draws the name; the link itself is a
-                    // bare glyph, and unnamed it reads out as
-                    // "arrow up right square".
-                    .accessibilityLabel("Report an Issue")
                 }
             }
 

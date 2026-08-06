@@ -47,7 +47,7 @@ struct CaptureSettingsView: View {
                 }
 
                 SettingRow(icon: "photo", title: "Format") {
-                    Picker("Format", selection: $fileFormat) {
+                    Picker("", selection: $fileFormat) {
                         Text("PNG").tag("png")
                         Text("JPEG").tag("jpg")
                         Text("TIFF").tag("tiff")
@@ -68,7 +68,7 @@ struct CaptureSettingsView: View {
                     title: "Style",
                     description: "Saved as \(filenamePreview)"
                 ) {
-                    Picker("Style", selection: $filenamePreset) {
+                    Picker("", selection: $filenamePreset) {
                         ForEach(FilenamePreset.allCases, id: \.rawValue) { preset in
                             Text(LocalizedStringKey(preset.name)).tag(preset.rawValue)
                         }
@@ -81,16 +81,16 @@ struct CaptureSettingsView: View {
             // MARK: Behavior
             Section("Behavior") {
                 SettingRow(icon: "speaker.wave.2", title: "Play sound") {
-                    Toggle("Play sound", isOn: $playSound).labelsHidden()
+                    Toggle("", isOn: $playSound).labelsHidden()
                 }
                 SettingRow(icon: "doc.on.clipboard", title: "Copy to clipboard") {
-                    Toggle("Copy to clipboard", isOn: $copyToClipboard).labelsHidden()
+                    Toggle("", isOn: $copyToClipboard).labelsHidden()
                 }
                 SettingRow(icon: "cursorarrow", title: "Include cursor") {
-                    Toggle("Include cursor", isOn: $includeCursor).labelsHidden()
+                    Toggle("", isOn: $includeCursor).labelsHidden()
                 }
                 SettingRow(icon: "shadow", title: "Include window shadow") {
-                    Toggle("Include window shadow", isOn: $includeWindowShadow).labelsHidden()
+                    Toggle("", isOn: $includeWindowShadow).labelsHidden()
                 }
             }
 
@@ -101,7 +101,7 @@ struct CaptureSettingsView: View {
                 }
 
                 SettingRow(icon: "timer", title: "Timer delay") {
-                    Picker("Timer delay", selection: $defaultTimerDelay) {
+                    Picker("", selection: $defaultTimerDelay) {
                         ForEach(CaptureDelay.allCases, id: \.self) { d in
                             Text(d.title).tag(d)
                         }
