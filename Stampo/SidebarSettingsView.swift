@@ -68,11 +68,25 @@ enum SettingsTab: Int, CaseIterable, Identifiable, Hashable {
 struct SidebarSettingsView: View {
     @Bindable private var navigation = SettingsNavigation.shared
     private var selectedTab: SettingsTab? { navigation.selectedTab }
-    // Keep sidebar always visible — this is a settings window, not a navigation stack.
-    @State private var columnVisibility = NavigationSplitViewVisibility.all
+
+    /// Plain columns rather than a NavigationSplitView.
+    ///
+    /// The split view's column minimum is not a floor: drag the divider past
+    /// it and the sidebar collapses outright. That is fine in a document
+    /// window, which keeps a toolbar button to bring the sidebar back — this
+    /// window has none, its toolbar belonging to the tabbed style, so the
+    /// sidebar took the only way to change tabs with it. Watching
+    /// `columnVisibility` did not help: a drag never changes it, and the
+    /// divider ignores being repositioned in code, so there was no way to
+    /// undo the collapse or even to reproduce it in a test.
+    ///
+    /// Without a divider there is nothing to drag and nothing to collapse.
+    /// The cost is that the sidebar no longer resizes — five fixed rows that
+    /// never needed to.
+    private static let sidebarWidth: CGFloat = 210
 
     var body: some View {
-        NavigationSplitView(columnVisibility: $columnVisibility) {
+        HStack(spacing: 0) {
             // Use id: \.self so the List matches selections by enum value directly.
             // Do NOT use .tag() here — that is for Picker, not List.
             List(SettingsTab.allCases, id: \.self, selection: $navigation.selectedTab) { tab in
@@ -87,18 +101,12 @@ struct SidebarSettingsView: View {
                 .padding(.vertical, 3)
             }
             .listStyle(.sidebar)
-            .navigationSplitViewColumnWidth(min: 180, ideal: 210, max: 240)
-        } detail: {
+            .frame(width: Self.sidebarWidth)
+
+            Divider()
+
             (selectedTab ?? .general).contentView
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        }
-        // The minimum width above is not a floor: dragging the divider past it
-        // collapses the column outright, and this window has no sidebar toggle
-        // to bring it back — its toolbar belongs to the tabbed style. Losing
-        // the sidebar here loses the only way to change tabs, so a collapse is
-        // undone as soon as it happens.
-        .onChange(of: columnVisibility) { _, visibility in
-            if visibility != .all { columnVisibility = .all }
         }
     }
 }

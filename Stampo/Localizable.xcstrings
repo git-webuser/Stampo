@@ -1066,6 +1066,7 @@
     },
     "Collect Files" : {
       "comment" : "Hotkey row: opens the archive in collect mode",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -3598,23 +3599,6 @@
         }
       }
     },
-    "Press Space to record a shortcut, Escape to cancel" : {
-      "comment" : "Accessibility hint for the shortcut recorder field",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Press Space to record a shortcut, Escape to cancel"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Нажмите пробел, чтобы записать сочетание, Escape — чтобы отменить"
-          }
-        }
-      }
-    },
     "Press keys…" : {
       "comment" : "Recorder prompt while armed",
       "localizations" : {
@@ -3628,6 +3612,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Нажмите клавиши…"
+          }
+        }
+      }
+    },
+    "Press Space to record a shortcut, Escape to cancel" : {
+      "comment" : "Accessibility hint for the shortcut recorder field",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Press Space to record a shortcut, Escape to cancel"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Нажмите пробел, чтобы записать сочетание, Escape — чтобы отменить"
           }
         }
       }
