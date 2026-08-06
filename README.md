@@ -6,7 +6,7 @@ Screenshot, text capture, and color picker for any Mac. The panel lives at the n
 
 ## What is Stampo
 
-Stampo replaces the usual screenshot workflow with a panel that appears when you hover near the top of your screen. From the panel you can take area, window, or fullscreen screenshots, annotate them in the built-in editor, scan any region for text and QR/barcodes, pick colors, and browse your recent captures in the archive.
+Stampo replaces the usual screenshot workflow with a panel that opens when you click the notch. From the panel you can take area, window, or fullscreen screenshots, annotate them in the built-in editor, scan any region for text and QR/barcodes, pick colors, and browse your recent captures in the archive.
 
 ## Requirements
 
@@ -55,7 +55,7 @@ Clicking the notch and global hotkeys work without any permission — they use s
 
 ## How to use
 
-- **Hover** near the top center of your screen (at the notch) to open the panel.
+- **Click the notch** (or the top center of the menu bar on screens without one) to open the panel. Click it again to close, or press `⌃⌥⌘N`.
 - **Click a capture mode** to start a screenshot, scan, or color pick.
 - **Click the archive icon** (stack icon) to browse recent captures.
 - All screenshots are saved to your chosen folder (default: `~/Pictures/Stampo`).
@@ -119,7 +119,7 @@ The archive shows recent screenshots, color swatches, and scanned text — and i
 
 - **Click** a screenshot to open it.
 - **Right-click** for options: Edit, Open, Pin to Screen, Show in Finder, Copy, Move to Trash.
-- **X button** (on hover) removes the item from the archive — the file is not deleted.
+- **X button** (on hover) removes the item from the archive — the file is not deleted. The same is on the right-click menu, and on the item's VoiceOver actions.
 - **Drag** a screenshot out of the archive to copy it anywhere.
 
 ### Collect files
@@ -136,6 +136,14 @@ Keep a screenshot floating above all windows while you work — handy for copyin
 
 Pinned screenshots stay on top of everything, follow you across Spaces, and never steal focus. Drag a pin by its body to move it, resize it from the edges (proportions are kept), and close it with the **X** button, a **double-click**, or **Esc** while hovering it. Right-click a pin for Copy, Edit, Show in Finder, Unpin, or Close All Pins.
 
+## Accessibility
+
+- **VoiceOver** reads the panel, the archive, the settings and the editor's toolbar by name. Shortcuts are spoken as words — "Shift Command S", not the glyphs — and every icon-only control says what it does rather than which symbol it draws.
+- **Removing an archive item** does not require the pointer: it is a VoiceOver action on the item itself, alongside the hover badge and the right-click menu.
+- **The shortcut recorder** works from the keyboard. Tab to it, press Space or Return to arm it, type the combination, or press Esc to back out.
+- **Increase Contrast** (System Settings → Accessibility → Display) is honoured: the panel's hover, pressed and active states come back stronger instead of separating by a few percent of alpha.
+- Not there yet: **Reduce Motion** is not observed, and the editor's toolbar cannot be walked with Tab — its buttons answer to their own shortcuts instead (V, L, A, R, O, T, P, E, B, S, M, plus `⌘Z`, `⌘±`, `⌘0`).
+
 ## Known Limitations
 
 - **Window screenshot** without a timer uses the frontmost window at the moment of capture. If another window becomes active during the hotkey press, it may be captured instead.
@@ -143,7 +151,7 @@ Pinned screenshots stay on top of everything, follow you across Spaces, and neve
 
 ## Privacy & Security
 
-Stampo does not upload screenshots, sampled colors, or any other data.
+Stampo does not upload screenshots, sampled colors, or any other data. The full account — including how to report a vulnerability — is in [SECURITY.md](SECURITY.md).
 
 - **One optional network request**: once a day Stampo asks the GitHub API
   for the latest release version to offer an update notification. It sends
