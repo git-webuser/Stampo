@@ -30,6 +30,16 @@ struct ShortcutRecorderView: View {
     @State private var monitor: Any?
     @State private var clickMonitor: Any?
     @FocusState private var isFocused: Bool
+    /// Whether the field takes keyboard focus at all.
+    ///
+    /// `.focusable()` on its own ignores the system setting, and SwiftUI hands
+    /// initial focus to the first focusable view as soon as the window becomes
+    /// key — so an unconditionally focusable field lit its ring on the first
+    /// row of Settings with the setting off and no key ever pressed. Gated on
+    /// the setting, the field behaves like every other non-text control on
+    /// macOS: reachable by Tab when the user has asked for that, inert when
+    /// they have not.
+    @State private var keyboardAccess = NSApp.isFullKeyboardAccessEnabled
 
     /// Field width measured while the × button is present. When the shortcut is
     /// cleared the × disappears, so the field grows to (this + gap + ×) and the
@@ -122,11 +132,11 @@ struct ShortcutRecorderView: View {
         .modifier(Shake(animatableData: shake))
 
         content
-            .onTapGesture {
-                isFocused = true
-                toggleRecording()
-            }
-            .focusable()
+            // No `isFocused = true` here: on macOS a click does not give a
+            // non-text control keyboard focus, and forcing it lit the ring for
+            // a pointer user who never asked for one.
+            .onTapGesture { toggleRecording() }
+            .focusable(keyboardAccess)
             .focusEffectDisabled()
             .focused($isFocused)
             // Space and Return arm the field; from there the local monitor
@@ -145,6 +155,14 @@ struct ShortcutRecorderView: View {
             .accessibilityValue(accessibilityValueText)
             .accessibilityHint(Text("Press Space to record a shortcut, Escape to cancel"))
             .accessibilityAddTraits(.isButton)
+            // The setting is flipped in System Settings, so the app hears about
+            // it on the way back — the same trigger GeneralSettingsView uses to
+            // re-read the Screen Recording grant.
+            .onReceive(NotificationCenter.default.publisher(
+                for: NSApplication.didBecomeActiveNotification
+            )) { _ in
+                keyboardAccess = NSApp.isFullKeyboardAccessEnabled
+            }
     }
 
     /// The row's own title is not part of this control, and until SettingRow
