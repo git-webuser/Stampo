@@ -72,7 +72,7 @@ enum HotkeyAction: UInt32, CaseIterable {
         case .color:       return "Pick Color"
         case .scan:        return "Scan"
         case .pinLastCapture: return "Pin Last Screenshot"
-        case .collectFiles: return "Pin Panel"
+        case .collectFiles: return "Collect Files"
         case .shareLastItem: return "Share Last Item"
         }
     }

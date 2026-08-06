@@ -1064,6 +1064,23 @@
         }
       }
     },
+    "Collect Files" : {
+      "comment" : "Hotkey row: opens the archive in collect mode",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Collect Files"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Собрать файлы"
+          }
+        }
+      }
+    },
     "Color" : {
       "comment" : "Settings section header for color tray options",
       "localizations" : {

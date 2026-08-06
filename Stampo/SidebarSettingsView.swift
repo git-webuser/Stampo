@@ -92,5 +92,13 @@ struct SidebarSettingsView: View {
             (selectedTab ?? .general).contentView
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
+        // The minimum width above is not a floor: dragging the divider past it
+        // collapses the column outright, and this window has no sidebar toggle
+        // to bring it back — its toolbar belongs to the tabbed style. Losing
+        // the sidebar here loses the only way to change tabs, so a collapse is
+        // undone as soon as it happens.
+        .onChange(of: columnVisibility) { _, visibility in
+            if visibility != .all { columnVisibility = .all }
+        }
     }
 }

@@ -185,20 +185,24 @@ import Testing
     }
 }
 
-// MARK: - Pin Panel hotkey metadata
+// MARK: - Collect Files hotkey metadata
 
-@Suite struct PinPanelHotkeyTests {
+@Suite struct CollectFilesHotkeyTests {
 
-    /// The row is named for what the action does — it pins the panel open —
-    /// rather than for the flow it enables (collecting files).
-    @Test func pinPanelRowMetadataIsFilledIn() {
+    /// The row is named for the flow it enables, not for the mechanism. It was
+    /// "Pin Panel" — named for what the keystroke literally does — until that
+    /// turned out to disagree with everything around it: the icon draws files
+    /// arriving, the README calls the feature Collect files, and "pin" already
+    /// means something else one row above (pinning a screenshot above all
+    /// windows). Pinning the panel is how this works, not what it is for.
+    @Test func collectFilesRowMetadataIsFilledIn() {
         #expect(HotkeyAction.collectFiles.rawValue == 9)
-        #expect(HotkeyAction.collectFiles.labelKey == "Pin Panel")
+        #expect(HotkeyAction.collectFiles.labelKey == "Collect Files")
         #expect(HotkeyAction.collectFiles.icon == "arrow.down.document")
         #expect(HotkeyAction.collectFiles.defaultCombo.displayString == "⌃⌥⌘T")
     }
 
-    @Test func pinPanelDefaultComboIsNotSystemReserved() {
+    @Test func collectFilesDefaultComboIsNotSystemReserved() {
         let result = HotkeyValidator.validate(
             HotkeyAction.collectFiles.defaultCombo, for: .collectFiles)
         #expect(result != .systemReserved)
