@@ -492,6 +492,8 @@ private struct PanelModeMenuButton: View {
     let onPickColor: () -> Void
     let onScan: () -> Void
 
+    @Environment(\.colorSchemeContrast) private var contrast
+
     @State private var isHovered  = false
     @State private var isPressed  = false
     @State private var isMenuOpen = false
@@ -538,13 +540,13 @@ private struct PanelModeMenuButton: View {
         if isMenuOpen { return .white }
         if isPressed  { return .white }
         if isHovered  { return .white }
-        return .white.opacity(0.8)
+        return PanelChrome.foreground(0.8, contrast)
     }
 
     private var backgroundColor: Color {
-        if isMenuOpen { return .white.opacity(0.22) }
-        if isPressed  { return .white.opacity(0.28) }
-        if isHovered  { return .white.opacity(0.16) }
+        if isMenuOpen { return PanelChrome.fill(0.22, contrast) }
+        if isPressed  { return PanelChrome.fill(0.28, contrast) }
+        if isHovered  { return PanelChrome.fill(0.16, contrast) }
         return .clear
     }
 }
@@ -557,6 +559,8 @@ private struct PanelTimerMenuButton: View {
     let digitsWidth: CGFloat
     let hasValue: Bool
     let cellWidth: CGFloat
+
+    @Environment(\.colorSchemeContrast) private var contrast
 
     @State private var isHovered  = false
     @State private var isPressed  = false
@@ -582,7 +586,7 @@ private struct PanelTimerMenuButton: View {
                     Text(model.delay.shortLabel ?? "")
                         .font(.system(size: 12, weight: .medium))
                         .monospacedDigit()
-                        .foregroundStyle(.white.opacity(0.9))
+                        .foregroundStyle(PanelChrome.foreground(0.9, contrast))
                         .frame(width: digitsWidth, height: 12, alignment: .leading)
                 }
             }
@@ -614,13 +618,13 @@ private struct PanelTimerMenuButton: View {
         if isMenuOpen { return .white }
         if isPressed  { return .white }
         if isHovered  { return .white }
-        return .white.opacity(0.8)
+        return PanelChrome.foreground(0.8, contrast)
     }
 
     private var timerBackground: Color {
-        if isMenuOpen { return .white.opacity(0.22) }
-        if isPressed  { return .white.opacity(0.28) }
-        if isHovered  { return .white.opacity(0.16) }
+        if isMenuOpen { return PanelChrome.fill(0.22, contrast) }
+        if isPressed  { return PanelChrome.fill(0.28, contrast) }
+        if isHovered  { return PanelChrome.fill(0.16, contrast) }
         return .clear
     }
 }
@@ -631,6 +635,8 @@ private struct PanelCaptureButton: View {
     let metrics: NotchMetrics
     let action: () -> Void
 
+    @Environment(\.colorSchemeContrast) private var contrast
+
     @State private var isHovered = false
     @State private var isPressed = false
 
@@ -638,7 +644,7 @@ private struct PanelCaptureButton: View {
         Button(action: action) {
             Text("Capture")
                 .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(isPressed ? .white : isHovered ? .white : .white.opacity(0.8))
+                .foregroundStyle(isPressed || isHovered ? .white : PanelChrome.foreground(0.8, contrast))
                 .frame(width: metrics.captureButtonWidth, height: metrics.buttonHeight)
                 .background(
                     RoundedRectangle(cornerRadius: metrics.buttonRadius, style: .continuous)
@@ -651,16 +657,18 @@ private struct PanelCaptureButton: View {
     }
 
     private var captureBackground: Color {
-        if isPressed { return .white.opacity(0.28) }
-        if isHovered { return .white.opacity(0.22) }
-        return .white.opacity(0.14)
+        if isPressed { return PanelChrome.fill(0.28, contrast) }
+        if isHovered { return PanelChrome.fill(0.22, contrast) }
+        return PanelChrome.fill(0.14, contrast)
     }
 }
 
 // MARK: - CountdownView
 
 struct CountdownView: View {
-    let metrics: NotchMetrics
+    @Environment(\.colorSchemeContrast) private var contrast
+
+        let metrics: NotchMetrics
     var interaction: NotchPanelInteractionState
     let secondsRemaining: Int
     let totalSeconds: Int
@@ -742,12 +750,12 @@ struct CountdownView: View {
         HStack(spacing: 4) {
             ZStack {
                 Circle()
-                    .stroke(.white.opacity(0.15), lineWidth: 2)
+                    .stroke(PanelChrome.stroke(0.15, contrast), lineWidth: 2)
                     .frame(width: 14, height: 14)
 
                 Circle()
                     .trim(from: 0, to: arcProgress)
-                    .stroke(.white.opacity(0.8), style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                    .stroke(PanelChrome.stroke(0.8, contrast), style: StrokeStyle(lineWidth: 2, lineCap: .round))
                     .frame(width: 14, height: 14)
                     .rotationEffect(.degrees(-90))
                     .animation(.linear(duration: 1.0), value: arcProgress)
@@ -761,7 +769,7 @@ struct CountdownView: View {
                 Text("\(secondsRemaining)")
                     .font(.system(size: 12, weight: .medium))
                     .monospacedDigit()
-                    .foregroundStyle(.white.opacity(0.9))
+                    .foregroundStyle(PanelChrome.foreground(0.9, contrast))
                     .id(secondsRemaining)
                     .transition(.blurReplace)
             }

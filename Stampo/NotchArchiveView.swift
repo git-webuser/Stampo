@@ -803,6 +803,10 @@ private struct ArchiveColorCell: View {
     let cornerRadius: CGFloat
     let onRemove: () -> Void
 
+    @Environment(\.colorSchemeContrast) private var contrast
+
+
+    
     @State private var isHovered    = false
     @State private var isPressed    = false
     @State private var isCopied     = false
@@ -842,7 +846,7 @@ private struct ArchiveColorCell: View {
             .frame(width: height, height: height)
             .overlay(
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .stroke(Color.white.opacity(isHovered ? 0.35 : 0.12), lineWidth: 1)
+                    .stroke(PanelChrome.stroke(isHovered ? 0.35 : 0.12, contrast), lineWidth: 1)
             )
             .overlay(alignment: .bottom) {
                 ZStack {
@@ -949,6 +953,10 @@ private struct ArchiveTextCell: View {
     let cornerRadius: CGFloat
     let onRemove: () -> Void
 
+    @Environment(\.colorSchemeContrast) private var contrast
+
+
+    
     @State private var isHovered    = false
     @State private var isPressed    = false
     @State private var isCopied     = false
@@ -994,7 +1002,7 @@ private struct ArchiveTextCell: View {
                 .fill(Color.white.opacity(0.08))
                 .overlay(
                     RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .stroke(Color.white.opacity(isHovered ? 0.35 : 0.12), lineWidth: 1)
+                        .stroke(PanelChrome.stroke(isHovered ? 0.35 : 0.12, contrast), lineWidth: 1)
                 )
 
             // Miniature of the recognized text — enough to tell snippets apart.
@@ -1116,6 +1124,10 @@ private struct ArchiveFileCell<Menu: View>: View {
     let accessibilityHintText: Text
     @ViewBuilder let menu: () -> Menu
 
+    @Environment(\.colorSchemeContrast) private var contrast
+
+
+    
     @State private var isHovered     = false
     @State private var isPressed     = false
     @State private var isDragging    = false
@@ -1128,7 +1140,7 @@ private struct ArchiveFileCell<Menu: View>: View {
                 .fill(Color.white.opacity(0.08))
                 .overlay(
                     RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .stroke(Color.white.opacity(isHovered ? 0.35 : 0.12), lineWidth: 1)
+                        .stroke(PanelChrome.stroke(isHovered ? 0.35 : 0.12, contrast), lineWidth: 1)
                 )
 
             if let preview {
@@ -1308,6 +1320,10 @@ private struct ArchiveStackCell: View {
     let onDragOutCompleted: () -> Void
     let onRemove: () -> Void
 
+    @Environment(\.colorSchemeContrast) private var contrast
+
+
+    
     @State private var isPressed     = false
     @State private var isDragging    = false
     @State private var isCopied      = false
@@ -1359,7 +1375,7 @@ private struct ArchiveStackCell: View {
                 .fill(Color.white.opacity(0.08))
                 .overlay(
                     RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .stroke(Color.white.opacity(isHovered ? 0.35 : 0.12), lineWidth: 1)
+                        .stroke(PanelChrome.stroke(isHovered ? 0.35 : 0.12, contrast), lineWidth: 1)
                 )
 
             // Fan of member previews, centred; reversed so slot 0 (the newest
@@ -1700,6 +1716,10 @@ private struct OverflowTailCell: View {
     let cornerRadius: CGFloat
     let onReveal: () -> Void
 
+    @Environment(\.colorSchemeContrast) private var contrast
+
+
+    
     @State private var isHovered = false
     private var width: CGFloat { height * 1.6 }
 
@@ -1709,7 +1729,7 @@ private struct OverflowTailCell: View {
                 .fill(Color.white.opacity(0.08))
                 .overlay(
                     RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .stroke(Color.white.opacity(isHovered ? 0.35 : 0.12), lineWidth: 1)
+                        .stroke(PanelChrome.stroke(isHovered ? 0.35 : 0.12, contrast), lineWidth: 1)
                 )
             if isHovered {
                 Image(systemName: "arrow.forward.folder")
@@ -1740,6 +1760,10 @@ private struct CollapseButton: View {
     let cornerRadius: CGFloat
     let onCollapse: () -> Void
 
+    @Environment(\.colorSchemeContrast) private var contrast
+
+
+    
     @State private var isHovered = false
 
     var body: some View {
@@ -1748,7 +1772,7 @@ private struct CollapseButton: View {
                 .fill(Color.white.opacity(0.08))
                 .overlay(
                     RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .stroke(Color.white.opacity(isHovered ? 0.35 : 0.12), lineWidth: 1)
+                        .stroke(PanelChrome.stroke(isHovered ? 0.35 : 0.12, contrast), lineWidth: 1)
                 )
             Image(systemName: "arrow.down.forward.and.arrow.up.backward")
                 .font(.system(size: 13, weight: .medium))

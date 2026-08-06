@@ -25,6 +25,8 @@ struct PanelIconButton: View {
     let imageOffset: CGFloat
     let action: () -> Void
 
+    @Environment(\.colorSchemeContrast) private var contrast
+
     @State private var isHovered = false
     @State private var isPressed = false
 
@@ -65,14 +67,14 @@ struct PanelIconButton: View {
         if isPressed { return .white }
         if isHovered { return .white }
         if isActive  { return .white }
-        return .white.opacity(0.8)
+        return PanelChrome.foreground(0.8, contrast)
     }
 
     private var backgroundFill: Color {
-        if isPressed             { return .white.opacity(0.28) }
-        if isActive && isHovered { return .white.opacity(0.32) }
-        if isHovered             { return .white.opacity(0.16) }
-        if isActive              { return .white.opacity(0.22) }
+        if isPressed             { return PanelChrome.fill(0.28, contrast) }
+        if isActive && isHovered { return PanelChrome.fill(0.32, contrast) }
+        if isHovered             { return PanelChrome.fill(0.16, contrast) }
+        if isActive              { return PanelChrome.fill(0.22, contrast) }
         return .clear
     }
 }
@@ -222,6 +224,8 @@ struct PanelMoreMenuButton: View {
     /// whole-archive actions); empty on the main panel.
     var extraCommands: [PanelMenuCommand] = []
 
+    @Environment(\.colorSchemeContrast) private var contrast
+
     @State private var isHovered  = false
     @State private var isPressed  = false
     @State private var isMenuOpen = false
@@ -265,13 +269,13 @@ struct PanelMoreMenuButton: View {
         if isMenuOpen { return .white }
         if isPressed  { return .white }
         if isHovered  { return .white }
-        return .white.opacity(0.8)
+        return PanelChrome.foreground(0.8, contrast)
     }
 
     private var backgroundColor: Color {
-        if isMenuOpen { return .white.opacity(0.22) }
-        if isPressed  { return .white.opacity(0.28) }
-        if isHovered  { return .white.opacity(0.16) }
+        if isMenuOpen { return PanelChrome.fill(0.22, contrast) }
+        if isPressed  { return PanelChrome.fill(0.28, contrast) }
+        if isHovered  { return PanelChrome.fill(0.16, contrast) }
         return .clear
     }
 }
