@@ -115,20 +115,6 @@ struct ShortcutRecorderView: View {
             RoundedRectangle(cornerRadius: 6, style: .continuous)
                 .stroke(borderColor, lineWidth: isRecording || rejectionKey != nil ? 2 : 1)
         )
-        // Focus ring, drawn rather than inherited: the field is a plain shape
-        // with its own corner radius and border, and the system effect lands
-        // on the rectangle around it. `focusEffectDisabled` below keeps the
-        // two from stacking.
-        //
-        // The halo is the whole focus signal — the border above stays neutral.
-        // Tinting it accent as well reads as the armed state, which is exactly
-        // what a focused-but-not-recording field is not.
-        .overlay(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(Color.accentColor.opacity(0.5), lineWidth: 3)
-                .padding(-2)
-                .opacity(isFocused ? 1 : 0)
-        )
         .modifier(Shake(animatableData: shake))
 
         content
@@ -136,8 +122,14 @@ struct ShortcutRecorderView: View {
             // non-text control keyboard focus, and forcing it lit the ring for
             // a pointer user who never asked for one.
             .onTapGesture { toggleRecording() }
+            // No hand-drawn focus ring, and nothing disabling the system's.
+            // The drawn one lit up the moment the window became key — SwiftUI
+            // gives initial focus to the first focusable view — and then never
+            // went out, because on macOS nothing takes keyboard focus away
+            // from a control until the keyboard moves it. Photographed with
+            // the ring removed and the system effect left alone: opening the
+            // pane draws no ring at all, which is the behaviour asked for.
             .focusable(keyboardAccess)
-            .focusEffectDisabled()
             .focused($isFocused)
             // Space and Return arm the field; from there the local monitor
             // owns the keyboard, so Escape — which it already handles — is
