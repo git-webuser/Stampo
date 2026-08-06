@@ -121,6 +121,12 @@ public struct KeyCapView: View {
             }
         }
         .opacity(dimmed ? 0.4 : 1)
+        // A cap draws a glyph, and a glyph is not a word: left alone,
+        // VoiceOver reads ⌘ as "place of interest sign". The modifier caps
+        // carry an engraved "cmd"/"shift" label too, which would be read as a
+        // second element — one name for the whole cap instead.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(KeyGlyphSpeech.spoken(key)))
     }
 
     /// Single key — square (widens only for multi-char labels like F12).

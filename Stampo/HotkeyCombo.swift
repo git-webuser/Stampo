@@ -58,17 +58,13 @@ struct HotkeyCombo: Codable, Equatable, Hashable {
     /// Single-string form for compact display (e.g. menus): `⌃⌥⌘N`.
     var displayString: String { displayCaps.joined() }
 
-    /// Spoken form for VoiceOver: `Control Option Command N`. The glyphs the
-    /// caps are drawn from have no useful pronunciation — ⌘ is read as its
-    /// Unicode name, "place of interest sign" — so the modifiers are named and
-    /// the punctuation keys spelled out. The names stay in Latin on purpose:
-    /// that is how the keys are labelled on the hardware in every locale.
+    /// Spoken form for VoiceOver: `Control Option Command N`.
     var spokenDescription: String {
         var parts: [String] = []
-        if hasControl { parts.append("Control") }
-        if hasOption  { parts.append("Option") }
-        if hasShift   { parts.append("Shift") }
-        if hasCommand { parts.append("Command") }
+        if hasControl { parts.append(KeyGlyphSpeech.spoken("⌃")) }
+        if hasOption  { parts.append(KeyGlyphSpeech.spoken("⌥")) }
+        if hasShift   { parts.append(KeyGlyphSpeech.spoken("⇧")) }
+        if hasCommand { parts.append(KeyGlyphSpeech.spoken("⌘")) }
         parts.append(Self.spokenKeyLabel(for: keyCode))
         return parts.joined(separator: " ")
     }
@@ -81,27 +77,8 @@ struct HotkeyCombo: Codable, Equatable, Hashable {
 
     /// `keyLabel`, with the glyph-only keys replaced by their names.
     static func spokenKeyLabel(for code: UInt16) -> String {
-        if let spoken = spokenKeys[code] { return spoken }
-        return keyLabel(for: code)
+        KeyGlyphSpeech.spoken(keyLabel(for: code))
     }
-
-    /// Names for the keys `namedKeys` draws as a glyph. Letters, digits and
-    /// F-keys already read correctly and are left out.
-    private static let spokenKeys: [UInt16: String] = [
-        UInt16(kVK_ANSI_Minus): "Minus", UInt16(kVK_ANSI_Equal): "Equals",
-        UInt16(kVK_ANSI_LeftBracket): "Left Bracket",
-        UInt16(kVK_ANSI_RightBracket): "Right Bracket",
-        UInt16(kVK_ANSI_Backslash): "Backslash", UInt16(kVK_ANSI_Semicolon): "Semicolon",
-        UInt16(kVK_ANSI_Quote): "Quote", UInt16(kVK_ANSI_Comma): "Comma",
-        UInt16(kVK_ANSI_Period): "Period", UInt16(kVK_ANSI_Slash): "Slash",
-        UInt16(kVK_ANSI_Grave): "Backtick",
-        UInt16(kVK_Return): "Return", UInt16(kVK_Tab): "Tab", UInt16(kVK_Space): "Space",
-        UInt16(kVK_Delete): "Delete", UInt16(kVK_ForwardDelete): "Forward Delete",
-        UInt16(kVK_Escape): "Escape", UInt16(kVK_Home): "Home", UInt16(kVK_End): "End",
-        UInt16(kVK_PageUp): "Page Up", UInt16(kVK_PageDown): "Page Down",
-        UInt16(kVK_LeftArrow): "Left Arrow", UInt16(kVK_RightArrow): "Right Arrow",
-        UInt16(kVK_UpArrow): "Up Arrow", UInt16(kVK_DownArrow): "Down Arrow",
-    ]
 
     /// Virtual-key-code → display label for keys a user can bind.
     private static let namedKeys: [UInt16: String] = {
@@ -137,4 +114,39 @@ struct HotkeyCombo: Codable, Equatable, Hashable {
         for (i, code) in fkeys.enumerated() { m[UInt16(code)] = "F\(i + 1)" }
         return m
     }()
+}
+
+// MARK: - Key glyph speech
+
+/// Names for the glyphs the app draws keys with.
+///
+/// A key cap is a glyph — ⌘, ⇧, ⇞ — and read as a character that is what
+/// VoiceOver says: "place of interest sign", "upwards white arrow". Every
+/// place that hands a key to VoiceOver goes through here, so the recorder's
+/// value, the key caps in Settings and the editor's shortcut hints all say the
+/// same words.
+///
+/// The names stay in Latin on purpose: that is how the keys are labelled on
+/// the hardware in every locale.
+enum KeyGlyphSpeech {
+    /// One glyph or label → what to say. Letters, digits and F-keys already
+    /// read correctly and are absent.
+    private static let names: [String: String] = [
+        "⌃": "Control", "⌥": "Option", "⇧": "Shift", "⌘": "Command",
+        "↩": "Return", "⇥": "Tab", "␣": "Space",
+        "⌫": "Delete", "⌦": "Forward Delete", "⎋": "Escape",
+        "↖": "Home", "↘": "End", "⇞": "Page Up", "⇟": "Page Down",
+        "←": "Left Arrow", "→": "Right Arrow", "↑": "Up Arrow", "↓": "Down Arrow",
+        "-": "Minus", "=": "Equals", "[": "Left Bracket", "]": "Right Bracket",
+        "\\": "Backslash", ";": "Semicolon", "'": "Quote", ",": "Comma",
+        ".": "Period", "/": "Slash", "`": "Backtick",
+    ]
+
+    /// A whole cap label (`"⌘"`, `"F12"`, `"A"`) → spoken form.
+    static func spoken(_ label: String) -> String { names[label] ?? label }
+
+    /// A run of caps (`"⇧⌘X"`) → `"Shift Command X"`.
+    static func spokenRun(_ label: String) -> String {
+        label.map { spoken(String($0)) }.joined(separator: " ")
+    }
 }

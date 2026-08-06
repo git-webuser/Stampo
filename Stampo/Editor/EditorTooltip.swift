@@ -28,19 +28,6 @@ private final class PassthroughTooltipView: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
 
-/// Glyph → spoken name, for the accessibility hint. Same reason as
-/// `HotkeyCombo.spokenDescription`: read as characters, ⌘ is "place of
-/// interest sign" and ⇧ is "upwards white arrow".
-private let spokenGlyphs: [Character: String] = [
-    "⌘": "Command", "⌥": "Option", "⌃": "Control", "⇧": "Shift",
-    "↩": "Return", "⌫": "Delete", "⎋": "Escape", "⇥": "Tab", "␣": "Space",
-]
-
-/// `"⇧⌘X"` → `"Shift Command X"`.
-private func spokenShortcut(_ label: String) -> String {
-    label.map { spokenGlyphs[$0] ?? String($0) }.joined(separator: " ")
-}
-
 extension View {
     /// Attaches a hover tooltip (and matching accessibility label) resolved
     /// from `key` in the app's string catalog via the current in-app language.
@@ -55,6 +42,6 @@ extension View {
         let text = shortcut.map { "\(localized) (\($0))" } ?? localized
         return overlay(TooltipCarrier(text: text).allowsHitTesting(false))
             .accessibilityLabel(Text(verbatim: localized))
-            .accessibilityHint(Text(verbatim: shortcut.map(spokenShortcut) ?? ""))
+            .accessibilityHint(Text(verbatim: shortcut.map(KeyGlyphSpeech.spokenRun) ?? ""))
     }
 }
