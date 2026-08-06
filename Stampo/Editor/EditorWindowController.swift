@@ -39,6 +39,7 @@ final class EditorWindowController: NSObject, NSWindowDelegate {
         // Same file already open — just come forward.
         if let document, document.sourceURL == url, let window {
             window.makeKeyAndOrderFront(nil)
+            window.focusHostedContent()
             NSApp.activate(ignoringOtherApps: true)
             return
         }
@@ -70,6 +71,7 @@ final class EditorWindowController: NSObject, NSWindowDelegate {
             window.contentMinSize = EditorView.minimumContentSize
             window.title = url.lastPathComponent
             window.makeKeyAndOrderFront(nil)
+            window.focusHostedContent()
         } else {
             let hosting = NSHostingController(rootView: root)
             let window = NSWindow(contentViewController: hosting)
@@ -83,6 +85,7 @@ final class EditorWindowController: NSObject, NSWindowDelegate {
             window.center()
             self.window = window
             window.makeKeyAndOrderFront(nil)
+            window.focusHostedContent()
         }
         // Mandatory for an LSUIElement app: without activation the window
         // never becomes key and the text tool can't take keyboard focus.
@@ -279,5 +282,25 @@ final class EditorWindowController: NSObject, NSWindowDelegate {
         return NSSize(width: max(EditorView.minimumContentSize.width, w),
                       height: max(EditorView.minimumContentSize.height,
                                   h + toolbarAllowance))
+    }
+}
+
+// MARK: - Keyboard focus
+
+extension NSWindow {
+    /// Hands keyboard focus to the hosted SwiftUI content.
+    ///
+    /// Ordering a window front makes it key; it does not make anything inside
+    /// it first responder. The window stays first responder itself, and
+    /// SwiftUI's focus engine — which only runs while its hosting view holds
+    /// that role — never starts. Measured before this call existed: twelve
+    /// `selectNextKeyView` in a row moved focus exactly nowhere, so Tab had
+    /// nothing to walk and the toolbar's focus rings had no way to appear.
+    ///
+    /// Whatever takes focus afterwards wins normally — the inline text editor
+    /// makes itself first responder when it opens, and that still holds.
+    func focusHostedContent() {
+        guard let contentView else { return }
+        makeFirstResponder(contentView)
     }
 }

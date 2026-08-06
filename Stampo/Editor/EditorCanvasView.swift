@@ -1421,6 +1421,12 @@ struct EditorCanvasView: View {
             guard self.editingTextID == nil else { return event }
 
             if event.keyCode == 49 { // Space
+                // Hold-to-pan owns Space on the canvas — but not while a
+                // toolbar button holds keyboard focus, where Space is simply
+                // how a button is pressed. Swallowing it there left the shape
+                // and drawing pickers unreachable from the keyboard: focus
+                // could land on them and nothing could open them.
+                if ToolbarFocus.shared.isAnyFocused { return event }
                 self.isSpaceHeld = event.type == .keyDown
                 return nil
             }
