@@ -1,4 +1,4 @@
-# Stampo
+<img src="assets/brand/banner.png" alt="Stampo — screenshots, scan, colors" width="812">
 
 Screenshot, text capture, and color picker for any Mac. The panel lives at the notch (or at the center of the menu bar on screens without one) — no Dock icon, minimal menu bar presence.
 
