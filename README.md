@@ -2,8 +2,6 @@
 
 Screenshot, text capture, and color picker for any Mac. The panel lives at the notch (or at the center of the menu bar on screens without one) — no Dock icon, minimal menu bar presence.
 
-![The Stampo panel, open at the notch](assets/screenshots/panel-capture.png)
-
 ---
 
 ## What is Stampo
@@ -56,6 +54,8 @@ To grant it: **System Settings → Privacy & Security → Screen Recording** →
 Clicking the notch and global hotkeys work without any permission — they use standard AppKit event monitors and a Carbon hotkey, so there's no Input Monitoring prompt.
 
 ## How to use
+
+![The Stampo panel, open at the notch](assets/screenshots/panel-capture.png)
 
 - **Click the notch** (or the top center of the menu bar on screens without one) to open the panel. Click it again to close, or press `⌃⌥⌘N`.
 - **Click a capture mode** to start a screenshot, scan, or color pick.
