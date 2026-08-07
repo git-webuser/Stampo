@@ -212,6 +212,12 @@ private struct PersistedArchiveItem: Codable {
 
     init() {
         restoreIfNeeded()
+        #if DEBUG
+        if DemoArchive.isEnabled {
+            items.removeAll()
+            DemoArchive.populate(self)
+        }
+        #endif
     }
 
     deinit {
@@ -487,6 +493,11 @@ private struct PersistedArchiveItem: Codable {
     // MARK: Persistence
 
     private func persistIfNeeded() {
+        #if DEBUG
+        // Demo mode owns the archive for this run only — writing its fake
+        // entries out would overwrite whatever the real archive holds.
+        if DemoArchive.isEnabled { return }
+        #endif
         guard AppSettings.persistTray else { return }
         if let data = Self.encodePersistedItems(items) {
             UserDefaults.standard.set(data, forKey: AppSettings.Keys.trayPersistedData)
