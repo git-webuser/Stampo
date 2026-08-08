@@ -224,6 +224,7 @@ final class NotchHoverController: NSObject {
     private func installHotKey() {
         HotkeyAction.migrateIfNeeded()
         HotkeyAction.migrateScanMergeIfNeeded()
+        HotkeyAction.migratePinReshuffleIfNeeded()
         var eventSpec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
 
         let callback: EventHandlerUPP = { _, eventRef, userData in
@@ -332,6 +333,11 @@ final class NotchHoverController: NSObject {
         case 10:
             // Share the newest archive entry — archive up, share sheet on it
             panel.shareLastArchiveItem(on: screen)
+        case 11:
+            // Translate whatever text is on the clipboard. Reading the
+            // pasteboard needs no permission, unlike lifting a selection out
+            // of another app, which is why the user presses ⌘C first.
+            panel.translateClipboard(on: screen)
         default:
             break
         }

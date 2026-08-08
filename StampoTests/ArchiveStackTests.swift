@@ -192,14 +192,16 @@ import Testing
     /// The row is named for the flow it enables, not for the mechanism. It was
     /// "Pin Panel" — named for what the keystroke literally does — until that
     /// turned out to disagree with everything around it: the icon draws files
-    /// arriving, the README calls the feature Collect files, and "pin" already
-    /// means something else one row above (pinning a screenshot above all
-    /// windows). Pinning the panel is how this works, not what it is for.
-    @Test func collectFilesRowMetadataIsFilledIn() {
+    /// Renamed from Collect files: the action opens the archive pinned, which
+    /// is the same state as the pin button in the archive header, and it now
+    /// carries that button's glyph and wording. "Pin" no longer clashes with
+    /// the row above — floating a capture above all windows took a distinct
+    /// glyph precisely so these two stopped looking alike at 14pt.
+    @Test func pinPanelRowMetadataIsFilledIn() {
         #expect(HotkeyAction.collectFiles.rawValue == 9)
-        #expect(HotkeyAction.collectFiles.labelKey == "Collect Files")
-        #expect(HotkeyAction.collectFiles.icon == "arrow.down.document")
-        #expect(HotkeyAction.collectFiles.defaultCombo.displayString == "⌃⌥⌘T")
+        #expect(HotkeyAction.collectFiles.labelKey == "Pin Panel")
+        #expect(HotkeyAction.collectFiles.icon == "pin")
+        #expect(HotkeyAction.collectFiles.defaultCombo.displayString == "⌃⌥⌘P")
     }
 
     @Test func collectFilesDefaultComboIsNotSystemReserved() {
