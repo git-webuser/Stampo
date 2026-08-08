@@ -43,11 +43,27 @@ import Testing
 @Suite struct PanelEscapeTests {
 
     @Test func expandedStackSwallowsTheFirstEscape() {
-        #expect(PanelState.archive.escapeAction(hasExpandedStack: true) == .collapseStack)
+        #expect(PanelState.archive.escapeAction(
+            hasExpandedStack: true, translateCameFromArchive: false) == .collapseStack)
     }
 
     @Test func escapeClosesThePanelOnceNothingIsExpanded() {
-        #expect(PanelState.archive.escapeAction(hasExpandedStack: false) == .hidePanel)
+        #expect(PanelState.archive.escapeAction(
+            hasExpandedStack: false, translateCameFromArchive: false) == .hidePanel)
+    }
+
+    /// Reading an archive entry in the Translator is a layer over the archive,
+    /// the way an expanded stack is: the first press puts it back.
+    @Test func aPreviewOpenedFromTheArchiveGoesBackToIt() {
+        #expect(PanelState.translate.escapeAction(
+            hasExpandedStack: false, translateCameFromArchive: true) == .backToArchive)
+    }
+
+    /// A translation raised over nothing has no archive to return to — the
+    /// press closes the panel, as it does everywhere else.
+    @Test func aTranslationRaisedOnItsOwnClosesThePanel() {
+        #expect(PanelState.translate.escapeAction(
+            hasExpandedStack: false, translateCameFromArchive: false) == .hidePanel)
     }
 
     /// A stack can only be expanded inside the archive, but the flag outlives
@@ -55,7 +71,8 @@ import Testing
     /// close the panel then, not collapse something the user can no longer see.
     @Test(arguments: [PanelState.main, .showing, .countdown, .transitioning(to: .main)])
     func onlyTheArchiveCollapsesInsteadOfClosing(state: PanelState) {
-        #expect(state.escapeAction(hasExpandedStack: true) == .hidePanel)
+        #expect(state.escapeAction(
+            hasExpandedStack: true, translateCameFromArchive: false) == .hidePanel)
     }
 
     @Test(arguments: [PanelState.showing, .main, .archive, .countdown])

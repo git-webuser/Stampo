@@ -16,8 +16,23 @@ import SwiftUI
 
     struct Result: Equatable {
         var source: String
+        /// What the body shows. The translation, or — before there is one —
+        /// the original.
         var translated: String
         var pair: TranslationPair
+        /// False while the body is showing text that has not been translated
+        /// yet: an archive entry opened for reading. The language menu is then
+        /// an offer rather than a report, and picking the language it already
+        /// names has to do something.
+        var isTranslated: Bool = true
+
+        /// An archive entry on show, with the language it would go to if asked.
+        static func preview(of text: String) -> Result {
+            Result(source: text,
+                   translated: text,
+                   pair: TranslationService.englishRussianRoute(for: text),
+                   isTranslated: false)
+        }
     }
 
     private(set) var result: Result?
@@ -84,7 +99,9 @@ import SwiftUI
     func retranslate(to language: Locale.Language) {
         guard let current = result, !isReworking else { return }
         let pair = TranslationService.route(for: current.source, target: language)
-        guard pair != current.pair else { return }
+        // An untranslated preview always runs, even for the language the menu
+        // is already showing — that is the whole gesture there.
+        guard !current.isTranslated || pair != current.pair else { return }
 
         isReworking = true
         Task { @MainActor in

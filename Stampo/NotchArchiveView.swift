@@ -31,6 +31,7 @@ struct NotchArchiveView: View {
     let onBack: () -> Void
     let onHidePanel: () -> Void
     let onTogglePin: () -> Void
+    let onPreviewText: (String) -> Void
 
     @AppStorage(AppSettings.Keys.defaultColorFormat) private var scheme: ColorSchemeType = .hex
     /// Whether Space over a cell opens a preview. Read here rather than from
@@ -50,6 +51,7 @@ struct NotchArchiveView: View {
     /// there is one. Space is claimed system-wide while registered, so it is
     /// held only while the pointer actually rests on a previewable cell.
     @State private var hoveredPreviewURLs: [URL] = []
+    @State private var hoveredText: String?
     @State private var spaceToken: UUID?
     /// True while any archive cell is mid drag-out (its ArchiveDragShim reports through
     /// `InternalDraggingKey`). SwiftUI's `.onDrop` also fires `isDropTargeted`
@@ -157,6 +159,7 @@ struct NotchArchiveView: View {
             guard !isContentVisible else { return }
             expandedStackID = nil
             hoveredPreviewURLs = []
+            hoveredText = nil
             updateSpaceHotkey()
         }
         // Clear the stored id once its stack is gone (last member removed, trim,
@@ -171,6 +174,10 @@ struct NotchArchiveView: View {
             hoveredPreviewURLs = urls
             updateSpaceHotkey()
         }
+        .onPreferenceChange(HoveredTextKey.self) { text in
+            hoveredText = text
+            updateSpaceHotkey()
+        }
         // Turning the preview off gives the key back on the spot, even with the
         // pointer still resting on a cell: the whole point of the switch is that
         // Space stops being ours, and "after you move the mouse" is not that.
@@ -180,6 +187,7 @@ struct NotchArchiveView: View {
         }
         .onDisappear {
             hoveredPreviewURLs = []
+            hoveredText = nil
             updateSpaceHotkey()
         }
     }
@@ -220,6 +228,17 @@ struct NotchArchiveView: View {
             TransientHotkeyCenter.space.remove(token)
             spaceToken = nil
         }
+        // Text first: a cell is one kind or the other, and only the text one
+        // sets this. Recognized text and scanned links have nothing Quick Look
+        // could open — a payload is not a file — so they open in the panel,
+        // where they are already legible and one menu away from a translation.
+        if spacePreviewEnabled, isContentVisible, let text = hoveredText {
+            spaceToken = TransientHotkeyCenter.space.push {
+                onPreviewText(text)
+            }
+            return
+        }
+
         guard Self.wantsSpaceHotkey(enabled: spacePreviewEnabled,
                                     isContentVisible: isContentVisible,
                                     hoveredURLs: hoveredPreviewURLs)
@@ -1092,6 +1111,7 @@ private struct ArchiveTextCell: View {
             MenuCommandButton("Remove from archive", icon: .remove) { onRemove() }
         }
         .preference(key: InternalDraggingKey.self, value: isDragging)
+        .preference(key: HoveredTextKey.self, value: isHovered ? item.text : nil)
         .accessibilityLabel("Recognized text \(item.firstLine)")
         .accessibilityHint("Tap to copy, drag to carry the text out")
         .accessibilityAddTraits(.isButton)
@@ -1944,6 +1964,16 @@ private struct InternalDraggingKey: PreferenceKey {
 
 /// Files of the cell currently under the pointer, for Space-to-preview.
 /// First non-empty wins — cells never overlap, so at most one publishes.
+/// Text under the pointer, for the Space preview. Separate from the file
+/// key: one goes to Quick Look, the other opens in the panel, and a cell can
+/// only ever be one of the two.
+private struct HoveredTextKey: PreferenceKey {
+    static let defaultValue: String? = nil
+    static func reduce(value: inout String?, nextValue: () -> String?) {
+        value = nextValue() ?? value
+    }
+}
+
 private struct HoveredPreviewKey: PreferenceKey {
     static let defaultValue: [URL] = []
     static func reduce(value: inout [URL], nextValue: () -> [URL]) {

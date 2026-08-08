@@ -23,6 +23,11 @@ enum PanelTiming {
     /// Body content fading in once an expanded route has finished opening.
     /// Slower than the dissolve: arriving deserves more ceremony than leaving.
     static let contentReveal:       TimeInterval = 0.18
+    /// The shape settling between two expanded routes. Shorter than the spring
+    /// that drives it: the body may reappear while the last of the travel is
+    /// still easing out, and waiting for the spring to be arithmetically done
+    /// reads as a pause.
+    static let routeSwapMorph:      TimeInterval = 0.26
     /// Full archive-open/close morph (shape + position).
     static let archiveCloseMorph:      TimeInterval = 0.32
     /// Delay between showAnimated() and switchToArchive() so the open
@@ -140,8 +145,12 @@ extension PanelState {
     /// press after. It stops there: returning to Main is what the back button
     /// is for, and a third press before the panel disappears would undo the
     /// "Esc means gone" reflex.
-    func escapeAction(hasExpandedStack: Bool) -> EscapeAction {
+    func escapeAction(hasExpandedStack: Bool, translateCameFromArchive: Bool) -> EscapeAction {
         if case .archive = self, hasExpandedStack { return .collapseStack }
+        // Reading an archive entry in the Translator is a layer over the
+        // archive, like the expanded stack is: Esc puts it back rather than
+        // taking the panel with it, the same way it behaves over Quick Look.
+        if case .translate = self, translateCameFromArchive { return .backToArchive }
         return .hidePanel
     }
 }
@@ -149,6 +158,7 @@ extension PanelState {
 /// What a press of Esc does at a given moment (see `PanelState.escapeAction`).
 enum EscapeAction: Equatable {
     case collapseStack
+    case backToArchive
     case hidePanel
 }
 
@@ -184,6 +194,8 @@ private struct NotchPanelRootView: View {
     let onScan: () -> Void
     let onModeDelayChanged: () -> Void
     let onBack: () -> Void
+    let onLeaveTranslate: () -> Void
+    let onPreviewText: (String) -> Void
     let onHidePanel: () -> Void
     let onTogglePin: () -> Void
     let onStopCountdown: () -> Void
@@ -330,7 +342,8 @@ private struct NotchPanelRootView: View {
                     && rootState.route == .archive,
                 onBack: onBack,
                 onHidePanel: onHidePanel,
-                onTogglePin: onTogglePin
+                onTogglePin: onTogglePin,
+                onPreviewText: onPreviewText
             )
             .opacity(rootState.routeContentVisible)
             .opacity(rootState.route == .archive ? p : 0)
@@ -351,7 +364,7 @@ private struct NotchPanelRootView: View {
                 metrics: m,
                 model: TranslationPanelModel.shared,
                 isPinned: rootState.isArchivePinned,
-                onBack: onBack,
+                onBack: onLeaveTranslate,
                 onTogglePin: onTogglePin
             )
             // Not tied to the morph. The archive's cells fade in with the
@@ -393,6 +406,9 @@ final class NotchPanelController: NSObject {
     /// SharePicker.swift). The share sheet is its own window, so the panel it
     /// was opened from must not slide away underneath it.
     private var isSharePickerOpen: Bool = false
+    /// Where `leaveTranslate` goes — set when the Translator is raised, so a
+    /// preview opened over the archive returns to it instead of to Main.
+    private(set) var translateReturnRoute: NotchPanelRoute = .main
     /// True while the Quick Look panel is up (see QuickLookPresenter) — the
     /// preview is anchored to nothing, so the panel behind it must stay put.
     private var isQuickLookOpen: Bool = false
@@ -683,9 +699,9 @@ final class NotchPanelController: NSObject {
             else { return }
             MainActor.assumeIsolated {
                 TranslationPanelModel.shared.present(result, bodyWidth: self.translateBodyWidth)
-                // Already up: only the text changes, no morph.
+                // Already showing: only the text changes, no morph.
                 guard self.route != .translate else { return }
-                self.switchToTranslate()
+                self.presentTranslation(on: self.currentScreen)
             }
         }
         let t9 = NotificationCenter.default.addObserver(
@@ -909,21 +925,34 @@ final class NotchPanelController: NSObject {
             feedbackHUD.show(.nothingToTranslate, on: screen)
             return
         }
+        // Nothing is opened here. The result raises the Translator when it
+        // arrives — bringing the archive up first was a leftover from before
+        // the Translator existed, and it put a route nobody asked for on the
+        // way to the one they did.
+        ArchiveTranslate.run(clipboard, archiveModel: archiveModel, on: screen)
+    }
 
-        let translate = { [weak self] in
-            guard let self else { return }
-            ArchiveTranslate.run(clipboard, archiveModel: self.archiveModel, on: screen)
-        }
+    /// Raises the Translator, opening the panel first if it is not up.
+    ///
+    /// A translation can land with the panel hidden — the scan overlay hides it
+    /// before capturing, and the clipboard hotkey never opened it — and
+    /// `switchToTranslate` on its own only morphs a panel already on screen.
+    /// Without this the route was set behind a hidden window and appeared on
+    /// the next click, which is not where the user left the gesture.
+    func presentTranslation(on screen: NSScreen?, returningTo source: NotchPanelRoute? = nil) {
+        guard let target = screen ?? currentScreen ?? NSScreen.main ?? NSScreen.screens.first
+        else { return }
+        // Default: back out to wherever the panel already was. Raised over a
+        // hidden panel that is Main, raised from the archive that is the
+        // archive — which is what a preview wants without having to say so.
+        let destination = source ?? (isVisible && route == .archive ? .archive : .main)
 
         if isVisible && !needsSpaceRebind {
-            if route != .archive { switchToArchive() }
-            translate()
+            switchToTranslate(returningTo: destination)
         } else {
-            showAnimated(on: screen, forceRebind: needsSpaceRebind)
+            showAnimated(on: target, forceRebind: needsSpaceRebind)
             DispatchQueue.main.asyncAfter(deadline: .now() + PanelTiming.showBeforeArchive) { [weak self] in
-                guard let self else { return }
-                if self.route != .archive { self.switchToArchive() }
-                translate()
+                self?.switchToTranslate(returningTo: destination)
             }
         }
     }
@@ -1311,11 +1340,16 @@ final class NotchPanelController: NSObject {
         if wantsEsc, escToken == nil {
             escToken = TransientHotkeyCenter.escape.push { [weak self] in
                 guard let self, self.isVisible else { return }
-                switch self.state.escapeAction(hasExpandedStack: self.archiveExpansion.stackID != nil) {
+                switch self.state.escapeAction(
+                    hasExpandedStack: self.archiveExpansion.stackID != nil,
+                    translateCameFromArchive: self.translateReturnRoute == .archive
+                ) {
                 case .collapseStack:
                     withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
                         self.archiveExpansion.stackID = nil
                     }
+                case .backToArchive:
+                    self.leaveTranslate()
                 case .hidePanel:
                     self.hideAnimated(reason: .escKey)
                 }
@@ -1387,6 +1421,13 @@ final class NotchPanelController: NSObject {
             onScan: { [weak self] in self?.scan() },
             onModeDelayChanged: { [weak self] in self?.updateWidthForNoNotchIfNeeded() },
             onBack: { [weak self] in self?.switchToMain() },
+            onLeaveTranslate: { [weak self] in self?.leaveTranslate() },
+            onPreviewText: { [weak self] text in
+                guard let self else { return }
+                TranslationPanelModel.shared.present(.preview(of: text),
+                                                     bodyWidth: self.translateBodyWidth)
+                self.presentTranslation(on: self.currentScreen, returningTo: .archive)
+            },
             onHidePanel: { [weak self] in self?.hideAnimated(reason: .closeButton) },
             onTogglePin: { [weak self] in self?.rootState.isArchivePinned.toggle() },
             onStopCountdown: { [weak self] in self?.stopCountdown() },
@@ -1422,9 +1463,24 @@ final class NotchPanelController: NSObject {
     /// this never toggles: it is reached by finishing a translation, and a
     /// second result arriving while it is open should replace the text, not
     /// close the panel.
-    func switchToTranslate() {
+    func switchToTranslate(returningTo source: NotchPanelRoute = .main) {
         guard route != .translate else { return }
+        translateReturnRoute = source
         transitionBetweenStates(.translate)
+    }
+
+    /// Back out of the Translator to wherever it was opened from. A
+    /// translation raised over nothing goes to Main; an archive entry opened
+    /// for reading goes back to the archive it was read from.
+    func leaveTranslate() {
+        guard route == .translate else { return }
+        let destination = translateReturnRoute
+        translateReturnRoute = .main
+        if destination == .archive {
+            transitionBetweenStates(.archive)
+        } else {
+            switchToMain()
+        }
     }
 
     func switchToMain() {
@@ -1461,6 +1517,38 @@ final class NotchPanelController: NSObject {
         // the Translator's is whatever its text asked for.
         let leavingHeight = routeHeight(for: route)
         let closeStretch = min(1.5, max(1, leavingHeight / archivePanelHeight))
+
+        // Archive ⇄ Translator is neither an open nor a close: both are already
+        // expanded and at full progress, so the only travel is the shape's
+        // height. `route` is a discrete value with nothing to interpolate, so
+        // whichever body is on screen was being snapped away and the other
+        // snapped in — headers and all. Given its own phase it dissolves out,
+        // the shape moves, and the arriving body dissolves in.
+        let swappingExpandedRoutes = targetRoute != .main
+            && (route == .archive || route == .translate)
+            && route != targetRoute
+
+        if swappingExpandedRoutes {
+            withAnimation(.easeOut(duration: PanelTiming.contentDissolve)) {
+                rootState.routeContentVisible = 0.0
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + PanelTiming.contentDissolve) { [weak self] in
+                guard let self, self.animationGeneration == gen else { return }
+                // Height only: progress is already 1 and the width is the
+                // same, so the shape's own `extraHeight` spring does the work.
+                self.route = targetRoute
+
+                DispatchQueue.main.asyncAfter(deadline: .now() + PanelTiming.routeSwapMorph) { [weak self] in
+                    guard let self, self.animationGeneration == gen else { return }
+                    self.state = targetRoute == .translate ? .translate : .archive
+                    self.interactionState.isEnabled = true
+                    withAnimation(.easeOut(duration: PanelTiming.contentReveal)) {
+                        self.rootState.routeContentVisible = 1.0
+                    }
+                }
+            }
+            return
+        }
 
         if targetRoute == .main {
             // Step 1: hide content in a separate render pass (without withAnimation).
