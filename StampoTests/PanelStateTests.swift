@@ -7,6 +7,11 @@ import Testing
         #expect(!PanelState.transitioning(to: .archive).allowsAutoHide)
         #expect(!PanelState.transitioning(to: .main).allowsAutoHide)
         #expect(!PanelState.countdown.allowsAutoHide)
+        // The wait is raised by the app, not by the pointer — which is
+        // therefore nowhere near it. Left to the ordinary "mouse left" rule
+        // the panel would close itself in the middle of the translation it
+        // opened to report.
+        #expect(!PanelState.translating.allowsAutoHide)
         #expect(!PanelState.preSelection(.selection).allowsAutoHide)
         #expect(!PanelState.preSelection(.window).allowsAutoHide)
     }
@@ -16,6 +21,7 @@ import Testing
         #expect(PanelState.showing.allowsAutoHide)
         #expect(PanelState.main.allowsAutoHide)
         #expect(PanelState.archive.allowsAutoHide)
+        #expect(PanelState.translate.allowsAutoHide)
         #expect(PanelState.hiding.allowsAutoHide)
         #expect(PanelState.stale(reason: .sleep).allowsAutoHide)
     }
@@ -75,7 +81,7 @@ import Testing
             hasExpandedStack: true, translateCameFromArchive: false) == .hidePanel)
     }
 
-    @Test(arguments: [PanelState.showing, .main, .archive, .countdown])
+    @Test(arguments: [PanelState.showing, .main, .archive, .translate, .countdown, .translating])
     func visibleStatesHoldTheHotkey(state: PanelState) {
         #expect(state.wantsEscapeHotkey(isSharePickerOpen: false))
     }

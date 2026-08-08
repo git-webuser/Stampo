@@ -91,6 +91,11 @@ enum PanelState {
     case translate
     case hiding
     case countdown
+    /// A translation is running and the panel is showing the wait. Its own
+    /// state because the panel must not auto-hide out from under it: it was
+    /// raised by the app, not by the pointer, so the pointer is nowhere near
+    /// it and the ordinary "mouse left" rule would close it mid-thought.
+    case translating
     /// Panel hidden, an external selection overlay (rect or window) is up.
     /// The overlay session is part of the panel lifecycle so the hover
     /// controller knows to suppress auto-close while it's active.
@@ -111,7 +116,7 @@ extension PanelState {
     /// an outside click should auto-close the panel.
     var allowsAutoHide: Bool {
         switch self {
-        case .transitioning, .countdown, .preSelection: return false
+        case .transitioning, .countdown, .translating, .preSelection: return false
         case .hidden, .showing, .main, .archive, .translate, .hiding, .stale: return true
         }
     }
@@ -134,7 +139,7 @@ extension PanelState {
     func wantsEscapeHotkey(isSharePickerOpen: Bool) -> Bool {
         guard !isSharePickerOpen else { return false }
         switch self {
-        case .showing, .main, .archive, .translate, .countdown: return true
+        case .showing, .main, .archive, .translate, .countdown, .translating: return true
         case .hidden, .transitioning, .hiding, .preSelection, .stale: return false
         }
     }
@@ -177,6 +182,16 @@ enum EscapeAction: Equatable {
     var countdownSeconds: Int = 0
     var countdownTotal: Int = 0
     var isArchivePinned: Bool = false
+    /// 0 = Main visible, 1 = the "translating" strip's contents visible.
+    /// Crossfaded over Main without a morph, exactly as the countdown is.
+    var translatingVisible: CGFloat = 0.0
+    /// Whether the panel is *shaped* as the strip — its own width and its own
+    /// fixed-radius outline. Separate from the opacity above because the two
+    /// have to move at different moments: the glyphs dissolve first, and only
+    /// once they are gone does the panel stop being a strip and start morphing
+    /// into the Translator. Sharing one value snapped them away at the instant
+    /// the morph began.
+    var translatingStripVisible: Bool = false
 }
 
 private struct NotchPanelRootView: View {
@@ -225,6 +240,9 @@ private struct NotchPanelRootView: View {
     /// which is the common case for a sentence.
     private var extraH: CGFloat { routeH - archiveH }
 
+    /// The panel is showing the wait rather than any route.
+    private var isTranslating: Bool { rootState.translatingStripVisible }
+
     var body: some View {
         // Notch style on a notch-less screen renders the whole panel at its 34pt
         // design size, then scales it uniformly (shape, buttons, fonts, paddings)
@@ -264,7 +282,16 @@ private struct NotchPanelRootView: View {
             //   • notch style: pinned to the top edge → square top corners flush
             //     with the screen edge, rounded bottom corners (a clean "tab").
             //   • rounded style: a full rounded rectangle below the menu bar.
-            if m.hasNotch {
+            if isTranslating {
+                // Fixed radii, drawn at whatever width the strip is. The morph
+                // keyframes are an X-scaled 536-wide viewBox, and at the
+                // strip's width their corners come out half as wide as they
+                // are tall — the same distortion the no-notch styles avoid.
+                NotchTabShape()
+                    .fill(Color.black)
+                    .frame(height: m.panelHeight)
+                    .frame(height: windowH, alignment: .top)
+            } else if m.hasNotch {
                 PanelMorphShape(progress: p, pixel: m.pixel, extraHeight: extraH)
                     .fill(Color.black)
                     .compositingGroup()
@@ -303,9 +330,21 @@ private struct NotchPanelRootView: View {
                 onScan: onScan,
                 onModeDelayChanged: onModeDelayChanged
             )
-            .opacity(max(0.0, min(1.0, (0.6 - p) / 0.6)) * (1.0 - rootState.countdownVisible))
+            // The Translator is never opened *from* Main — it is reached from
+            // the wait, from the archive, or from nothing at all. Main is
+            // therefore not the thing being left behind, and showing it while
+            // the panel grows put a row of buttons on screen that flashed once
+            // and left: nobody had been looking at them, and nobody asked for
+            // them. Every other route still fades Main out as it opens over it.
+            .opacity(max(0.0, min(1.0, (0.6 - p) / 0.6))
+                     * (1.0 - rootState.countdownVisible)
+                     * (1.0 - rootState.translatingVisible)
+                     * (rootState.route == .translate ? 0.0 : 1.0))
             .animation(.easeOut(duration: PanelTiming.crossfade), value: rootState.countdownVisible)
-            .allowsHitTesting(p < 0.5 && rootState.countdownVisible < 0.5)
+            .animation(.easeOut(duration: PanelTiming.crossfade), value: rootState.translatingVisible)
+            .allowsHitTesting(p < 0.5 && rootState.countdownVisible < 0.5
+                              && rootState.translatingVisible < 0.5
+                              && rootState.route != .translate)
 
             // Countdown — crossfades over Main without resizing the panel
             CountdownView(
@@ -320,6 +359,12 @@ private struct NotchPanelRootView: View {
             .animation(.easeOut(duration: PanelTiming.crossfade), value: rootState.countdownVisible)
             .allowsHitTesting(rootState.countdownVisible >= 0.5)
             .frame(height: m.panelHeight)
+
+            // The wait — same crossfade, same strip, no morph.
+            TranslatingView(metrics: m, interaction: interaction)
+                .opacity(rootState.translatingVisible)
+                .animation(.easeOut(duration: PanelTiming.crossfade), value: rootState.translatingVisible)
+                .frame(height: m.panelHeight)
 
             // Archive — appears as p→1; content is pre-faded via routeContentVisible.
             // Two separate opacity modifiers: SwiftUI tracks them independently so
@@ -690,6 +735,39 @@ final class NotchPanelController: NSObject {
             guard let url = note.object as? URL else { return }
             self?.archiveModel.add(screenshotURL: url)
         }
+        // Only when the panel is down. Raised from the archive by right-click,
+        // the archive is already on screen and worth more than a spinner —
+        // replacing it with one would take away what the user was looking at.
+        let tTranslateStart = NotificationCenter.default.addObserver(
+            forName: .translationDidStart,
+            object: nil, queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            MainActor.assumeIsolated {
+                guard !self.isVisible, let screen = self.currentScreen
+                        ?? NSScreen.main ?? NSScreen.screens.first else { return }
+                self.rootState.translatingStripVisible = true
+                self.rootState.translatingVisible = 1.0
+                self.showAnimated(on: screen, forceRebind: self.needsSpaceRebind)
+                self.state = .translating
+            }
+        }
+        let tTranslateEnd = NotificationCenter.default.addObserver(
+            forName: .translationDidEnd,
+            object: nil, queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            MainActor.assumeIsolated {
+                guard self.rootState.translatingStripVisible else { return }
+                // Nothing to show for it — a failed or empty translation. The
+                // glyphs still leave the way they would have on success.
+                self.dissolveStrip { [weak self] in
+                    guard let self else { return }
+                    if case .translating = self.state { self.state = .main }
+                }
+            }
+        }
+
         let tTranslate = NotificationCenter.default.addObserver(
             forName: .translationDidFinish,
             object: nil, queue: .main
@@ -701,7 +779,18 @@ final class NotchPanelController: NSObject {
                 TranslationPanelModel.shared.present(result, bodyWidth: self.translateBodyWidth)
                 // Already showing: only the text changes, no morph.
                 guard self.route != .translate else { return }
-                self.presentTranslation(on: self.currentScreen)
+                guard self.rootState.translatingStripVisible else {
+                    self.presentTranslation(on: self.currentScreen)
+                    return
+                }
+                // The strip is up: let its glyphs go before the panel stops
+                // being a strip. Clearing the shape flag is also what hands
+                // the width back, so the morph sizes the Translator to its own
+                // route rather than to the 270pt it is standing in.
+                self.dissolveStrip { [weak self] in
+                    guard let self else { return }
+                    self.presentTranslation(on: self.currentScreen)
+                }
             }
         }
         let t9 = NotificationCenter.default.addObserver(
@@ -746,7 +835,7 @@ final class NotchPanelController: NSObject {
             self?.isQuickLookOpen = false
         }
 
-        notificationObservers = [t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11, t12, t13, tTranslate]
+        notificationObservers = [t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11, t12, t13, tTranslate, tTranslateStart, tTranslateEnd]
     }
 
     deinit {
@@ -930,6 +1019,21 @@ final class NotchPanelController: NSObject {
         // the Translator existed, and it put a route nobody asked for on the
         // way to the one they did.
         ArchiveTranslate.run(clipboard, archiveModel: archiveModel, on: screen)
+    }
+
+    /// Fades the wait's glyphs out, then drops the strip's geometry and runs
+    /// `next`. The two steps are ordered rather than simultaneous for the same
+    /// reason every other body in this panel is: content never moves while the
+    /// shape does.
+    private func dissolveStrip(_ next: @escaping () -> Void) {
+        withAnimation(.easeOut(duration: PanelTiming.contentDissolve)) {
+            rootState.translatingVisible = 0.0
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + PanelTiming.contentDissolve) { [weak self] in
+            guard let self else { return }
+            self.rootState.translatingStripVisible = false
+            next()
+        }
     }
 
     /// Raises the Translator, opening the panel first if it is not up.

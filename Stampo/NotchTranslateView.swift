@@ -122,6 +122,101 @@ extension Notification.Name {
     /// points reach the translator from three different places in the view
     /// tree, and only one of them can see the controller.
     static let translationDidFinish = Notification.Name("Stampo.translationDidFinish")
+
+    /// Posted around the work itself, so the panel can say it is thinking. The
+    /// pair is always balanced — the end is posted whatever the outcome, or a
+    /// failed translation would leave a ring turning forever.
+    static let translationDidStart = Notification.Name("Stampo.translationDidStart")
+    static let translationDidEnd = Notification.Name("Stampo.translationDidEnd")
+}
+
+// MARK: - TranslatingView
+
+/// The wait. A strip the height of the notch row: the translator's glyph on
+/// the left shoulder, a turning ring on the right where the countdown puts its
+/// arc.
+///
+/// The ring turns rather than fills. The countdown knows how long it has —
+/// that is what a countdown is — while a translation finishes when the model
+/// finishes: a first run after launch can take seconds, a second one is
+/// instant, and there is no fraction to report. An arc filling towards a
+/// completion it cannot see would be a guess drawn as a fact.
+struct TranslatingView: View {
+    let metrics: NotchMetrics
+    var interaction: NotchPanelInteractionState
+
+    @Environment(\.colorSchemeContrast) private var contrast
+    @State private var isTurning = false
+
+    var body: some View {
+        Group {
+            if metrics.hasNotch {
+                notchLayout
+            } else {
+                noNotchLayout
+            }
+        }
+        .frame(height: metrics.panelHeight)
+        .allowsHitTesting(false)
+        .onAppear { isTurning = true }
+        .onDisappear { isTurning = false }
+    }
+
+    /// Both layouts are the same: the strip is its own width, narrow enough
+    /// that the notch is not a thing to lay out around — the two glyphs simply
+    /// sit at either end of it.
+    private var notchLayout: some View { strip }
+    private var noNotchLayout: some View { strip }
+
+    private var strip: some View {
+        HStack(spacing: 0) {
+            glyph
+            Spacer(minLength: 0)
+            spinner
+        }
+        // `edgeSafe` is the same 20pt the rest of the panel keeps off the
+        // shape's side flares. In the artwork's own coordinates, which start
+        // at the flare rather than 7pt before it, that reads as 13 — and
+        // leaves the 5pt gap from the wall the design asks for.
+        .padding(.horizontal, metrics.edgeSafe)
+        .frame(height: metrics.panelHeight)
+    }
+
+    private var glyph: some View {
+        Image(systemName: "translate")
+            .font(.system(size: 14, weight: .semibold))
+            .foregroundStyle(PanelChrome.foreground(0.9, contrast))
+            .frame(width: metrics.cellWidth, height: metrics.iconSize)
+    }
+
+    /// Same ring as the countdown's — 14pt, 2pt stroke, a faint track under a
+    /// bright arc — turning instead of filling.
+    private var spinner: some View {
+        ZStack {
+            Circle()
+                .stroke(PanelChrome.stroke(0.15, contrast), lineWidth: 2)
+            Circle()
+                .trim(from: 0, to: 0.3)
+                .stroke(PanelChrome.stroke(0.8, contrast),
+                        style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                .rotationEffect(.degrees(isTurning ? 360 : 0))
+                .animation(isTurning
+                           ? .linear(duration: 0.9).repeatForever(autoreverses: false)
+                           : .default,
+                           value: isTurning)
+        }
+        .frame(width: 14, height: 14)
+        .frame(width: metrics.cellWidth, height: metrics.iconSize)
+    }
+
+    /// Outer width of the strip: two 32 × 24 cells, 20pt of edge inset either
+    /// side, and the run between them the artwork sets. Drawn 1:1 — the panel's
+    /// morph keyframes are a 536-wide viewBox scaled to the panel, and at this
+    /// width that would squash every corner to half its radius while leaving
+    /// its height alone.
+    static func stripWidth(_ metrics: NotchMetrics) -> CGFloat {
+        metrics.edgeSafe * 2 + metrics.cellWidth * 2 + 166
+    }
 }
 
 // MARK: - NotchTranslateView

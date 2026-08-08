@@ -26,7 +26,11 @@ enum ArchiveTranslate {
                     on screen: NSScreen?) {
         let pair = TranslationService.englishRussianRoute(for: text)
 
+        NotificationCenter.default.post(name: .translationDidStart, object: nil)
+
         Task { @MainActor in
+            // Balanced whatever happens below, including the throws.
+            defer { NotificationCenter.default.post(name: .translationDidEnd, object: nil) }
             do {
                 let translated = try await TranslationService.shared.translate(
                     text, from: pair.source, to: pair.target)
