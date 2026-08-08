@@ -207,6 +207,12 @@ private struct NotchPanelRootView: View {
         // has opened.
         let revealH = m.panelHeight + p * (archiveH - m.panelHeight)
         return ZStack(alignment: .top) {
+            // Owns the translation session for the whole app. Draws nothing and
+            // takes no space — it is here because a `TranslationSession` can
+            // only be obtained from a view modifier, and this root is the one
+            // view that is mounted for as long as the panel exists.
+            TranslationHost()
+
             // Background. Only the real notch uses the morphing notch keyframes
             // (its viewBox flares blend into the physical notch). Notch-less
             // screens use fixed-radius shapes that grow in height with the archive
@@ -503,7 +509,13 @@ final class NotchPanelController: NSObject {
         colorPicker.onCursorMoved = { point in
             NotificationCenter.default.post(name: .mascotCursorMoved, object: NSValue(point: point))
         }
-        scanCapture.addText = { [weak self] text in self?.archiveModel.add(text: text) }
+        scanCapture.addText = { [weak self] text, isCode in
+            self?.archiveModel.add(text: text, isCodePayload: isCode)
+        }
+        scanCapture.translate = { [weak self] text in
+            guard let self else { return }
+            ArchiveTranslate.run(text, archiveModel: self.archiveModel, on: self.currentScreen)
+        }
         screenshot.onCaptured = { [weak self] url in
             self?.archiveModel.add(screenshotURL: url)
             // Clear preSelection so the next capture attempt isn't blocked.
@@ -608,8 +620,8 @@ final class NotchPanelController: NSObject {
             forName: .editorDidScan,
             object: nil, queue: .main
         ) { [weak self] note in
-            guard let payload = note.object as? String else { return }
-            self?.archiveModel.add(text: payload)
+            guard let entry = note.object as? ScanRecognition.ArchiveEntry else { return }
+            self?.archiveModel.add(text: entry.string, isCodePayload: entry.isCode)
         }
 
         // Share sheet opened from an archive context menu: hold the panel open
@@ -801,6 +813,45 @@ final class NotchPanelController: NSObject {
                 guard let self else { return }
                 if self.route != .archive { self.switchToArchive() }
                 self.rootState.isArchivePinned = true
+            }
+        }
+    }
+
+    /// Hotkey entry for translating the clipboard: the user selects text
+    /// anywhere, presses ⌘C, then this.
+    ///
+    /// The extra ⌘C is deliberate. Lifting a selection out of another app
+    /// directly — whether by reading `kAXSelectedTextAttribute` or by
+    /// synthesising ⌘C, which needs the same trust — costs an Accessibility
+    /// grant, and Stampo is down to one system permission on purpose. Reading
+    /// the pasteboard needs none, is exact where OCR is not, and works in
+    /// terminals, Electron and virtual machines where the accessibility route
+    /// returns nothing at all.
+    ///
+    /// The archive is brought up rather than translating silently: the result
+    /// lands there as an entry, and the user should see it arrive.
+    func translateClipboard(on screen: NSScreen) {
+        let clipboard = NSPasteboard.general.string(forType: .string)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !clipboard.isEmpty else {
+            feedbackHUD.show(.nothingToTranslate, on: screen)
+            return
+        }
+
+        let translate = { [weak self] in
+            guard let self else { return }
+            ArchiveTranslate.run(clipboard, archiveModel: self.archiveModel, on: screen)
+        }
+
+        if isVisible && !needsSpaceRebind {
+            if route != .archive { switchToArchive() }
+            translate()
+        } else {
+            showAnimated(on: screen, forceRebind: needsSpaceRebind)
+            DispatchQueue.main.asyncAfter(deadline: .now() + PanelTiming.showBeforeArchive) { [weak self] in
+                guard let self else { return }
+                if self.route != .archive { self.switchToArchive() }
+                translate()
             }
         }
     }

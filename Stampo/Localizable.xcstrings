@@ -446,6 +446,23 @@
         }
       }
     },
+    "Already in that language" : {
+      "comment" : "Feedback shown when a translation came back identical to its source",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Already in that language"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Текст уже на этом языке"
+          }
+        }
+      }
+    },
     "Already used by another Stampo action" : {
       "comment" : "Rejection: duplicate within Stampo",
       "extractionState" : "stale",
@@ -1325,6 +1342,23 @@
         }
       }
     },
+    "Copy some text first" : {
+      "comment" : "Feedback when the Translate hotkey fired with no text on the clipboard",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copy some text first"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сначала скопируйте текст"
+          }
+        }
+      }
+    },
     "Copy to clipboard" : {
       "localizations" : {
         "en" : {
@@ -1405,6 +1439,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Не удалось подготовить папку к отправке"
+          }
+        }
+      }
+    },
+    "Couldn't translate" : {
+      "comment" : "Feedback shown when a translation failed after its language pack was present",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Couldn't translate"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не удалось перевести"
           }
         }
       }
@@ -1649,6 +1700,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Закрыть"
+          }
+        }
+      }
+    },
+    "Downloads once from macOS, then translation works offline" : {
+      "comment" : "Language pack row description in Settings > Archive",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Downloads once from macOS, then translation works offline"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Скачивается из macOS один раз, дальше перевод работает без интернета"
           }
         }
       }
@@ -2239,6 +2307,40 @@
         }
       }
     },
+    "Hold \u2325 to keep line breaks, press \u2303 to translate" : {
+      "comment" : "Modifier hint under the Scan shortcut row in Settings",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hold \u2325 to keep line breaks, press \u2303 to translate"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "⌥ — сохранить переносы строк, ⌃ — включить перевод"
+          }
+        }
+      }
+    },
+    "Hold \u2325 to keep line breaks, \u2303 to translate" : {
+      "comment" : "Modifier hint under the Scan shortcut row in Settings",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hold \u2325 to keep line breaks, \u2303 to translate"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "⌥ — сохранить переносы строк, ⌃ — перевести"
+          }
+        }
+      }
+    },
     "Hotkeys" : {
       "comment" : "Settings tab label — Hotkeys/keyboard shortcuts page",
       "extractionState" : "stale",
@@ -2323,6 +2425,40 @@
         }
       }
     },
+    "Installed" : {
+      "comment" : "Language pack status: every direction the app uses is available",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Installed"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Установлен"
+          }
+        }
+      }
+    },
+    "Install\u2026" : {
+      "comment" : "Button that starts the macOS language pack download",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Install\u2026"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Установить…"
+          }
+        }
+      }
+    },
     "Intensity" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -2395,6 +2531,57 @@
     "JPEG" : {
       "comment" : "A file format option in the capture settings view.",
       "isCommentAutoGenerated" : true
+    },
+    "Keep line breaks" : {
+      "comment" : "Selection overlay badge: \u2325 mode, the recognized text keeps its line breaks",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keep line breaks"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сохранить переносы"
+          }
+        }
+      }
+    },
+    "Language pack" : {
+      "comment" : "Language pack row title in Settings > Archive",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Language pack"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Языковой пакет"
+          }
+        }
+      }
+    },
+    "Language pack needed" : {
+      "comment" : "Feedback shown when the macOS language pack for the requested pair is not installed",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Language pack needed"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Нужен языковой пакет"
+          }
+        }
+      }
     },
     "Last checked" : {
       "comment" : "Row title in Updates section",
@@ -2872,6 +3059,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Нет"
+          }
+        }
+      }
+    },
+    "Not available" : {
+      "comment" : "Language pack status: macOS does not translate this pair at all",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Not available"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Недоступен"
           }
         }
       }
@@ -3459,6 +3663,23 @@
         }
       }
     },
+    "Pin Latest Capture" : {
+      "comment" : "Hotkey action: float the most recent screenshot above every window",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pin Latest Capture"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Закрепить последний снимок"
+          }
+        }
+      }
+    },
     "Pin Panel" : {
       "comment" : "Hotkey row label — opens the panel pinned, ready to receive drops",
       "extractionState" : "stale",
@@ -3629,6 +3850,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Нажмите пробел, чтобы записать сочетание, Escape — чтобы отменить"
+          }
+        }
+      }
+    },
+    "Press \u2325 to keep line breaks, \u2303 to translate" : {
+      "comment" : "Modifier hint under the Scan shortcut row in Settings",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Press \u2325 to keep line breaks, \u2303 to translate"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "⌥ — сохранить переносы строк, ⌃ — включить перевод"
           }
         }
       }
@@ -5182,6 +5420,40 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Инструменты"
+          }
+        }
+      }
+    },
+    "Translate" : {
+      "comment" : "Context menu submenu opening the list of target languages",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Translate"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Перевести"
+          }
+        }
+      }
+    },
+    "Translation" : {
+      "comment" : "Settings section holding the language pack row",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Translation"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Перевод"
           }
         }
       }

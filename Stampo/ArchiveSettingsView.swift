@@ -57,6 +57,15 @@ struct ArchiveSettingsView: View {
                     .labelsHidden()
                 }
             }
+
+            // MARK: Translation
+            //
+            // Filed under Archive because that is where translating happens
+            // today: a recognized-text entry becomes another entry. The row
+            // moves if translation ever grows entry points outside the archive.
+            Section("Translation") {
+                LanguagePackRow()
+            }
         }
         .formStyle(.grouped)
     }

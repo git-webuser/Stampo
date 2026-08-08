@@ -93,6 +93,13 @@ struct ArchiveText: Identifiable, Equatable {
     let id = UUID()
     let text: String
 
+    /// True when this came from a barcode or QR symbol rather than from
+    /// recognized prose. A payload is a value — a URL, a Wi-Fi config, a
+    /// tracking number — so anything that treats entries as language has to
+    /// leave it alone. Translation is the first such thing; there will be
+    /// others.
+    var isCodePayload: Bool = false
+
     /// First non-empty line — used as the compact cell caption.
     var firstLine: String {
         text.split(whereSeparator: \.isNewline).first.map(String.init) ?? text
@@ -181,6 +188,10 @@ private struct PersistedArchiveItem: Codable {
     let path: String?    // screenshot items
     let text: String?    // text items
     let paths: [String]? // stack items (absent in pre-stack data)
+    /// Text items only, and absent in data written before code payloads were
+    /// distinguished — those decode as prose, which is what they were treated
+    /// as at the time.
+    let isCode: Bool?
 }
 
 // MARK: - NotchArchiveModel
@@ -247,14 +258,17 @@ private struct PersistedArchiveItem: Codable {
         schedulePersist()
     }
 
-    func add(text: String) {
+    func add(text: String, isCodePayload: Bool = false) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
+        // Deduplicated on the string alone: the same payload arriving once as a
+        // scanned symbol and once as recognized prose is still one entry, and
+        // the fresher origin is the one worth keeping.
         items.removeAll {
             if case .text(let existing) = $0 { return existing.text == trimmed }
             return false
         }
-        items.insert(.text(ArchiveText(text: trimmed)), at: 0)
+        items.insert(.text(ArchiveText(text: trimmed, isCodePayload: isCodePayload)), at: 0)
         trim()
         schedulePersist()
     }
@@ -510,13 +524,14 @@ private struct PersistedArchiveItem: Codable {
         let encoded: [PersistedArchiveItem] = items.map {
             switch $0 {
             case .color(let c):
-                return PersistedArchiveItem(kind: .color, hex: c.hex, path: nil, text: nil, paths: nil)
+                return PersistedArchiveItem(kind: .color, hex: c.hex, path: nil, text: nil, paths: nil, isCode: nil)
             case .screenshot(let s):
-                return PersistedArchiveItem(kind: .screenshot, hex: nil, path: s.url.path, text: nil, paths: nil)
+                return PersistedArchiveItem(kind: .screenshot, hex: nil, path: s.url.path, text: nil, paths: nil, isCode: nil)
             case .text(let t):
-                return PersistedArchiveItem(kind: .text, hex: nil, path: nil, text: t.text, paths: nil)
+                return PersistedArchiveItem(kind: .text, hex: nil, path: nil, text: t.text, paths: nil,
+                                            isCode: t.isCodePayload ? true : nil)
             case .stack(let s):
-                return PersistedArchiveItem(kind: .stack, hex: nil, path: nil, text: nil, paths: s.urls.map(\.path))
+                return PersistedArchiveItem(kind: .stack, hex: nil, path: nil, text: nil, paths: s.urls.map(\.path), isCode: nil)
             }
         }
         return try? JSONEncoder().encode(encoded)
@@ -546,7 +561,7 @@ private struct PersistedArchiveItem: Codable {
                 return .screenshot(ArchiveScreenshot(url: URL(fileURLWithPath: path)))
             case .text:
                 guard let text = p.text, !text.isEmpty else { return nil }
-                return .text(ArchiveText(text: text))
+                return .text(ArchiveText(text: text, isCodePayload: p.isCode ?? false))
             case .stack:
                 guard let paths = p.paths, !paths.isEmpty else { return nil }
                 let kept = deferFileChecks ? paths : paths.filter(fileExists)

@@ -522,6 +522,11 @@ struct NotchArchiveView: View {
                                     withAnimation(.easeInOut(duration: 0.18)) {
                                         archiveModel.remove(id: t.id)
                                     }
+                                },
+                                onTranslate: {
+                                    ArchiveTranslate.run(t.text,
+                                                         archiveModel: archiveModel,
+                                                         on: NSScreen.main)
                                 }
                             )
                         case .stack(let stack):
@@ -953,6 +958,7 @@ private struct ArchiveTextCell: View {
     let labelOffset: CGFloat
     let cornerRadius: CGFloat
     let onRemove: () -> Void
+    let onTranslate: () -> Void
 
     @Environment(\.colorSchemeContrast) private var contrast
 
@@ -1070,6 +1076,18 @@ private struct ArchiveTextCell: View {
             // Plain string, not a file: the share sheet offers Messages, Notes,
             // Mail — the same payload the tap-to-copy puts on the pasteboard.
             MenuCommandButton("Share", icon: .share) { shareAnchor.present([item.text]) }
+            // A verb, not a destination. The entry already holds the text, so
+            // the direction is read off it — English out of Russian, Russian
+            // out of anything else — and there is nothing left to pick.
+            //
+            // Absent for barcode payloads: a Wi-Fi config or a tracking number
+            // is a value, and running it through a translator returns damaged
+            // nonsense rather than an error. Hidden rather than disabled — a
+            // greyed row invites the user to work out what would enable it,
+            // and nothing ever will.
+            if !item.isCodePayload {
+                MenuCommandButton("Translate", icon: .translate) { onTranslate() }
+            }
             Divider()
             MenuCommandButton("Remove from archive", icon: .remove) { onRemove() }
         }

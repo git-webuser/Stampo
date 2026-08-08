@@ -15,7 +15,12 @@ final class ScanCaptureCoordinator {
 
     /// Called once per finding on success — each barcode payload separately,
     /// then the recognized text — the owner stores them in the archive.
-    var addText: (String) -> Void = { _ in }
+    var addText: (String, Bool) -> Void = { _, _ in }
+
+    /// Called with the recognized prose when the scan was run with ⌃ — the
+    /// owner has the archive the translation lands in. Payloads never reach
+    /// this: a Wi-Fi config or a tracking number is a value, not language.
+    var translate: (String) -> Void = { _ in }
 
     /// Stops an active scan without showing a result HUD. A result that arrives
     /// after cancellation is discarded on the main thread.
@@ -29,10 +34,10 @@ final class ScanCaptureCoordinator {
 
     /// `joinsLines` glues the recognized text back into paragraphs instead of
     /// keeping every line break the layout happened to produce. The editor has
-    /// a control for this; the overlay has no UI at all, so it rides ⌥ (see
-    /// `NotchPanelController.scan`).
+    /// a control for this; the overlay carries it as a mode toggled with ⌥ and
+    /// shown on the frame (see `NotchPanelController.scan`).
     @MainActor
-    func scan(in rect: CGRect, on screen: NSScreen?, joinsLines: Bool) {
+    func scan(in rect: CGRect, on screen: NSScreen?, joinsLines: Bool, translates: Bool = false) {
         guard !isInFlight else { return }
         isInFlight = true
         // Carry only the value-type display ID across the background closure;
@@ -63,8 +68,18 @@ final class ScanCaptureCoordinator {
                 NSPasteboard.general.setString(result.clipboardText, forType: .string)
                 // The archive inserts each entry at the top, so add in reverse:
                 // the visually-topmost finding ends up as the topmost archive entry.
-                for entry in result.archiveEntries.reversed() { self.addText(entry) }
-                self.hud.show(Self.outcome(for: result), on: resultScreen)
+                for entry in result.archiveEntries.reversed() {
+                    self.addText(entry.string, entry.isCode)
+                }
+                // The scan toast is skipped when translating: the translation
+                // has its own outcome — a new entry, or a toast of its own if
+                // the pack is missing — and two toasts in a row for one gesture
+                // read as something having gone wrong.
+                if translates && !result.text.isEmpty {
+                    self.translate(result.text)
+                } else {
+                    self.hud.show(Self.outcome(for: result), on: resultScreen)
+                }
             }
         }
     }
@@ -127,27 +142,39 @@ extension NotchPanelController {
             self.state = .preSelection(.selection)
             self.selectionOverlay.onSelected = { [weak self] rect in
                 guard let self else { return }
-                // Joining is the default — line breaks from someone else's
-                // layout are noise in text you are about to paste somewhere
-                // else — so ⌥ is what *keeps* them, for the rare block where
-                // the breaks are the content (verse, code, a table column).
+                // Neither modifier is sampled here. Both are toggles the
+                // overlay tracks with its own event monitor, so the answer is
+                // simply whatever the frame was showing when the mouse came up
+                // — see `installModifierMonitor` for why a held key could not
+                // be tracked reliably in the first place.
                 //
-                // Read at *release*, not at launch: the scan hotkey is ⌃⌥⌘S,
-                // so ⌥ is already down when the overlay opens and reading it
-                // there would keep the breaks on every hotkey scan. This runs
-                // synchronously out of the overlay's mouseUp, long after the
-                // chord is gone.
-                let joinsLines = !NSEvent.modifierFlags.contains(.option)
+                // Joining is the default: line breaks from someone else's
+                // layout are noise in text you are about to paste somewhere
+                // else, so ⌥ is what *keeps* them, for the block where the
+                // breaks are the content (verse, code, a table column).
+                //
+                // Translating always joins, whatever the mode says, because
+                // machine translation of line fragments returns damage and
+                // `joinParagraphs` exists precisely to hand it whole sentences.
+                // The two modes are mutually exclusive on the overlay for the
+                // same reason.
+                let mode = self.selectionOverlay.selectionMode
+                let translates = mode == .translate
+                let joinsLines = mode != .keepLineBreaks
                 self.state = .hidden
                 // Let WindowServer remove the overlay from the framebuffer
                 // before capturing the selected area.
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-                    self?.scanCapture.scan(in: rect, on: target, joinsLines: joinsLines)
+                    self?.scanCapture.scan(in: rect, on: target,
+                                           joinsLines: joinsLines, translates: translates)
                 }
             }
             self.selectionOverlay.onCancelled = { [weak self] in
                 self?.state = .hidden
             }
+            // Only the scanner has modes, so only the scanner's overlay
+            // advertises them.
+            self.selectionOverlay.showsScanModes = true
             self.selectionOverlay.start(on: target)
         }
 
