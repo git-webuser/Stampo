@@ -45,15 +45,27 @@ extension NotchPanelController {
         return left + right
     }
 
-    // Panel height is always the Archive height — animation is driven by SwiftUI progress, not setFrame.
+    // The window is always the tallest route's height — the open/close/morph
+    // animation is driven by SwiftUI progress, never by setFrame. Shorter
+    // routes are drawn at the top of it and the rest is transparent.
     var archiveScrollRowHeight: CGFloat { 55 }
     var archivePanelHeight: CGFloat { metrics.panelHeight + archiveScrollRowHeight }
+    /// The Translator at full stretch. The route is usually shorter — its body
+    /// fits its text — but the window is built for the tallest it can be, so a
+    /// longer translation never has to resize the window to appear.
+    var translateMaxPanelHeight: CGFloat { metrics.panelHeight + NotchTranslateView.maxBodyHeight }
+
+    /// Height every window frame is built at, whatever route is showing.
+    var panelWindowHeight: CGFloat { max(archivePanelHeight, translateMaxPanelHeight) }
 
     var currentWidthForCurrentRoute: CGFloat {
         switch route {
-        case .main:     return expandedWidth
-        case .archive:  return archiveWidth
-        case .cdwn:     return expandedWidth
+        case .main:      return expandedWidth
+        case .archive:   return archiveWidth
+        // The translator is the archive's width by construction: the exported
+        // shape is the archive's, grown downward only.
+        case .translate: return archiveWidth
+        case .cdwn:      return expandedWidth
         }
     }
 
@@ -139,7 +151,7 @@ extension NotchPanelController {
     /// mostly off-screen and reads as a pop; nudging up by only the content
     /// height makes the whole reveal/close the content wiping in/out at the edge.
     func frameNotchTabHidden(width: CGFloat, on screen: NSScreen?) -> NSRect {
-        var f = frameForWidth(width, on: screen, height: archivePanelHeight)
+        var f = frameForWidth(width, on: screen, height: panelWindowHeight)
         f.origin.y += metrics.panelHeight * metrics.panelScale
         return f
     }

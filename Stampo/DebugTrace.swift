@@ -115,6 +115,7 @@ extension PanelState: CustomStringConvertible {
         case .showing:                      return "showing"
         case .main:                         return "main"
         case .archive:                      return "archive"
+        case .translate:                    return "translate"
         case .hiding:                       return "hiding"
         case .countdown:                    return "countdown"
         case .transitioning(let t):         return "transitioning(\(t))"
@@ -126,7 +127,11 @@ extension PanelState: CustomStringConvertible {
 
 extension TransitionTarget: CustomStringConvertible {
     public var description: String {
-        switch self { case .archive: return "archive"; case .main: return "main" }
+        switch self {
+        case .archive:   return "archive"
+        case .translate: return "translate"
+        case .main:      return "main"
+        }
     }
 }
 
@@ -148,6 +153,11 @@ extension StaleReason: CustomStringConvertible {
 
 extension NotchPanelRoute: CustomStringConvertible {
     public var description: String {
-        switch self { case .main: return "main"; case .archive: return "archive"; case .cdwn: return "cdwn" }
+        switch self {
+        case .main:      return "main"
+        case .archive:   return "archive"
+        case .translate: return "translate"
+        case .cdwn:      return "cdwn"
+        }
     }
 }

@@ -16,6 +16,13 @@ enum PanelTiming {
     /// One-frame settle: lets SwiftUI process a visibility change before
     /// starting the shape morph that follows it.
     static let oneFrameSettle:      TimeInterval = 0.03
+    /// Body content fading out before an expanded route collapses. Long enough
+    /// to read as a dissolve rather than a disappearance, short enough that
+    /// the close still feels like one gesture.
+    static let contentDissolve:     TimeInterval = 0.12
+    /// Body content fading in once an expanded route has finished opening.
+    /// Slower than the dissolve: arriving deserves more ceremony than leaving.
+    static let contentReveal:       TimeInterval = 0.18
     /// Full archive-open/close morph (shape + position).
     static let archiveCloseMorph:      TimeInterval = 0.32
     /// Delay between showAnimated() and switchToArchive() so the open
@@ -60,6 +67,7 @@ enum PanelTiming {
 enum NotchPanelRoute {
     case main
     case archive
+    case translate
     case cdwn
 }
 
@@ -75,6 +83,7 @@ enum PanelState {
     case main
     case transitioning(to: TransitionTarget)
     case archive
+    case translate
     case hiding
     case countdown
     /// Panel hidden, an external selection overlay (rect or window) is up.
@@ -87,7 +96,7 @@ enum PanelState {
     case stale(reason: StaleReason)
 }
 
-enum TransitionTarget { case archive, main }
+enum TransitionTarget { case archive, translate, main }
 enum OverlayKind { case selection, window }
 enum StaleReason { case sleep, spaceChange, displayChange }
 
@@ -98,7 +107,7 @@ extension PanelState {
     var allowsAutoHide: Bool {
         switch self {
         case .transitioning, .countdown, .preSelection: return false
-        case .hidden, .showing, .main, .archive, .hiding, .stale: return true
+        case .hidden, .showing, .main, .archive, .translate, .hiding, .stale: return true
         }
     }
 
@@ -120,7 +129,7 @@ extension PanelState {
     func wantsEscapeHotkey(isSharePickerOpen: Bool) -> Bool {
         guard !isSharePickerOpen else { return false }
         switch self {
-        case .showing, .main, .archive, .countdown: return true
+        case .showing, .main, .archive, .translate, .countdown: return true
         case .hidden, .transitioning, .hiding, .preSelection, .stale: return false
         }
     }
@@ -148,8 +157,11 @@ enum EscapeAction: Equatable {
     var metrics: NotchMetrics = .fallback()
     /// 0.0 = Main, 1.0 = Archive
     var progress: CGFloat = 0.0
-    /// Pre-faded to 0.0 before archive→main morph starts; reset to 1.0 after close completes
-    var archiveContentVisible: CGFloat = 1.0
+    /// Whatever the current route puts in the body — archive cells or the
+    /// translation. Pre-faded to 0.0 before the morph back to Main starts and
+    /// reset to 1.0 once the close completes, so content is gone before the
+    /// panel starts squeezing the layout it was laid out in.
+    var routeContentVisible: CGFloat = 1.0
     /// 0.0 = Main visible, 1.0 = Countdown visible (crossfade, no morph)
     var countdownVisible: CGFloat = 0.0
     var countdownSeconds: Int = 0
@@ -180,7 +192,26 @@ private struct NotchPanelRootView: View {
     private var m: NotchMetrics { rootState.metrics }
     private var archiveScrollHeight: CGFloat { 55 }
     private var archiveH: CGFloat { m.panelHeight + archiveScrollHeight }
+    private var translateH: CGFloat { m.panelHeight + TranslationPanelModel.shared.bodyHeight }
     private var p: CGFloat { rootState.progress }
+
+    /// How tall the panel is once this route has finished opening.
+    private var routeH: CGFloat {
+        rootState.route == .translate ? translateH : archiveH
+    }
+
+    /// The window is as tall as the tallest route, and every shorter one is
+    /// simply drawn at the top of it. Sizing the window per route would mean
+    /// animating the frame on every transition, which is exactly what the
+    /// progress-driven morph exists to avoid.
+    private var windowH: CGFloat {
+        max(archiveH, m.panelHeight + NotchTranslateView.maxBodyHeight)
+    }
+
+    /// What the morph shape has to grow beyond the archive to reach this
+    /// route's height. Negative for a translation shorter than an archive row,
+    /// which is the common case for a sentence.
+    private var extraH: CGFloat { routeH - archiveH }
 
     var body: some View {
         // Notch style on a notch-less screen renders the whole panel at its 34pt
@@ -205,7 +236,7 @@ private struct NotchPanelRootView: View {
         // Drives the no-notch background height and clips the archive content so its
         // lower rows are revealed in step with the growing panel — not before it
         // has opened.
-        let revealH = m.panelHeight + p * (archiveH - m.panelHeight)
+        let revealH = m.panelHeight + p * (routeH - m.panelHeight)
         return ZStack(alignment: .top) {
             // Owns the translation session for the whole app. Draws nothing and
             // takes no space — it is here because a `TranslationSession` can
@@ -222,10 +253,16 @@ private struct NotchPanelRootView: View {
             //     with the screen edge, rounded bottom corners (a clean "tab").
             //   • rounded style: a full rounded rectangle below the menu bar.
             if m.hasNotch {
-                PanelMorphShape(progress: p, pixel: m.pixel)
+                PanelMorphShape(progress: p, pixel: m.pixel, extraHeight: extraH)
                     .fill(Color.black)
                     .compositingGroup()
-                    .frame(height: archiveH)
+                    .frame(height: windowH, alignment: .top)
+                    // Height is animated in its own right, not carried by the
+                    // morph: archive and translator are both at progress 1, so
+                    // between them there is no progress left to animate — and a
+                    // translation that resizes to fit its text has to travel
+                    // too. The corners ride along, they never stretch.
+                    .animation(.spring(response: 0.38, dampingFraction: 0.88), value: extraH)
             } else {
                 Group {
                     if m.pinnedToTopEdge {
@@ -238,7 +275,7 @@ private struct NotchPanelRootView: View {
                     }
                 }
                 .frame(height: revealH)
-                .frame(height: archiveH, alignment: .top)
+                .frame(height: routeH, alignment: .top)
             }
 
             // Main — visible only in the last ~60% of the morph; hidden during countdown
@@ -272,9 +309,9 @@ private struct NotchPanelRootView: View {
             .allowsHitTesting(rootState.countdownVisible >= 0.5)
             .frame(height: m.panelHeight)
 
-            // Archive — appears as p→1; content is pre-faded via archiveContentVisible.
+            // Archive — appears as p→1; content is pre-faded via routeContentVisible.
             // Two separate opacity modifiers: SwiftUI tracks them independently so
-            // the progress animation does not "drag" archiveContentVisible along with it.
+            // the progress animation does not "drag" routeContentVisible along with it.
             NotchArchiveView(
                 metrics: m,
                 archiveModel: archiveModel,
@@ -282,22 +319,22 @@ private struct NotchPanelRootView: View {
                 shareAnchor: shareAnchor,
                 isPinned: rootState.isArchivePinned,
                 // Both halves are needed, and the route is the load-bearing one.
-                // `archiveContentVisible` is an animation value that a close
+                // `routeContentVisible` is an animation value that a close
                 // pre-fades to 0 and then puts back to 1 while the panel is
                 // still going away — "reset for next open". On its own it told
                 // the archive it was on screen again a beat after it left, and
                 // a cell still reporting a hover (the window vanished under the
                 // pointer, so no mouse-exit ever arrived) re-armed Space for a
                 // panel the user had just closed.
-                isContentVisible: rootState.archiveContentVisible > 0.5
+                isContentVisible: rootState.routeContentVisible > 0.5
                     && rootState.route == .archive,
                 onBack: onBack,
                 onHidePanel: onHidePanel,
                 onTogglePin: onTogglePin
             )
-            .opacity(rootState.archiveContentVisible)
-            .opacity(p)
-            .allowsHitTesting(p >= 0.5)
+            .opacity(rootState.routeContentVisible)
+            .opacity(rootState.route == .archive ? p : 0)
+            .allowsHitTesting(rootState.route == .archive && p >= 0.5)
             // Reveal the archive content in step with the growing panel: clip it to
             // the current panel height so the lower rows don't show before the
             // background has expanded to cover them. revealH is a hair shorter
@@ -306,7 +343,28 @@ private struct NotchPanelRootView: View {
             .mask(
                 Color.black
                     .frame(height: revealH)
-                    .frame(height: archiveH, alignment: .top)
+                    .frame(height: routeH, alignment: .top)
+            )
+
+            // Translator — the same reveal as the archive, on the taller shape.
+            NotchTranslateView(
+                metrics: m,
+                model: TranslationPanelModel.shared,
+                isPinned: rootState.isArchivePinned,
+                onBack: onBack,
+                onTogglePin: onTogglePin
+            )
+            // Not tied to the morph. The archive's cells fade in with the
+            // shape and read as one motion; a paragraph doing that is legible
+            // long before it has a panel under it. So the body stays at zero
+            // for the whole morph and dissolves in once the shape has arrived
+            // — `routeContentVisible` is driven by the transition, both ways.
+            .opacity(rootState.route == .translate ? rootState.routeContentVisible : 0)
+            .allowsHitTesting(rootState.route == .translate && p >= 0.5)
+            .mask(
+                Color.black
+                    .frame(height: revealH)
+                    .frame(height: routeH, alignment: .top)
             )
 
             // Notch close zone — always topmost, width = notchGap, height = panelHeight.
@@ -319,7 +377,7 @@ private struct NotchPanelRootView: View {
                     .onTapGesture { onClose() }
             }
         }
-        .frame(height: archiveH)
+        .frame(height: windowH, alignment: .top)
         .allowsHitTesting(interaction.isEnabled)
     }
 }
@@ -616,6 +674,20 @@ final class NotchPanelController: NSObject {
             guard let url = note.object as? URL else { return }
             self?.archiveModel.add(screenshotURL: url)
         }
+        let tTranslate = NotificationCenter.default.addObserver(
+            forName: .translationDidFinish,
+            object: nil, queue: .main
+        ) { [weak self] note in
+            guard let self,
+                  let result = note.object as? TranslationPanelModel.Result
+            else { return }
+            MainActor.assumeIsolated {
+                TranslationPanelModel.shared.present(result, bodyWidth: self.translateBodyWidth)
+                // Already up: only the text changes, no morph.
+                guard self.route != .translate else { return }
+                self.switchToTranslate()
+            }
+        }
         let t9 = NotificationCenter.default.addObserver(
             forName: .editorDidScan,
             object: nil, queue: .main
@@ -658,7 +730,7 @@ final class NotchPanelController: NSObject {
             self?.isQuickLookOpen = false
         }
 
-        notificationObservers = [t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11, t12, t13]
+        notificationObservers = [t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11, t12, t13, tTranslate]
     }
 
     deinit {
@@ -762,7 +834,7 @@ final class NotchPanelController: NSObject {
         rootState.countdownVisible = 0.0
         rootState.countdownSeconds = 0
         rootState.countdownTotal = 0
-        rootState.archiveContentVisible = 1.0
+        rootState.routeContentVisible = 1.0
         rootState.isArchivePinned = false
     }
 
@@ -972,7 +1044,7 @@ final class NotchPanelController: NSObject {
         // orderFront, исходя из текущего фрейма. setFrame после — окно окажется
         // на прошлом Space (особенно после долгого idle и выхода из сна).
         if metrics.hasNotch {
-            panel.setFrame(frameForWidth(collapsedWidth, on: screen, height: archivePanelHeight), display: false)
+            panel.setFrame(frameForWidth(collapsedWidth, on: screen, height: panelWindowHeight), display: false)
         } else {
             // Reveal by descending from above the top edge — the exact reverse of
             // the close animation. The notch tab starts just the content height
@@ -981,7 +1053,7 @@ final class NotchPanelController: NSObject {
             let w = clampedWidth(currentWidthForCurrentRoute, on: screen)
             let start = metrics.pinnedToTopEdge
                 ? frameNotchTabHidden(width: w, on: screen)
-                : frameNoNotchHiddenAbove(width: w, on: screen, height: archivePanelHeight)
+                : frameNoNotchHiddenAbove(width: w, on: screen, height: panelWindowHeight)
             panel.setFrame(start, display: false)
         }
 
@@ -992,7 +1064,7 @@ final class NotchPanelController: NSObject {
         trace("showAnimated.afterOrderFront")
 
         if metrics.hasNotch {
-            let target = frameForWidth(clampedWidth(currentWidthForCurrentRoute, on: screen), on: screen, height: archivePanelHeight)
+            let target = frameForWidth(clampedWidth(currentWidthForCurrentRoute, on: screen), on: screen, height: panelWindowHeight)
             NSAnimationContext.runAnimationGroup { ctx in
                 ctx.duration = PanelTiming.openAnimation
                 ctx.timingFunction = PanelTiming.decelerate
@@ -1014,7 +1086,7 @@ final class NotchPanelController: NSObject {
             }
         } else {
             let w = clampedWidth(currentWidthForCurrentRoute, on: screen)
-            let h = archivePanelHeight
+            let h = panelWindowHeight
             let visible = frameForWidth(w, on: screen, height: h)
 
             NSAnimationContext.runAnimationGroup { ctx in
@@ -1062,7 +1134,12 @@ final class NotchPanelController: NSObject {
             route = .main
         }
 
-        let wasArchive = (route == .archive)
+        // The Translator closes the same way the archive does. It used to fall
+        // through to the Main path, which is built for the 34pt strip: no
+        // content pre-fade and no morph, so a tall panel of text was still on
+        // screen while the window resized under it — and text laid out at the
+        // panel's width re-wraps line by line as that width travels.
+        let wasExpanded = (route == .archive || route == .translate)
         state = .hiding
         interactionState.isEnabled = false
         bumpGeneration()
@@ -1075,8 +1152,8 @@ final class NotchPanelController: NSObject {
             return
         }
 
-        if wasArchive {
-            hideArchiveThenMain(panel: panel, screen: screen)
+        if wasExpanded {
+            hideExpandedThenMain(panel: panel, screen: screen)
         } else {
             hideMainPanel(panel: panel, screen: screen)
         }
@@ -1086,13 +1163,24 @@ final class NotchPanelController: NSObject {
     // Phase 1 — content hides instantly.
     // Phase 2 — shape morphs back to Main (Y axis).
     // Phase 3 — standard Main close animation (X axis).
-    private func hideArchiveThenMain(panel: NSPanel, screen: NSScreen) {
+    /// Closing an expanded route — archive or Translator — in three phases:
+    /// dissolve what is in the body, morph the shape back to the Main strip,
+    /// then run the ordinary Main close.
+    ///
+    /// The dissolve is a real animation rather than a single frame's snap. The
+    /// archive's cells could vanish outright without anyone minding — they are
+    /// small, and there are several. A paragraph of text disappearing between
+    /// two frames reads as a glitch, and it has to be gone before the morph
+    /// starts either way: it is laid out at the panel's width, so any of it
+    /// still visible while the window narrows re-wraps on the way down.
+    private func hideExpandedThenMain(panel: NSPanel, screen: NSScreen) {
         let gen = animationGeneration
-        // Instantly hide both archive and main content (otherwise main bleeds through in phase 2).
-        rootState.archiveContentVisible = 0.0
         interactionState.contentVisibility = 0.0
+        withAnimation(.easeOut(duration: PanelTiming.contentDissolve)) {
+            rootState.routeContentVisible = 0.0
+        }
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + PanelTiming.oneFrameSettle) { [weak self, weak panel] in
+        DispatchQueue.main.asyncAfter(deadline: .now() + PanelTiming.contentDissolve) { [weak self, weak panel] in
             guard let self, let panel, self.animationGeneration == gen else { return }
 
             // Phase 2: morph shape archive → main (Y axis via progress, width unchanged).
@@ -1104,7 +1192,7 @@ final class NotchPanelController: NSObject {
             // Phase 3: kick off the standard main-panel close.
             DispatchQueue.main.asyncAfter(deadline: .now() + PanelTiming.hideAnimation) { [weak self, weak panel] in
                 guard let self, let panel, self.animationGeneration == gen else { return }
-                self.rootState.archiveContentVisible = 1.0  // reset for next open
+                self.rootState.routeContentVisible = 1.0  // reset for next open
                 self.hideMainPanel(panel: panel, screen: screen)
             }
         }
@@ -1113,7 +1201,7 @@ final class NotchPanelController: NSObject {
     private func hideMainPanel(panel: NSPanel, screen: NSScreen) {
         let gen = animationGeneration
         if metrics.hasNotch {
-            let target = frameForWidth(collapsedWidth, on: screen, height: archivePanelHeight)
+            let target = frameForWidth(collapsedWidth, on: screen, height: panelWindowHeight)
 
             NSAnimationContext.runAnimationGroup { ctx in
                 ctx.duration = PanelTiming.hideAnimation
@@ -1142,7 +1230,7 @@ final class NotchPanelController: NSObject {
             }
         } else {
             let w = clampedWidth(currentWidthForCurrentRoute, on: screen)
-            let h = archivePanelHeight
+            let h = panelWindowHeight
             // Mirror of the reveal: notch tab rises just the content height (so the
             // close is fully visible), rounded style slides up fully above.
             let hidden = metrics.pinnedToTopEdge
@@ -1186,7 +1274,7 @@ final class NotchPanelController: NSObject {
 
     private func create() {
         let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: collapsedWidth, height: archivePanelHeight),
+            contentRect: NSRect(x: 0, y: 0, width: collapsedWidth, height: panelWindowHeight),
             styleMask: [.nonactivatingPanel, .borderless],
             backing: .buffered,
             defer: false
@@ -1308,8 +1396,35 @@ final class NotchPanelController: NSObject {
 
     // MARK: - State routing
 
+    /// Width the translation is laid out at: the panel less the shoulders it
+    /// must stay inside, less the text's own inset. Known before the panel
+    /// opens, which is what lets the body be sized before it is drawn.
+    var translateBodyWidth: CGFloat {
+        let skew: CGFloat = metrics.pinnedToTopEdge ? 16 : 0
+        return max(1, archiveWidth
+                   - 2 * (metrics.edgeSafe + skew)
+                   - 2 * NotchTranslateView.textInset)
+    }
+
+    /// Height a route settles at. The Translator's follows its text, so this
+    /// is asked at the moment it is needed rather than stored.
+    func routeHeight(for route: NotchPanelRoute) -> CGFloat {
+        route == .translate
+            ? metrics.panelHeight + TranslationPanelModel.shared.bodyHeight
+            : archivePanelHeight
+    }
+
     func switchToArchive() {
         if route == .archive { switchToMain() } else { transitionBetweenStates(.archive) }
+    }
+
+    /// Brings the Translator up over whatever is showing. Unlike the archive
+    /// this never toggles: it is reached by finishing a translation, and a
+    /// second result arriving while it is open should replace the text, not
+    /// close the panel.
+    func switchToTranslate() {
+        guard route != .translate else { return }
+        transitionBetweenStates(.translate)
     }
 
     func switchToMain() {
@@ -1330,9 +1445,22 @@ final class NotchPanelController: NSObject {
         if case .transitioning = state { return }
 
         let gen = bumpGeneration()
-        let target: TransitionTarget = (targetRoute == .archive) ? .archive : .main
+        let target: TransitionTarget
+        switch targetRoute {
+        case .archive:   target = .archive
+        case .translate: target = .translate
+        default:         target = .main
+        }
         state = .transitioning(to: target)
         interactionState.isEnabled = false
+
+        // A close from the Translator has further to travel than one from the
+        // archive — up to 168pt against 89 — so the same timing reads as a
+        // snap. The morph is stretched in proportion to the distance rather
+        // than to a fixed number, which keeps every intermediate height, and
+        // the Translator's is whatever its text asked for.
+        let leavingHeight = routeHeight(for: route)
+        let closeStretch = min(1.5, max(1, leavingHeight / archivePanelHeight))
 
         if targetRoute == .main {
             // Step 1: hide content in a separate render pass (without withAnimation).
@@ -1340,49 +1468,58 @@ final class NotchPanelController: NSObject {
             // batch both objectWillChange notifications and apply the easeIn context to
             // both — opacity would then animate 1→0 over archiveCloseMorph instead of
             // snapping instantly.
-            rootState.archiveContentVisible = 0.0
+            //
+            // It matters more here than it used to: the Translator's body is
+            // text laid out at the panel's width, so a body left visible
+            // through the collapse re-wraps line by line on the way down.
+            withAnimation(.easeOut(duration: PanelTiming.contentDissolve)) {
+                rootState.routeContentVisible = 0.0
+            }
 
-            // Step 2: give SwiftUI one render pass to process the hide before
-            // starting the shape morph.
-            DispatchQueue.main.asyncAfter(deadline: .now() + PanelTiming.oneFrameSettle) { [weak self, weak panel] in
+            // Step 2: let the dissolve finish before the shape starts moving.
+            DispatchQueue.main.asyncAfter(deadline: .now() + PanelTiming.contentDissolve) { [weak self, weak panel] in
                 guard let self, let panel, self.animationGeneration == gen else { return }
 
                 self.route = .main
                 let targetFrame = self.frameForWidth(
                     self.clampedWidth(self.currentWidthForCurrentRoute, on: screen),
-                    on: screen, height: self.archivePanelHeight
+                    on: screen, height: self.panelWindowHeight
                 )
 
                 // X axis: panel width — NSAnimationContext. `settle`, not
                 // `accelerate`: the panel stays on screen after this morph,
                 // so X must land as softly as the Y-axis spring below.
                 NSAnimationContext.runAnimationGroup { ctx in
-                    ctx.duration = PanelTiming.archiveCloseMorph
+                    ctx.duration = PanelTiming.archiveCloseMorph * closeStretch
                     ctx.timingFunction = PanelTiming.settle
                     panel.animator().setFrame(targetFrame, display: true)
                 } completionHandler: { [weak self] in
                     guard let self, self.animationGeneration == gen else { return }
                     self.state = .main
                     self.interactionState.isEnabled = true
-                    self.rootState.archiveContentVisible = 1.0  // reset for next open
+                    self.rootState.routeContentVisible = 1.0  // reset for next open
                 }
 
                 // Y axis: shape morph — spring settle, no abrupt stop at the seam
-                withAnimation(.spring(response: 0.34, dampingFraction: 0.9)) {
+                withAnimation(.spring(response: 0.34 * closeStretch, dampingFraction: 0.9)) {
                     self.rootState.progress = 0.0
                 }
             }
         } else {
             // Opening: spring easing
-            route = .archive
-            // Ensure the archive content is visible on open. A rapid open→close can
-            // strand archiveContentVisible at 0 — the close pre-fades it to 0 and its
-            // reset back to 1 is generation-gated, so an interrupted close skips
-            // the reset; without this line the next open showed only empty bg.
-            rootState.archiveContentVisible = 1.0
+            route = targetRoute
+            // The archive's cells ride the morph in, so its content is visible
+            // from the start. The Translator's body waits: it is revealed by
+            // the completion handler once the shape has finished travelling.
+            //
+            // Either way this has to be set. A rapid open→close can strand
+            // routeContentVisible at 0 — the close dissolves it and its reset
+            // back to 1 is generation-gated, so an interrupted close skips the
+            // reset; without this the next open showed only empty background.
+            rootState.routeContentVisible = targetRoute == .translate ? 0.0 : 1.0
             let targetFrame = frameForWidth(
                 clampedWidth(currentWidthForCurrentRoute, on: screen),
-                on: screen, height: archivePanelHeight
+                on: screen, height: panelWindowHeight
             )
             NSAnimationContext.runAnimationGroup { ctx in
                 ctx.duration = PanelTiming.archiveCloseMorph
@@ -1390,8 +1527,13 @@ final class NotchPanelController: NSObject {
                 panel.animator().setFrame(targetFrame, display: true)
             } completionHandler: { [weak self] in
                 guard let self, self.animationGeneration == gen else { return }
-                self.state = .archive
+                self.state = targetRoute == .translate ? .translate : .archive
                 self.interactionState.isEnabled = true
+                if targetRoute == .translate {
+                    withAnimation(.easeOut(duration: PanelTiming.contentReveal)) {
+                        self.rootState.routeContentVisible = 1.0
+                    }
+                }
             }
             DispatchQueue.main.async {
                 withAnimation(.spring(response: 0.38, dampingFraction: 0.88)) {
@@ -1417,7 +1559,7 @@ final class NotchPanelController: NSObject {
         // Keep the window at the full archive height — only the width may change here.
         // Animating height collapsed the panel vertically (it was created/shown at
         // archivePanelHeight but this used the default panelHeight).
-        let target = frameForWidth(w, on: screen, height: archivePanelHeight)
+        let target = frameForWidth(w, on: screen, height: panelWindowHeight)
 
         // Resize instantly: the content (timer cell) reflows with no animation
         // (`.animation(nil, value: model.delay)`), so a 0.12s window animation

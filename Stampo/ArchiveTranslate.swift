@@ -45,6 +45,14 @@ enum ArchiveTranslate {
                 withAnimation(.easeInOut(duration: 0.18)) {
                     archiveModel.add(text: translated)
                 }
+                // Filed and shown: the archive keeps it for later, the panel
+                // puts it where it can actually be read. A 55pt archive cell
+                // shows one line of a paragraph.
+                NotificationCenter.default.post(
+                    name: .translationDidFinish,
+                    object: TranslationPanelModel.Result(
+                        source: text, translated: translated, pair: pair)
+                )
             } catch TranslationFailure.packMissing(let pair) {
                 feedbackHUD.show(
                     .translationPackMissing(language: TranslationService.displayName(pair.target)),

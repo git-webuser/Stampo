@@ -1375,6 +1375,23 @@
         }
       }
     },
+    "Copy translation" : {
+      "comment" : "Translator panel: icon-only button that copies the translated text",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copy translation"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Скопировать перевод"
+          }
+        }
+      }
+    },
     "Could not delete the file" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -5454,6 +5471,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Перевод"
+          }
+        }
+      }
+    },
+    "Translation language" : {
+      "comment" : "Translator panel: the target-language menu in the notch strip",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Translation language"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Язык перевода"
           }
         }
       }
