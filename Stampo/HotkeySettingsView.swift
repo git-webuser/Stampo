@@ -51,6 +51,7 @@ struct HotkeySettingsView: View {
                 FixedHotkeyRow(icon: "arrow.2.squarepath",
                                action: "Cycle Color Format in the Color Picker",
                                caps: ["F"],
+                               alternative: ["⇥"],
                                isEnabled: $hudFormatEnabled)
                 ArrowStepRow(icon: "1.circle",  title: "Move 1 pt",  modifiers: [],         isEnabled: $move1Enabled)
                 ArrowStepRow(icon: "10.circle", title: "Move 10 pt", modifiers: ["⇧"],      isEnabled: $move10Enabled)
@@ -208,6 +209,10 @@ private struct FixedHotkeyRow: View {
     let icon: String
     let action: String
     let caps: [String]
+    /// A second key that does the same thing. Kept apart from `caps` because
+    /// caps sit shoulder to shoulder and read as one chord — "F ⇥" that way
+    /// would say press both, which is the opposite of what these two are.
+    var alternative: [String] = []
     @Binding var isEnabled: Bool
 
     var body: some View {
@@ -215,6 +220,16 @@ private struct FixedHotkeyRow: View {
             HStack(spacing: 8) {
                 HStack(spacing: 3) {
                     ForEach(caps, id: \.self) { KeyCapView(key: $0, dimmed: !isEnabled) }
+                    if !alternative.isEmpty {
+                        // The one thing between them that says "either", and
+                        // narrow enough not to look like a key itself.
+                        Text(verbatim: "/")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 2)
+                            .opacity(isEnabled ? 1 : 0.4)
+                        ForEach(alternative, id: \.self) { KeyCapView(key: $0, dimmed: !isEnabled) }
+                    }
                 }
                 Toggle("", isOn: $isEnabled).labelsHidden().toggleStyle(.switch)
             }
