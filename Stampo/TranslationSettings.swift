@@ -218,11 +218,20 @@ struct TranslationSettingsSection: View {
     /// above, and it keeps following that list if it changes. Naming one pins
     /// it — which is the point, because the destination is otherwise the kind
     /// of thing that quietly follows whatever was done last.
+    ///
+    /// The description names both surfaces that read this, not just the
+    /// clipboard one. A scan started with ⌃ reads it too — it is the language
+    /// on the badge before ⇥ says otherwise — and a row that promised only the
+    /// hotkey would be describing half of what the setting does.
+    ///
+    /// The commands are named, not their shortcuts: every one of them can be
+    /// rebound in the Shortcuts pane, and a printed ⌃⌥⌘T would be a lie the
+    /// moment it was.
     private var primaryLanguageRow: some View {
         SettingRow(
             icon: "character.book.closed",
             title: "Translate into",
-            description: "Everything in another language goes here. Automatic uses the first in the list"
+            description: "Used by Translate and by scanning when no language is picked. Automatic follows the first in the list"
         ) {
             Picker("Translate into", selection: Binding(
                 get: { languages.primary?.baseCode ?? "" },

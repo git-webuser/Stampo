@@ -2067,23 +2067,6 @@
         }
       }
     },
-    "Everything in another language goes here. Automatic uses the first in the list" : {
-      "comment" : "Description of the Translate into row",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Everything in another language goes here. Automatic uses the first in the list"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Всё на других языках переводится сюда. «Автоматически» — первый в списке"
-          }
-        }
-      }
-    },
     "File" : {
       "comment" : "Settings section header for file output options",
       "localizations" : {
@@ -5840,6 +5823,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Обновления"
+          }
+        }
+      }
+    },
+    "Used by Translate and by scanning when no language is picked. Automatic follows the first in the list" : {
+      "comment" : "Description of the Translate into row: which surfaces read it",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Used by Translate and by scanning when no language is picked. Automatic follows the first in the list"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Используется командой «Перевести» и сканером, когда язык не выбран. «Автоматически» — первый в списке"
           }
         }
       }
