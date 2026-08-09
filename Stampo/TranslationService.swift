@@ -1,4 +1,5 @@
 import Foundation
+import NaturalLanguage
 import SwiftUI
 import Translation
 
@@ -14,6 +15,37 @@ import Translation
 nonisolated struct TranslationPair: Equatable {
     var source: Locale.Language
     var target: Locale.Language
+}
+
+// MARK: - Detection
+
+/// What language a piece of text turned out to be in — and, just as important,
+/// whether the app can act on it.
+///
+/// Three cases rather than an optional language, because "German, which you
+/// have not downloaded" is not a failure to report but the most useful offer
+/// the feature can make.
+nonisolated enum DetectedLanguage: Equatable {
+    /// Recognized, and its pack is present. Translate from it.
+    case installed(Locale.Language)
+    /// Recognized, macOS can translate it, the pack is not downloaded.
+    case notInstalled(Locale.Language)
+    /// Nothing macOS can translate was recognized.
+    case unknown
+}
+
+// MARK: - Route
+
+/// What to do about a request to translate, once the text has been read.
+nonisolated enum TranslationRoute: Equatable {
+    case translate(TranslationPair)
+    /// The text is already in the language asked for, and no other target
+    /// follows from the set.
+    case alreadyThere
+    /// The source language needs downloading first. Carried so the refusal can
+    /// name it: "looks like German — add it?".
+    case sourceMissing(Locale.Language)
+    case unknownSource
 }
 
 // MARK: - Failure
@@ -127,68 +159,214 @@ nonisolated enum TranslationFailure: Error, Equatable {
         return name.prefix(1).uppercased() + name.dropFirst()
     }
 
+    // MARK: Detection
+
+    /// What language the text is in, as far as the app can act on it.
+    ///
+    /// Script was enough while there were two languages — "does it contain
+    /// Cyrillic" separates Russian from English and nothing else. It cannot
+    /// separate the eleven Latin ones, so a third language makes it wrong
+    /// rather than merely narrow.
+    ///
+    /// The rule below was measured on 24 samples across six languages at one
+    /// word, one phrase and one sentence, and again through real OCR output:
+    /// unconstrained ranking, then the first hypothesis the app can act on,
+    /// 23/24 and 9/10.
+    ///
+    /// **`languageConstraints` must not be used**, though it is the obvious
+    /// reach. A recognizer constrained to the installed set answers with
+    /// confidence 1.00 every time — including Ukrainian called Russian and
+    /// German called English. It cannot say "not one of yours", and that is
+    /// precisely the sentence this returns.
+    ///
+    /// **Confidence is not a gate either**: a correct "Settings" → en scored
+    /// 0.25 while a wrong "Привет" → bg scored 0.53. Skipping hypotheses macOS
+    /// cannot translate at all is what rescues short strings — bg and da drop
+    /// out and the right answer is underneath.
+    nonisolated static func detect(_ text: String,
+                                   supported: Set<String>,
+                                   installed: Set<String>) -> DetectedLanguage {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return .unknown }
+
+        let recognizer = NLLanguageRecognizer()
+        recognizer.processString(recognizableText(in: trimmed))
+        // Deeper than the eight the rule was measured on, because the two ends
+        // of the ranking are used for different things — see below. macOS
+        // returns about twenty.
+        let ranked = recognizer.languageHypotheses(withMaximum: 25)
+            .sorted { $0.value > $1.value }
+            .map { Locale.Language(identifier: $0.key.rawValue).baseCode }
+
+        // Below two words, do not offer a download. The one surviving miss in
+        // the whole measurement is "Download" → Indonesian at zero OCR damage:
+        // real ambiguity that no scan quality fixes. Asking for several
+        // hundred megabytes on the strength of one common word is a worse
+        // outcome than quietly using the best installed language, which is
+        // what skipping past it does.
+        //
+        // Words with letters in them, not tokens: a scanned price tag or
+        // version number ("1 234,56 — v2.7.1 (#42)") is half a dozen tokens of
+        // no language at all, and it must not be able to talk the app into
+        // offering a download either.
+        let words = trimmed.split(whereSeparator: \.isWhitespace)
+            .filter { $0.contains(where: \.isLetter) }
+        let offersDownload = words.count >= 2
+
+        // The decision proper, over the eight hypotheses the rule was measured
+        // on: the first one the app can act on wins.
+        for code in ranked.prefix(8) where supported.contains(code) {
+            if installed.contains(code) { return .installed(Locale.Language(identifier: code)) }
+            if offersDownload { return .notInstalled(Locale.Language(identifier: code)) }
+        }
+
+        // Nothing decidable up there. Rather than refuse, take the best
+        // installed language from anywhere in the ranking — this is the case
+        // the word threshold exists to reach, and it is not rare: a scanned
+        // button reading "Download" ranks Indonesian, Danish, Hungarian and
+        // Finnish above English, which comes ninth at 0.04. Translating it as
+        // English is right; a toast saying the language could not be told is
+        // both unhelpful and, on one common word, beside the point.
+        if let code = ranked.first(where: { installed.contains($0) }) {
+            return .installed(Locale.Language(identifier: code))
+        }
+        return .unknown
+    }
+
+    /// Scripts told apart far enough to know which one a text is really in.
+    ///
+    /// Script cannot separate the eleven Latin languages — that is what the
+    /// recognizer is for. Across scripts it is decisive, and the recognizer
+    /// needs the help: it weighs by character, and a Chinese sentence is
+    /// shorter in characters than the one English product name inside it.
+    nonisolated private enum Script {
+        case latin, cyrillic, greek, arabic, devanagari
+        /// One character carries about as much as a short word.
+        case han, kana, hangul, thai
+
+        /// What one character is worth against a Latin letter.
+        ///
+        /// Three, measured: it is what separates "打开 Stampo 并按 ⌘C" —
+        /// Chinese quoting a product name, four Han characters against six
+        /// Latin letters — from "Open 设置 now to continue", English quoting a
+        /// Chinese term. Unweighted, the first is read as Italian at 1.00
+        /// confidence with Chinese nowhere in the ranking at all.
+        var weight: Int {
+            switch self {
+            case .han, .kana, .hangul, .thai: return 3
+            default: return 1
+            }
+        }
+    }
+
+    nonisolated private static func script(of scalar: UnicodeScalar) -> Script? {
+        switch scalar.value {
+        case 0x0041...0x005A, 0x0061...0x007A, 0x00C0...0x024F: return .latin
+        case 0x0370...0x03FF:                                   return .greek
+        case 0x0400...0x052F:                                   return .cyrillic
+        case 0x0600...0x06FF:                                   return .arabic
+        case 0x0900...0x097F:                                   return .devanagari
+        case 0x0E00...0x0E7F:                                   return .thai
+        case 0x3040...0x30FF:                                   return .kana
+        case 0x3400...0x4DBF, 0x4E00...0x9FFF:                  return .han
+        case 0x1100...0x11FF, 0xAC00...0xD7AF:                  return .hangul
+        default:                                                return nil
+        }
+    }
+
+    /// The text with borrowed foreign words taken out, when there are any.
+    ///
+    /// A Latin run inside Chinese, Japanese, Korean or Thai is almost always a
+    /// product name or a UI term, and it is enough to take the whole answer
+    /// over: "在 Finder 中显示" is read as Danish at 0.93 with Chinese absent
+    /// from the ranking. Dropping the letters of the losing scripts puts the
+    /// answer back — measured at zh:1.00, ko:1.00 and ja:1.00 for the four
+    /// cases above.
+    ///
+    /// Latin text is returned untouched, which is what keeps every earlier
+    /// measurement of the rule valid: the whole of it was Latin and Cyrillic.
+    nonisolated static func recognizableText(in text: String) -> String {
+        var weights: [Script: Int] = [:]
+        var counts: [Script: Int] = [:]
+        for scalar in text.unicodeScalars {
+            guard let script = script(of: scalar) else { continue }
+            counts[script, default: 0] += 1
+            weights[script, default: 0] += script.weight
+        }
+
+        guard let winner = weights.max(by: { $0.value < $1.value })?.key,
+              winner != .latin,
+              // One stray character is a symbol, not a language.
+              counts[winner, default: 0] >= 2
+        else { return text }
+
+        // Japanese is written in both at once, so neither can be dropped when
+        // the other wins.
+        let keep: Set<Script> = (winner == .han || winner == .kana) ? [.han, .kana] : [winner]
+        return String(String.UnicodeScalarView(text.unicodeScalars.filter {
+            guard let script = script(of: $0) else { return true }
+            return keep.contains(script)
+        }))
+    }
+
+    /// The same rule against the user's current languages.
+    ///
+    /// Depends on `TranslationLanguages` having refreshed at least once —
+    /// `AppDelegate` does that at launch, long before any of the three entry
+    /// points can be reached.
+    @MainActor
+    static func detect(_ text: String) -> DetectedLanguage {
+        let languages = TranslationLanguages.shared
+        return detect(text,
+                      supported: Set(languages.supported.map(\.baseCode)),
+                      installed: languages.installed)
+    }
+
     // MARK: Direction
 
-    /// The one direction pair the app handles today: English and Russian, with
-    /// the text deciding which way round.
-    ///
-    /// Two languages is what makes a single "Translate" command honest — the
-    /// destination follows from the source, so there is no choice left to
-    /// offer. A menu of targets would have to claim otherwise, and on a
-    /// two-language pair it would claim it wrongly: "Translate ▸ English" over
-    /// English text produces Russian, because the text is already English.
-    ///
-    /// When more languages arrive they come with a target setting, and this is
-    /// where that setting gets read.
-    static func englishRussianRoute(for text: String) -> TranslationPair {
-        route(for: text, target: Locale.Language(identifier: "ru"))
-    }
-
-    /// Picks the direction from the text itself.
-    ///
-    /// Decided by script rather than by language detection: a single word is
-    /// far too short to identify reliably, and "привет" comes back as
-    /// Bulgarian often enough to matter.
-    ///
-    /// Two-language heuristic on purpose — it holds while the target language
-    /// is a setting with one value. When the settings picker lands, the source
-    /// half stays and the target half comes from there.
-    static func route(for text: String,
-                      target preferred: Locale.Language,
-                      away fallback: Locale.Language = Locale.Language(identifier: "en")) -> TranslationPair {
-        let source = detectedSource(of: text)
-        // Text already in the target language goes the other way instead of
-        // being "translated" into itself. Automatic direction only — see
-        // `explicitRoute`, where doing this would be answering a different
-        // question from the one the user asked.
-        let target = source.languageCode == preferred.languageCode ? fallback : preferred
-        return TranslationPair(source: source, target: target)
-    }
-
-    /// What language the text is in.
-    ///
-    /// Split out from `route` because the two decisions are not the same one:
-    /// which language this is, and which language to send it to. Conflating
-    /// them is what let an explicit choice get quietly reversed.
-    static func detectedSource(of text: String) -> Locale.Language {
-        let isCyrillic = text.unicodeScalars.contains { (0x0400...0x04FF).contains($0.value) }
-        return Locale.Language(identifier: isCyrillic ? "ru" : "en")
-    }
-
-    /// The direction for a language the user picked by hand, or nil when the
-    /// text is already in it.
+    /// The direction for a language the user picked by hand.
     ///
     /// Never flipped. Automatic routing turns "into Russian" into "out of
     /// Russian" so a Russian scan is not translated into itself — sensible
     /// when nobody chose anything. Applied to a deliberate pick it does the
     /// opposite of what the menu said: choosing Russian over Russian text
     /// handed back English, from a menu whose every entry then produced the
-    /// same result. Nil is the honest answer, and the caller has a toast for
-    /// exactly this.
-    static func explicitRoute(for text: String, to target: Locale.Language) -> TranslationPair? {
-        let source = detectedSource(of: text)
-        guard source.languageCode != target.languageCode else { return nil }
-        return TranslationPair(source: source, target: target)
+    /// same result.
+    nonisolated static func route(from detected: DetectedLanguage,
+                                  to target: Locale.Language) -> TranslationRoute {
+        switch detected {
+        case .unknown:
+            return .unknownSource
+        case .notInstalled(let language):
+            return .sourceMissing(language)
+        case .installed(let source):
+            guard source.baseCode != target.baseCode else { return .alreadyThere }
+            return .translate(TranslationPair(source: source, target: target))
+        }
+    }
+
+    /// The direction when nobody chose a target — the scan modifier, the
+    /// clipboard hotkey, the archive's plain Translate.
+    ///
+    /// Text already in the target language is the interesting case. With
+    /// exactly two languages there is one other place it could go, and going
+    /// there is what "Translate" has always meant here — no choice is being
+    /// invented. With three there are several, and picking one would be a
+    /// guess the user cannot see being made, so the honest answer is that the
+    /// text is already in that language and the menus are where a target gets
+    /// chosen.
+    nonisolated static func automaticRoute(from detected: DetectedLanguage,
+                                           target: Locale.Language,
+                                           favourites: [Locale.Language]) -> TranslationRoute {
+        guard case .installed(let source) = detected else {
+            return route(from: detected, to: target)
+        }
+        guard source.baseCode == target.baseCode else {
+            return .translate(TranslationPair(source: source, target: target))
+        }
+        let others = favourites.filter { $0.baseCode != source.baseCode }
+        guard others.count == 1, let only = others.first else { return .alreadyThere }
+        return .translate(TranslationPair(source: source, target: only))
     }
 
     // MARK: Host plumbing

@@ -411,6 +411,23 @@
         }
       }
     },
+    "Add language\u2026" : {
+      "comment" : "Menu item that leaves for Settings, where a language pack can be installed",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Add language\u2026"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Добавить язык\u2026"
+          }
+        }
+      }
+    },
     "Add one more and translation works in both directions" : {
       "comment" : "Description of the row that says translation needs two languages",
       "localizations" : {
@@ -5556,6 +5573,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Перевести"
+          }
+        }
+      }
+    },
+    "Translate to %@" : {
+      "comment" : "Scanner badge naming the language a translating scan will go into; F cycles it",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Translate to %@"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Перевести на %@"
           }
         }
       }

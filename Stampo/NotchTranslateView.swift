@@ -27,8 +27,20 @@ import SwiftUI
         var language: Locale.Language
 
         /// An archive entry opened for reading, in whatever language it is in.
+        ///
+        /// A language the app cannot translate *from* yet still marks the menu:
+        /// the tick says where the reader is, and that is true whether or not
+        /// the pack is downloaded.
         static func preview(of text: String) -> Result {
-            Result(text: text, language: TranslationService.detectedSource(of: text))
+            switch TranslationService.detect(text) {
+            case .installed(let language), .notInstalled(let language):
+                return Result(text: text, language: language)
+            case .unknown:
+                // Nothing recognizable. The menu still has to tick something,
+                // and the target is the least surprising thing to tick — it is
+                // where an unprompted translation would have gone.
+                return Result(text: text, language: TranslationLanguages.shared.target)
+            }
         }
     }
 
@@ -415,9 +427,19 @@ struct NotchTranslateView: View {
         TranslateLanguageMenuButton(
             // The language on show, so the menu's tick marks where the
             // reader is rather than where they might go.
-            language: model.result?.language ?? Locale.Language(identifier: "ru"),
+            language: model.result?.language ?? TranslationLanguages.shared.target,
+            // Read here, in a view body, rather than inside the AppKit wrapper:
+            // that is what makes the menu rebuild when the user's list changes
+            // in Settings.
+            languages: TranslationLanguages.shared.favourites,
             metrics: metrics,
-            onSelect: pickLanguage
+            onSelect: pickLanguage,
+            onAddLanguage: {
+                NotificationCenter.default.post(
+                    name: .requestOpenSettings,
+                    object: nil,
+                    userInfo: [SettingsWindowController.tabUserInfoKey: SettingsTab.archive.rawValue])
+            }
         )
         .help("Translation language")
         .accessibilityLabel("Translation language")
@@ -457,8 +479,10 @@ struct NotchTranslateView: View {
 /// choice anyway — it is whatever the text turned out to be.
 private struct TranslateLanguageMenuButton: View {
     let language: Locale.Language
+    let languages: [Locale.Language]
     let metrics: NotchMetrics
     let onSelect: (Locale.Language) -> Void
+    let onAddLanguage: () -> Void
 
     @Environment(\.colorSchemeContrast) private var contrast
 
@@ -484,7 +508,9 @@ private struct TranslateLanguageMenuButton: View {
         .overlay {
             PopUpLanguageButtonWrapper(
                 language: language,
+                languages: languages,
                 onSelect: onSelect,
+                onAddLanguage: onAddLanguage,
                 onOpen:  { isMenuOpen = true  },
                 onClose: { isMenuOpen = false }
             )
@@ -505,22 +531,43 @@ private struct TranslateLanguageMenuButton: View {
     }
 }
 
+// MARK: - TranslateLanguageMenu
+
+/// Where a click in the panel's language pop-up lands.
+///
+/// Its own type because the arithmetic is the one part of that menu that can
+/// be quietly wrong: a pull-down hides its first item as the title, a separator
+/// takes an index of its own, and the row past it is not a language at all.
+/// An off-by-one here does not crash — it translates into the language next to
+/// the one that was pressed.
+enum TranslateLanguageMenu {
+
+    /// `nil` means the "Add language…" row: everything past the languages and
+    /// the separator leaves for Settings.
+    ///
+    /// `itemIndex` is `NSPopUpButton.indexOfSelectedItem`, so index 0 is the
+    /// pull-down's hidden title and the languages start at 1.
+    static func selection(atItemIndex itemIndex: Int,
+                          in languages: [Locale.Language]) -> Locale.Language? {
+        let index = itemIndex - 1
+        guard index >= 0, index < languages.count else { return nil }
+        return languages[index]
+    }
+}
+
 // MARK: - PopUpLanguageButtonWrapper
 
 private struct PopUpLanguageButtonWrapper: NSViewRepresentable {
     let language: Locale.Language
+    /// The user's own languages, in their own order. Their order, not one this
+    /// menu invents: a list that reordered itself by which language was
+    /// current would move the item out from under the pointer.
+    let languages: [Locale.Language]
     let onSelect: (Locale.Language) -> Void
+    let onAddLanguage: () -> Void
     var onOpen:  () -> Void
     var onClose: () -> Void
     @Environment(\.locale) private var locale
-
-    /// The pair the app handles. Listed rather than derived so the menu order
-    /// is stable — a list that reordered itself by which language was current
-    /// would move the item under the pointer.
-    static let languages = [
-        Locale.Language(identifier: "en"),
-        Locale.Language(identifier: "ru"),
-    ]
 
     func makeNSView(context: Context) -> NSPopUpButton {
         let button = PanelPopUpButton()
@@ -548,10 +595,16 @@ private struct PopUpLanguageButtonWrapper: NSViewRepresentable {
 
     private func rebuildItems(_ button: NSPopUpButton) {
         while button.numberOfItems > 1 { button.removeItem(at: 1) }
-        for language in Self.languages {
+        for language in languages {
             button.addItem(withTitle: TranslationService.displayName(language))
-            button.lastItem?.state = language.languageCode == self.language.languageCode ? .on : .off
+            button.lastItem?.state = language.baseCode == self.language.baseCode ? .on : .off
         }
+        // Below the languages and behind a separator, because it is not one of
+        // them: it installs rather than translates, and it leaves the panel for
+        // the settings window — the only surface the system's install sheet
+        // will attach to.
+        button.menu?.addItem(.separator())
+        button.addItem(withTitle: LocaleManager.shared.string("Add language…"))
     }
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
@@ -584,10 +637,12 @@ private struct PopUpLanguageButtonWrapper: NSViewRepresentable {
         }
 
         @objc func languageChanged(_ sender: NSPopUpButton) {
-            // Index 0 is the pull-down placeholder.
-            let index = sender.indexOfSelectedItem - 1
-            guard index >= 0, index < PopUpLanguageButtonWrapper.languages.count else { return }
-            let language = PopUpLanguageButtonWrapper.languages[index]
+            guard let language = TranslateLanguageMenu.selection(
+                atItemIndex: sender.indexOfSelectedItem, in: parent.languages)
+            else {
+                DispatchQueue.main.async { self.parent.onAddLanguage() }
+                return
+            }
             DispatchQueue.main.async { self.parent.onSelect(language) }
         }
     }

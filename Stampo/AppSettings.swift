@@ -51,6 +51,9 @@ enum AppSettings {
         /// Absent means "never seeded"; an empty array is a list the user
         /// emptied themselves and must not be re-seeded over.
         static let translationLanguages  = "translationLanguages"
+        /// Where an unprompted translation goes. Validated against the list
+        /// above on every read — see `TranslationLanguages.target`.
+        static let translationTarget     = "translationTarget"
         // Updates
         static let checkForUpdates        = "checkForUpdates"
         static let lastUpdateCheck        = "lastUpdateCheck"

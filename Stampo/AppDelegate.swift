@@ -60,6 +60,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // the wizard appears.
         if showWizard { UserFacingError.suppressPermissionAlerts = true }
         hover.start()
+        // Translation reads the language list and the installed packs
+        // synchronously from three entry points that cannot wait on an async
+        // check. Warming it here means the answer is already there by the time
+        // any of them can be reached; the same refresh runs again whenever the
+        // settings section is shown or the app is activated.
+        Task { await TranslationLanguages.shared.refresh() }
         interceptSettingsMenuItem()
         UpdateChecker.shared.startAutomaticChecks()
         NotificationCenter.default.addObserver(

@@ -546,6 +546,12 @@ struct NotchArchiveView: View {
                                     ArchiveTranslate.run(t.text,
                                                          archiveModel: archiveModel,
                                                          on: NSScreen.main)
+                                },
+                                onTranslateTo: { language in
+                                    ArchiveTranslate.run(t.text,
+                                                         to: language,
+                                                         archiveModel: archiveModel,
+                                                         on: NSScreen.main)
                                 }
                             )
                         case .stack(let stack):
@@ -978,8 +984,11 @@ private struct ArchiveTextCell: View {
     let cornerRadius: CGFloat
     let onRemove: () -> Void
     let onTranslate: () -> Void
+    let onTranslateTo: (Locale.Language) -> Void
 
     @Environment(\.colorSchemeContrast) private var contrast
+    /// Read in the body so the menu is rebuilt when the user's list changes.
+    private var languages: TranslationLanguages { TranslationLanguages.shared }
 
     @State private var isHovered    = false
     @State private var isPressed    = false
@@ -1095,17 +1104,52 @@ private struct ArchiveTextCell: View {
             // Plain string, not a file: the share sheet offers Messages, Notes,
             // Mail — the same payload the tap-to-copy puts on the pasteboard.
             MenuCommandButton("Share", icon: .share) { shareAnchor.present([item.text]) }
-            // A verb, not a destination. The entry already holds the text, so
-            // the direction is read off it — English out of Russian, Russian
-            // out of anything else — and there is nothing left to pick.
-            //
             // Absent for barcode payloads: a Wi-Fi config or a tracking number
             // is a value, and running it through a translator returns damaged
             // nonsense rather than an error. Hidden rather than disabled — a
             // greyed row invites the user to work out what would enable it,
             // and nothing ever will.
             if !item.isCodePayload {
-                MenuCommandButton("Translate", icon: .translate) { onTranslate() }
+                // With two languages Translate is a verb, not a destination:
+                // the entry holds the text, the direction is read off it, and
+                // the only other language is the answer. A submenu there would
+                // offer one real choice and one that means "already in that
+                // language".
+                //
+                // Past two, the destination stops following from the source
+                // and has to be asked for. Every language is listed, including
+                // the one the text looks like: detection is right most of the
+                // time, not all of it, and a list that hid the answer on a
+                // wrong guess would leave no way back. Picking it lands on the
+                // "already in that language" toast, which is cheap.
+                if languages.favourites.count > 2 {
+                    Menu {
+                        ForEach(languages.favourites, id: \.baseCode) { language in
+                            Button {
+                                onTranslateTo(language)
+                            } label: {
+                                Text(verbatim: TranslationService.displayName(language))
+                            }
+                        }
+                        Divider()
+                        // Adding a language is a system download behind a sheet
+                        // that only a real window can present, so this leads
+                        // there rather than pretending to do it here.
+                        Button {
+                            NotificationCenter.default.post(
+                                name: .requestOpenSettings,
+                                object: nil,
+                                userInfo: [SettingsWindowController.tabUserInfoKey:
+                                            SettingsTab.archive.rawValue])
+                        } label: {
+                            Text("Add language…")
+                        }
+                    } label: {
+                        MenuCommandLabel("Translate", icon: .translate)
+                    }
+                } else {
+                    MenuCommandButton("Translate", icon: .translate) { onTranslate() }
+                }
             }
             Divider()
             MenuCommandButton("Remove from archive", icon: .remove) { onRemove() }

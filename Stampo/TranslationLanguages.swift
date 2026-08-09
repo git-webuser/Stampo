@@ -52,7 +52,56 @@ nonisolated extension Locale.Language {
     /// is asking rather than claim nothing is installed.
     private(set) var hasChecked = false
 
-    private init() {}
+    private init() {
+        // The stored list is read here rather than waiting for `refresh()`:
+        // the menus are built from it, and a panel opened in the first
+        // milliseconds of a launch would otherwise offer an empty one. The
+        // async half — what is supported and what is downloaded — catches up
+        // when `refresh()` lands.
+        if let stored = UserDefaults.standard.array(forKey: AppSettings.Keys.translationLanguages) as? [String] {
+            favourites = stored.map { Locale.Language(identifier: $0) }
+        }
+    }
+
+    // MARK: Target
+
+    /// Where an unprompted translation goes — the scan modifier, the clipboard
+    /// hotkey, the archive's plain Translate. The scanner cycles it with F, the
+    /// way the colour HUD cycles its format.
+    ///
+    /// Always one of the user's own languages: a target that had been removed
+    /// from the list would send translations somewhere the user can no longer
+    /// see, so the stored value is checked against the list on every read
+    /// rather than trusted.
+    var target: Locale.Language {
+        get {
+            let stored = UserDefaults.standard.string(forKey: AppSettings.Keys.translationTarget)
+            if let stored, let match = favourites.first(where: { $0.baseCode == stored }) {
+                return match
+            }
+            return favourites.first ?? Locale.Language(identifier: "en")
+        }
+        set {
+            UserDefaults.standard.set(newValue.baseCode, forKey: AppSettings.Keys.translationTarget)
+        }
+    }
+
+    /// Moves the target to the next language in the user's own order, wrapping.
+    /// Their order, not ours — it is the order the list is shown in everywhere
+    /// else, so pressing F walks the list the user can see.
+    func cycleTarget() {
+        guard let next = Self.language(after: target, in: favourites) else { return }
+        target = next
+    }
+
+    /// Pure half of `cycleTarget`, so the wrap can be tested without touching
+    /// the user's own defaults.
+    nonisolated static func language(after current: Locale.Language,
+                                     in languages: [Locale.Language]) -> Locale.Language? {
+        guard languages.count > 1 else { return nil }
+        let index = languages.firstIndex { $0.baseCode == current.baseCode } ?? 0
+        return languages[(index + 1) % languages.count]
+    }
 
     // MARK: Reading
 

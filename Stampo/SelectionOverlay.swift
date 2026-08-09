@@ -66,6 +66,7 @@ final class SelectionOverlay {
     private(set) var selectionMode: ScanSelectionMode = .plain
 
     private var modifierMonitor: Any?
+    private var keyMonitor: Any?
     /// Modifier state at the last flags event, so a press can be told from a
     /// release.
     private var wasControlDown = false
@@ -109,7 +110,10 @@ final class SelectionOverlay {
         self.panel = panel
 
         escObservation = EscObservation { [weak self] in self?.cancel() }
-        if showsScanModes { installModifierMonitor(view: view) }
+        if showsScanModes {
+            installModifierMonitor(view: view)
+            installTranslationKeyMonitor(view: view)
+        }
 
         cursor.push()
         cursorPushed = true
@@ -161,6 +165,11 @@ final class SelectionOverlay {
 
         escObservation?.cancel()
         escObservation = nil
+
+        if let keyMonitor {
+            NSEvent.removeMonitor(keyMonitor)
+            self.keyMonitor = nil
+        }
 
         if let modifierMonitor {
             NSEvent.removeMonitor(modifierMonitor)
@@ -219,6 +228,34 @@ final class SelectionOverlay {
             }
             view?.mode = self.selectionMode
             return event
+        }
+    }
+
+    /// F cycles the language a translating scan goes into, the way F cycles
+    /// the notation in the colour HUD.
+    ///
+    /// A monitor rather than the view's `keyDown` for the same reason the
+    /// modifiers need one: this panel is `[.borderless, .nonactivatingPanel]`
+    /// and never becomes key, so nothing arrives through the responder chain —
+    /// which is why Esc has its own `EscObservation` too.
+    ///
+    /// Only while the translate mode is armed, and only a bare F: the key
+    /// belongs to whoever is underneath the rest of the time, and swallowing it
+    /// there would be a keystroke going missing in another app.
+    private func installTranslationKeyMonitor(view: SelectionView) {
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) {
+            [weak self, weak view] event in
+            guard let self, self.selectionMode == .translate,
+                  event.keyCode == KeyCode.f,
+                  event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+                      .isDisjoint(with: [.command, .option, .control, .shift])
+            else { return event }
+
+            TranslationLanguages.shared.cycleTarget()
+            // The badge names the target, so its width changes with the name —
+            // the whole view redraws rather than the badge's old frame.
+            view?.needsDisplay = true
+            return nil
         }
     }
 
@@ -403,7 +440,19 @@ private final class SelectionView: NSView {
 
     /// Verbs, because nothing has happened yet — a mode is armed over a region
     /// the user has not committed to.
-    private var badgeTitle: String { LocaleManager.shared.string(mode.titleKey) }
+    ///
+    /// Translation names its destination once there is one to name. With two
+    /// languages the destination follows from the text and "Translate" is the
+    /// whole truth; past two it is a setting the user can change from right
+    /// here with F, so the badge has to say which way this scan is going.
+    private var badgeTitle: String {
+        let languages = TranslationLanguages.shared
+        guard mode == .translate, languages.favourites.count > 2 else {
+            return LocaleManager.shared.string(mode.titleKey)
+        }
+        return String(format: LocaleManager.shared.string("Translate to %@"),
+                      TranslationService.displayName(languages.target))
+    }
 
     private var badgeFont: NSFont { .systemFont(ofSize: 12, weight: .semibold) }
 

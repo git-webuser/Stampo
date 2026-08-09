@@ -22,30 +22,67 @@ enum ArchiveTranslate {
 
     /// Translates `text` and files the result at the top of the archive.
     ///
-    /// Both ends of the direction come from the text — the app handles one
-    /// language pair today, so there is nothing for the caller to choose.
-    /// Every failure ends in the HUD rather than silently: the user asked for
-    /// something visible to happen, so something visible has to happen even
-    /// when it could not.
+    /// Nobody chose a target, so the app reads one: the source off the text,
+    /// the destination off the user's setting. Every failure ends in the HUD
+    /// rather than silently: the user asked for something visible to happen,
+    /// so something visible has to happen even when it could not.
     static func run(_ text: String,
                     archiveModel: NotchArchiveModel,
                     on screen: NSScreen?) {
-        run(text, pair: TranslationService.englishRussianRoute(for: text),
+        let languages = TranslationLanguages.shared
+        run(text,
+            route: TranslationService.automaticRoute(from: TranslationService.detect(text),
+                                                     target: languages.target,
+                                                     favourites: languages.favourites),
             archiveModel: archiveModel, on: screen)
     }
 
-    /// The same work for a language the user picked by hand, from the panel's
-    /// menu. The direction is not second-guessed here — `explicitRoute` has
-    /// already refused the case where there is nothing to do.
+    /// The same work for a language the user picked by hand, from a menu. The
+    /// direction is not second-guessed here — an explicit pick is answered as
+    /// asked or refused, never reversed.
     static func run(_ text: String,
                     to target: Locale.Language,
                     archiveModel: NotchArchiveModel,
                     on screen: NSScreen?) {
-        guard let pair = TranslationService.explicitRoute(for: text, to: target) else {
+        run(text,
+            route: TranslationService.route(from: TranslationService.detect(text), to: target),
+            archiveModel: archiveModel, on: screen)
+    }
+
+    /// Turns a route into either work or the one thing worth saying about why
+    /// there is none.
+    private static func run(_ text: String,
+                            route: TranslationRoute,
+                            archiveModel: NotchArchiveModel,
+                            on screen: NSScreen?) {
+        switch route {
+        case .translate(let pair):
+            run(text, pair: pair, archiveModel: archiveModel, on: screen)
+        case .alreadyThere:
             report(.translationUnchanged, on: screen)
-            return
+        case .sourceMissing(let language):
+            // The most useful thing the feature does: the app has read the
+            // text, named the language, and the only thing missing is a
+            // download. Same remedy as a missing target pack — say which
+            // language, then open the one window that can install it.
+            feedbackHUD.show(
+                .translationPackMissing(language: TranslationService.displayName(language)),
+                on: screen)
+            openTranslationSettings()
+        case .unknownSource:
+            report(.translationFailed, on: screen)
         }
-        run(text, pair: pair, archiveModel: archiveModel, on: screen)
+    }
+
+    /// The settings window is the only surface that can install a pack: the
+    /// system sheet needs a real window to attach to, and from the borderless
+    /// panel `prepareTranslation()` returns having shown nothing.
+    private static func openTranslationSettings() {
+        NotificationCenter.default.post(
+            name: .requestOpenSettings,
+            object: nil,
+            userInfo: [SettingsWindowController.tabUserInfoKey: SettingsTab.archive.rawValue]
+        )
     }
 
     private static func run(_ text: String,
@@ -88,15 +125,8 @@ enum ArchiveTranslate {
                     .translationPackMissing(language: TranslationService.displayName(pair.target)),
                     on: screen)
                 // Naming the missing pack is not enough — the toast has no
-                // button, and the one place that can install it is the
-                // settings window, because the system sheet needs a real
-                // window to attach to. So the toast says what is wrong and
-                // this opens where it gets fixed.
-                NotificationCenter.default.post(
-                    name: .requestOpenSettings,
-                    object: nil,
-                    userInfo: [SettingsWindowController.tabUserInfoKey: SettingsTab.archive.rawValue]
-                )
+                // button, so this opens where it gets fixed.
+                openTranslationSettings()
             } catch TranslationFailure.unsupported {
                 feedbackHUD.show(.translationFailed, on: screen)
             } catch is CancellationError {
