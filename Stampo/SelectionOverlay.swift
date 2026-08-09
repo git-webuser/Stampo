@@ -231,27 +231,32 @@ final class SelectionOverlay {
         }
     }
 
-    /// F cycles the language a translating scan goes into, the way F cycles
-    /// the notation in the colour HUD.
+    /// ⇥ cycles the language a translating scan goes into, ⇧⇥ backwards.
+    ///
+    /// Tab rather than the colour HUD's F: there, F stands for Format and the
+    /// mnemonic is the point. No letter stands for "the next language", so a
+    /// letter would just be a key to memorise — while Tab already means the
+    /// next one everywhere, and a selection overlay has no text entry for it
+    /// to take away.
     ///
     /// A monitor rather than the view's `keyDown` for the same reason the
     /// modifiers need one: this panel is `[.borderless, .nonactivatingPanel]`
     /// and never becomes key, so nothing arrives through the responder chain —
     /// which is why Esc has its own `EscObservation` too.
     ///
-    /// Only while the translate mode is armed, and only a bare F: the key
-    /// belongs to whoever is underneath the rest of the time, and swallowing it
-    /// there would be a keystroke going missing in another app.
+    /// Only while the translate mode is armed: the key belongs to whoever is
+    /// underneath the rest of the time, and swallowing it there would be a
+    /// keystroke going missing in another app.
     private func installTranslationKeyMonitor(view: SelectionView) {
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) {
             [weak self, weak view] event in
+            let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
             guard let self, self.selectionMode == .translate,
-                  event.keyCode == KeyCode.f,
-                  event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-                      .isDisjoint(with: [.command, .option, .control, .shift])
+                  event.keyCode == KeyCode.tab,
+                  flags.isDisjoint(with: [.command, .option, .control])
             else { return event }
 
-            TranslationLanguages.shared.cycleTarget()
+            TranslationLanguages.shared.cycleTarget(backwards: flags.contains(.shift))
             // The badge names the target, so its width changes with the name —
             // the whole view redraws rather than the badge's old frame.
             view?.needsDisplay = true

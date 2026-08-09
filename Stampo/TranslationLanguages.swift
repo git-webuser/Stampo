@@ -86,21 +86,23 @@ nonisolated extension Locale.Language {
         }
     }
 
-    /// Moves the target to the next language in the user's own order, wrapping.
-    /// Their order, not ours — it is the order the list is shown in everywhere
-    /// else, so pressing F walks the list the user can see.
-    func cycleTarget() {
-        guard let next = Self.language(after: target, in: favourites) else { return }
+    /// Moves the target one along the user's own order, wrapping. Their order,
+    /// not ours — it is the order the list is shown in everywhere else, so ⇥
+    /// walks the list the user can already see.
+    func cycleTarget(backwards: Bool = false) {
+        guard let next = Self.language(after: target, in: favourites, backwards: backwards) else { return }
         target = next
     }
 
     /// Pure half of `cycleTarget`, so the wrap can be tested without touching
     /// the user's own defaults.
     nonisolated static func language(after current: Locale.Language,
-                                     in languages: [Locale.Language]) -> Locale.Language? {
+                                     in languages: [Locale.Language],
+                                     backwards: Bool = false) -> Locale.Language? {
         guard languages.count > 1 else { return nil }
         let index = languages.firstIndex { $0.baseCode == current.baseCode } ?? 0
-        return languages[(index + 1) % languages.count]
+        let step = backwards ? languages.count - 1 : 1
+        return languages[(index + step) % languages.count]
     }
 
     // MARK: Reading

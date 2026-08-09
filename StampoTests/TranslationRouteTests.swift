@@ -234,6 +234,13 @@ import Testing
         #expect(TranslationLanguages.language(after: de, in: order)?.baseCode == "ru")
     }
 
+    @Test func shiftTabWalksTheSameListTheOtherWay() {
+        let order = [ru, en, de]
+        #expect(TranslationLanguages.language(after: ru, in: order, backwards: true)?.baseCode == "de")
+        #expect(TranslationLanguages.language(after: de, in: order, backwards: true)?.baseCode == "en")
+        #expect(TranslationLanguages.language(after: en, in: order, backwards: true)?.baseCode == "ru")
+    }
+
     @Test func aSingleLanguageHasNowhereToCycleTo() {
         #expect(TranslationLanguages.language(after: ru, in: [ru]) == nil)
         #expect(TranslationLanguages.language(after: ru, in: []) == nil)
