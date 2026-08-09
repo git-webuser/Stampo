@@ -64,7 +64,7 @@ struct ArchiveSettingsView: View {
             // today: a recognized-text entry becomes another entry. The row
             // moves if translation ever grows entry points outside the archive.
             Section("Translation") {
-                LanguagePackRow()
+                TranslationSettingsSection()
             }
         }
         .formStyle(.grouped)

@@ -47,6 +47,10 @@ enum AppSettings {
         /// Space-to-preview over an archive cell. Off means the key is never
         /// claimed at all — see `TransientHotkeyCenter`.
         static let archiveSpacePreview   = "archiveSpacePreview"
+        /// Language codes the user keeps for translation, in their own order.
+        /// Absent means "never seeded"; an empty array is a list the user
+        /// emptied themselves and must not be re-seeded over.
+        static let translationLanguages  = "translationLanguages"
         // Updates
         static let checkForUpdates        = "checkForUpdates"
         static let lastUpdateCheck        = "lastUpdateCheck"
