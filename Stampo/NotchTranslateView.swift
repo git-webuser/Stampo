@@ -328,7 +328,7 @@ struct NotchTranslateView: View {
     /// only ever dims the edge of a tile. At 7pt it lands inside the body's
     /// own 10 and 12pt padding, and touches the text only once the text has
     /// grown far enough to reach it.
-    private static let fadeInset: CGFloat = 7
+    static let fadeInset: CGFloat = 7
 
     /// The stop position of the fade, as a fraction of the body's height.
     ///
@@ -337,9 +337,15 @@ struct NotchTranslateView: View {
     /// it masks, and getting a different one than expected puts the softened
     /// band somewhere other than the edges — or, at a reported height of zero,
     /// turns the whole gradient into a fade. The height is already known here.
-    private var fadeStop: CGFloat {
-        let scrollHeight = max(1, model.bodyHeight - Self.bodyPadding)
-        return min(0.5, Self.fadeInset / scrollHeight)
+    private var fadeStop: CGFloat { Self.fadeStop(bodyHeight: model.bodyHeight) }
+
+    /// Split out as a function of the height so it can be pinned by a test.
+    /// The gradient itself is not: measuring a 7pt ramp across 17pt lines
+    /// means sampling bands that land between them as often as on them, and a
+    /// pixel assertion that passes for the wrong reason is worse than none.
+    static func fadeStop(bodyHeight: CGFloat) -> CGFloat {
+        let scrollHeight = max(1, bodyHeight - bodyPadding)
+        return min(0.5, fadeInset / scrollHeight)
     }
 
     private var scrollFade: LinearGradient {
