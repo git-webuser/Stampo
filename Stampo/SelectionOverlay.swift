@@ -263,13 +263,18 @@ final class SelectionOverlay {
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) {
             [weak self, weak view] event in
             let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            let languages = TranslationLanguages.shared
             guard let self, self.selectionMode == .translate,
                   AppSettings.hotkeyHUDFormatEnabled,
+                  // The same test the badge applies. Without it the key
+                  // cycled on two languages while the badge stayed silent, so
+                  // the destination changed with nothing on screen saying so —
+                  // and the scan then refused as "already in that language".
+                  languages.offersChoice,
                   event.keyCode == KeyCode.tab,
                   flags.isDisjoint(with: [.command, .option, .control])
             else { return event }
 
-            let languages = TranslationLanguages.shared
             self.translationTarget = TranslationLanguages.language(
                 after: self.translationTarget ?? languages.destination,
                 in: languages.favourites,
@@ -476,7 +481,7 @@ private final class SelectionView: NSView {
     /// here with F, so the badge has to say which way this scan is going.
     private var badgeTitle: String {
         let languages = TranslationLanguages.shared
-        guard mode == .translate, languages.favourites.count > 2 else {
+        guard mode == .translate, languages.offersChoice else {
             return LocaleManager.shared.string(mode.titleKey)
         }
         return String(format: LocaleManager.shared.string("Translate to %@"),

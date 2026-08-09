@@ -1122,7 +1122,7 @@ private struct ArchiveTextCell: View {
                 // time, not all of it, and a list that hid the answer on a
                 // wrong guess would leave no way back. Picking it lands on the
                 // "already in that language" toast, which is cheap.
-                if languages.favourites.count > 2 {
+                if languages.offersChoice {
                     Menu {
                         ForEach(languages.favourites, id: \.baseCode) { language in
                             Button {

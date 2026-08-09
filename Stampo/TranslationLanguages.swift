@@ -126,6 +126,21 @@ nonisolated extension Locale.Language {
 
     // MARK: Reading
 
+    /// True once the destination stops following from the text and has to be
+    /// asked for.
+    ///
+    /// With two languages there is nothing to choose: whatever the text is,
+    /// the translation goes to the other one. Past two, every surface has to
+    /// offer the choice — the archive grows a submenu, the scan badge names
+    /// where it is going, ⇥ steps it, and Settings asks for a primary
+    /// language.
+    ///
+    /// One property rather than `favourites.count > 2` written out at each of
+    /// them: they drifted apart the first time it was, and the two halves of
+    /// the scan overlay disagreeing meant ⇥ changed the destination while the
+    /// badge showed nothing.
+    var offersChoice: Bool { favourites.count > 2 }
+
     func isInstalled(_ language: Locale.Language) -> Bool {
         installed.contains(language.baseCode)
     }

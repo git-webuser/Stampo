@@ -65,9 +65,32 @@ enum ArchiveTranslate {
                             chosen: Bool,
                             archiveModel: NotchArchiveModel,
                             on screen: NSScreen?) {
+        guard case .translate(let pair) = route else {
+            // Nothing is going to run, and the callers that dim the panel body
+            // before asking cannot know that. `beginRework()` is normally
+            // undone by `.translationDidEnd`, which is posted around the work
+            // itself — so a route that produces no work left the body dimmed
+            // for good, and ⇥ dead behind its own `!isReworking` guard.
+            //
+            // Cleared here rather than at each caller because this is the only
+            // place that knows the answer, and the next caller to dim the panel
+            // will be just as unable to tell.
+            TranslationPanelModel.shared.endRework()
+            report(route, chosen: chosen, for: text, on: screen)
+            return
+        }
+        run(text, pair: pair, archiveModel: archiveModel, on: screen)
+    }
+
+    /// The one thing worth saying about why there is no translation.
+    private static func report(_ route: TranslationRoute,
+                               chosen: Bool,
+                               for text: String,
+                               on screen: NSScreen?) {
         switch route {
-        case .translate(let pair):
-            run(text, pair: pair, archiveModel: archiveModel, on: screen)
+        case .translate:
+            // Handled by the caller; here only because the switch is total.
+            break
         case .alreadyThere where !chosen:
             // Nobody named a language, and the text is already in the one this
             // would have sent it to. A toast here was a dead end: it named the

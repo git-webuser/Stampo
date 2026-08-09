@@ -125,7 +125,7 @@ struct TranslationSettingsSection: View {
             // Below the list because it is a statement about the list, and only
             // once the list is long enough for the answer to differ: with two
             // languages the destination follows from the text either way.
-            if languages.favourites.count > 2 {
+            if languages.offersChoice {
                 primaryLanguageRow
             }
         }
