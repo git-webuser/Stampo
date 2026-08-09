@@ -214,10 +214,14 @@ struct TranslationSettingsSection: View {
 
     /// Where translations go when nobody said otherwise.
     ///
-    /// "Automatic" is not a hedge: it means the first language in the list
-    /// above, and it keeps following that list if it changes. Naming one pins
-    /// it — which is the point, because the destination is otherwise the kind
-    /// of thing that quietly follows whatever was done last.
+    /// "Automatic" means the first language in the list above, and keeps
+    /// following that list if it changes. Naming one pins it — which is the
+    /// point, because the destination is otherwise the kind of thing that
+    /// quietly follows whatever was done last.
+    ///
+    /// That is not spelled out in the row. The description says what the
+    /// setting is for; what one of its options resolves to is documentation of
+    /// the option, and the option is one menu item away from being tried.
     ///
     /// The description names both surfaces that read this, not just the
     /// clipboard one. A scan started with ⌃ reads it too — it is the language
@@ -231,7 +235,7 @@ struct TranslationSettingsSection: View {
         SettingRow(
             icon: "character.book.closed",
             title: "Translate into",
-            description: "Used by Translate and by scanning when no language is picked. Automatic follows the first in the list"
+            description: "Used by Translate and by scanning when no language is picked"
         ) {
             Picker("Translate into", selection: Binding(
                 get: { languages.primary?.baseCode ?? "" },

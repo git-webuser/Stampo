@@ -5827,19 +5827,19 @@
         }
       }
     },
-    "Used by Translate and by scanning when no language is picked. Automatic follows the first in the list" : {
+    "Used by Translate and by scanning when no language is picked" : {
       "comment" : "Description of the Translate into row: which surfaces read it",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Used by Translate and by scanning when no language is picked. Automatic follows the first in the list"
+            "value" : "Used by Translate and by scanning when no language is picked"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Используется командой «Перевести» и сканером, когда язык не выбран. «Автоматически» — первый в списке"
+            "value" : "Используется командой «Перевести» и сканером, когда язык не выбран"
           }
         }
       }
