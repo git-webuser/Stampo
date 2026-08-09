@@ -356,13 +356,13 @@ nonisolated enum TranslationFailure: Error, Equatable {
     /// text is already in that language and the menus are where a target gets
     /// chosen.
     nonisolated static func automaticRoute(from detected: DetectedLanguage,
-                                           target: Locale.Language,
+                                           destination: Locale.Language,
                                            favourites: [Locale.Language]) -> TranslationRoute {
         guard case .installed(let source) = detected else {
-            return route(from: detected, to: target)
+            return route(from: detected, to: destination)
         }
-        guard source.baseCode == target.baseCode else {
-            return .translate(TranslationPair(source: source, target: target))
+        guard source.baseCode == destination.baseCode else {
+            return .translate(TranslationPair(source: source, target: destination))
         }
         let others = favourites.filter { $0.baseCode != source.baseCode }
         guard others.count == 1, let only = others.first else { return .alreadyThere }

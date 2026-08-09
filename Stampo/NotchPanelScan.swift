@@ -20,7 +20,9 @@ final class ScanCaptureCoordinator {
     /// Called with the recognized prose when the scan was run with ⌃ — the
     /// owner has the archive the translation lands in. Payloads never reach
     /// this: a Wi-Fi config or a tracking number is a value, not language.
-    var translate: (String) -> Void = { _ in }
+    /// Second argument is the language ⇥ chose on the overlay, or nil to let
+    /// the ordinary rule decide.
+    var translate: (String, Locale.Language?) -> Void = { _, _ in }
 
     /// Stops an active scan without showing a result HUD. A result that arrives
     /// after cancellation is discarded on the main thread.
@@ -37,7 +39,8 @@ final class ScanCaptureCoordinator {
     /// a control for this; the overlay carries it as a mode toggled with ⌥ and
     /// shown on the frame (see `NotchPanelController.scan`).
     @MainActor
-    func scan(in rect: CGRect, on screen: NSScreen?, joinsLines: Bool, translates: Bool = false) {
+    func scan(in rect: CGRect, on screen: NSScreen?, joinsLines: Bool,
+              translates: Bool = false, into language: Locale.Language? = nil) {
         guard !isInFlight else { return }
         isInFlight = true
         // Carry only the value-type display ID across the background closure;
@@ -76,7 +79,7 @@ final class ScanCaptureCoordinator {
                 // the pack is missing — and two toasts in a row for one gesture
                 // read as something having gone wrong.
                 if translates && !result.text.isEmpty {
-                    self.translate(result.text)
+                    self.translate(result.text, language)
                 } else {
                     self.hud.show(Self.outcome(for: result), on: resultScreen)
                 }
@@ -161,12 +164,18 @@ extension NotchPanelController {
                 let mode = self.selectionOverlay.selectionMode
                 let translates = mode == .translate
                 let joinsLines = mode != .keepLineBreaks
+                // Read here with the mode and for the same reason: it is
+                // whatever the badge was saying when the mouse came up. Nil
+                // unless ⇥ was pressed, which leaves the ordinary rule — into
+                // the primary language, or out of it — to decide.
+                let into = self.selectionOverlay.translationTarget
                 self.state = .hidden
                 // Let WindowServer remove the overlay from the framebuffer
                 // before capturing the selected area.
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
                     self?.scanCapture.scan(in: rect, on: target,
-                                           joinsLines: joinsLines, translates: translates)
+                                           joinsLines: joinsLines,
+                                           translates: translates, into: into)
                 }
             }
             self.selectionOverlay.onCancelled = { [weak self] in

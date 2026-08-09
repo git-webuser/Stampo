@@ -159,7 +159,7 @@ import Testing
 
     @Test func textGoesToTheTargetWhenItIsNotAlreadyThere() {
         #expect(TranslationService.automaticRoute(from: .installed(en),
-                                                  target: ru, favourites: [ru, en])
+                                                  destination: ru, favourites: [ru, en])
                 == .translate(TranslationPair(source: en, target: ru)))
     }
 
@@ -168,7 +168,7 @@ import Testing
         // there is what Translate has always meant, and no choice is being
         // invented.
         #expect(TranslationService.automaticRoute(from: .installed(ru),
-                                                  target: ru, favourites: [ru, en])
+                                                  destination: ru, favourites: [ru, en])
                 == .translate(TranslationPair(source: ru, target: en)))
     }
 
@@ -177,7 +177,7 @@ import Testing
         // the honest answer is that it is already in that language — the menus
         // are where a target gets picked.
         #expect(TranslationService.automaticRoute(from: .installed(ru),
-                                                  target: ru, favourites: [ru, en, de])
+                                                  destination: ru, favourites: [ru, en, de])
                 == .alreadyThere)
     }
 
@@ -187,7 +187,7 @@ import Testing
         for favourites in [[ru, en], [ru, en, de], [ru]] {
             for detected in [DetectedLanguage.installed(ru), .installed(en), .installed(de)] {
                 let route = TranslationService.automaticRoute(from: detected,
-                                                              target: ru,
+                                                              destination: ru,
                                                               favourites: favourites)
                 if case .translate(let pair) = route {
                     #expect(pair.source.baseCode != pair.target.baseCode)
@@ -196,9 +196,28 @@ import Testing
         }
     }
 
+    /// The dead end that shipped for a day: a language chosen in passing on the
+    /// scan overlay became the destination the clipboard hotkey used, and text
+    /// in *that* language then had nowhere to go — refused by a toast with no
+    /// control on it. The route still refuses, correctly; what changed is that
+    /// the destination is now a setting nothing writes behind the user's back,
+    /// and the refusal opens the panel where a language can be picked.
+    @Test func textInTheDestinationLanguageIsRefusedRatherThanMisrouted() {
+        let zh = Locale.Language(identifier: "zh")
+        #expect(TranslationService.automaticRoute(from: .installed(zh),
+                                                  destination: zh,
+                                                  favourites: [ru, en, zh])
+                == .alreadyThere)
+        // And with the destination back where it belongs, the same text moves.
+        #expect(TranslationService.automaticRoute(from: .installed(zh),
+                                                  destination: ru,
+                                                  favourites: [ru, en, zh])
+                == .translate(TranslationPair(source: zh, target: ru)))
+    }
+
     @Test func aMissingSourceSurvivesTheAutomaticRouteToo() {
         #expect(TranslationService.automaticRoute(from: .notInstalled(de),
-                                                  target: ru, favourites: [ru, en])
+                                                  destination: ru, favourites: [ru, en])
                 == .sourceMissing(de))
     }
 

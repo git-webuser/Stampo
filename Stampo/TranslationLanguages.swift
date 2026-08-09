@@ -73,29 +73,48 @@ nonisolated extension Locale.Language {
     /// from the list would send translations somewhere the user can no longer
     /// see, so the stored value is checked against the list on every read
     /// rather than trusted.
-    var target: Locale.Language {
+    /// The language the user reads in, if they have said so. `nil` means they
+    /// have not, and `destination` follows their list instead.
+    ///
+    /// A *setting*, deliberately. It is the one thing about translation that
+    /// must not change because of something done in passing: an earlier build
+    /// let the scan overlay's ⇥ write the destination that the clipboard
+    /// hotkey reads, so choosing "this scan into Chinese" quietly rewired
+    /// ⌃⌥⌘T — and Chinese text then had nowhere left to go, being already in
+    /// the language everything was being sent to.
+    ///
+    /// Checked against the list on every read rather than trusted: a primary
+    /// language since removed would aim translations at somewhere the user can
+    /// no longer see named anywhere.
+    var primary: Locale.Language? {
         get {
-            let stored = UserDefaults.standard.string(forKey: AppSettings.Keys.translationTarget)
-            if let stored, let match = favourites.first(where: { $0.baseCode == stored }) {
-                return match
-            }
-            return favourites.first ?? Locale.Language(identifier: "en")
+            guard let stored = UserDefaults.standard.string(forKey: AppSettings.Keys.translationPrimary)
+            else { return nil }
+            return favourites.first { $0.baseCode == stored }
         }
         set {
-            UserDefaults.standard.set(newValue.baseCode, forKey: AppSettings.Keys.translationTarget)
+            let defaults = UserDefaults.standard
+            if let newValue {
+                defaults.set(newValue.baseCode, forKey: AppSettings.Keys.translationPrimary)
+            } else {
+                defaults.removeObject(forKey: AppSettings.Keys.translationPrimary)
+            }
         }
     }
 
-    /// Moves the target one along the user's own order, wrapping. Their order,
-    /// not ours — it is the order the list is shown in everywhere else, so ⇥
-    /// walks the list the user can already see.
-    func cycleTarget(backwards: Bool = false) {
-        guard let next = Self.language(after: target, in: favourites, backwards: backwards) else { return }
-        target = next
+    /// Where a translation nobody chose a target for goes.
+    ///
+    /// The primary language when there is one, otherwise the first in the
+    /// user's own list — the first one they told the system they read. Nothing
+    /// writes this: a per-scan choice lives and dies with the overlay that
+    /// made it.
+    var destination: Locale.Language {
+        primary ?? favourites.first ?? Locale.Language(identifier: "en")
     }
 
-    /// Pure half of `cycleTarget`, so the wrap can be tested without touching
-    /// the user's own defaults.
+    /// One step along the user's own order, wrapping. Their order, not ours —
+    /// it is the order the list is shown in everywhere else, so ⇥ walks the
+    /// list the user can already see.
     nonisolated static func language(after current: Locale.Language,
                                      in languages: [Locale.Language],
                                      backwards: Bool = false) -> Locale.Language? {

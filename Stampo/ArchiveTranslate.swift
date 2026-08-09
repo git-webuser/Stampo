@@ -32,20 +32,29 @@ enum ArchiveTranslate {
         let languages = TranslationLanguages.shared
         run(text,
             route: TranslationService.automaticRoute(from: TranslationService.detect(text),
-                                                     target: languages.target,
+                                                     destination: languages.destination,
                                                      favourites: languages.favourites),
+            chosen: false,
             archiveModel: archiveModel, on: screen)
     }
 
     /// The same work for a language the user picked by hand, from a menu. The
     /// direction is not second-guessed here — an explicit pick is answered as
     /// asked or refused, never reversed.
+    ///
+    /// `nil` means nobody picked anything after all, which is what the scan
+    /// overlay hands over when ⇥ was never pressed.
     static func run(_ text: String,
-                    to target: Locale.Language,
+                    to target: Locale.Language?,
                     archiveModel: NotchArchiveModel,
                     on screen: NSScreen?) {
+        guard let target else {
+            run(text, archiveModel: archiveModel, on: screen)
+            return
+        }
         run(text,
             route: TranslationService.route(from: TranslationService.detect(text), to: target),
+            chosen: true,
             archiveModel: archiveModel, on: screen)
     }
 
@@ -53,12 +62,27 @@ enum ArchiveTranslate {
     /// there is none.
     private static func run(_ text: String,
                             route: TranslationRoute,
+                            chosen: Bool,
                             archiveModel: NotchArchiveModel,
                             on screen: NSScreen?) {
         switch route {
         case .translate(let pair):
             run(text, pair: pair, archiveModel: archiveModel, on: screen)
+        case .alreadyThere where !chosen:
+            // Nobody named a language, and the text is already in the one this
+            // would have sent it to. A toast here was a dead end: it named the
+            // problem and offered no way out, so text in the primary language
+            // simply could not be translated at all from the hotkey.
+            //
+            // So the panel opens on it instead, where the header menu lists
+            // every language and ⇥ steps them. The refusal becomes the
+            // question it was standing in for — where should this go?
+            NotificationCenter.default.post(name: .requestTranslatePreview, object: text)
         case .alreadyThere:
+            // A language picked by hand, over text already in it. The menu is
+            // already open in front of the user with the tick on the item they
+            // just pressed, so there is nothing to offer them that they are not
+            // already looking at.
             report(.translationUnchanged, on: screen)
         case .sourceMissing(let language):
             // The most useful thing the feature does: the app has read the

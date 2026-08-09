@@ -39,7 +39,7 @@ import SwiftUI
                 // Nothing recognizable. The menu still has to tick something,
                 // and the target is the least surprising thing to tick — it is
                 // where an unprompted translation would have gone.
-                return Result(text: text, language: TranslationLanguages.shared.target)
+                return Result(text: text, language: TranslationLanguages.shared.destination)
             }
         }
     }
@@ -113,6 +113,10 @@ extension Notification.Name {
     /// pair is always balanced — the end is posted whatever the outcome, or a
     /// failed translation would leave a ring turning forever.
     static let translationDidStart = Notification.Name("Stampo.translationDidStart")
+    /// Carries a String: show this text in the Translator so a language can be
+    /// chosen for it. Posted when an unprompted translation had nowhere to send
+    /// the text — it was already in the language it would have gone to.
+    static let requestTranslatePreview = Notification.Name("Stampo.requestTranslatePreview")
     static let translationDidEnd = Notification.Name("Stampo.translationDidEnd")
 }
 
@@ -427,7 +431,7 @@ struct NotchTranslateView: View {
         TranslateLanguageMenuButton(
             // The language on show, so the menu's tick marks where the
             // reader is rather than where they might go.
-            language: model.result?.language ?? TranslationLanguages.shared.target,
+            language: model.result?.language ?? TranslationLanguages.shared.destination,
             // Read here, in a view body, rather than inside the AppKit wrapper:
             // that is what makes the menu rebuild when the user's list changes
             // in Settings.

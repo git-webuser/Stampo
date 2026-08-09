@@ -121,6 +121,13 @@ struct TranslationSettingsSection: View {
             }
 
             addLanguageRow
+
+            // Below the list because it is a statement about the list, and only
+            // once the list is long enough for the answer to differ: with two
+            // languages the destination follows from the text either way.
+            if languages.favourites.count > 2 {
+                primaryLanguageRow
+            }
         }
         .translationTask(model.configuration) { session in
             await model.prepare(session)
@@ -202,6 +209,35 @@ struct TranslationSettingsSection: View {
             // second language to pair this one with yet.
             Text("Not downloaded")
                 .foregroundStyle(.secondary)
+        }
+    }
+
+    /// Where translations go when nobody said otherwise.
+    ///
+    /// "Automatic" is not a hedge: it means the first language in the list
+    /// above, and it keeps following that list if it changes. Naming one pins
+    /// it — which is the point, because the destination is otherwise the kind
+    /// of thing that quietly follows whatever was done last.
+    private var primaryLanguageRow: some View {
+        SettingRow(
+            icon: "character.book.closed",
+            title: "Translate into",
+            description: "Everything in another language goes here. Automatic uses the first in the list"
+        ) {
+            Picker("Translate into", selection: Binding(
+                get: { languages.primary?.baseCode ?? "" },
+                set: { code in
+                    languages.primary = languages.favourites.first { $0.baseCode == code }
+                }
+            )) {
+                Text("Automatic").tag("")
+                ForEach(languages.favourites, id: \.baseCode) { language in
+                    Text(verbatim: TranslationService.displayName(language)).tag(language.baseCode)
+                }
+            }
+            .pickerStyle(.menu)
+            .labelsHidden()
+            .fixedSize()
         }
     }
 

@@ -65,6 +65,17 @@ final class SelectionOverlay {
     /// to the next would be invisible until the first drag.
     private(set) var selectionMode: ScanSelectionMode = .plain
 
+    /// The language this scan will be translated into when ⇥ has been used to
+    /// say so, `nil` when it has not.
+    ///
+    /// Scoped to one overlay session and reset at every `start`, exactly like
+    /// `selectionMode` above and for a stronger version of the same reason. A
+    /// mode that outlived a scan would merely be invisible until the first
+    /// drag; a *destination* that outlived one used to be written to the
+    /// setting the clipboard hotkey reads, so a language picked here for one
+    /// screenful silently became where everything went from then on.
+    private(set) var translationTarget: Locale.Language?
+
     private var modifierMonitor: Any?
     private var keyMonitor: Any?
     /// Modifier state at the last flags event, so a press can be told from a
@@ -96,6 +107,7 @@ final class SelectionOverlay {
         let view = SelectionView(frame: NSRect(origin: .zero, size: frame.size))
         view.selectionCursor = cursor
         selectionMode = .plain
+        translationTarget = nil
         view.onCompleted = { [weak self] nsRect in
             guard let self else { return }
             let cgRect = viewRectToCGRect(nsRect, screen: screen)
@@ -257,9 +269,14 @@ final class SelectionOverlay {
                   flags.isDisjoint(with: [.command, .option, .control])
             else { return event }
 
-            TranslationLanguages.shared.cycleTarget(backwards: flags.contains(.shift))
+            let languages = TranslationLanguages.shared
+            self.translationTarget = TranslationLanguages.language(
+                after: self.translationTarget ?? languages.destination,
+                in: languages.favourites,
+                backwards: flags.contains(.shift))
             // The badge names the target, so its width changes with the name —
             // the whole view redraws rather than the badge's old frame.
+            view?.translationTarget = self.translationTarget
             view?.needsDisplay = true
             return nil
         }
@@ -333,6 +350,12 @@ private final class SelectionView: NSView {
     /// in never becomes key.
     var mode: ScanSelectionMode = .plain {
         didSet { if mode != oldValue { needsDisplay = true } }
+    }
+
+    /// The language the badge names, when ⇥ has chosen one for this scan. Set
+    /// by the same monitor and for the same reason as `mode`.
+    var translationTarget: Locale.Language? {
+        didSet { if translationTarget != oldValue { needsDisplay = true } }
     }
 
     override var isOpaque: Bool { false }
@@ -457,7 +480,7 @@ private final class SelectionView: NSView {
             return LocaleManager.shared.string(mode.titleKey)
         }
         return String(format: LocaleManager.shared.string("Translate to %@"),
-                      TranslationService.displayName(languages.target))
+                      TranslationService.displayName(translationTarget ?? languages.destination))
     }
 
     private var badgeFont: NSFont { .systemFont(ofSize: 12, weight: .semibold) }

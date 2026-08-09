@@ -717,6 +717,23 @@
         }
       }
     },
+    "Automatic" : {
+      "comment" : "Translate into picker: follow the language list rather than pinning one",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Automatic"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Автоматически"
+          }
+        }
+      }
+    },
     "Back to panel" : {
       "localizations" : {
         "en" : {
@@ -2046,6 +2063,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Размер ластика"
+          }
+        }
+      }
+    },
+    "Everything in another language goes here. Automatic uses the first in the list" : {
+      "comment" : "Description of the Translate into row",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Everything in another language goes here. Automatic uses the first in the list"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Всё на других языках переводится сюда. «Автоматически» — первый в списке"
           }
         }
       }
@@ -5607,6 +5641,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Перевести"
+          }
+        }
+      }
+    },
+    "Translate into" : {
+      "comment" : "Settings row: where translations go when nobody chose a language",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Translate into"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Основной язык"
           }
         }
       }

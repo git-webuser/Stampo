@@ -703,9 +703,12 @@ final class NotchPanelController: NSObject {
         scanCapture.addText = { [weak self] text, isCode in
             self?.archiveModel.add(text: text, isCodePayload: isCode)
         }
-        scanCapture.translate = { [weak self] text in
+        scanCapture.translate = { [weak self] text, language in
             guard let self else { return }
-            ArchiveTranslate.run(text, archiveModel: self.archiveModel, on: self.currentScreen)
+            // `language` is nil unless ⇥ named one on the overlay, and nil is
+            // what makes this the ordinary automatic route.
+            ArchiveTranslate.run(text, to: language,
+                                 archiveModel: self.archiveModel, on: self.currentScreen)
         }
         screenshot.onCaptured = { [weak self] url in
             self?.archiveModel.add(screenshotURL: url)
@@ -824,6 +827,21 @@ final class NotchPanelController: NSObject {
                 self.state = .translating
             }
         }
+        // Nowhere to send the text automatically, so it is put in front of the
+        // user with the language menu instead of refused. Same presentation as
+        // opening an archive entry to read — it is the same thing: a text, and
+        // a header that asks where it should go.
+        let tTranslatePreview = NotificationCenter.default.addObserver(
+            forName: .requestTranslatePreview,
+            object: nil, queue: .main
+        ) { [weak self] note in
+            guard let self, let text = note.object as? String else { return }
+            MainActor.assumeIsolated {
+                TranslationPanelModel.shared.present(.preview(of: text),
+                                                     bodyWidth: self.translateBodyWidth)
+                self.presentTranslation(on: self.currentScreen)
+            }
+        }
         let tTranslateEnd = NotificationCenter.default.addObserver(
             forName: .translationDidEnd,
             object: nil, queue: .main
@@ -911,7 +929,8 @@ final class NotchPanelController: NSObject {
             self?.isQuickLookOpen = false
         }
 
-        notificationObservers = [t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11, t12, t13, tTranslate, tTranslateStart, tTranslateEnd]
+        notificationObservers = [t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11, t12, t13,
+                                 tTranslate, tTranslateStart, tTranslateEnd, tTranslatePreview]
     }
 
     deinit {
