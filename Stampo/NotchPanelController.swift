@@ -23,6 +23,12 @@ enum PanelTiming {
     /// Body content fading in once an expanded route has finished opening.
     /// Slower than the dissolve: arriving deserves more ceremony than leaving.
     static let contentReveal:       TimeInterval = 0.18
+    /// How much longer the shape keeps moving after the window's frame
+    /// animation reports done. The frame is driven by `NSAnimationContext`
+    /// and the height by a SwiftUI spring, and a spring is still travelling
+    /// when its response has elapsed — so anything waiting on the frame is
+    /// early by roughly this much.
+    static let morphTail:           TimeInterval = 0.12
     /// The shape settling between two expanded routes. Shorter than the spring
     /// that drives it: the body may reappear while the last of the travel is
     /// still easing out, and waiting for the spring to be arithmetically done
@@ -337,14 +343,20 @@ private struct NotchPanelRootView: View {
             // the panel grows put a row of buttons on screen that flashed once
             // and left: nobody had been looking at them, and nobody asked for
             // them. Every other route still fades Main out as it opens over it.
+            // Held back by the strip's geometry, not by its opacity. The
+            // glyphs dissolve first and the route flips only once they are
+            // gone — so a factor tied to the fading opacity climbs back to 1
+            // during that gap and let Main through it, capture button and all.
+            // The geometry flag spans the whole handoff and clears in the same
+            // update that sets the route, leaving no frame in between.
             .opacity(max(0.0, min(1.0, (0.6 - p) / 0.6))
                      * (1.0 - rootState.countdownVisible)
-                     * (1.0 - rootState.translatingVisible)
+                     * (rootState.translatingStripVisible ? 0.0 : 1.0)
                      * (rootState.route == .translate ? 0.0 : 1.0))
             .animation(.easeOut(duration: PanelTiming.crossfade), value: rootState.countdownVisible)
-            .animation(.easeOut(duration: PanelTiming.crossfade), value: rootState.translatingVisible)
+            .animation(.easeOut(duration: PanelTiming.crossfade), value: rootState.translatingStripVisible)
             .allowsHitTesting(p < 0.5 && rootState.countdownVisible < 0.5
-                              && rootState.translatingVisible < 0.5
+                              && !rootState.translatingStripVisible
                               && rootState.route != .translate)
 
             // Countdown — crossfades over Main without resizing the panel
@@ -1816,7 +1828,15 @@ final class NotchPanelController: NSObject {
                 guard let self, self.animationGeneration == gen else { return }
                 self.state = targetRoute == .translate ? .translate : .archive
                 self.interactionState.isEnabled = true
-                if targetRoute == .translate {
+                guard targetRoute == .translate else { return }
+                // Not here, a moment later. This closure fires when the window
+                // frame animation is done, and the shape is not the frame: its
+                // height rides a SwiftUI spring, which is still easing out well
+                // after `NSAnimationContext` calls itself finished. Revealing
+                // on this signal put the text on screen while the panel was
+                // still growing under it.
+                DispatchQueue.main.asyncAfter(deadline: .now() + PanelTiming.morphTail) { [weak self] in
+                    guard let self, self.animationGeneration == gen else { return }
                     withAnimation(.easeOut(duration: PanelTiming.contentReveal)) {
                         self.rootState.routeContentVisible = 1.0
                     }
