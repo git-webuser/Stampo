@@ -14,30 +14,27 @@ import SwiftUI
 
     private init() {}
 
+    /// What the panel is showing.
+    ///
+    /// The text and the language it is in — not an original-and-translation
+    /// pair. The menu marks this language, and picking another translates
+    /// *this* text into it: from Russian to English to German, each step
+    /// starting from what is on screen rather than from an original nobody can
+    /// see any more. With two languages the difference is invisible; with
+    /// three it is the whole behaviour.
     struct Result: Equatable {
-        var source: String
-        /// What the body shows. The translation, or — before there is one —
-        /// the original.
-        var translated: String
-        var pair: TranslationPair
-        /// False while the body is showing text that has not been translated
-        /// yet: an archive entry opened for reading. The language menu is then
-        /// an offer rather than a report, and picking the language it already
-        /// names has to do something.
-        var isTranslated: Bool = true
+        var text: String
+        var language: Locale.Language
 
-        /// An archive entry on show, with the language it would go to if asked.
+        /// An archive entry opened for reading, in whatever language it is in.
         static func preview(of text: String) -> Result {
-            Result(source: text,
-                   translated: text,
-                   pair: TranslationService.englishRussianRoute(for: text),
-                   isTranslated: false)
+            Result(text: text, language: TranslationService.detectedSource(of: text))
         }
     }
 
     private(set) var result: Result?
-    /// True while a re-translation into another language is in flight, so the
-    /// text can dim rather than vanish and come back.
+    /// True while the next language is being fetched, so the text can dim
+    /// rather than vanish and come back.
     private(set) var isReworking = false
 
     /// Height the translation needs, clamped to what the panel can be.
@@ -46,10 +43,6 @@ import SwiftUI
     /// notch, and a long one should not push the panel down the screen — so
     /// the body fits its text up to a ceiling and scrolls past it.
     private(set) var bodyHeight: CGFloat = NotchTranslateView.minBodyHeight
-
-    /// Width the body was last measured at, so a re-translation into another
-    /// language can be measured without asking the view again.
-    private var bodyWidth: CGFloat = 0
 
     /// Measured with Foundation rather than by laying the view out and reading
     /// it back.
@@ -81,37 +74,18 @@ import SwiftUI
     /// knows the panel's geometry, this type does not.
     func present(_ result: Result, bodyWidth: CGFloat) {
         self.result = result
-        self.bodyWidth = bodyWidth
         isReworking = false
-        bodyHeight = Self.height(of: result.translated, width: bodyWidth)
+        bodyHeight = Self.height(of: result.text, width: bodyWidth)
     }
+
+    /// Dim the body while the next language is on its way. Cleared by the
+    /// result arriving, or by the translation ending without one.
+    func beginRework() { isReworking = true }
+    func endRework() { isReworking = false }
 
     func clear() {
         result = nil
         isReworking = false
-    }
-
-    /// Re-runs the original text into `language`.
-    ///
-    /// The source is translated again rather than the translation being
-    /// translated onward: passing a machine translation back through the
-    /// machine compounds its mistakes, and the original is right here.
-    func retranslate(to language: Locale.Language) {
-        guard let current = result, !isReworking else { return }
-        let pair = TranslationService.route(for: current.source, target: language)
-        // An untranslated preview always runs, even for the language the menu
-        // is already showing — that is the whole gesture there.
-        guard !current.isTranslated || pair != current.pair else { return }
-
-        isReworking = true
-        Task { @MainActor in
-            defer { isReworking = false }
-            guard let translated = try? await TranslationService.shared.translate(
-                current.source, from: pair.source, to: pair.target)
-            else { return }
-            result = Result(source: current.source, translated: translated, pair: pair)
-            bodyHeight = Self.height(of: translated, width: bodyWidth)
-        }
     }
 }
 
@@ -229,6 +203,9 @@ struct NotchTranslateView: View {
 
     let isPinned: Bool
     let onBack: () -> Void
+    /// Translating needs the archive to file the copy into, which lives with
+    /// the controller — so the choice is made here and carried out there.
+    let onPickLanguage: (String, Locale.Language) -> Void
     let onTogglePin: () -> Void
 
     @Environment(\.colorSchemeContrast) private var contrast
@@ -323,7 +300,7 @@ struct NotchTranslateView: View {
         ScrollView(.vertical, showsIndicators: false) {
             // Verbatim: a translation is text the user is reading, and a
             // URL-shaped line in it is not something to make tappable.
-            Text(verbatim: model.result?.translated ?? "")
+            Text(verbatim: model.result?.text ?? "")
                 .font(.system(size: 13))
                 .foregroundStyle(PanelChrome.foreground(0.92, contrast))
                 .textSelection(.enabled)
@@ -430,16 +407,31 @@ struct NotchTranslateView: View {
 
     private var languageMenu: some View {
         TranslateLanguageMenuButton(
-            language: model.result?.pair.target ?? Locale.Language(identifier: "ru"),
+            // The language on show, so the menu's tick marks where the
+            // reader is rather than where they might go.
+            language: model.result?.language ?? Locale.Language(identifier: "ru"),
             metrics: metrics,
-            onSelect: { model.retranslate(to: $0) }
+            onSelect: pickLanguage
         )
         .help("Translation language")
         .accessibilityLabel("Translation language")
     }
 
+    private func pickLanguage(_ language: Locale.Language) {
+        guard let current = model.result,
+              current.language.languageCode != language.languageCode
+        else {
+            // Already reading it in that language. Said out loud rather than
+            // ignored: the tick is on the item they just pressed.
+            ArchiveTranslate.report(.translationUnchanged, on: NSScreen.main)
+            return
+        }
+        model.beginRework()
+        onPickLanguage(current.text, language)
+    }
+
     private func copy() {
-        guard let text = model.result?.translated, !text.isEmpty else { return }
+        guard let text = model.result?.text, !text.isEmpty else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
         withAnimation(.easeInOut(duration: 0.12)) { didCopy = true }

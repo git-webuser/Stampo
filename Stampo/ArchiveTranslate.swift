@@ -14,6 +14,12 @@ enum ArchiveTranslate {
     /// per-cell instance would go away with the cell that started the work.
     @MainActor private static let feedbackHUD = TextCaptureHUD()
 
+    /// Lets the translator's own surfaces reach the same toast the archive
+    /// path uses, so one outcome never gets two voices.
+    static func report(_ outcome: TextCaptureHUD.Outcome, on screen: NSScreen?) {
+        feedbackHUD.show(outcome, on: screen)
+    }
+
     /// Translates `text` and files the result at the top of the archive.
     ///
     /// Both ends of the direction come from the text — the app handles one
@@ -24,8 +30,28 @@ enum ArchiveTranslate {
     static func run(_ text: String,
                     archiveModel: NotchArchiveModel,
                     on screen: NSScreen?) {
-        let pair = TranslationService.englishRussianRoute(for: text)
+        run(text, pair: TranslationService.englishRussianRoute(for: text),
+            archiveModel: archiveModel, on: screen)
+    }
 
+    /// The same work for a language the user picked by hand, from the panel's
+    /// menu. The direction is not second-guessed here — `explicitRoute` has
+    /// already refused the case where there is nothing to do.
+    static func run(_ text: String,
+                    to target: Locale.Language,
+                    archiveModel: NotchArchiveModel,
+                    on screen: NSScreen?) {
+        guard let pair = TranslationService.explicitRoute(for: text, to: target) else {
+            report(.translationUnchanged, on: screen)
+            return
+        }
+        run(text, pair: pair, archiveModel: archiveModel, on: screen)
+    }
+
+    private static func run(_ text: String,
+                            pair: TranslationPair,
+                            archiveModel: NotchArchiveModel,
+                            on screen: NSScreen?) {
         NotificationCenter.default.post(name: .translationDidStart, object: nil)
 
         Task { @MainActor in
@@ -55,7 +81,7 @@ enum ArchiveTranslate {
                 NotificationCenter.default.post(
                     name: .translationDidFinish,
                     object: TranslationPanelModel.Result(
-                        source: text, translated: translated, pair: pair)
+                        text: translated, language: pair.target)
                 )
             } catch TranslationFailure.packMissing(let pair) {
                 feedbackHUD.show(

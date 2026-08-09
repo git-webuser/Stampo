@@ -156,11 +156,38 @@ nonisolated enum TranslationFailure: Error, Equatable {
     static func route(for text: String,
                       target preferred: Locale.Language,
                       away fallback: Locale.Language = Locale.Language(identifier: "en")) -> TranslationPair {
-        let isCyrillic = text.unicodeScalars.contains { (0x0400...0x04FF).contains($0.value) }
-        let source = Locale.Language(identifier: isCyrillic ? "ru" : "en")
+        let source = detectedSource(of: text)
         // Text already in the target language goes the other way instead of
-        // being "translated" into itself.
+        // being "translated" into itself. Automatic direction only — see
+        // `explicitRoute`, where doing this would be answering a different
+        // question from the one the user asked.
         let target = source.languageCode == preferred.languageCode ? fallback : preferred
+        return TranslationPair(source: source, target: target)
+    }
+
+    /// What language the text is in.
+    ///
+    /// Split out from `route` because the two decisions are not the same one:
+    /// which language this is, and which language to send it to. Conflating
+    /// them is what let an explicit choice get quietly reversed.
+    static func detectedSource(of text: String) -> Locale.Language {
+        let isCyrillic = text.unicodeScalars.contains { (0x0400...0x04FF).contains($0.value) }
+        return Locale.Language(identifier: isCyrillic ? "ru" : "en")
+    }
+
+    /// The direction for a language the user picked by hand, or nil when the
+    /// text is already in it.
+    ///
+    /// Never flipped. Automatic routing turns "into Russian" into "out of
+    /// Russian" so a Russian scan is not translated into itself — sensible
+    /// when nobody chose anything. Applied to a deliberate pick it does the
+    /// opposite of what the menu said: choosing Russian over Russian text
+    /// handed back English, from a menu whose every entry then produced the
+    /// same result. Nil is the honest answer, and the caller has a toast for
+    /// exactly this.
+    static func explicitRoute(for text: String, to target: Locale.Language) -> TranslationPair? {
+        let source = detectedSource(of: text)
+        guard source.languageCode != target.languageCode else { return nil }
         return TranslationPair(source: source, target: target)
     }
 

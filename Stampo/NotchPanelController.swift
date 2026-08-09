@@ -211,6 +211,7 @@ private struct NotchPanelRootView: View {
     let onBack: () -> Void
     let onLeaveTranslate: () -> Void
     let onPreviewText: (String) -> Void
+    let onPickLanguage: (String, Locale.Language) -> Void
     let onHidePanel: () -> Void
     let onTogglePin: () -> Void
     let onStopCountdown: () -> Void
@@ -410,6 +411,7 @@ private struct NotchPanelRootView: View {
                 model: TranslationPanelModel.shared,
                 isPinned: rootState.isArchivePinned,
                 onBack: onLeaveTranslate,
+                onPickLanguage: onPickLanguage,
                 onTogglePin: onTogglePin
             )
             // Not tied to the morph. The archive's cells fade in with the
@@ -758,6 +760,10 @@ final class NotchPanelController: NSObject {
         ) { [weak self] _ in
             guard let self else { return }
             MainActor.assumeIsolated {
+                // Before the strip check, not after: a language picked from the
+                // panel's menu never raises the strip, and its dimming has to
+                // come back off whether or not a translation arrived.
+                TranslationPanelModel.shared.endRework()
                 guard self.rootState.translatingStripVisible else { return }
                 // Nothing to show for it — a failed or empty translation. The
                 // glyphs still leave the way they would have on success.
@@ -1531,6 +1537,15 @@ final class NotchPanelController: NSObject {
                 TranslationPanelModel.shared.present(.preview(of: text),
                                                      bodyWidth: self.translateBodyWidth)
                 self.presentTranslation(on: self.currentScreen, returningTo: .archive)
+            },
+            onPickLanguage: { [weak self] text, language in
+                guard let self else { return }
+                // The text on screen, into the language just chosen — and the
+                // result is filed like any other translation, so a chain of
+                // them leaves a copy per language in the archive.
+                ArchiveTranslate.run(text, to: language,
+                                     archiveModel: self.archiveModel,
+                                     on: self.currentScreen)
             },
             onHidePanel: { [weak self] in self?.hideAnimated(reason: .closeButton) },
             onTogglePin: { [weak self] in self?.rootState.isArchivePinned.toggle() },
