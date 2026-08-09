@@ -181,10 +181,7 @@ final class ColorSampler {
 
 
     private func cycleFormat(backwards: Bool = false) {
-        let all = HUDColorFormat.allCases
-        guard let index = all.firstIndex(of: format) else { return }
-        let step = backwards ? all.count - 1 : 1
-        format = all[(index + step) % all.count]
+        format = nextCase(after: format, backwards: backwards)
         onColorChanged?(lastColor, NSEvent.mouseLocation, nil)
     }
 

@@ -252,6 +252,7 @@ final class SelectionOverlay {
             [weak self, weak view] event in
             let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
             guard let self, self.selectionMode == .translate,
+                  AppSettings.hotkeyHUDFormatEnabled,
                   event.keyCode == KeyCode.tab,
                   flags.isDisjoint(with: [.command, .option, .control])
             else { return event }

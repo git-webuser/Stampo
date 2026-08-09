@@ -48,10 +48,17 @@ struct HotkeySettingsView: View {
 
             // MARK: Color picker (fixed, toggleable)
             Section("Element Controls") {
+                // One row because it is one idea — step to the next one —
+                // wherever the app offers a list of them. Naming the surfaces
+                // rather than the settings key: the key still says
+                // "hotkeyHUDFormat" from when the picker was the only place
+                // this worked, and renaming it would reset the switch for
+                // everyone who has turned it off.
                 FixedHotkeyRow(icon: "arrow.2.squarepath",
-                               action: "Cycle Color Format in the Color Picker",
-                               caps: ["F"],
-                               alternative: ["⇥"],
+                               action: "Cycle Color or Language",
+                               description: "In the color picker, the archive, the translator and the scanner. ⇧⇥ steps back",
+                               caps: ["⇥"],
+                               alternative: ["F"],
                                isEnabled: $hudFormatEnabled)
                 ArrowStepRow(icon: "1.circle",  title: "Move 1 pt",  modifiers: [],         isEnabled: $move1Enabled)
                 ArrowStepRow(icon: "10.circle", title: "Move 10 pt", modifiers: ["⇧"],      isEnabled: $move10Enabled)
@@ -208,6 +215,9 @@ private struct EditableHotkeyRow: View {
 private struct FixedHotkeyRow: View {
     let icon: String
     let action: String
+    /// Second line for what the keys alone do not say — here, the four places
+    /// this works and the one modifier that reverses it.
+    var description: String? = nil
     let caps: [String]
     /// A second key that does the same thing. Kept apart from `caps` because
     /// caps sit shoulder to shoulder and read as one chord — "F ⇥" that way
@@ -216,7 +226,9 @@ private struct FixedHotkeyRow: View {
     @Binding var isEnabled: Bool
 
     var body: some View {
-        SettingRow(icon: icon, title: LocalizedStringKey(action)) {
+        SettingRow(icon: icon,
+                   title: LocalizedStringKey(action),
+                   description: description.map { LocalizedStringKey($0) }) {
             HStack(spacing: 8) {
                 HStack(spacing: 3) {
                     ForEach(caps, id: \.self) { KeyCapView(key: $0, dimmed: !isEnabled) }

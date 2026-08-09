@@ -150,6 +150,25 @@ extension PanelState {
         }
     }
 
+    /// Whether the panel may hold ⇥ right now.
+    ///
+    /// Only the two routes with a list in their header: the archive's colour
+    /// format and the translator's language. Everything else — Main, the
+    /// countdown, the wait, and every state where the panel is leaving or gone
+    /// — hands the key back, because holding it consumes ⇥ for every app on
+    /// the machine and the panel can be pinned open indefinitely.
+    ///
+    /// Being in one of these states is necessary, not sufficient: the view
+    /// pushes the owner only while the pointer is also on the panel, the way
+    /// Space is only held over a cell.
+    var wantsCycleHotkey: Bool {
+        switch self {
+        case .archive, .translate: return true
+        case .hidden, .showing, .main, .transitioning, .hiding,
+             .countdown, .translating, .preSelection, .stale: return false
+        }
+    }
+
     /// Which layer Esc unwinds. The archive expands one stack at a time into an
     /// inline accordion, and that accordion is the only panel state with no
     /// keyboard way out — so Esc collapses it first and closes the panel on the
@@ -222,6 +241,15 @@ private struct NotchPanelRootView: View {
     let onTogglePin: () -> Void
     let onStopCountdown: () -> Void
     let onCaptureNow: () -> Void
+    let onCycleHeader: (_ backwards: Bool) -> Void
+
+    /// Whether ⇥ is claimed right now. Shared with the colour picker's own F,
+    /// because the setting governs one idea — step to the next one — and the
+    /// user should not have to find two switches for it.
+    @AppStorage(AppSettings.Keys.hotkeyHUDFormatEnabled) private var cycleEnabled = true
+    @State private var isPointerInside = false
+    @State private var tabToken: UUID?
+    @State private var shiftTabToken: UUID?
 
     private var m: NotchMetrics { rootState.metrics }
     private var archiveScrollHeight: CGFloat { 55 }
@@ -451,6 +479,36 @@ private struct NotchPanelRootView: View {
         }
         .frame(height: windowH, alignment: .top)
         .allowsHitTesting(interaction.isEnabled)
+        // The pointer being parked on the panel is what makes claiming Tab
+        // acceptable — the same rule Space is held under, and for the same
+        // reason. A registered hotkey takes the key from every app on the
+        // machine, and the panel can be pinned open for hours.
+        .onHover { inside in
+            isPointerInside = inside
+            updateCycleHotkeys()
+        }
+        .onChange(of: rootState.route) { _, _ in updateCycleHotkeys() }
+        .onChange(of: cycleEnabled) { _, _ in updateCycleHotkeys() }
+        .onDisappear {
+            isPointerInside = false
+            updateCycleHotkeys()
+        }
+    }
+
+    /// Holds ⇥ and ⇧⇥ exactly while there is something on screen for them to
+    /// step through and the pointer is on it.
+    private func updateCycleHotkeys() {
+        if let tabToken { TransientHotkeyCenter.tab.remove(tabToken) }
+        if let shiftTabToken { TransientHotkeyCenter.shiftTab.remove(shiftTabToken) }
+        tabToken = nil
+        shiftTabToken = nil
+
+        guard cycleEnabled, isPointerInside,
+              rootState.route == .archive || rootState.route == .translate
+        else { return }
+
+        tabToken = TransientHotkeyCenter.tab.push { onCycleHeader(false) }
+        shiftTabToken = TransientHotkeyCenter.shiftTab.push { onCycleHeader(true) }
     }
 }
 
@@ -950,6 +1008,11 @@ final class NotchPanelController: NSObject {
         // taken back from this side or nobody can. Not `.escape.releaseAll()`:
         // an open Quick Look panel is still on screen and still needs its Esc.
         TransientHotkeyCenter.space.releaseAll()
+        // Same story, same fix: the root view held both cycle owners in its own
+        // @State, and Tab left claimed is Tab taken from every app on the
+        // machine.
+        TransientHotkeyCenter.tab.releaseAll()
+        TransientHotkeyCenter.shiftTab.releaseAll()
         state = .stale(reason: reason)
         isSharePickerOpen = false
         isQuickLookOpen = false
@@ -1538,6 +1601,19 @@ final class NotchPanelController: NSObject {
     /// поэтому держать его можно только там, где панель реально может на него
     /// отреагировать — условие целиком в `PanelState.wantsEscapeHotkey`.
     private func syncEscapeHotkey() {
+        // The cycle keys ride along here because they are held by SwiftUI
+        // `@State` on the root view, and the root view is not unmounted when
+        // the panel hides — the window is ordered out and the hosting view
+        // kept for the next show. So `onDisappear` does not run, and a pointer
+        // that was over the panel when it went away leaves `onHover` with no
+        // reason to fire false. The owner would stay pushed and ⇥ would be
+        // gone from every app on the machine, which is the exact shape of the
+        // Space leak this file already carries a fix for.
+        if !state.wantsCycleHotkey {
+            TransientHotkeyCenter.tab.releaseAll()
+            TransientHotkeyCenter.shiftTab.releaseAll()
+        }
+
         let wantsEsc = state.wantsEscapeHotkey(isSharePickerOpen: isSharePickerOpen)
         if wantsEsc, escToken == nil {
             escToken = TransientHotkeyCenter.escape.push { [weak self] in
@@ -1642,8 +1718,48 @@ final class NotchPanelController: NSObject {
             onHidePanel: { [weak self] in self?.hideAnimated(reason: .closeButton) },
             onTogglePin: { [weak self] in self?.rootState.isArchivePinned.toggle() },
             onStopCountdown: { [weak self] in self?.stopCountdown() },
-            onCaptureNow: { [weak self] in self?.captureNowFromCountdown() }
+            onCaptureNow: { [weak self] in self?.captureNowFromCountdown() },
+            onCycleHeader: { [weak self] backwards in
+                self?.cycleHeaderSelection(backwards: backwards)
+            }
         )
+    }
+
+    // MARK: - Header cycling
+
+    /// ⇥ on the open panel: steps whatever the header offers to choose.
+    ///
+    /// One key for two things because they are the same thing from the user's
+    /// side — the pop-up in the top-left corner of whichever surface is up.
+    /// The archive's is the colour format, the translator's is the language,
+    /// and neither surface has a second list to confuse it with.
+    ///
+    /// The two are not equally cheap, and that is deliberate rather than
+    /// overlooked: cycling a colour format redraws a label, while cycling a
+    /// language starts a translation and files another archive entry. The
+    /// guard below is what keeps a held key from queueing a stack of them.
+    func cycleHeaderSelection(backwards: Bool = false) {
+        switch route {
+        case .archive:
+            let next = nextCase(after: AppSettings.defaultColorFormat, backwards: backwards)
+            UserDefaults.standard.set(next.rawValue, forKey: AppSettings.Keys.defaultColorFormat)
+        case .translate:
+            let model = TranslationPanelModel.shared
+            // Already fetching one: the body is dimmed saying so, and a second
+            // request now would land after it and overwrite what it produced.
+            guard !model.isReworking, let shown = model.result else { return }
+            let languages = TranslationLanguages.shared
+            guard let next = TranslationLanguages.language(after: shown.language,
+                                                           in: languages.favourites,
+                                                           backwards: backwards)
+            else { return }
+            model.beginRework()
+            ArchiveTranslate.run(shown.text, to: next,
+                                 archiveModel: archiveModel, on: currentScreen)
+        default:
+            // `.main` and the countdown have no header list to step through.
+            break
+        }
     }
 
     // MARK: - State routing

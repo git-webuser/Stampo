@@ -93,6 +93,22 @@ import Testing
         #expect(!state.wantsEscapeHotkey(isSharePickerOpen: false))
     }
 
+    /// ⇥ is only worth claiming where the header has a list to step through.
+    @Test(arguments: [PanelState.archive, .translate])
+    func theTwoRoutesWithAListHoldTheCycleKey(state: PanelState) {
+        #expect(state.wantsCycleHotkey)
+    }
+
+    /// Everything else hands it straight back. This is the dangerous half: a
+    /// registered hotkey consumes ⇥ for every app on the machine, and the
+    /// panel can be pinned open for hours.
+    @Test(arguments: [PanelState.hidden, .showing, .main, .hiding, .countdown,
+                      .translating, .transitioning(to: .translate),
+                      .preSelection(.selection), .stale(reason: .sleep)])
+    func everyOtherStateHandsTheCycleKeyBack(state: PanelState) {
+        #expect(!state.wantsCycleHotkey)
+    }
+
     /// The share sheet is our own window: holding the hotkey would eat the Esc
     /// meant for the sheet and close the panel it hangs off instead.
     @Test(arguments: [PanelState.showing, .main, .archive, .countdown])

@@ -28,13 +28,27 @@ final class TransientHotkeyCenter {
     /// Quick Look for the archive cell under the pointer.
     static let space = TransientHotkeyCenter(keyCode: UInt32(kVK_Space),
                                              signature: 0x5354_514C /* 'STQL' */, id: 1)
+    /// Cycles whatever the open panel's header offers — the colour format in
+    /// the archive, the language in the translator. Pushed only while the
+    /// pointer is on the panel, for the reason Space is: a claimed key is
+    /// claimed for every app on the machine, and a pinned panel would
+    /// otherwise eat Tab in the editor the user is actually typing in.
+    static let tab = TransientHotkeyCenter(keyCode: UInt32(kVK_Tab),
+                                           signature: 0x5354_4359 /* 'STCY' */, id: 1)
+    /// The same, backwards. Its own registration because a Carbon hotkey
+    /// matches one exact set of modifiers — bare Tab does not fire for ⇧⇥.
+    static let shiftTab = TransientHotkeyCenter(keyCode: UInt32(kVK_Tab),
+                                                modifiers: UInt32(shiftKey),
+                                                signature: 0x5354_4342 /* 'STCB' */, id: 1)
 
     private let keyCode: UInt32
+    private let modifiers: UInt32
     private let signature: UInt32
     private let hotKeyIdentifier: UInt32
 
-    private init(keyCode: UInt32, signature: UInt32, id: UInt32) {
+    private init(keyCode: UInt32, modifiers: UInt32 = 0, signature: UInt32, id: UInt32) {
         self.keyCode = keyCode
+        self.modifiers = modifiers
         self.signature = signature
         self.hotKeyIdentifier = id
     }
@@ -141,7 +155,7 @@ final class TransientHotkeyCenter {
         var ref: EventHotKeyRef?
         let hotKeyID = EventHotKeyID(signature: OSType(signature), id: hotKeyIdentifier)
         let status = RegisterEventHotKey(
-            keyCode, 0, hotKeyID, GetApplicationEventTarget(), 0, &ref
+            keyCode, modifiers, hotKeyID, GetApplicationEventTarget(), 0, &ref
         )
         if status == noErr {
             hotKeyRef = ref
