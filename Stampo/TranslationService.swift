@@ -257,6 +257,33 @@ nonisolated enum TranslationFailure: Error, Equatable {
             default: return 1
             }
         }
+
+        /// Which script wins when two weigh the same. Higher takes it.
+        ///
+        /// Needed because a tie was being broken by `Dictionary.max`, which
+        /// answers in hash order — and Swift seeds that per process, so the
+        /// same text could be filtered on one launch and not on the next. Ties
+        /// are not exotic here: "打开 Stampo" is two Han characters against six
+        /// Latin letters, which is exactly 6 against 6.
+        ///
+        /// Latin sits at the bottom on purpose. It is the script that gets
+        /// borrowed *into* the others — a product name inside a Chinese
+        /// sentence — so on equal weight the other script is the one the text
+        /// is actually written in. A switch rather than a list, so a script
+        /// added later cannot be left without an answer.
+        var rank: Int {
+            switch self {
+            case .latin:      return 0
+            case .greek:      return 1
+            case .cyrillic:   return 2
+            case .arabic:     return 3
+            case .devanagari: return 4
+            case .thai:       return 5
+            case .hangul:     return 6
+            case .kana:       return 7
+            case .han:        return 8
+            }
+        }
     }
 
     nonisolated private static func script(of scalar: UnicodeScalar) -> Script? {
@@ -294,7 +321,9 @@ nonisolated enum TranslationFailure: Error, Equatable {
             weights[script, default: 0] += script.weight
         }
 
-        guard let winner = weights.max(by: { $0.value < $1.value })?.key,
+        // Compared on weight *and* rank, so equal weights resolve the same way
+        // on every launch — see `Script.rank`.
+        guard let winner = weights.max(by: { ($0.value, $0.key.rank) < ($1.value, $1.key.rank) })?.key,
               winner != .latin,
               // One stray character is a symbol, not a language.
               counts[winner, default: 0] >= 2

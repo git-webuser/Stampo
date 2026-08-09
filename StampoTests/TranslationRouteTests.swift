@@ -109,6 +109,21 @@ import Testing
         #expect(detect("The Русский option is here") == .installed(en))
     }
 
+    /// A tie used to be broken by `Dictionary.max`, which answers in hash
+    /// order — and Swift seeds that per process, so the same text could be
+    /// filtered on one launch and not on the next. "打开 Stampo" is exactly a
+    /// tie: two Han characters at weight three against six Latin letters.
+    @Test func anExactTieResolvesTheSameWayEveryTime() {
+        let text = "打开 Stampo"
+        let filtered = TranslationService.recognizableText(in: text)
+        #expect(!filtered.contains("S"), "the borrowed Latin name must lose the tie")
+        #expect(filtered.contains("打"))
+        #expect(detect(text, installed: ["en", "ru", "zh"]) == .installed(id: "zh"))
+        // Stability across launches comes from `Script.rank` being a total
+        // order; what can be pinned from here is the outcome it produces, and
+        // that outcome is what the hash-ordered version could not promise.
+    }
+
     @Test func latinTextIsHandedOverUntouched() {
         // What keeps every earlier measurement of the rule valid: all of it
         // was Latin and Cyrillic, and neither is filtered.
@@ -258,6 +273,25 @@ import Testing
         #expect(TranslationLanguages.language(after: ru, in: order, backwards: true)?.baseCode == "de")
         #expect(TranslationLanguages.language(after: de, in: order, backwards: true)?.baseCode == "en")
         #expect(TranslationLanguages.language(after: en, in: order, backwards: true)?.baseCode == "ru")
+    }
+
+    /// The primary language is only asked for once the list is long enough to
+    /// show the row that sets it. Below that the row is hidden, and a setting
+    /// in force with no control anywhere to read it off is worse than one that
+    /// is dormant — so it is ignored rather than obeyed invisibly.
+    @Test func aPrimaryLanguageIsIgnoredWhileItsRowIsHidden() {
+        let de = Locale.Language(identifier: "de")
+        #expect(TranslationLanguages.destination(primary: en, favourites: [ru, en, de]).baseCode == "en")
+        // Third language removed: the row goes, and so does its effect.
+        #expect(TranslationLanguages.destination(primary: en, favourites: [ru, en]).baseCode == "ru")
+        // The stored answer is kept, not cleared — adding a third back
+        // restores the choice rather than costing it.
+        #expect(TranslationLanguages.destination(primary: en, favourites: [ru, en, de]).baseCode == "en")
+    }
+
+    @Test func withoutAPrimaryTheListDecides() {
+        #expect(TranslationLanguages.destination(primary: nil, favourites: [ru, en]).baseCode == "ru")
+        #expect(TranslationLanguages.destination(primary: nil, favourites: []).baseCode == "en")
     }
 
     @Test func aSingleLanguageHasNowhereToCycleTo() {

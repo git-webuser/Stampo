@@ -63,16 +63,8 @@ nonisolated extension Locale.Language {
         }
     }
 
-    // MARK: Target
+    // MARK: Where translations go
 
-    /// Where an unprompted translation goes — the scan modifier, the clipboard
-    /// hotkey, the archive's plain Translate. The scanner cycles it with F, the
-    /// way the colour HUD cycles its format.
-    ///
-    /// Always one of the user's own languages: a target that had been removed
-    /// from the list would send translations somewhere the user can no longer
-    /// see, so the stored value is checked against the list on every read
-    /// rather than trusted.
     /// The language the user reads in, if they have said so. `nil` means they
     /// have not, and `destination` follows their list instead.
     ///
@@ -108,8 +100,23 @@ nonisolated extension Locale.Language {
     /// user's own list — the first one they told the system they read. Nothing
     /// writes this: a per-scan choice lives and dies with the overlay that
     /// made it.
+    ///
+    /// The primary language is only consulted while `offersChoice` — which is
+    /// exactly while the row that shows it is on screen. Removing a third
+    /// language hides that row, and a setting still in force with no control
+    /// anywhere to read it off is worse than one that is dormant. The stored
+    /// answer is kept rather than cleared: adding a third language back should
+    /// not cost the user the choice they already made.
     var destination: Locale.Language {
-        primary ?? favourites.first ?? Locale.Language(identifier: "en")
+        Self.destination(primary: primary, favourites: favourites)
+    }
+
+    /// Pure half of `destination`, so the rule above can be tested without
+    /// writing to the defaults the shared instance reads.
+    nonisolated static func destination(primary: Locale.Language?,
+                                        favourites: [Locale.Language]) -> Locale.Language {
+        let chosen = favourites.count > 2 ? primary : nil
+        return chosen ?? favourites.first ?? Locale.Language(identifier: "en")
     }
 
     /// One step along the user's own order, wrapping. Their order, not ours —
@@ -169,9 +176,16 @@ nonisolated extension Locale.Language {
         let availability = LanguageAvailability()
 
         var seen = Set<String>()
-        supported = await availability.supportedLanguages
+        let reported = await availability.supportedLanguages
             .filter { seen.insert($0.baseCode).inserted }
             .sorted { TranslationService.displayName($0) < TranslationService.displayName($1) }
+
+        // An empty answer means the framework would not tell us — translation
+        // is unprovisioned on this Mac, or restricted where it is — not that
+        // macOS has stopped translating the languages the user already picked.
+        // Taking it at face value emptied their list against it below, and the
+        // section then blamed them for a machine capability.
+        if !reported.isEmpty { supported = reported }
 
         loadFavourites()
 
@@ -236,12 +250,23 @@ nonisolated extension Locale.Language {
         let defaults = UserDefaults.standard
         guard let stored = defaults.array(forKey: AppSettings.Keys.translationLanguages) as? [String] else {
             favourites = seed()
-            saveFavourites()
+            // Not persisted when there is nothing to seed against: writing the
+            // empty result would make the key present, and a first run on a
+            // Mac that answered nothing would lock the user out of ever being
+            // seeded again.
+            if !supported.isEmpty { saveFavourites() }
             return
         }
         // Filtered against `supported` on every load: the stored list outlives
         // the OS that wrote it, and a language macOS has stopped translating
         // would otherwise sit in the list with no state it could ever reach.
+        //
+        // Unless there is no list to filter against — an unanswered check must
+        // not read as "none of your languages are translatable".
+        guard !supported.isEmpty else {
+            favourites = stored.map { Locale.Language(identifier: $0) }
+            return
+        }
         let known = Set(supported.map(\.baseCode))
         favourites = stored.filter { known.contains($0) }.map { Locale.Language(identifier: $0) }
     }
