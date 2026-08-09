@@ -885,6 +885,7 @@ final class NotchPanelController: NSObject {
         // Убираем окно из CGS-спейса ДО close(): позже windowNumber станет
         // невалидным, и панель зависла бы в Set (strong ref) до следующего create().
         NotchSpaceManager.shared.notchSpace.windows = []
+        uninstallMouseRegionTracking()
         panel?.orderOut(nil)
         panel?.close()
         panel = nil
@@ -925,6 +926,7 @@ final class NotchPanelController: NSObject {
         activeCountdown = nil
         // См. markPanelSpaceBindingStale: чистим CGS-спейс до close().
         NotchSpaceManager.shared.notchSpace.windows = []
+        uninstallMouseRegionTracking()
         panel?.orderOut(nil)
         panel?.close()
         panel = nil
@@ -1200,6 +1202,7 @@ final class NotchPanelController: NSObject {
         // Space; .canJoinAllSpaces после — расширяет присутствие на все Desktop.
         // Подробнее — в orderFrontOnActiveSpace.
         orderFrontOnActiveSpace(panel)
+        installMouseRegionTracking()
         trace("showAnimated.afterOrderFront")
 
         if metrics.hasNotch {
@@ -1351,6 +1354,7 @@ final class NotchPanelController: NSObject {
                 }
                 panel.animator().setFrame(target, display: true)
             } completionHandler: { [weak self, weak panel] in
+                self?.uninstallMouseRegionTracking()
                 panel?.orderOut(nil)
                 guard let self, self.animationGeneration == gen else {
                     self?.trace("hideMainPanel.completion.genMismatch gen=\(gen)")
@@ -1385,6 +1389,7 @@ final class NotchPanelController: NSObject {
                 }
                 panel.animator().setFrame(hidden, display: true)
             } completionHandler: { [weak self, weak panel] in
+                self?.uninstallMouseRegionTracking()
                 panel?.orderOut(nil)
                 guard let self, self.animationGeneration == gen else {
                     self?.trace("hideMainPanel.completion.genMismatch gen=\(gen)")
@@ -1404,9 +1409,84 @@ final class NotchPanelController: NSObject {
         }
     }
 
+    // MARK: - Where the panel actually is
+
+    /// The part of the panel window the panel is drawn in.
+    ///
+    /// The window is always `panelWindowHeight` tall whatever route is showing
+    /// (see NotchPanelLayout) and everything below the content is transparent.
+    /// The window frame is therefore not the panel: on a 1280×832 screen it
+    /// reaches 168pt down from the top edge while Main draws 34 of them, and
+    /// the frame is what both of the things below used to go on.
+    var drawnContentRect: NSRect {
+        guard let panel else { return .null }
+        let f = panel.frame
+        // The same height the root view lays the content out at: the strip
+        // grows to the route's height as the morph progresses.
+        let routeH = routeHeight(for: route)
+        let drawn = (metrics.panelHeight + rootState.progress * (routeH - metrics.panelHeight))
+            * metrics.panelScale
+        let h = min(f.height, max(0, drawn))
+        return NSRect(x: f.minX, y: f.maxY - h, width: f.width, height: h)
+    }
+
     func isPointInsidePanel(_ point: NSPoint) -> Bool {
-        guard let panel else { return false }
-        return panel.frame.contains(point)
+        drawnContentRect.contains(point)
+    }
+
+    // MARK: - Mouse region
+
+    /// Monitors that keep `ignoresMouseEvents` in step with the pointer.
+    private var mouseRegionMonitors: [Any] = []
+
+    /// Keeps the window from taking the mouse where it draws nothing.
+    ///
+    /// A transparent NSWindow still owns the pointer over its empty area, and
+    /// this one sits at `.statusBar` inside a max-level CGS space — above every
+    /// ordinary window on screen. The settings window is the case that found
+    /// this: the `.preference` toolbar centres the tab icons in its titlebar,
+    /// `NSWindow.center()` lands that titlebar around y=700..745, and the
+    /// panel's empty half covers y=664..832 — so with the panel open the tabs
+    /// took no clicks at all, and only sometimes lit up under the pointer.
+    ///
+    /// A button held down means a drag may be in flight, and a file arriving
+    /// from Finder is a dragging session rather than events we can see —
+    /// `ignoresMouseEvents` would drop that drop too. So the pass-through is
+    /// only ever armed with every button up.
+    private func updateMouseRegion() {
+        guard let panel, panel.isVisible else { return }
+        let onContent = drawnContentRect.contains(NSEvent.mouseLocation)
+        let buttonsDown = NSEvent.pressedMouseButtons != 0
+        panel.ignoresMouseEvents = !(onContent || buttonsDown)
+    }
+
+    private func installMouseRegionTracking() {
+        guard mouseRegionMonitors.isEmpty else { return }
+        // Both halves are needed: while the pass-through is armed the pointer's
+        // own events go to the window underneath, so only the global monitor
+        // sees the pointer come back onto the panel.
+        let types: NSEvent.EventTypeMask = [
+            .mouseMoved, .leftMouseDragged, .rightMouseDragged, .otherMouseDragged,
+            .leftMouseDown, .leftMouseUp
+        ]
+        if let g = NSEvent.addGlobalMonitorForEvents(matching: types, handler: { [weak self] _ in
+            self?.updateMouseRegion()
+        }) {
+            mouseRegionMonitors.append(g)
+        }
+        if let l = NSEvent.addLocalMonitorForEvents(matching: types, handler: { [weak self] event in
+            self?.updateMouseRegion()
+            return event
+        }) {
+            mouseRegionMonitors.append(l)
+        }
+        updateMouseRegion()   // the pointer may already be parked off the content
+    }
+
+    private func uninstallMouseRegionTracking() {
+        mouseRegionMonitors.forEach { NSEvent.removeMonitor($0) }
+        mouseRegionMonitors.removeAll()
+        panel?.ignoresMouseEvents = false
     }
 
     // MARK: - Panel lifecycle
