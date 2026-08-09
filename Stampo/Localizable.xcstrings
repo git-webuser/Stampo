@@ -5458,6 +5458,23 @@
         }
       }
     },
+    "Translates text copied with \u2318C" : {
+      "comment" : "Subtitle under the Translate shortcut row in Settings",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Translates text copied with \u2318C"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Переводит текст, скопированный через ⌘C"
+          }
+        }
+      }
+    },
     "Translation" : {
       "comment" : "Settings section holding the language pack row",
       "localizations" : {

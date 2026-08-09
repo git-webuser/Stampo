@@ -51,13 +51,19 @@ enum HotkeyAction: UInt32, CaseIterable {
         }
     }
 
-    /// Extra modifier the action honors, described for the settings row. Only
-    /// behaviour the user cannot discover from the shortcut itself belongs
-    /// here — nil for actions that do exactly one thing.
-    var modifierHintKey: String? {
+    /// A second line for the settings row: whatever the shortcut does that
+    /// pressing it would not reveal. Modifiers it honours, or — for Translate —
+    /// what it expects to already be there. Nil for actions that do exactly one
+    /// thing to something already on screen.
+    var hintKey: String? {
         switch self {
         case .scan:
             return "Press ⌥ to keep line breaks, ⌃ to translate"
+        case .translateClipboard:
+            // The one shortcut with a prerequisite. Pressed on its own it can
+            // only report an empty clipboard, and a shortcut that answers "no"
+            // until you know its unwritten half is a shortcut nobody keeps.
+            return "Translates text copied with ⌘C"
         default:
             return nil
         }

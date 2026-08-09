@@ -192,9 +192,9 @@ private struct EditableHotkeyRow: View {
         SettingRow(
             icon: action.icon,
             title: LocalizedStringKey(action.labelKey),
-            // Second line for actions with a modifier variant (Scan's ⌥) —
-            // otherwise the behaviour lives only in the release notes.
-            description: action.modifierHintKey.map { LocalizedStringKey($0) }
+            // Second line for actions with something the shortcut does not
+            // say — otherwise it lives only in the release notes.
+            description: action.hintKey.map { LocalizedStringKey($0) }
         ) {
             ShortcutRecorderView(action: action, combo: combo, onChange: onChange)
         }
