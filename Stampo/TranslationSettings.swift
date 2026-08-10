@@ -65,8 +65,31 @@ import Translation
             configuration = nil
             installing = nil
             await refresh()
+            await followTheDownload()
         } else {
             startNext()
+        }
+    }
+
+    /// Watches for the pack to land, because macOS will not tell us.
+    ///
+    /// `prepareTranslation()` returns as soon as its sheet is dismissed, and
+    /// the sheet says so itself: "загрузка продолжится в фоновом режиме". The
+    /// single refresh above therefore runs while the download is still going,
+    /// finds the pack missing, and leaves the row saying "Установить…" for a
+    /// language that is on its way. It stayed that way until something else
+    /// re-checked — closing Settings and opening them again.
+    ///
+    /// No progress is available to show; there is no API for it. So the row
+    /// simply becomes "Установлен" when it becomes true. Bounded: a few
+    /// minutes is the sheet's own estimate, and a poll that ran forever would
+    /// outlive the window it updates.
+    private func followTheDownload() async {
+        for _ in 0..<60 {
+            try? await Task.sleep(for: .seconds(3))
+            let before = languages.installed
+            await refresh()
+            if languages.installed != before { return }
         }
     }
 

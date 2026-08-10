@@ -132,13 +132,13 @@ enum ArchiveTranslate {
             report(.translationUnchanged, on: screen)
         case .sourceMissing(let language):
             // The most useful thing the feature does: the app has read the
-            // text, named the language, and the only thing missing is a
-            // download. Same remedy as a missing target pack — say which
-            // language, then open the one window that can install it.
+            // text and named the language, and the only thing missing is a
+            // download. The toast carries the name — the window has no way to
+            // say "German" — and the window is where it gets added.
             feedbackHUD.show(
                 .translationPackMissing(language: TranslationService.displayName(language)),
                 on: screen)
-            openTranslationSettings()
+            TranslationSetupWindowController.shared.show()
         case .unknownSource:
             report(.translationFailed, on: screen)
         }
@@ -190,13 +190,19 @@ enum ArchiveTranslate {
                     object: TranslationPanelModel.Result(
                         text: translated, language: pair.target)
                 )
-            } catch TranslationFailure.packMissing(let pair) {
-                feedbackHUD.show(
-                    .translationPackMissing(language: TranslationService.displayName(pair.target)),
-                    on: screen)
-                // Naming the missing pack is not enough — the toast has no
-                // button, so this opens where it gets fixed.
-                openTranslationSettings()
+            } catch TranslationFailure.packMissing {
+                // The framework is the only thing that knows for certain, and
+                // it has just said no. Our own idea of what is installed can be
+                // hours old — the packs belong to macOS and can be removed in
+                // System Settings without a word to us — so it is refreshed
+                // from this answer rather than trusted.
+                //
+                // Then the setup window, which lists every language with its
+                // real state and installs the missing one. It used to be a
+                // toast plus the settings window, which is how a pack deleted
+                // behind the app's back led nowhere at all.
+                await TranslationLanguages.shared.refresh()
+                TranslationSetupWindowController.shared.show()
             } catch TranslationFailure.unsupported {
                 feedbackHUD.show(.translationFailed, on: screen)
             } catch is CancellationError {

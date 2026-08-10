@@ -394,6 +394,24 @@
         }
       }
     },
+    "Add ⌘, ⌃ or ⌥ to the shortcut" : {
+      "comment" : "Rejection: needs a strong modifier",
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Add ⌘, ⌃ or ⌥ to the shortcut"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Добавьте ⌘, ⌃ или ⌥ к сочетанию"
+          }
+        }
+      }
+    },
     "Add language" : {
       "comment" : "Row that opens the menu of languages to add, in Settings > Archive > Translation",
       "localizations" : {
@@ -411,19 +429,19 @@
         }
       }
     },
-    "Add language\u2026" : {
+    "Add language…" : {
       "comment" : "Menu item that leaves for Settings, where a language pack can be installed",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Add language\u2026"
+            "value" : "Add language…"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Добавить язык\u2026"
+            "value" : "Добавить язык…"
           }
         }
       }
@@ -445,37 +463,19 @@
         }
       }
     },
-    "Add ⌘, ⌃ or ⌥ to the shortcut" : {
-      "comment" : "Rejection: needs a strong modifier",
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Add ⌘, ⌃ or ⌥ to the shortcut"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Добавьте ⌘, ⌃ или ⌥ к сочетанию"
-          }
-        }
-      }
-    },
-    "Add\u2026" : {
+    "Add…" : {
       "comment" : "Menu button that lists the languages that can be added",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Add\u2026"
+            "value" : "Add…"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Добавить\u2026"
+            "value" : "Добавить…"
           }
         }
       }
@@ -1599,6 +1599,7 @@
     },
     "Cycle Color or Language" : {
       "comment" : "Element Controls row: one key steps the list on whichever surface is open",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -2372,36 +2373,38 @@
         }
       }
     },
-    "Hold \u2325 to keep line breaks, press \u2303 to translate" : {
+    "Hold ⌥ to keep line breaks, ⌃ to translate" : {
       "comment" : "Modifier hint under the Scan shortcut row in Settings",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Hold \u2325 to keep line breaks, press \u2303 to translate"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "⌥ — сохранить переносы строк, ⌃ — включить перевод"
-          }
-        }
-      }
-    },
-    "Hold \u2325 to keep line breaks, \u2303 to translate" : {
-      "comment" : "Modifier hint under the Scan shortcut row in Settings",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Hold \u2325 to keep line breaks, \u2303 to translate"
+            "value" : "Hold ⌥ to keep line breaks, ⌃ to translate"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "⌥ — сохранить переносы строк, ⌃ — перевести"
+          }
+        }
+      }
+    },
+    "Hold ⌥ to keep line breaks, press ⌃ to translate" : {
+      "comment" : "Modifier hint under the Scan shortcut row in Settings",
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hold ⌥ to keep line breaks, press ⌃ to translate"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "⌥ — сохранить переносы строк, ⌃ — включить перевод"
           }
         }
       }
@@ -2442,6 +2445,7 @@
     },
     "In the color picker, the archive, the translator and the scanner. ⇧⇥ steps back" : {
       "comment" : "Description of the Cycle Color or Language row: where it works",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -2507,6 +2511,23 @@
         }
       }
     },
+    "Install…" : {
+      "comment" : "Button that starts the macOS language pack download",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Install…"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Установить…"
+          }
+        }
+      }
+    },
     "Installed" : {
       "comment" : "Language pack status: every direction the app uses is available",
       "localizations" : {
@@ -2520,23 +2541,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Установлен"
-          }
-        }
-      }
-    },
-    "Install\u2026" : {
-      "comment" : "Button that starts the macOS language pack download",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Install\u2026"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Установить…"
           }
         }
       }
@@ -2615,7 +2619,8 @@
       "isCommentAutoGenerated" : true
     },
     "Keep line breaks" : {
-      "comment" : "Selection overlay badge: \u2325 mode, the recognized text keeps its line breaks",
+      "comment" : "Selection overlay badge: ⌥ mode, the recognized text keeps its line breaks",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -2633,6 +2638,7 @@
     },
     "Language pack" : {
       "comment" : "Language pack row title in Settings > Archive",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -3716,20 +3722,9 @@
         }
       }
     },
-    "Pin panel" : {
-      "comment" : "A button to either pin or unpin the panel.",
-      "isCommentAutoGenerated" : true,
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Закрепить панель"
-          }
-        }
-      }
-    },
     "Pin Latest Capture" : {
       "comment" : "Hotkey action: float the most recent screenshot above every window",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -3741,6 +3736,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Закрепить последний снимок"
+          }
+        }
+      }
+    },
+    "Pin panel" : {
+      "comment" : "A button to either pin or unpin the panel.",
+      "isCommentAutoGenerated" : true,
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Закрепить панель"
           }
         }
       }
@@ -3885,6 +3892,24 @@
         }
       }
     },
+    "Press ⌥ to keep line breaks, ⌃ to translate" : {
+      "comment" : "Modifier hint under the Scan shortcut row in Settings",
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Press ⌥ to keep line breaks, ⌃ to translate"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "⌥ — сохранить переносы строк, ⌃ — включить перевод"
+          }
+        }
+      }
+    },
     "Press keys…" : {
       "comment" : "Recorder prompt while armed",
       "localizations" : {
@@ -3915,23 +3940,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Нажмите пробел, чтобы записать сочетание, Escape — чтобы отменить"
-          }
-        }
-      }
-    },
-    "Press \u2325 to keep line breaks, \u2303 to translate" : {
-      "comment" : "Modifier hint under the Scan shortcut row in Settings",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Press \u2325 to keep line breaks, \u2303 to translate"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "⌥ — сохранить переносы строк, ⌃ — включить перевод"
           }
         }
       }
@@ -4736,19 +4744,19 @@
         }
       }
     },
-    "Set Up\u2026" : {
+    "Set Up…" : {
       "comment" : "Button on the settings row that opens the translation setup window",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Set Up\u2026"
+            "value" : "Set Up…"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Настроить\u2026"
+            "value" : "Настроить…"
           }
         }
       }
@@ -5576,6 +5584,7 @@
     },
     "Translate to %@" : {
       "comment" : "Scanner badge naming the language a translating scan will go into; F cycles it",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -5591,13 +5600,14 @@
         }
       }
     },
-    "Translates text copied with \u2318C" : {
+    "Translates text copied with ⌘C" : {
       "comment" : "Subtitle under the Translate shortcut row in Settings",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Translates text copied with \u2318C"
+            "value" : "Translates text copied with ⌘C"
           }
         },
         "ru" : {

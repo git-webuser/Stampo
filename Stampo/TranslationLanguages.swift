@@ -61,6 +61,7 @@ nonisolated extension Locale.Language {
         if let stored = UserDefaults.standard.array(forKey: AppSettings.Keys.translationLanguages) as? [String] {
             favourites = stored.map { Locale.Language(identifier: $0) }
         }
+        primaryCode = UserDefaults.standard.string(forKey: AppSettings.Keys.translationPrimary)
     }
 
     // MARK: Where translations go
@@ -78,13 +79,20 @@ nonisolated extension Locale.Language {
     /// Checked against the list on every read rather than trusted: a primary
     /// language since removed would aim translations at somewhere the user can
     /// no longer see named anywhere.
+    /// Mirrored in a stored property rather than read straight from the
+    /// defaults on every access. `@Observable` tracks stored properties only,
+    /// so a computed getter over `UserDefaults` notifies nobody: the picker
+    /// went on showing the old language until something unrelated redrew the
+    /// pane, which in practice meant closing Settings and opening it again.
+    private var primaryCode: String?
+
     var primary: Locale.Language? {
         get {
-            guard let stored = UserDefaults.standard.string(forKey: AppSettings.Keys.translationPrimary)
-            else { return nil }
-            return favourites.first { $0.baseCode == stored }
+            guard let primaryCode else { return nil }
+            return favourites.first { $0.baseCode == primaryCode }
         }
         set {
+            primaryCode = newValue?.baseCode
             let defaults = UserDefaults.standard
             if let newValue {
                 defaults.set(newValue.baseCode, forKey: AppSettings.Keys.translationPrimary)
