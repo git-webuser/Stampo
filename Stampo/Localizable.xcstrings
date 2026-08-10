@@ -1166,24 +1166,6 @@
         }
       }
     },
-    "Collect Files" : {
-      "comment" : "Hotkey row: opens the archive in collect mode",
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Collect Files"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Собрать файлы"
-          }
-        }
-      }
-    },
     "Color" : {
       "comment" : "Settings section header for color tray options",
       "localizations" : {
@@ -1248,24 +1230,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Формат цвета: %@"
-          }
-        }
-      }
-    },
-    "Color Picker" : {
-      "comment" : "Hotkeys section header — fixed color-picker shortcuts",
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Color Picker"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Пипетка"
           }
         }
       }
@@ -1633,23 +1597,6 @@
         }
       }
     },
-    "Cycle Color Format in the Color Picker" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Cycle Color Format in the Color Picker"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Переключить формат цвета в пипетке"
-          }
-        }
-      }
-    },
     "Cycle Color or Language" : {
       "comment" : "Element Controls row: one key steps the list on whichever surface is open",
       "localizations" : {
@@ -1836,23 +1783,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Готово"
-          }
-        }
-      }
-    },
-    "Downloads once from macOS, then translation works offline" : {
-      "comment" : "Language pack row description in Settings > Archive",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Downloads once from macOS, then translation works offline"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Скачивается из macOS один раз, дальше перевод работает без интернета"
           }
         }
       }
@@ -2438,24 +2368,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "История"
-          }
-        }
-      }
-    },
-    "Hold ⌥ to keep line breaks" : {
-      "comment" : "Hotkey row subtitle — the Scan action's modifier variant",
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Hold ⌥ to keep line breaks"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Удерживайте ⌥ для сохранения переносов"
           }
         }
       }
@@ -3233,23 +3145,6 @@
         }
       }
     },
-    "Not available" : {
-      "comment" : "Language pack status: macOS does not translate this pair at all",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Not available"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Недоступен"
-          }
-        }
-      }
-    },
     "Not downloaded" : {
       "comment" : "Language row state when the pack is missing and there is no second language to pair it with",
       "localizations" : {
@@ -3817,23 +3712,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Закрепить"
-          }
-        }
-      }
-    },
-    "Pin Last Screenshot" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Pin Last Screenshot"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Закрепить последний скриншот"
           }
         }
       }

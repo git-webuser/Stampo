@@ -75,7 +75,11 @@ enum PanelTiming {
 
 // MARK: - Root state
 
-enum NotchPanelRoute {
+/// `nonisolated` because the project defaults every type to the main actor,
+/// which would isolate the synthesized `Equatable` too — and this gets compared
+/// inside `NSAnimationContext` completion handlers, which are not isolated.
+/// Swift 6 turns that from a warning into an error.
+nonisolated enum NotchPanelRoute {
     case main
     case archive
     case translate
