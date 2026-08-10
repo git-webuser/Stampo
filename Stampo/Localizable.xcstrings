@@ -5781,19 +5781,19 @@
         }
       }
     },
-    "Translation runs on your Mac and needs two languages before it can start. macOS downloads each one once — usually a few hundred megabytes — and nothing leaves the machine afterwards." : {
+    "Translation runs on your Mac, supports many languages and stays on the device — nothing is sent anywhere. Each language pack is installed once and takes a few hundred megabytes." : {
       "comment" : "Body of the translation setup window",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Translation runs on your Mac and needs two languages before it can start. macOS downloads each one once — usually a few hundred megabytes — and nothing leaves the machine afterwards."
+            "value" : "Translation runs on your Mac, supports many languages and stays on the device — nothing is sent anywhere. Each language pack is installed once and takes a few hundred megabytes."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Перевод работает на вашем Mac и начинает работать с двух языков. Каждый macOS загружает один раз — обычно это несколько сотен мегабайт, — после чего ничего никуда не отправляется."
+            "value" : "Перевод работает на вашем Mac, поддерживает множество языков и выполняется локально, без передачи данных. Каждый языковой пакет устанавливается один раз и занимает несколько сотен мегабайт памяти"
           }
         }
       }

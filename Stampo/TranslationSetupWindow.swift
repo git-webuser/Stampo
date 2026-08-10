@@ -103,8 +103,14 @@ struct TranslationSetupView: View {
     /// Clamped so a long list scrolls instead of growing the window past the
     /// screen.
     private var formHeight: CGFloat {
-        let rows = languages.favourites.count + 1 + (languages.offersChoice ? 1 : 0)
-        return min(300, 52 + CGFloat(rows) * 52)
+        let needsSecond = languages.hasChecked && languages.favourites.count < 2
+        let rows = languages.favourites.count
+            + 1                                     // add a language
+            + (needsSecond ? 1 : 0)                 // and why you are here
+            + (languages.offersChoice ? 1 : 0)      // where translations go
+        // The requirement row carries a second line, so it is taller than the
+        // rest.
+        return min(320, 52 + CGFloat(rows) * 52 + (needsSecond ? 18 : 0))
     }
 
     var body: some View {
@@ -117,7 +123,7 @@ struct TranslationSetupView: View {
                 Text("Set up translation")
                     .font(.title.bold())
 
-                Text("Translation runs on your Mac and needs two languages before it can start. macOS downloads each one once — usually a few hundred megabytes — and nothing leaves the machine afterwards.")
+                Text("Translation runs on your Mac, supports many languages and stays on the device — nothing is sent anywhere. Each language pack is installed once and takes a few hundred megabytes.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)

@@ -160,16 +160,21 @@ struct TranslationSettingsSection: View {
     /// hotkeys open when they find nothing to work with, so there is one
     /// explanation rather than one per way of arriving at the problem.
     ///
-    /// Absent from the setup window itself, where it would be a button offering
-    /// to open the window it is already in.
-    @ViewBuilder
+    /// Inside the setup window the row stays but loses its button, which would
+    /// offer to open the window it is already in. The words have to stay: the
+    /// paragraph up there describes what translation is, and this is the only
+    /// thing on screen that says why *this* user is looking at it.
     private var needsSecondLanguageRow: some View {
-        if !isInsideSetupWindow {
-            SettingRow(
-                icon: "translate",
-                title: "Translation needs two languages",
-                description: "Add one more and translation works in both directions"
-            ) {
+        SettingRow(
+            // Not `translate`, which the rest of the app uses for this: that
+            // symbol draws in its own blue whatever `foregroundStyle` and
+            // `symbolRenderingMode` are told, so it sat in a column of grey
+            // glyphs shouting, and repeated the window's hero icon besides.
+            icon: "exclamationmark.bubble",
+            title: "Translation needs two languages",
+            description: "Add one more and translation works in both directions"
+        ) {
+            if !isInsideSetupWindow {
                 Button("Set Up…") { TranslationSetupWindowController.shared.show() }
             }
         }
