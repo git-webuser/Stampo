@@ -16,10 +16,28 @@ import Translation
 @Observable final class TranslationSettingsModel {
     var languages = TranslationLanguages.shared
 
-    /// The language code currently being installed, if any. One at a time: the
-    /// system runs its own sheet, and two of those at once is not a state worth
-    /// having.
+    /// The language whose system sheet is up right now. One at a time: macOS
+    /// runs that sheet, and two of them at once is not a state worth having.
     private(set) var installing: String?
+
+    /// Languages whose packs are on their way down.
+    ///
+    /// The framework has no state for this and no progress to read —
+    /// `LanguageAvailability.Status` is `installed`, `supported` or
+    /// `unsupported`, nothing in between, and `TranslationSession.isReady`
+    /// arrived in macOS 26. So "downloading" is not observed but remembered:
+    /// from the moment the sheet is dismissed until the pack turns up in a
+    /// poll, or until the wait gives up.
+    ///
+    /// Kept apart from `installing` on purpose. The sheet blocks a second
+    /// install; a download in the background must not, because starting the
+    /// next language while the first one comes down is the ordinary thing to
+    /// want and it was impossible.
+    private(set) var awaiting: Set<String> = []
+
+    func isBusy(_ language: Locale.Language) -> Bool {
+        installing == language.baseCode || awaiting.contains(language.baseCode)
+    }
 
     /// Fed to `.translationTask` by the section. Non-nil only during an install.
     private(set) var configuration: TranslationSession.Configuration?
@@ -61,35 +79,46 @@ import Translation
         // that is what `refresh()` below does.
         try? await session.prepareTranslation()
 
-        if remaining.isEmpty {
-            configuration = nil
-            installing = nil
-            await refresh()
-            await followTheDownload()
-        } else {
+        guard remaining.isEmpty else {
             startNext()
+            return
+        }
+        configuration = nil
+        let language = installing
+        installing = nil
+        await refresh()
+        if let language, !languages.installed.contains(language) {
+            await followTheDownload(language)
         }
     }
 
-    /// Watches for the pack to land, because macOS will not tell us.
+    /// Watches for one pack to land, because macOS will not say when it has.
     ///
     /// `prepareTranslation()` returns as soon as its sheet is dismissed, and
-    /// the sheet says so itself: "загрузка продолжится в фоновом режиме". The
-    /// single refresh above therefore runs while the download is still going,
-    /// finds the pack missing, and leaves the row saying "Установить…" for a
-    /// language that is on its way. It stayed that way until something else
-    /// re-checked — closing Settings and opening them again.
+    /// the sheet says as much itself — the download continues in the
+    /// background. A single check straight afterwards therefore runs while the
+    /// bytes are still coming, finds nothing, and used to leave the row
+    /// offering to install a language that was already on its way. It stayed
+    /// that way until something else re-checked, which in practice meant
+    /// closing Settings and opening them again.
     ///
-    /// No progress is available to show; there is no API for it. So the row
-    /// simply becomes "Установлен" when it becomes true. Bounded: a few
-    /// minutes is the sheet's own estimate, and a poll that ran forever would
-    /// outlive the window it updates.
-    private func followTheDownload() async {
-        for _ in 0..<60 {
+    /// While this runs the row shows a spinner instead of that button. There
+    /// is no progress to put in it: the framework reports installed or not and
+    /// nothing in between.
+    ///
+    /// **A dismissed sheet is indistinguishable from an accepted one** — the
+    /// call returns the same either way — so a decline spins here until the
+    /// wait gives up. Five minutes: long enough for a few hundred megabytes on
+    /// a slow line, short enough that a mistaken spinner is not a permanent
+    /// feature of the pane.
+    private func followTheDownload(_ code: String) async {
+        awaiting.insert(code)
+        defer { awaiting.remove(code) }
+
+        for _ in 0..<100 {
             try? await Task.sleep(for: .seconds(3))
-            let before = languages.installed
             await refresh()
-            if languages.installed != before { return }
+            if languages.installed.contains(code) { return }
         }
     }
 
@@ -226,6 +255,9 @@ struct TranslationSettingsSection: View {
             // space comes back and the word "delete" would be a promise the
             // app cannot keep.
             .help("Removes the language from this list. macOS keeps the downloaded pack.")
+            // Only while the system sheet is up. A download in the background
+            // used to lock the whole section for its duration, which made
+            // "add the next language while this one comes down" impossible.
             .disabled(model.installing != nil)
         }
         .padding(.vertical, 4)
@@ -233,7 +265,13 @@ struct TranslationSettingsSection: View {
 
     @ViewBuilder
     private func state(for language: Locale.Language) -> some View {
-        if model.installing == language.baseCode {
+        // The sheet is up for this language, or its pack is coming down. There
+        // is no progress to show — the framework has none — so the spinner
+        // says only that something is happening, which is the whole of what is
+        // known. It replaces the Install button rather than sitting beside it:
+        // pressing that button again while the download runs does nothing, and
+        // a button that does nothing is the thing being fixed.
+        if model.isBusy(language) {
             ProgressView()
                 .controlSize(.small)
         } else if !languages.hasChecked {
