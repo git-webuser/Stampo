@@ -42,6 +42,16 @@ final class TranslationSetupWindowController: NSObject, NSWindowDelegate {
         win.titleVisibility = .hidden
         win.titlebarAppearsTransparent = true
         win.isReleasedWhenClosed = false
+        // Above the settings window, which is `.floating` — this one is opened
+        // from a row inside it, and at normal level it went straight behind it
+        // and read as a button that did nothing.
+        //
+        // Floating rather than closing Settings first, which is what the
+        // wizard does: the wizard has to stay *below* System Settings while a
+        // permission is granted there, and it has nowhere to go back to. This
+        // window sends nobody to System Settings, and the row that opened it
+        // should still be there afterwards.
+        win.level = .floating
         // Transparent through the first layout pass: the preferred height is
         // not final until then, and revealing it earlier shows the window
         // jumping from AppKit's placeholder origin to the centre.
