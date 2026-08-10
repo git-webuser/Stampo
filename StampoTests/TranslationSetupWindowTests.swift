@@ -15,6 +15,9 @@ import Testing
 
     @Test func theWindowOpensAboveTheSettingsWindow() {
         let controller = TranslationSetupWindowController.shared
+        // From a known state: the window is a singleton, and any suite that
+        // asked for a translation has already been sent here.
+        controller.close()
         controller.show()
         defer { controller.close() }
 
@@ -29,6 +32,7 @@ import Testing
 
     @Test func showingItTwiceRaisesTheSameWindow() {
         let controller = TranslationSetupWindowController.shared
+        controller.close()
         controller.show()
         controller.show()
         defer { controller.close() }
