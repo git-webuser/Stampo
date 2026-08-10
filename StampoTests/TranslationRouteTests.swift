@@ -56,6 +56,20 @@ import Testing
         #expect(detect("Settings") == .installed(en))
     }
 
+    /// The threshold counted whitespace-separated words, which excluded every
+    /// language that does not use whitespace: a whole Chinese sentence is one
+    /// token, so the offer could never be made and scanned Chinese came back
+    /// as "could not tell what language this is" — naming the one thing the
+    /// app had in fact worked out.
+    @Test func aLanguageWithoutSpacesCanStillBeOffered() {
+        // Chinese, Japanese and Korean, none of them installed here.
+        #expect(detect("屏幕截图已保存", installed: ["en", "ru"]) == .notInstalled(id: "zh"))
+        #expect(detect("スクリーンショットを保存", installed: ["en", "ru"]) == .notInstalled(id: "ja"))
+        #expect(detect("설정 열기", installed: ["en", "ru"]) == .notInstalled(id: "ko"))
+        // Installed, and it translates instead of offering.
+        #expect(detect("屏幕截图已保存", installed: ["en", "ru", "zh"]) == .installed(id: "zh"))
+    }
+
     @Test func oneWordNeverAsksForADownload() {
         // "Download" ranks Indonesian first — real ambiguity that no scan
         // quality fixes. Asking for several hundred megabytes on the strength
@@ -307,5 +321,9 @@ private extension DetectedLanguage {
     /// buried what was being asserted.
     static func installed(id code: String) -> DetectedLanguage {
         .installed(Locale.Language(identifier: code))
+    }
+
+    static func notInstalled(id code: String) -> DetectedLanguage {
+        .notInstalled(Locale.Language(identifier: code))
     }
 }

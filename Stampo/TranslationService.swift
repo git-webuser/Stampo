@@ -209,9 +209,7 @@ nonisolated enum TranslationFailure: Error, Equatable {
         // version number ("1 234,56 — v2.7.1 (#42)") is half a dozen tokens of
         // no language at all, and it must not be able to talk the app into
         // offering a download either.
-        let words = trimmed.split(whereSeparator: \.isWhitespace)
-            .filter { $0.contains(where: \.isLetter) }
-        let offersDownload = words.count >= 2
+        let offersDownload = isEnoughToAskFor(trimmed)
 
         // The decision proper, over the eight hypotheses the rule was measured
         // on: the first one the app can act on wins.
@@ -231,6 +229,32 @@ nonisolated enum TranslationFailure: Error, Equatable {
             return .installed(Locale.Language(identifier: code))
         }
         return .unknown
+    }
+
+    /// Whether there is enough text here to be worth asking someone to
+    /// download several hundred megabytes for.
+    ///
+    /// Two words was the measured rule, and it quietly excluded half the
+    /// languages the app supports: Chinese, Japanese and Thai do not put
+    /// spaces between words, so a whole sentence of them is one token. The
+    /// threshold could therefore never be met, the offer never appeared, and
+    /// scanned Chinese came back as "could not tell what language this is" —
+    /// naming the one thing the app *had* worked out.
+    ///
+    /// So the count follows the writing system: words where words are
+    /// separated, characters where they are not. Two dense characters is
+    /// already a word or two of meaning — "保存" is "save".
+    nonisolated private static func isEnoughToAskFor(_ text: String) -> Bool {
+        let dense = text.unicodeScalars.filter {
+            switch script(of: $0) {
+            case .han, .kana, .hangul, .thai: return true
+            default: return false
+            }
+        }
+        if dense.count >= 2 { return true }
+        return text.split(whereSeparator: \.isWhitespace)
+            .filter { $0.contains(where: \.isLetter) }
+            .count >= 2
     }
 
     /// Scripts told apart far enough to know which one a text is really in.

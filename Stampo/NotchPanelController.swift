@@ -1775,7 +1775,14 @@ final class NotchPanelController: NSObject {
             guard let next = TranslationLanguages.language(after: shown.language,
                                                            in: languages.favourites,
                                                            backwards: backwards)
-            else { return }
+            else {
+                // Nowhere to step: the list is down to one language, or none.
+                // Returning quietly made ⇥ a key that did nothing in the one
+                // place the panel was inviting it to be pressed — so it leads
+                // where the missing languages are added instead.
+                TranslationSetupWindowController.shared.show()
+                return
+            }
             model.beginRework()
             ArchiveTranslate.run(shown.text, to: next,
                                  archiveModel: archiveModel, on: currentScreen)
