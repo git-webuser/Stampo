@@ -98,6 +98,11 @@ import Translation
 /// downloaded is a property of a language, and each row has to answer for
 /// itself.
 struct TranslationSettingsSection: View {
+    /// True when this is the copy inside the setup window, which changes only
+    /// one thing: the row offering to open that window is dropped, since it is
+    /// already open and the button would go nowhere.
+    var isInsideSetupWindow = false
+
     @State private var model = TranslationSettingsModel()
     /// Language names are shown in the app's display language, which the user
     /// can change without restarting; reading the environment locale is what
@@ -149,13 +154,24 @@ struct TranslationSettingsSection: View {
     /// Not a footnote but a state of the section: with fewer than two
     /// languages there is nothing to translate between, and that is the normal
     /// first-run state for a reader of one language.
+    ///
+    /// Built like General's "Introduction — Show…": a row that opens the window
+    /// which explains the thing and does it. The same window the translation
+    /// hotkeys open when they find nothing to work with, so there is one
+    /// explanation rather than one per way of arriving at the problem.
+    ///
+    /// Absent from the setup window itself, where it would be a button offering
+    /// to open the window it is already in.
+    @ViewBuilder
     private var needsSecondLanguageRow: some View {
-        SettingRow(
-            icon: "exclamationmark.bubble",
-            title: "Translation needs two languages",
-            description: "Add one more and translation works in both directions"
-        ) {
-            EmptyView()
+        if !isInsideSetupWindow {
+            SettingRow(
+                icon: "translate",
+                title: "Translation needs two languages",
+                description: "Add one more and translation works in both directions"
+            ) {
+                Button("Set Up…") { TranslationSetupWindowController.shared.show() }
+            }
         }
     }
 
@@ -258,11 +274,17 @@ struct TranslationSettingsSection: View {
     /// ticking a box, so the row says so before it is pressed. Progress is not
     /// ours to show — macOS runs the download behind its own sheet and only
     /// lets us poll the result.
+    ///
+    /// Silent about the cost inside the setup window, where the paragraph
+    /// above the list has just said the same thing in the same words. Twice on
+    /// one screen reads as a stutter, not as emphasis.
     private var addLanguageRow: some View {
         SettingRow(
             icon: "plus.circle",
             title: "Add language",
-            description: "Each language is downloaded once by macOS, usually a few hundred megabytes"
+            description: isInsideSetupWindow
+                ? nil
+                : "Each language is downloaded once by macOS, usually a few hundred megabytes"
         ) {
             Menu {
                 ForEach(languages.addable, id: \.baseCode) { language in

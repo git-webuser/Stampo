@@ -123,42 +123,14 @@ final class FirstLaunchWindowController: NSObject, NSWindowDelegate {
     }
 
     private func centerWindow(_ window: NSWindow) {
-        let mouseLocation = NSEvent.mouseLocation
-        let targetScreen = NSScreen.screens.first {
-            NSMouseInRect(mouseLocation, $0.frame, false)
-        } ?? NSScreen.main ?? window.screen
-        guard let visibleFrame = targetScreen?.visibleFrame else {
-            window.center()
-            return
-        }
-
-        let frame = window.frame
-        let origin = NSPoint(
-            x: visibleFrame.midX - frame.width / 2,
-            y: visibleFrame.midY - frame.height / 2
-        )
-        window.setFrameOrigin(origin)
-        keepWindowVisible(window, within: visibleFrame)
+        window.centerOnPointerScreen()
     }
 
     private func keepWindowVisible(
         _ window: NSWindow,
         within explicitVisibleFrame: NSRect? = nil
     ) {
-        guard let visibleFrame = explicitVisibleFrame
-            ?? window.screen?.visibleFrame
-            ?? NSScreen.main?.visibleFrame
-        else { return }
-
-        var frame = window.frame
-        let maximumX = max(visibleFrame.minX, visibleFrame.maxX - frame.width)
-        let maximumY = max(visibleFrame.minY, visibleFrame.maxY - frame.height)
-        frame.origin.x = min(max(frame.minX, visibleFrame.minX), maximumX)
-        frame.origin.y = min(max(frame.minY, visibleFrame.minY), maximumY)
-
-        if frame.origin != window.frame.origin {
-            window.setFrameOrigin(frame.origin)
-        }
+        window.keepOnScreen(within: explicitVisibleFrame)
     }
 
     /// Relaunches the app: Screen Recording / Input Monitoring only take

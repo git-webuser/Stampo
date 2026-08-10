@@ -1823,6 +1823,23 @@
         }
       }
     },
+    "Done" : {
+      "comment" : "Closing button of the translation setup window",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Done"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Готово"
+          }
+        }
+      }
+    },
     "Downloads once from macOS, then translation works offline" : {
       "comment" : "Language pack row description in Settings > Archive",
       "localizations" : {
@@ -4807,6 +4824,23 @@
         }
       }
     },
+    "Set up translation" : {
+      "comment" : "Title of the window that explains translation and installs the language packs",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Set up translation"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Настройка перевода"
+          }
+        }
+      }
+    },
     "Set up…" : {
       "comment" : "Button in General settings opening the macOS Screen Recording pane",
       "localizations" : {
@@ -4820,6 +4854,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Настроить…"
+          }
+        }
+      }
+    },
+    "Set Up\u2026" : {
+      "comment" : "Button on the settings row that opens the translation setup window",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Set Up\u2026"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Настроить\u2026"
           }
         }
       }
@@ -5726,6 +5777,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Для перевода нужно два языка"
+          }
+        }
+      }
+    },
+    "Translation runs on your Mac and needs two languages before it can start. macOS downloads each one once — usually a few hundred megabytes — and nothing leaves the machine afterwards." : {
+      "comment" : "Body of the translation setup window",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Translation runs on your Mac and needs two languages before it can start. macOS downloads each one once — usually a few hundred megabytes — and nothing leaves the machine afterwards."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Перевод работает на вашем Mac и начинает работать с двух языков. Каждый macOS загружает один раз — обычно это несколько сотен мегабайт, — после чего ничего никуда не отправляется."
           }
         }
       }

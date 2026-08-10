@@ -148,6 +148,18 @@ nonisolated extension Locale.Language {
     /// badge showed nothing.
     var offersChoice: Bool { favourites.count > 2 }
 
+    /// Whether translation can do anything at all.
+    ///
+    /// Two installed languages is the floor: a pack is only ever half a
+    /// direction, and nothing ships installed, so this is false for every user
+    /// until they have been through the setup once.
+    ///
+    /// `hasChecked` is part of the question. Before the first refresh the
+    /// installed set is empty for want of asking, and an entry point that read
+    /// that as "not set up" would send a brand-new window at someone in the
+    /// first frames of a launch.
+    var canTranslate: Bool { hasChecked && installed.count >= 2 }
+
     func isInstalled(_ language: Locale.Language) -> Bool {
         installed.contains(language.baseCode)
     }

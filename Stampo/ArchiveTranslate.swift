@@ -30,6 +30,7 @@ enum ArchiveTranslate {
                     archiveModel: NotchArchiveModel,
                     on screen: NSScreen?) {
         let languages = TranslationLanguages.shared
+        guard !offerSetupIfUnavailable(languages) else { return }
         run(text,
             route: TranslationService.automaticRoute(from: TranslationService.detect(text),
                                                      destination: languages.destination,
@@ -52,10 +53,32 @@ enum ArchiveTranslate {
             run(text, archiveModel: archiveModel, on: screen)
             return
         }
+        guard !offerSetupIfUnavailable(TranslationLanguages.shared) else { return }
         run(text,
             route: TranslationService.route(from: TranslationService.detect(text), to: target),
             chosen: true,
             archiveModel: archiveModel, on: screen)
+    }
+
+    /// Opens the setup window instead of translating, when there is nothing to
+    /// translate with. Returns true when it did, meaning the caller is done.
+    ///
+    /// Asked before the text is even read, because "which language is this"
+    /// cannot be answered on a machine with no packs: detection ranks against
+    /// the installed set, so a fresh Mac answered `.unknown` and the user was
+    /// told the language could not be recognized — blaming their text for the
+    /// app never having been set up. Nothing ships installed, so this is every
+    /// user's first translation.
+    private static func offerSetupIfUnavailable(_ languages: TranslationLanguages) -> Bool {
+        guard !languages.canTranslate else { return false }
+        // Same duty as the refusals below, and it was missed here first: this
+        // returns before reaching them, so a panel dimmed in anticipation of
+        // the next language would have stayed dimmed behind the window. It is
+        // reachable — the packs can be removed in System Settings while the
+        // Translator is open, and the ⇥ that follows lands right here.
+        TranslationPanelModel.shared.endRework()
+        TranslationSetupWindowController.shared.show()
+        return true
     }
 
     /// Turns a route into either work or the one thing worth saying about why
