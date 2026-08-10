@@ -3,7 +3,7 @@
 The two images that are not screenshots. Both are drawn in Figma; export over
 the file and commit it.
 
-## `banner.png` — 1624 × 272
+## `banner.png` — 1624 × 400
 
 The title plate at the top of `README.md`, in place of a `# Stampo` heading.
 Shown at half its pixel size, so it stays crisp on Retina:
@@ -15,6 +15,15 @@ Shown at half its pixel size, so it stays crisp on Retina:
 The artwork sits on an opaque white plate rather than a transparent background:
 one file then reads the same on GitHub's light and dark themes, with no
 `<picture>` and two variants to keep in sync.
+
+**Figma exports transparent by default, and this file has arrived that way
+before.** Nothing looks wrong locally — the Finder preview and every light-theme
+viewer put white behind it — but the wordmark is near-black, so on GitHub's dark
+theme it goes with the background. After exporting, check:
+
+```bash
+sips -g hasAlpha assets/brand/banner.png   # must say: no
+```
 
 ## `social-preview.png` — 2560 × 1280
 
