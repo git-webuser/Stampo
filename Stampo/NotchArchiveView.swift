@@ -31,6 +31,7 @@ struct NotchArchiveView: View {
     let onBack: () -> Void
     let onHidePanel: () -> Void
     let onTogglePin: () -> Void
+    let onPreviewText: (String) -> Void
 
     @AppStorage(AppSettings.Keys.defaultColorFormat) private var scheme: ColorSchemeType = .hex
     /// Whether Space over a cell opens a preview. Read here rather than from
@@ -50,6 +51,7 @@ struct NotchArchiveView: View {
     /// there is one. Space is claimed system-wide while registered, so it is
     /// held only while the pointer actually rests on a previewable cell.
     @State private var hoveredPreviewURLs: [URL] = []
+    @State private var hoveredText: String?
     @State private var spaceToken: UUID?
     /// True while any archive cell is mid drag-out (its ArchiveDragShim reports through
     /// `InternalDraggingKey`). SwiftUI's `.onDrop` also fires `isDropTargeted`
@@ -157,6 +159,7 @@ struct NotchArchiveView: View {
             guard !isContentVisible else { return }
             expandedStackID = nil
             hoveredPreviewURLs = []
+            hoveredText = nil
             updateSpaceHotkey()
         }
         // Clear the stored id once its stack is gone (last member removed, trim,
@@ -171,6 +174,10 @@ struct NotchArchiveView: View {
             hoveredPreviewURLs = urls
             updateSpaceHotkey()
         }
+        .onPreferenceChange(HoveredTextKey.self) { text in
+            hoveredText = text
+            updateSpaceHotkey()
+        }
         // Turning the preview off gives the key back on the spot, even with the
         // pointer still resting on a cell: the whole point of the switch is that
         // Space stops being ours, and "after you move the mouse" is not that.
@@ -180,6 +187,7 @@ struct NotchArchiveView: View {
         }
         .onDisappear {
             hoveredPreviewURLs = []
+            hoveredText = nil
             updateSpaceHotkey()
         }
     }
@@ -220,6 +228,17 @@ struct NotchArchiveView: View {
             TransientHotkeyCenter.space.remove(token)
             spaceToken = nil
         }
+        // Text first: a cell is one kind or the other, and only the text one
+        // sets this. Recognized text and scanned links have nothing Quick Look
+        // could open — a payload is not a file — so they open in the panel,
+        // where they are already legible and one menu away from a translation.
+        if spacePreviewEnabled, isContentVisible, let text = hoveredText {
+            spaceToken = TransientHotkeyCenter.space.push {
+                onPreviewText(text)
+            }
+            return
+        }
+
         guard Self.wantsSpaceHotkey(enabled: spacePreviewEnabled,
                                     isContentVisible: isContentVisible,
                                     hoveredURLs: hoveredPreviewURLs)
@@ -522,6 +541,17 @@ struct NotchArchiveView: View {
                                     withAnimation(.easeInOut(duration: 0.18)) {
                                         archiveModel.remove(id: t.id)
                                     }
+                                },
+                                onTranslate: {
+                                    ArchiveTranslate.run(t.text,
+                                                         archiveModel: archiveModel,
+                                                         on: NSScreen.main)
+                                },
+                                onTranslateTo: { language in
+                                    ArchiveTranslate.run(t.text,
+                                                         to: language,
+                                                         archiveModel: archiveModel,
+                                                         on: NSScreen.main)
                                 }
                             )
                         case .stack(let stack):
@@ -953,8 +983,12 @@ private struct ArchiveTextCell: View {
     let labelOffset: CGFloat
     let cornerRadius: CGFloat
     let onRemove: () -> Void
+    let onTranslate: () -> Void
+    let onTranslateTo: (Locale.Language) -> Void
 
     @Environment(\.colorSchemeContrast) private var contrast
+    /// Read in the body so the menu is rebuilt when the user's list changes.
+    private var languages: TranslationLanguages { TranslationLanguages.shared }
 
     @State private var isHovered    = false
     @State private var isPressed    = false
@@ -1070,10 +1104,58 @@ private struct ArchiveTextCell: View {
             // Plain string, not a file: the share sheet offers Messages, Notes,
             // Mail — the same payload the tap-to-copy puts on the pasteboard.
             MenuCommandButton("Share", icon: .share) { shareAnchor.present([item.text]) }
+            // Absent for barcode payloads: a Wi-Fi config or a tracking number
+            // is a value, and running it through a translator returns damaged
+            // nonsense rather than an error. Hidden rather than disabled — a
+            // greyed row invites the user to work out what would enable it,
+            // and nothing ever will.
+            if !item.isCodePayload {
+                // With two languages Translate is a verb, not a destination:
+                // the entry holds the text, the direction is read off it, and
+                // the only other language is the answer. A submenu there would
+                // offer one real choice and one that means "already in that
+                // language".
+                //
+                // Past two, the destination stops following from the source
+                // and has to be asked for. Every language is listed, including
+                // the one the text looks like: detection is right most of the
+                // time, not all of it, and a list that hid the answer on a
+                // wrong guess would leave no way back. Picking it lands on the
+                // "already in that language" toast, which is cheap.
+                if languages.offersChoice {
+                    Menu {
+                        ForEach(languages.favourites, id: \.baseCode) { language in
+                            Button {
+                                onTranslateTo(language)
+                            } label: {
+                                Text(verbatim: TranslationService.displayName(language))
+                            }
+                        }
+                        Divider()
+                        // Adding a language is a system download behind a sheet
+                        // that only a real window can present, so this leads
+                        // there rather than pretending to do it here.
+                        Button {
+                            NotificationCenter.default.post(
+                                name: .requestOpenSettings,
+                                object: nil,
+                                userInfo: [SettingsWindowController.tabUserInfoKey:
+                                            SettingsTab.archive.rawValue])
+                        } label: {
+                            Text("Add language…")
+                        }
+                    } label: {
+                        MenuCommandLabel("Translate", icon: .translate)
+                    }
+                } else {
+                    MenuCommandButton("Translate", icon: .translate) { onTranslate() }
+                }
+            }
             Divider()
             MenuCommandButton("Remove from archive", icon: .remove) { onRemove() }
         }
         .preference(key: InternalDraggingKey.self, value: isDragging)
+        .preference(key: HoveredTextKey.self, value: isHovered ? item.text : nil)
         .accessibilityLabel("Recognized text \(item.firstLine)")
         .accessibilityHint("Tap to copy, drag to carry the text out")
         .accessibilityAddTraits(.isButton)
@@ -1926,6 +2008,16 @@ private struct InternalDraggingKey: PreferenceKey {
 
 /// Files of the cell currently under the pointer, for Space-to-preview.
 /// First non-empty wins — cells never overlap, so at most one publishes.
+/// Text under the pointer, for the Space preview. Separate from the file
+/// key: one goes to Quick Look, the other opens in the panel, and a cell can
+/// only ever be one of the two.
+private struct HoveredTextKey: PreferenceKey {
+    static let defaultValue: String? = nil
+    static func reduce(value: inout String?, nextValue: () -> String?) {
+        value = nextValue() ?? value
+    }
+}
+
 private struct HoveredPreviewKey: PreferenceKey {
     static let defaultValue: [URL] = []
     static func reduce(value: inout [URL], nextValue: () -> [URL]) {

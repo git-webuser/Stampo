@@ -7,6 +7,11 @@ import Testing
         #expect(!PanelState.transitioning(to: .archive).allowsAutoHide)
         #expect(!PanelState.transitioning(to: .main).allowsAutoHide)
         #expect(!PanelState.countdown.allowsAutoHide)
+        // The wait is raised by the app, not by the pointer — which is
+        // therefore nowhere near it. Left to the ordinary "mouse left" rule
+        // the panel would close itself in the middle of the translation it
+        // opened to report.
+        #expect(!PanelState.translating.allowsAutoHide)
         #expect(!PanelState.preSelection(.selection).allowsAutoHide)
         #expect(!PanelState.preSelection(.window).allowsAutoHide)
     }
@@ -16,6 +21,7 @@ import Testing
         #expect(PanelState.showing.allowsAutoHide)
         #expect(PanelState.main.allowsAutoHide)
         #expect(PanelState.archive.allowsAutoHide)
+        #expect(PanelState.translate.allowsAutoHide)
         #expect(PanelState.hiding.allowsAutoHide)
         #expect(PanelState.stale(reason: .sleep).allowsAutoHide)
     }
@@ -43,11 +49,27 @@ import Testing
 @Suite struct PanelEscapeTests {
 
     @Test func expandedStackSwallowsTheFirstEscape() {
-        #expect(PanelState.archive.escapeAction(hasExpandedStack: true) == .collapseStack)
+        #expect(PanelState.archive.escapeAction(
+            hasExpandedStack: true, translateCameFromArchive: false) == .collapseStack)
     }
 
     @Test func escapeClosesThePanelOnceNothingIsExpanded() {
-        #expect(PanelState.archive.escapeAction(hasExpandedStack: false) == .hidePanel)
+        #expect(PanelState.archive.escapeAction(
+            hasExpandedStack: false, translateCameFromArchive: false) == .hidePanel)
+    }
+
+    /// Reading an archive entry in the Translator is a layer over the archive,
+    /// the way an expanded stack is: the first press puts it back.
+    @Test func aPreviewOpenedFromTheArchiveGoesBackToIt() {
+        #expect(PanelState.translate.escapeAction(
+            hasExpandedStack: false, translateCameFromArchive: true) == .backToArchive)
+    }
+
+    /// A translation raised over nothing has no archive to return to — the
+    /// press closes the panel, as it does everywhere else.
+    @Test func aTranslationRaisedOnItsOwnClosesThePanel() {
+        #expect(PanelState.translate.escapeAction(
+            hasExpandedStack: false, translateCameFromArchive: false) == .hidePanel)
     }
 
     /// A stack can only be expanded inside the archive, but the flag outlives
@@ -55,10 +77,11 @@ import Testing
     /// close the panel then, not collapse something the user can no longer see.
     @Test(arguments: [PanelState.main, .showing, .countdown, .transitioning(to: .main)])
     func onlyTheArchiveCollapsesInsteadOfClosing(state: PanelState) {
-        #expect(state.escapeAction(hasExpandedStack: true) == .hidePanel)
+        #expect(state.escapeAction(
+            hasExpandedStack: true, translateCameFromArchive: false) == .hidePanel)
     }
 
-    @Test(arguments: [PanelState.showing, .main, .archive, .countdown])
+    @Test(arguments: [PanelState.showing, .main, .archive, .translate, .countdown, .translating])
     func visibleStatesHoldTheHotkey(state: PanelState) {
         #expect(state.wantsEscapeHotkey(isSharePickerOpen: false))
     }
@@ -68,6 +91,22 @@ import Testing
                       .preSelection(.selection), .stale(reason: .sleep)])
     func everythingElseReleasesIt(state: PanelState) {
         #expect(!state.wantsEscapeHotkey(isSharePickerOpen: false))
+    }
+
+    /// ⇥ is only worth claiming where the header has a list to step through.
+    @Test(arguments: [PanelState.archive, .translate])
+    func theTwoRoutesWithAListHoldTheCycleKey(state: PanelState) {
+        #expect(state.wantsCycleHotkey)
+    }
+
+    /// Everything else hands it straight back. This is the dangerous half: a
+    /// registered hotkey consumes ⇥ for every app on the machine, and the
+    /// panel can be pinned open for hours.
+    @Test(arguments: [PanelState.hidden, .showing, .main, .hiding, .countdown,
+                      .translating, .transitioning(to: .translate),
+                      .preSelection(.selection), .stale(reason: .sleep)])
+    func everyOtherStateHandsTheCycleKeyBack(state: PanelState) {
+        #expect(!state.wantsCycleHotkey)
     }
 
     /// The share sheet is our own window: holding the hotkey would eat the Esc

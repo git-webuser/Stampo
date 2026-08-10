@@ -324,11 +324,13 @@ import Testing
 
 @Suite struct PinLastCaptureHotkeyTests {
 
-    @Test func pinDefaultComboIsCtrlOptCmdP() {
+    /// L for "latest". P moved to the panel pin, which is what the word means
+    /// everywhere else in the app, and T was freed for Translate.
+    @Test func pinDefaultComboIsCtrlOptCmdL() {
         let combo = HotkeyAction.pinLastCapture.defaultCombo
-        #expect(combo.keyCode == UInt16(kVK_ANSI_P))
+        #expect(combo.keyCode == UInt16(kVK_ANSI_L))
         #expect(combo.carbonModifiers == UInt32(controlKey | optionKey | cmdKey))
-        #expect(combo.displayString == "⌃⌥⌘P")
+        #expect(combo.displayString == "⌃⌥⌘L")
     }
 
     @Test func pinCarbonIDIsEightAndUnique() {
@@ -347,8 +349,10 @@ import Testing
     }
 
     @Test func pinRowMetadataIsFilledIn() {
-        #expect(HotkeyAction.pinLastCapture.labelKey == "Pin Last Screenshot")
-        #expect(HotkeyAction.pinLastCapture.icon == "pin")
+        #expect(HotkeyAction.pinLastCapture.labelKey == "Pin Latest Capture")
+        // Not a pin: bare `pin` is the panel throughout the app, and two pins
+        // a row apart in the settings list were the same glyph to the eye.
+        #expect(HotkeyAction.pinLastCapture.icon == "inset.filled.topright.rectangle")
     }
 }
 

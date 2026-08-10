@@ -68,7 +68,30 @@ Select an area of the screen and Stampo reads it in a single pass: every QR/barc
 
 The recognized text comes back as paragraphs, not as the lines the original layout happened to wrap it into: a hyphen at a wrap is kept (so `кто-то` survives), a soft hyphen is dropped, and a blank line or a change of type size starts a new paragraph. Barcode payloads always stay on a line of their own.
 
-Hold **⌥ as you release the selection** to keep every line break instead — for the blocks where the breaks are the content, like verse, code, or one column of a table. The modifier is read when the selection ends, not when the overlay opens, so `⌃⌥⌘S` on its own doesn't trigger it.
+While the selection overlay is up, **⌥** and **⌃** switch what happens on release, and the frame says which mode is armed:
+
+- **⌥ — Keep line breaks.** An orange frame. Every break the original layout produced survives, for the blocks where the breaks are the content: verse, code, one column of a table.
+- **⌃ — Translate.** A blue frame. The recognized text is translated and added to the archive alongside the original. Barcode payloads are left alone.
+
+Both are toggles, not keys to hold: press once to arm, again to disarm. They are alternatives — arming one disarms the other, since translating rejoins the lines that ⌥ exists to keep. Pressing them is what counts, so releasing the `⌃⌥⌘S` chord that opened the overlay changes nothing.
+
+## Translate
+
+Recognized text can be translated on the spot, between English and Russian. The direction follows the text, so there is nothing to choose: Russian goes out to English, anything else comes in to Russian.
+
+Three ways in:
+
+- **Right-click a text entry in the archive → Translate.** The translation arrives as a new entry above it.
+- **`⌃⌥⌘T`** translates whatever text is on the clipboard — select anywhere, press `⌘C`, then the hotkey. The archive opens with the result.
+- **`⌃` while framing a scan** (see above), for text that cannot be selected at all: a picture, a PDF without a text layer, a video, another machine over VNC.
+
+The result is an ordinary archive entry: click to copy, drag out, share, remove. Text that is already in the target language is reported rather than filed, so the archive does not fill up with copies of itself.
+
+Translation runs entirely on your Mac, through the translator built into macOS. Nothing is uploaded — see [Privacy & Security](#privacy--security).
+
+### Language pack
+
+macOS ships no translation packs installed, and downloads them itself the first time one is needed. Open **Settings → Archive → Translation**: the row reports whether the pack is present and offers to install it, macOS asks for confirmation, and after that translation works offline and never asks again. Asking to translate without the pack tells you which language is missing and opens that setting.
 
 ## Markup Editor
 
@@ -106,8 +129,10 @@ Click the post-capture thumbnail (or right-click a screenshot in the archive →
 | Window screenshot | `⌃⌥⌘G` |
 | Pick color | `⌃⌥⌘C` |
 | Scan (text & codes) | `⌃⌥⌘S` |
-| Pin last screenshot | `⌃⌥⌘P` |
-| Collect files | `⌃⌥⌘T` |
+| Translate clipboard | `⌃⌥⌘T` |
+| Pin latest capture | `⌃⌥⌘L` |
+| Pin panel (collect files) | `⌃⌥⌘P` |
+| Share last item | `⌃⌥⌘D` |
 
 Every hotkey is fully customizable in **Settings → Hotkeys** — record a new combination, restore the default, or clear it to disable the action.
 
@@ -119,7 +144,7 @@ File names follow one of four presets, selectable in **Settings → Capture**: c
 
 ## Archive
 
-The archive shows recent screenshots, color swatches, and scanned text — and it's also a drop target for files.
+The archive shows recent screenshots, color swatches, and scanned or translated text — and it's also a drop target for files.
 
 ![The archive: screenshots, color swatches, and scanned text side by side](assets/screenshots/panel-archive.png)
 
@@ -134,13 +159,13 @@ Entries stay in the order they were captured, newest first, and the row scrolls 
 
 Drop files onto the open archive and they gather into a **stack** — a temporary pile you fill from several windows, then drag out all at once into a destination folder. Files are grouped by their source folder, so dropping from Downloads and Desktop makes two separate stacks, each labeled with its folder name. Drag a stack out to move everything it holds in one gesture; the stack clears once the files land. The archive keeps references to the originals, never copies, so nothing is duplicated on disk while they sit there.
 
-Press `⌃⌥⌘T` to open the archive straight into collect mode — the panel pins itself so it survives the mouse-down that starts a drag from another window; press it again to close.
+Press `⌃⌥⌘P` to open the archive straight into collect mode — the panel pins itself so it survives the mouse-down that starts a drag from another window; press it again to close.
 
 Every file in the archive shows a real preview, whatever it is: PDFs, videos, Pages documents and anything else macOS can render appear as their content rather than a generic document icon. Files with nothing to preview fall back to their file-type icon.
 
 ## Pin to Screen
 
-Keep a screenshot floating above all windows while you work — handy for copying data into another app or comparing against a reference. Right-click a screenshot in the archive or on the post-capture thumbnail → **Pin to Screen**, or press `⌃⌥⌘P` to pin the last capture.
+Keep a screenshot floating above all windows while you work — handy for copying data into another app or comparing against a reference. Right-click a screenshot in the archive or on the post-capture thumbnail → **Pin to Screen**, or press `⌃⌥⌘L` to pin the last capture.
 
 Pinned screenshots stay on top of everything, follow you across Spaces, and never steal focus. Drag a pin by its body to move it, resize it from the edges (proportions are kept), and close it with the **X** button, a **double-click**, or **Esc** while hovering it. Right-click a pin for Copy, Edit, Show in Finder, Unpin, or Close All Pins.
 
@@ -168,6 +193,11 @@ Stampo does not upload screenshots, sampled colors, or any other data. The full 
   Stampo writes the image to a temporary file and hands it to the macOS
   service you pick from the sheet. Whatever that service then does with it is
   between you and that app — Stampo itself sends nothing.
+- **Translation is on-device.** It uses the translator built into macOS, with
+  a language pack downloaded once by the system. The text being translated
+  never leaves your Mac, and no translation service is contacted — which is
+  also why Stampo translates between English and Russian only, rather than
+  everything a cloud API would offer.
 - No analytics or telemetry.
 - No crash reporting.
 - All captures stay on your Mac.

@@ -28,6 +28,18 @@ final class TextCaptureHUD {
         case preparingShare
         /// A drop on the AirDrop plate that AirDrop refused to take.
         case airDropUnavailable
+        /// Translation asked for a pair whose macOS language pack is not
+        /// downloaded. Carries the already-localized target name, because the
+        /// one thing the user needs to know is which language to install.
+        case translationPackMissing(language: String)
+        /// The translation came back identical to the source — the text was
+        /// already in the target language. Reported rather than filed, since
+        /// silently adding a duplicate entry would look like nothing happened.
+        case translationUnchanged
+        /// The session failed after the pack was confirmed present.
+        case translationFailed
+        /// The Translate hotkey fired with no text on the clipboard.
+        case nothingToTranslate
     }
 
     private var panel: NSPanel?
@@ -168,6 +180,32 @@ private struct TextCaptureHUDView: View {
             case .shareNotPrepared:
                 statusRow(title: "Couldn't prepare the folder for sharing",
                           systemName: "folder.badge.questionmark", iconOpacity: 0.6)
+                    .fixedSize()
+            case .translationPackMissing(let language):
+                VStack(spacing: 3) {
+                    statusRow(title: "Language pack needed",
+                              systemName: "translate", iconOpacity: 0.6)
+                        .fixedSize()
+                    // Named, not generic: "install a pack" is not actionable
+                    // until the user knows which one. Verbatim — this is a
+                    // language name resolved at runtime, not a UI string.
+                    Text(verbatim: language)
+                        .font(.system(size: 12))
+                        .foregroundStyle(.white.opacity(0.55))
+                        .lineLimit(1)
+                }
+            case .translationUnchanged:
+                statusRow(title: "Already in that language",
+                          systemName: "translate", iconOpacity: 0.6)
+                    .fixedSize()
+            case .translationFailed:
+                statusRow(title: "Couldn't translate", systemName: "translate", iconOpacity: 0.6)
+                    .fixedSize()
+            case .nothingToTranslate:
+                // Names the fix, not just the problem: the whole gesture is
+                // "copy, then press", and this fires when the first half was
+                // skipped or the clipboard holds something that is not text.
+                statusRow(title: "Copy some text first", systemName: "translate", iconOpacity: 0.6)
                     .fixedSize()
             }
         }

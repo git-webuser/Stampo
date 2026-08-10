@@ -13,9 +13,31 @@ struct PanelMorphShape: Shape {
     var progress: CGFloat
     let pixel: CGFloat
 
-    var animatableData: CGFloat {
-        get { progress }
-        set { progress = newValue }
+    /// Points added below the archive's 89pt, for routes that need a taller
+    /// body. Zero is the archive itself; the Translator's exported artwork is
+    /// 79. Anything in between is a body sized to its own content.
+    ///
+    /// A number rather than a second set of keyframes, for two reasons. It
+    /// animates — the archive and the Translator are both at `progress == 1`,
+    /// so switching between them could not morph at all if the height lived in
+    /// the frames. And a panel that fits its text needs every height in the
+    /// range, not two of them.
+    var extraHeight: CGFloat = 0
+
+    var animatableData: AnimatablePair<CGFloat, CGFloat> {
+        get { AnimatablePair(progress, extraHeight) }
+        set { progress = newValue.first; extraHeight = newValue.second }
+    }
+
+    /// How much of `extraHeight` has arrived at a given progress.
+    ///
+    /// The keyframes grow 34 → 45 → 56 → 67 → 78 → 89 → 89, so by frame *i*
+    /// the panel has covered `i/5` of its climb while progress has covered
+    /// `i/6`. Scaling by 6/5 and clamping makes the extra height land exactly
+    /// in step with the drawn frames at every one of them, rather than lagging
+    /// behind and snapping at the end.
+    static func extraFactor(at progress: CGFloat) -> CGFloat {
+        min(1, max(0, progress) * 6 / 5)
     }
 
     // 7 keyframes. Each is a flat array of path-point coordinates:
@@ -28,7 +50,8 @@ struct PanelMorphShape: Shape {
     //        L p40 → close
     // Total: 41 points = 82 values per keyframe.
 
-    private static let frames: [[CGFloat]] = [
+    /// Internal, not private, so `extraFactor` can be pinned by a test.
+    static let archiveFrames: [[CGFloat]] = [
         // 0: Main (536×34)
         [7,0, 9.80026,0, 11.2004,0, 12.27,0.545, 13.2108,1.024, 13.9757,1.789, 14.455,2.730, 15,3.800, 15,5.200, 15,8,
          15,18,
@@ -96,14 +119,19 @@ struct PanelMorphShape: Shape {
 
     func path(in rect: CGRect) -> Path {
         let p = max(0, min(1, progress))
+        let frames = Self.archiveFrames
+        // Points 10…29 are the lower half of every frame: the two straight
+        // sides and the bottom edge between them. Moving only those lengthens
+        // the panel without touching a single corner radius.
+        let drop = extraHeight * Self.extraFactor(at: p)
 
-        let n = CGFloat(Self.frames.count - 1)
+        let n = CGFloat(frames.count - 1)
         let scaled = p * n
-        let i = min(Int(scaled), Self.frames.count - 2)
+        let i = min(Int(scaled), frames.count - 2)
         let t = scaled - CGFloat(i)
 
-        let a = Self.frames[i]
-        let b = Self.frames[i + 1]
+        let a = frames[i]
+        let b = frames[i + 1]
 
         func lerp(_ ai: CGFloat, _ bi: CGFloat) -> CGFloat { ai + (bi - ai) * t }
 
@@ -115,6 +143,7 @@ struct PanelMorphShape: Shape {
             CGPoint(
                 x: rect.minX + lerp(a[idx * 2],     b[idx * 2])     * sx,
                 y: rect.minY - pixel + lerp(a[idx * 2 + 1], b[idx * 2 + 1])
+                    + ((10...29).contains(idx) ? drop : 0)
             )
         }
 

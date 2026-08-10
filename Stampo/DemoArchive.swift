@@ -34,13 +34,16 @@ enum DemoArchive {
         enum Entry {
             case shot(String, (CGContext, CGSize) -> Void)
             case color(String)
-            case text(String)
+            /// `code` marks a payload rather than prose, so the demo archive
+            /// exercises both kinds — the QR-shaped entries must not offer
+            /// translation, and only real data proves that.
+            case text(String, code: Bool = false)
         }
 
         let entries: [Entry] = [
             .shot("browser", drawBrowserWindow),
             .color("#FF6B4A"),
-            .text("https://example.com/pricing?plan=team"),
+            .text("https://example.com/pricing?plan=team", code: true),
             .shot("chart", drawChart),
             .color("#2D6CDF"),
             .shot("terminal", drawTerminal),
@@ -51,7 +54,7 @@ enum DemoArchive {
             .color("#12B886"),
             .shot("poster", drawPoster),
             .color("#F4C744"),
-            .text("WIFI:S:Demo Network;T:WPA;P:not-a-real-password;;"),
+            .text("WIFI:S:Demo Network;T:WPA;P:not-a-real-password;;", code: true),
             .color("#7B5CFF"),
         ]
 
@@ -63,8 +66,8 @@ enum DemoArchive {
                 }
             case .color(let hex):
                 if let color = NSColor(hexString: hex) { model.add(color: color) }
-            case .text(let text):
-                model.add(text: text)
+            case .text(let text, let code):
+                model.add(text: text, isCodePayload: code)
             }
         }
     }
