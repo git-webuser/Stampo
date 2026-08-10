@@ -156,6 +156,72 @@ nonisolated extension Locale.Language {
     /// badge showed nothing.
     var offersChoice: Bool { favourites.count > 2 }
 
+    // MARK: Downloads in flight
+
+    /// Languages whose packs are on their way down.
+    ///
+    /// Here rather than in the settings model, and watched by a task this type
+    /// owns, because both of those were wrong before and each in its own way:
+    ///
+    /// * The wait ran inside the section's `.translationTask`, whose lifetime
+    ///   ends when the configuration is cleared — which is the first thing the
+    ///   install does when the sheet closes. The task was cancelled, so
+    ///   `Task.sleep` returned instantly, a hundred polls went by in a blink,
+    ///   and the spinner disappeared seconds after it appeared.
+    /// * The state lived in a `@State` model, and there are two of them — the
+    ///   settings pane and the setup window each build their own. Closing one,
+    ///   or opening the other, lost the fact that anything was downloading.
+    ///
+    /// macOS keeps downloading through all of that, so the app has to keep
+    /// knowing about it through all of that.
+    private(set) var downloading: Set<String> = []
+    private var watchers: [String: Task<Void, Never>] = [:]
+
+    /// Watches for `code` to arrive, and says so meanwhile.
+    ///
+    /// Nothing observes a download: `LanguageAvailability.Status` is installed,
+    /// supported or unsupported, with no state in between, and
+    /// `TranslationSession.isReady` is macOS 26. So this polls, and the row
+    /// spins until it lands.
+    ///
+    /// **A dismissed sheet is indistinguishable from an accepted one** — the
+    /// prepare call returns the same either way — so declining spins until the
+    /// wait gives up. Ten minutes: several hundred megabytes on a slow line
+    /// beats a spinner that quits while the bytes are still coming, which is
+    /// the failure this replaces.
+    func watchForDownload(of code: String) {
+        guard watchers[code] == nil, !installed.contains(code) else { return }
+        downloading.insert(code)
+        watchers[code] = Task { [weak self] in
+            defer {
+                self?.downloading.remove(code)
+                self?.watchers[code] = nil
+            }
+            for _ in 0..<200 {
+                try? await Task.sleep(for: .seconds(3))
+                if Task.isCancelled { return }
+                guard let self else { return }
+                await self.refresh()
+                if self.installed.contains(code) { return }
+            }
+        }
+    }
+
+    func isDownloading(_ language: Locale.Language) -> Bool {
+        downloading.contains(language.baseCode)
+    }
+
+    /// Stops every watch. Nothing in the app calls this: a download belongs to
+    /// macOS, and there is no interface for calling one off — removing the
+    /// language from the list does not stop the bytes arriving. It exists so
+    /// tests can leave the shared store as they found it instead of leaving a
+    /// ten-minute poll running behind them.
+    func stopWatchingDownloads() {
+        watchers.values.forEach { $0.cancel() }
+        watchers.removeAll()
+        downloading.removeAll()
+    }
+
     /// Whether translation can do anything at all.
     ///
     /// Two installed languages is the floor: a pack is only ever half a

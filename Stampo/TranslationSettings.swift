@@ -20,23 +20,14 @@ import Translation
     /// runs that sheet, and two of them at once is not a state worth having.
     private(set) var installing: String?
 
-    /// Languages whose packs are on their way down.
+    /// The sheet for this language, or a pack of its own coming down.
     ///
-    /// The framework has no state for this and no progress to read —
-    /// `LanguageAvailability.Status` is `installed`, `supported` or
-    /// `unsupported`, nothing in between, and `TranslationSession.isReady`
-    /// arrived in macOS 26. So "downloading" is not observed but remembered:
-    /// from the moment the sheet is dismissed until the pack turns up in a
-    /// poll, or until the wait gives up.
-    ///
-    /// Kept apart from `installing` on purpose. The sheet blocks a second
-    /// install; a download in the background must not, because starting the
-    /// next language while the first one comes down is the ordinary thing to
-    /// want and it was impossible.
-    private(set) var awaiting: Set<String> = []
-
+    /// The download half lives in `TranslationLanguages` rather than here:
+    /// this model is `@State` and there are two of them — the settings pane and
+    /// the setup window each build their own — so a download started in one was
+    /// invisible to the other and lost when either closed.
     func isBusy(_ language: Locale.Language) -> Bool {
-        installing == language.baseCode || awaiting.contains(language.baseCode)
+        installing == language.baseCode || languages.isDownloading(language)
     }
 
     /// Fed to `.translationTask` by the section. Non-nil only during an install.
@@ -87,39 +78,11 @@ import Translation
         let language = installing
         installing = nil
         await refresh()
-        if let language, !languages.installed.contains(language) {
-            await followTheDownload(language)
-        }
-    }
-
-    /// Watches for one pack to land, because macOS will not say when it has.
-    ///
-    /// `prepareTranslation()` returns as soon as its sheet is dismissed, and
-    /// the sheet says as much itself — the download continues in the
-    /// background. A single check straight afterwards therefore runs while the
-    /// bytes are still coming, finds nothing, and used to leave the row
-    /// offering to install a language that was already on its way. It stayed
-    /// that way until something else re-checked, which in practice meant
-    /// closing Settings and opening them again.
-    ///
-    /// While this runs the row shows a spinner instead of that button. There
-    /// is no progress to put in it: the framework reports installed or not and
-    /// nothing in between.
-    ///
-    /// **A dismissed sheet is indistinguishable from an accepted one** — the
-    /// call returns the same either way — so a decline spins here until the
-    /// wait gives up. Five minutes: long enough for a few hundred megabytes on
-    /// a slow line, short enough that a mistaken spinner is not a permanent
-    /// feature of the pane.
-    private func followTheDownload(_ code: String) async {
-        awaiting.insert(code)
-        defer { awaiting.remove(code) }
-
-        for _ in 0..<100 {
-            try? await Task.sleep(for: .seconds(3))
-            await refresh()
-            if languages.installed.contains(code) { return }
-        }
+        // Handed to the store, which owns the watching task. Doing it here
+        // would put the wait inside this `.translationTask` — and clearing the
+        // configuration one line above is exactly what tears that task down,
+        // so the wait was cancelled the moment it began.
+        if let language { languages.watchForDownload(of: language) }
     }
 
     private func startNext() {
