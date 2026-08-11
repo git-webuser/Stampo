@@ -227,9 +227,9 @@ struct PopUpMoreButtonWrapper: NSViewRepresentable {
             guard includesAppCommands else { return }
             if !commands.isEmpty { menu.addItem(.separator()) }
 
-            for (titleKey, selector) in [
-                ("Settings", #selector(settingsTapped)),
-                ("Quit Stampo", #selector(quitTapped))
+            for (titleKey, icon, selector) in [
+                ("Settings", MenuIcon.settings, #selector(settingsTapped)),
+                ("Quit Stampo", MenuIcon.quit, #selector(quitTapped))
             ] {
                 if titleKey == "Quit Stampo" { menu.addItem(.separator()) }
                 let item = NSMenuItem(
@@ -239,24 +239,32 @@ struct PopUpMoreButtonWrapper: NSViewRepresentable {
                 )
                 item.target = self
                 item.state = .off
-                item.image = Self.menuImage(nil)
+                item.image = Self.menuImage(icon)
                 menu.addItem(item)
             }
         }
 
-        /// A menu row's glyph, or a blank of the same size when it has none.
+        /// A menu row's glyph at one fixed size, whatever the symbol is.
         ///
-        /// The blank is not padding: without it a row with no symbol pulls its
-        /// title left, out of line with every row that has one — the same reason
-        /// `MenuCommandLabel(indented:)` draws an empty NSImage.
+        /// Sizing is the whole job here. Asked for the same point size, the
+        /// symbols come back at sizes of their own — measured, `doc.on.doc` at
+        /// 16×18, `xmark.circle` at 15×15, `checkmark.rectangle.stack` at
+        /// 17×18. NSMenu takes its row height from the image, so a menu built
+        /// from them straight sets every row to a slightly different height and
+        /// indent. Pinning them to one square puts the rows back in line.
+        ///
+        /// A row with no icon still gets a blank of that square, for the reason
+        /// `MenuCommandLabel(indented:)` draws one: without it the title slides
+        /// left, out of the column every other row keeps.
+        private static let menuIconSide = NSSize(width: 14, height: 14)
+
         private static func menuImage(_ icon: MenuIcon?) -> NSImage {
-            let side: CGFloat = 14
             guard let icon,
                   let image = NSImage(systemSymbolName: icon.rawValue,
-                                      accessibilityDescription: nil)?
-                      .withSymbolConfiguration(.init(pointSize: 13, weight: .regular))
-            else { return NSImage(size: NSSize(width: side, height: side)) }
+                                      accessibilityDescription: nil)
+            else { return NSImage(size: menuIconSide) }
             image.isTemplate = true
+            image.size = menuIconSide
             return image
         }
 

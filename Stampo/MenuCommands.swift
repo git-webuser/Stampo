@@ -35,6 +35,11 @@ enum MenuIcon: String {
     case selectAll = "checkmark.rectangle.stack"
     case remove   = "xmark.circle"
     case trash    = "trash"
+    /// The "⋯" menu's own two rows. They are commands like any other, and a
+    /// menu where some rows carry a glyph and some do not sets its titles in
+    /// two different columns.
+    case settings = "gearshape"
+    case quit     = "rectangle.portrait.and.arrow.right"
 }
 
 // MARK: - MenuCommandLabel
