@@ -2393,23 +2393,30 @@ struct ArchiveSelectionCountButton: View {
             .frame(width: cellWidth, height: metrics.iconSize)
 
             HStack(spacing: metrics.timerIconToValueGap) {
-                Image(systemName: "checkmark.circle")
+                // Not `checkmark.circle`: that is the mark the cells wear, and
+                // a lone tick reads as "done" — the button was being taken for
+                // the way out of the mode rather than the way into its menu.
+                // A checked stack says several things, chosen.
+                Image(systemName: "checkmark.rectangle.stack")
                     .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(foreground)
                     .frame(width: metrics.iconSize, height: metrics.iconSize)
 
                 if hasValue {
                     Text(verbatim: NotchMetrics.countLabel(for: count))
                         .font(.system(size: 12, weight: .medium))
                         .monospacedDigit()
-                        .foregroundStyle(.white.opacity(0.9))
+                        .foregroundStyle(foreground)
                         .fixedSize()
                 }
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(foreground)
+                    .padding(.leading, metrics.countChevronGap)
             }
-            .padding(.leading,  hasValue ? metrics.timerLeadingInsetWithValue  : 0)
-            .padding(.trailing, hasValue ? metrics.timerTrailingInsetWithValue : 0)
-            .frame(width: cellWidth, height: metrics.iconSize,
-                   alignment: hasValue ? .leading : .center)
+            .padding(.leading,  metrics.timerLeadingInsetWithValue)
+            .padding(.trailing, metrics.timerTrailingInsetWithValue)
+            .frame(width: cellWidth, height: metrics.iconSize, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: 6, style: .continuous).fill(background)
             )
@@ -2430,14 +2437,22 @@ struct ArchiveSelectionCountButton: View {
         .animation(.easeInOut(duration: 0.16), value: cellWidth)
     }
 
-    /// Always filled, unlike the pin and the "⋯": the button exists only while
-    /// the mode is running, so it is the mode's indicator as much as its menu,
-    /// and an idle-looking one would be saying nothing at all.
+    /// Idle at rest, exactly like the pin and the "⋯" beside it.
+    ///
+    /// It used to sit permanently filled, to say the mode was on. But a filled
+    /// background already means something in this header — the pin wears one
+    /// while the panel is pinned — so a button that is always filled reads as a
+    /// toggle stuck in the on position. The button's presence is what says the
+    /// mode is running; it does not also need to look pressed.
     private var background: Color {
-        if isMenuOpen { return .white.opacity(0.34) }
-        if isPressed  { return .white.opacity(0.34) }
-        if isHovered  { return .white.opacity(0.28) }
-        return .white.opacity(0.22)
+        if isMenuOpen { return .white.opacity(0.22) }
+        if isPressed  { return .white.opacity(0.28) }
+        if isHovered  { return .white.opacity(0.16) }
+        return .clear
+    }
+
+    private var foreground: Color {
+        (isMenuOpen || isPressed || isHovered) ? .white : .white.opacity(0.8)
     }
 }
 

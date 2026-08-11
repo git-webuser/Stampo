@@ -211,11 +211,18 @@ import Testing
 
     // MARK: The count button's width
 
-    /// It follows the timer's collapse rule: nothing to say, no digit slot.
-    @Test func anEmptyCountCollapsesToAPlainIconButton() {
+    /// Nothing picked drops the digit slot, the way the timer drops its own
+    /// with no delay set — but not the chevron. The timer can collapse to a
+    /// bare glyph because with no delay it has nothing to say; this button
+    /// still has a menu at zero, and "click me" is the thing it has to say.
+    @Test func anEmptyCountDropsItsDigitsButKeepsItsChevron() {
         let m = NotchMetrics.fallback()
-        #expect(m.countCellWidth(for: 0) == m.cellWidth)
-        #expect(m.countCellWidth(for: 1) > m.cellWidth)
+        let bare = m.countCellWidth(for: 0)
+        #expect(bare > m.cellWidth)
+        #expect(bare == m.timerLeadingInsetWithValue + m.iconSize
+                      + m.countChevronGap + m.countChevronWidth
+                      + m.timerTrailingInsetWithValue)
+        #expect(m.countCellWidth(for: 1) > bare)
     }
 
     /// The timer's own slot stops at two digits because a delay never has

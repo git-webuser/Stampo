@@ -119,11 +119,19 @@ struct NotchMetrics {
     /// never has three — a selection can, so this one measures the string it is
     /// actually given and caps the rendering at "99+".
     func countCellWidth(for count: Int) -> CGFloat {
-        guard count > 0 else { return cellWidth }
-        let digits = CGFloat(Self.countLabel(for: count).count) * 8
-        return timerLeadingInsetWithValue + iconSize + timerIconToValueGap
-            + digits + timerTrailingInsetWithValue
+        let digits = count > 0
+            ? CGFloat(Self.countLabel(for: count).count) * 8 + timerIconToValueGap
+            : 0
+        return timerLeadingInsetWithValue + iconSize + digits
+            + countChevronGap + countChevronWidth + timerTrailingInsetWithValue
     }
+
+    /// The chevron that marks the count button as something that opens a menu,
+    /// matching the one on the colour-format chip. Unlike the timer's digits it
+    /// is there at every count, including none: with nothing picked the button
+    /// still has a menu, and "click me" is the one thing it has to say.
+    var countChevronWidth: CGFloat { 9 }
+    var countChevronGap:   CGFloat { 3 }
 
     /// What a count reads as. Past 99 the number stops being information worth
     /// three more points of a 182pt shoulder.
