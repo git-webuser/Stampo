@@ -128,6 +128,13 @@ struct NotchArchiveView: View {
     private let cellSpacing:   CGFloat = 8
     private let cellH:         CGFloat = 32
     private let badgeBleed:    CGFloat = 3
+    /// How far a badge's ink reaches past the 16pt box it is given.
+    ///
+    /// A 16pt symbol is not 16pt of drawing: measured, `circle` comes back 18
+    /// across where `xmark.circle.fill` comes back 16, because the type system
+    /// sizes them to weigh the same rather than to measure the same. The row
+    /// makes room for the widest of them; the glyphs are not cut to fit.
+    private let badgeInk:      CGFloat = 1
     private let labelOffset:   CGFloat = 18
 
     var scrollRowHeight: CGFloat { 55 }
@@ -649,7 +656,7 @@ struct NotchArchiveView: View {
                 }
             }
             .padding(.horizontal, contentInset)
-            .padding(.top, badgeBleed)
+            .padding(.top, badgeBleed + badgeInk)
             .frame(maxHeight: .infinity, alignment: .top)
         }
         .frame(maxHeight: .infinity, alignment: .top)
@@ -1021,35 +1028,35 @@ struct ArchiveSelectionBadge: View {
     let state: ArchiveCheckState
     let action: () -> Void
 
-    private static let side: CGFloat = 16
-    private static let disc = Color(white: 0.914)
-    private static let tick = archivePickedTint
-    private static let ink  = Color(red: 0.125, green: 0.125, blue: 0.125)
+    private var systemName: String {
+        switch state {
+        case .empty: return "circle"
+        case .mixed: return "minus.circle.fill"
+        case .full:  return "checkmark.circle.fill"
+        }
+    }
 
     var body: some View {
-        // The disc is drawn, not taken from a `*.circle.fill` symbol, because
-        // the three symbols do not agree on a size. Measured at
-        // `.font(.system(size: 16))`: `circle` comes out 18pt across while
-        // `checkmark.circle.fill` comes out 16 — so the box grew by two points
-        // every time it was emptied, and the extra point on top was shaved off
-        // by the scroll row's edge. Asking for a Circle of exactly the delete
-        // badge's 16pt settles both, and keeps the two fixtures the same size
-        // as they swap in the same corner.
-        ZStack {
-            Circle().fill(state == .empty ? Self.disc : Self.tick)
-            switch state {
-            case .empty:
-                // The ring is what makes a blank disc read as a box waiting to
-                // be ticked, rather than as a badge that lost its glyph.
-                Circle().strokeBorder(Self.ink, lineWidth: 1.5).padding(1)
-            case .mixed:
-                glyph("minus")
-            case .full:
-                glyph("checkmark")
-            }
-        }
-            .frame(width: Self.side, height: Self.side)
+        // Sized by point size and weight, like the delete badge it swaps with
+        // and like any other glyph of the system face. The three symbols come
+        // back at different sizes — `circle` wider than the filled two — and
+        // that is the type system balancing them optically, not something to
+        // square up: drawing the disc by hand made the boxes agree and the
+        // glyphs stop agreeing.
+        Image(systemName: systemName)
+            .symbolRenderingMode(.palette)
+            .foregroundStyle(
+                state == .empty ? Color(red: 0.125, green: 0.125, blue: 0.125) : Color.white,
+                archivePickedTint
+            )
+            .font(.system(size: 16))
+            // `circle` is an outline with nothing behind it, so on a bright
+            // capture it would be a thin ring on white. The filled states bring
+            // their own disc in the second palette colour. The backing takes the
+            // glyph's own size, so it follows the optics rather than fixing them.
+            .background { if state == .empty { Circle().fill(Color(white: 0.914)) } }
             .overlay(Circle().strokeBorder(Color.black.opacity(0.25), lineWidth: 1))
+            .frame(width: 16, height: 16)
             .contentShape(Rectangle())
             // Same gesture as the delete badge, for the same reason: the badge
             // sits above the drag shim in the overlay order and takes the click
@@ -1059,14 +1066,6 @@ struct ArchiveSelectionBadge: View {
             )
             .accessibilityAddTraits(.isButton)
             .accessibilityLabel(state == .empty ? "Select item" : "Deselect item")
-    }
-
-    /// The mark inside a filled disc. Sized from the disc so the two can never
-    /// drift apart, and bold because it is 9pt of white on blue.
-    private func glyph(_ name: String) -> some View {
-        Image(systemName: name)
-            .font(.system(size: Self.side * 0.56, weight: .bold))
-            .foregroundStyle(.white)
     }
 }
 
