@@ -184,11 +184,19 @@ nonisolated extension Locale.Language {
     /// `TranslationSession.isReady` is macOS 26. So this polls, and the row
     /// spins until it lands.
     ///
-    /// **A dismissed sheet is indistinguishable from an accepted one** — the
-    /// prepare call returns the same either way — so declining spins until the
-    /// wait gives up. Ten minutes: several hundred megabytes on a slow line
-    /// beats a spinner that quits while the bytes are still coming, which is
-    /// the failure this replaces.
+    /// **A download that is running and one that was cancelled look identical
+    /// from here** — `.supported` in both cases, and a dismissed sheet returns
+    /// exactly like an accepted one. So the wait is a guess with a time limit,
+    /// and the limit is three minutes.
+    ///
+    /// Short, because the cost of overrunning is a spinner insisting on a
+    /// download that was called off in System Settings. The cost of stopping
+    /// early used to be the worse one — an Install button that did nothing,
+    /// because macOS was already busy — but it is no longer a dead end:
+    /// pressing it prepares again, which either brings the system sheet back
+    /// (the download really had stopped) or silently re-arms this watch (it
+    /// had not). Either way something visible happens, which is all the button
+    /// ever owed the user.
     func watchForDownload(of code: String) {
         guard watchers[code] == nil, !installed.contains(code) else { return }
         downloading.insert(code)
@@ -197,7 +205,7 @@ nonisolated extension Locale.Language {
                 self?.downloading.remove(code)
                 self?.watchers[code] = nil
             }
-            for _ in 0..<200 {
+            for _ in 0..<60 {
                 try? await Task.sleep(for: .seconds(3))
                 if Task.isCancelled { return }
                 guard let self else { return }
