@@ -496,7 +496,7 @@ struct NotchArchiveView: View {
                                 shot: shot,
                                 loader: archiveModel.thumbnailLoader(for: shot),
                                 selection: selection,
-                                selectionDrag: selectionDrag,
+                                selectionActions: selectionActions,
                                 height: cellH,
                                 badgeBleed: badgeBleed,
                                 labelOffset: labelOffset,
@@ -519,7 +519,7 @@ struct NotchArchiveView: View {
                                 item: c,
                                 scheme: scheme,
                                 selection: selection,
-                                selectionDrag: selectionDrag,
+                                selectionActions: selectionActions,
                                 height: cellH,
                                 badgeBleed: badgeBleed,
                                 labelOffset: labelOffset,
@@ -534,7 +534,7 @@ struct NotchArchiveView: View {
                             ArchiveTextCell(
                                 item: t,
                                 selection: selection,
-                                selectionDrag: selectionDrag,
+                                selectionActions: selectionActions,
                                 height: cellH,
                                 badgeBleed: badgeBleed,
                                 labelOffset: labelOffset,
@@ -551,7 +551,7 @@ struct NotchArchiveView: View {
                                     stack: stack,
                                     archiveModel: archiveModel,
                                     selection: selection,
-                                    selectionDrag: selectionDrag,
+                                    selectionActions: selectionActions,
                                     height: cellH,
                                     cornerRadius: metrics.buttonRadius,
                                     badgeBleed: badgeBleed,
@@ -574,7 +574,7 @@ struct NotchArchiveView: View {
                                     stack: stack,
                                     loaders: stack.urls.prefix(3).map { archiveModel.stackThumbnailLoader(for: $0) },
                                     selection: selection,
-                                    selectionDrag: selectionDrag,
+                                    selectionActions: selectionActions,
                                     height: cellH,
                                     badgeBleed: badgeBleed,
                                     labelOffset: labelOffset,
@@ -721,8 +721,7 @@ struct NotchArchiveView: View {
     /// any: a picked capture whose file vanished leaves its key behind, and a
     /// live "Share" that shares nothing is worse than a greyed one.
     private var selectionCommands: [PanelMenuCommand] {
-        let chosen = selection.selectedItems(in: archiveModel.items)
-        let hasAny = !chosen.isEmpty
+        let hasAny = !selection.selectedItems(in: archiveModel.items).isEmpty
         return [
             // Leads, because it is what the other three are aimed with — and it
             // keeps the destructive row last, where a slipped click is least
@@ -733,21 +732,35 @@ struct NotchArchiveView: View {
                     selection.selectAll(in: archiveModel.items)
                 }
             },
-            PanelMenuCommand(titleKey: "Copy", isEnabled: hasAny) {
-                let payload = NotchArchiveModel.payload(for: chosen, colorScheme: scheme)
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.writeObjects(payload.objects.compactMap { $0 as? NSPasteboardWriting })
-                finishSelecting()
-            },
-            PanelMenuCommand(titleKey: "Share", isEnabled: hasAny) {
-                let payload = NotchArchiveModel.payload(for: chosen, colorScheme: scheme)
-                shareAnchor.present(payload.objects)
-                finishSelecting()
-            },
-            PanelMenuCommand(titleKey: "Delete", isEnabled: hasAny) {
-                removeSelected(chosen)
-            }
+            PanelMenuCommand(titleKey: "Copy", isEnabled: hasAny, action: copySelection),
+            PanelMenuCommand(titleKey: "Share", isEnabled: hasAny, action: shareSelection),
+            PanelMenuCommand(titleKey: "Delete", isEnabled: hasAny, action: deleteSelection)
         ]
+    }
+
+    // MARK: The three verbs
+
+    /// Reached from the "⋯" menu and from a picked cell's own context menu, and
+    /// written once so the two can never come to mean different things — the
+    /// reason `NotchArchiveModel.payload` is a single static function too.
+
+    private func copySelection() {
+        let payload = NotchArchiveModel.payload(for: selection.selectedItems(in: archiveModel.items),
+                                                colorScheme: scheme)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.writeObjects(payload.objects.compactMap { $0 as? NSPasteboardWriting })
+        finishSelecting()
+    }
+
+    private func shareSelection() {
+        let payload = NotchArchiveModel.payload(for: selection.selectedItems(in: archiveModel.items),
+                                                colorScheme: scheme)
+        shareAnchor.present(payload.objects)
+        finishSelecting()
+    }
+
+    private func deleteSelection() {
+        removeSelected(selection.selectedItems(in: archiveModel.items))
     }
 
     /// Leaving the mode, because the scenario it was entered for is over.
@@ -783,8 +796,14 @@ struct NotchArchiveView: View {
     /// Everything picked, encoded the way each cell's own drag encodes it.
     /// Handed to every draggable cell, because a drag started anywhere in the
     /// selection carries all of it.
-    private var selectionDrag: ArchiveSelectionDrag {
-        ArchiveSelectionDrag(payload: selectionDragPayload, images: selectionDragImages)
+    private var selectionActions: ArchiveSelectionActions {
+        ArchiveSelectionActions(
+            dragPayload: selectionDragPayload,
+            dragImages: selectionDragImages,
+            copy: copySelection,
+            share: shareSelection,
+            delete: deleteSelection
+        )
     }
 
     private func selectionDragPayload() -> [NSPasteboardWriting] {
@@ -1062,9 +1081,8 @@ private struct ArchiveColorCell: View {
     let item: ArchiveColor
     let scheme: ColorSchemeType
     var selection: ArchiveSelectionState
-    /// The whole selection, resolved when a drag starts. Built by the archive —
-    /// a cell knows what it holds, not what else is picked.
-    let selectionDrag: ArchiveSelectionDrag
+    /// The whole selection: what a drag carries and what the menu offers.
+    let selectionActions: ArchiveSelectionActions
     let height: CGFloat
     let badgeBleed: CGFloat
     let labelOffset: CGFloat
@@ -1082,6 +1100,10 @@ private struct ArchiveColorCell: View {
     }
 
     private var selectionKey: ArchiveSelectionKey { .item(item.id) }
+
+    /// True while this cell is part of a running selection — the one condition
+    /// under which its own menu stands aside for the selection's.
+    private var isPicked: Bool { selection.isActive && selection.contains(selectionKey) }
 
     /// Copies `value` and flashes "Copied!" in the label — the same feedback the
     /// tap gesture gives, reused by every menu entry.
@@ -1136,14 +1158,14 @@ private struct ArchiveColorCell: View {
                     payload: {
                         archiveDragContents(isSelecting: selection.isActive,
                                             isPicked: selection.contains(selectionKey),
-                                            fromSelection: selectionDrag.payload,
+                                            fromSelection: selectionActions.dragPayload,
                                             fromCell: { ArchiveDragPayload.color(item.color,
                                                                                  formatted: scheme.convert(item.color)) })
                     },
                     dragImages: {
                         archiveDragContents(isSelecting: selection.isActive,
                                             isPicked: selection.contains(selectionKey),
-                                            fromSelection: selectionDrag.images,
+                                            fromSelection: selectionActions.dragImages,
                                             fromCell: { [dragPreview] })
                     },
                     cellSize: CGSize(width: height, height: height),
@@ -1180,39 +1202,43 @@ private struct ArchiveColorCell: View {
             // menu belongs to a view the shim's NSView covers, and the right
             // click finds no menu at all.
             .contextMenu {
-                // Tap already copies in the header's format; the submenu is for
-                // the other notations, so a user working in CSS doesn't have to
-                // switch the whole archive's format to grab one HSL value.
-                MenuCommandButton("Copy", icon: .copy) { copy(scheme.convert(item.color)) }
-                Menu {
-                    ForEach(ColorSchemeType.allCases, id: \.title) { format in
-                        Button { copy(format.convert(item.color)) }
-                            label: { Text(verbatim: format.title) }
+                if isPicked {
+                    archiveSelectionMenu(selectionActions)
+                } else {
+                    // Tap already copies in the header's format; the submenu is for
+                    // the other notations, so a user working in CSS doesn't have to
+                    // switch the whole archive's format to grab one HSL value.
+                    MenuCommandButton("Copy", icon: .copy) { copy(scheme.convert(item.color)) }
+                    Menu {
+                        ForEach(ColorSchemeType.allCases, id: \.title) { format in
+                            Button { copy(format.convert(item.color)) }
+                                label: { Text(verbatim: format.title) }
+                        }
+                    } label: {
+                        // No icon of its own: it would only repeat Copy's, one row up.
+                        MenuCommandLabel(indented: "Copy As")
                     }
-                } label: {
-                    // No icon of its own: it would only repeat Copy's, one row up.
-                    MenuCommandLabel(indented: "Copy As")
-                }
-                MenuCommandButton("Share", icon: .share) {
-                    shareAnchor.present([scheme.convert(item.color)])
-                }
-                // Mirrors Copy As: what leaves in a message is a string, so the
-                // notation is as much a choice when sharing as when copying.
-                Menu {
-                    ForEach(ColorSchemeType.allCases, id: \.title) { format in
-                        Button { shareAnchor.present([format.convert(item.color)]) }
-                            label: { Text(verbatim: format.title) }
+                    MenuCommandButton("Share", icon: .share) {
+                        shareAnchor.present([scheme.convert(item.color)])
                     }
-                } label: {
-                    MenuCommandLabel(indented: "Share As")
-                }
-                if !selection.isActive {
-                    MenuCommandButton("Select Items", icon: .select) {
-                        selection.pick(selectionKey)
+                    // Mirrors Copy As: what leaves in a message is a string, so the
+                    // notation is as much a choice when sharing as when copying.
+                    Menu {
+                        ForEach(ColorSchemeType.allCases, id: \.title) { format in
+                            Button { shareAnchor.present([format.convert(item.color)]) }
+                                label: { Text(verbatim: format.title) }
+                        }
+                    } label: {
+                        MenuCommandLabel(indented: "Share As")
                     }
+                    if !selection.isActive {
+                        MenuCommandButton("Select Items", icon: .select) {
+                            selection.pick(selectionKey)
+                        }
+                    }
+                    Divider()
+                    MenuCommandButton("Remove from archive", icon: .remove) { onRemove() }
                 }
-                Divider()
-                MenuCommandButton("Remove from archive", icon: .remove) { onRemove() }
             }
             .preference(key: InternalDraggingKey.self, value: isDragging)
             .accessibilityLabel("Color \(scheme.convert(item.color))")
@@ -1228,9 +1254,8 @@ private struct ArchiveColorCell: View {
 private struct ArchiveTextCell: View {
     let item: ArchiveText
     var selection: ArchiveSelectionState
-    /// The whole selection, resolved when a drag starts. Built by the archive —
-    /// a cell knows what it holds, not what else is picked.
-    let selectionDrag: ArchiveSelectionDrag
+    /// The whole selection: what a drag carries and what the menu offers.
+    let selectionActions: ArchiveSelectionActions
     let height: CGFloat
     let badgeBleed: CGFloat
     let labelOffset: CGFloat
@@ -1245,6 +1270,10 @@ private struct ArchiveTextCell: View {
 
     private var width: CGFloat { height * 1.6 }
     private var selectionKey: ArchiveSelectionKey { .item(item.id) }
+
+    /// True while this cell is part of a running selection — the one condition
+    /// under which its own menu stands aside for the selection's.
+    private var isPicked: Bool { selection.isActive && selection.contains(selectionKey) }
 
     private var dragPreview: NSImage {
         archiveTextDragImage(item.firstLine,
@@ -1318,13 +1347,13 @@ private struct ArchiveTextCell: View {
                 payload: {
                     archiveDragContents(isSelecting: selection.isActive,
                                         isPicked: selection.contains(selectionKey),
-                                        fromSelection: selectionDrag.payload,
+                                        fromSelection: selectionActions.dragPayload,
                                         fromCell: { ArchiveDragPayload.text(item.text) })
                 },
                 dragImages: {
                     archiveDragContents(isSelecting: selection.isActive,
                                         isPicked: selection.contains(selectionKey),
-                                        fromSelection: selectionDrag.images,
+                                        fromSelection: selectionActions.dragImages,
                                         fromCell: { [dragPreview] })
                 },
                 cellSize: CGSize(width: width, height: height),
@@ -1355,17 +1384,21 @@ private struct ArchiveTextCell: View {
         }
         // After the shim, for the reason spelled out in ArchiveColorCell.
         .contextMenu {
-            MenuCommandButton("Copy", icon: .copy) { copyText() }
-            // Plain string, not a file: the share sheet offers Messages, Notes,
-            // Mail — the same payload the tap-to-copy puts on the pasteboard.
-            MenuCommandButton("Share", icon: .share) { shareAnchor.present([item.text]) }
-            if !selection.isActive {
-                MenuCommandButton("Select Items", icon: .select) {
-                    selection.pick(selectionKey)
+            if isPicked {
+                archiveSelectionMenu(selectionActions)
+            } else {
+                MenuCommandButton("Copy", icon: .copy) { copyText() }
+                // Plain string, not a file: the share sheet offers Messages, Notes,
+                // Mail — the same payload the tap-to-copy puts on the pasteboard.
+                MenuCommandButton("Share", icon: .share) { shareAnchor.present([item.text]) }
+                if !selection.isActive {
+                    MenuCommandButton("Select Items", icon: .select) {
+                        selection.pick(selectionKey)
+                    }
                 }
+                Divider()
+                MenuCommandButton("Remove from archive", icon: .remove) { onRemove() }
             }
-            Divider()
-            MenuCommandButton("Remove from archive", icon: .remove) { onRemove() }
         }
         .preference(key: InternalDraggingKey.self, value: isDragging)
         .accessibilityLabel("Recognized text \(item.firstLine)")
@@ -1414,12 +1447,37 @@ private func archiveTextDragImage(_ firstLine: String, size: NSSize, cornerRadiu
     return image
 }
 
-/// The two halves of a multi-selection drag, handed to every draggable cell.
-/// Closures, not values: they resolve when the drag starts — see the note on
-/// `ArchiveDragShim.payload`.
-struct ArchiveSelectionDrag {
-    let payload: () -> [NSPasteboardWriting]
-    let images: () -> [NSImage?]
+/// What a cell needs in order to act on the whole selection rather than on
+/// itself: what a drag of it carries, and the three verbs its context menu
+/// offers once the cell is part of the selection. Built by the archive — a cell
+/// knows what it holds, not what else is picked.
+///
+/// Closures, not values: the drag halves resolve when the drag starts (see the
+/// note on `ArchiveDragShim.payload`), and the verbs when the row is chosen.
+struct ArchiveSelectionActions {
+    let dragPayload: () -> [NSPasteboardWriting]
+    let dragImages: () -> [NSImage?]
+    let copy: () -> Void
+    let share: () -> Void
+    let delete: () -> Void
+}
+
+/// The menu a picked cell shows in place of its own.
+///
+/// Right-clicking one of several picked cells acts on all of them — the rule
+/// Finder states out loud when it offers "Copy 5 Items". The cell's own
+/// commands stand aside whole rather than being re-scoped one by one: Edit,
+/// Open and Pin to Screen have no meaning for a pile that mixes colours,
+/// snippets and files, and the three that do are exactly the three the "⋯"
+/// menu already offers on the same selection.
+@ViewBuilder
+private func archiveSelectionMenu(_ actions: ArchiveSelectionActions) -> some View {
+    MenuCommandButton("Copy", icon: .copy, action: actions.copy)
+    MenuCommandButton("Share", icon: .share, action: actions.share)
+    Divider()
+    // Not `.destructive`: this drops archive entries, exactly like the
+    // per-cell "Remove from archive", and leaves every file on disk.
+    MenuCommandButton("Delete", icon: .remove, action: actions.delete)
 }
 
 /// What a cell's drag actually carries.
@@ -1461,9 +1519,8 @@ private struct ArchiveFileCell<Menu: View>: View {
     var selection: ArchiveSelectionState
     /// This cell's leaf in the selection — a capture's id, a stack member's URL.
     let selectionKey: ArchiveSelectionKey
-    /// The whole selection, resolved when a drag starts. Built by the archive —
-    /// a cell knows what it holds, not what else is picked.
-    let selectionDrag: ArchiveSelectionDrag
+    /// The whole selection: what a drag carries and what the menu offers.
+    let selectionActions: ArchiveSelectionActions
     let displayName: String
     let height: CGFloat
     let badgeBleed: CGFloat
@@ -1486,6 +1543,10 @@ private struct ArchiveFileCell<Menu: View>: View {
     @State private var isDragging    = false
 
     private var width: CGFloat { height * 1.6 }
+    /// True while this cell is part of a running selection — the one condition
+    /// under which its own menu stands aside for the selection's.
+    private var isPicked: Bool { selection.isActive && selection.contains(selectionKey) }
+
 
     var body: some View {
         ZStack {
@@ -1547,13 +1608,13 @@ private struct ArchiveFileCell<Menu: View>: View {
                 payload: {
                     archiveDragContents(isSelecting: selection.isActive,
                                         isPicked: selection.contains(selectionKey),
-                                        fromSelection: selectionDrag.payload,
+                                        fromSelection: selectionActions.dragPayload,
                                         fromCell: dragPayload)
                 },
                 dragImages: {
                     archiveDragContents(isSelecting: selection.isActive,
                                         isPicked: selection.contains(selectionKey),
-                                        fromSelection: selectionDrag.images,
+                                        fromSelection: selectionActions.dragImages,
                                         fromCell: { [preview] })
                 },
                 cellSize: CGSize(width: width, height: height),
@@ -1589,7 +1650,13 @@ private struct ArchiveFileCell<Menu: View>: View {
                 onRemove: onRemove
             )
         }
-        .contextMenu { menu() }
+        .contextMenu {
+            if isPicked {
+                archiveSelectionMenu(selectionActions)
+            } else {
+                    menu()
+            }
+        }
         .preference(key: InternalDraggingKey.self, value: isDragging)
         // Space previews whatever the pointer rests on (see updateSpaceHotkey).
         .preference(key: HoveredPreviewKey.self, value: isHovered ? [url] : [])
@@ -1605,9 +1672,8 @@ private struct ArchiveScreenshotCell: View {
     let shot: ArchiveScreenshot
     let loader: ThumbnailLoader
     var selection: ArchiveSelectionState
-    /// The whole selection, resolved when a drag starts. Built by the archive —
-    /// a cell knows what it holds, not what else is picked.
-    let selectionDrag: ArchiveSelectionDrag
+    /// The whole selection: what a drag carries and what the menu offers.
+    let selectionActions: ArchiveSelectionActions
     let height: CGFloat
     let badgeBleed: CGFloat
     let labelOffset: CGFloat
@@ -1636,7 +1702,7 @@ private struct ArchiveScreenshotCell: View {
             preview: loader.image,
             selection: selection,
             selectionKey: .item(shot.id),
-            selectionDrag: selectionDrag,
+            selectionActions: selectionActions,
             displayName: displayName,
             height: height,
             badgeBleed: badgeBleed,
@@ -1699,9 +1765,8 @@ private struct ArchiveStackCell: View {
     let stack: ArchiveStack
     let loaders: [ThumbnailLoader]
     var selection: ArchiveSelectionState
-    /// The whole selection, resolved when a drag starts. Built by the archive —
-    /// a cell knows what it holds, not what else is picked.
-    let selectionDrag: ArchiveSelectionDrag
+    /// The whole selection: what a drag carries and what the menu offers.
+    let selectionActions: ArchiveSelectionActions
     let height: CGFloat
     let badgeBleed: CGFloat
     let labelOffset: CGFloat
@@ -1720,8 +1785,11 @@ private struct ArchiveStackCell: View {
     private var width: CGFloat { height * 1.6 }
     private var fanCount: Int { min(stack.urls.count, 3) }
     /// A stack is part of the selection as soon as any member is — mixed is
-    /// still visibly picked, so a drag may start here.
-    private var isPicked: Bool { selection.checkState(forMembers: stack.urls) != .empty }
+    /// still visibly picked, so a drag may start here and its menu stands aside
+    /// for the selection's.
+    private var isPicked: Bool {
+        selection.isActive && selection.checkState(forMembers: stack.urls) != .empty
+    }
     /// Source folder name for the label, or nil for the filesystem root
     /// ("/".lastPathComponent is "/", which reads as noise) so the label and
     /// VoiceOver fall back to the file count.
@@ -1827,13 +1895,13 @@ private struct ArchiveStackCell: View {
                 payload: {
                     archiveDragContents(isSelecting: selection.isActive,
                                         isPicked: isPicked,
-                                        fromSelection: selectionDrag.payload,
+                                        fromSelection: selectionActions.dragPayload,
                                         fromCell: { ArchiveDragPayload.files(stack.urls) })
                 },
                 dragImages: {
                     archiveDragContents(isSelecting: selection.isActive,
                                         isPicked: isPicked,
-                                        fromSelection: selectionDrag.images,
+                                        fromSelection: selectionActions.dragImages,
                                         fromCell: { (0..<fanCount).map { previewImage(at: $0) } })
                 },
                 cellSize: CGSize(width: width, height: height),
@@ -1880,20 +1948,24 @@ private struct ArchiveStackCell: View {
             )
         }
         .contextMenu {
-            MenuCommandButton("Show in Finder", icon: .finder) { revealInFinder() }
-            MenuCommandButton("Copy", icon: .copy) { copyAll() }
-            // Every member in one sheet — the same payload the whole-cell drag
-            // carries, so AirDrop sends the pile in a single transfer.
-            MenuCommandButton("Share", icon: .share) { shareAnchor.present(stack.urls) }
-            if !selection.isActive {
-                // A stack is picked through its members, so "Select" here means
-                // all of them — the same thing its checkbox does.
-                MenuCommandButton("Select Items", icon: .select) {
-                    selection.pickMembers(stack.urls)
+            if isPicked {
+                archiveSelectionMenu(selectionActions)
+            } else {
+                MenuCommandButton("Show in Finder", icon: .finder) { revealInFinder() }
+                MenuCommandButton("Copy", icon: .copy) { copyAll() }
+                // Every member in one sheet — the same payload the whole-cell drag
+                // carries, so AirDrop sends the pile in a single transfer.
+                MenuCommandButton("Share", icon: .share) { shareAnchor.present(stack.urls) }
+                if !selection.isActive {
+                    // A stack is picked through its members, so "Select" here means
+                    // all of them — the same thing its checkbox does.
+                    MenuCommandButton("Select Items", icon: .select) {
+                        selection.pickMembers(stack.urls)
+                    }
                 }
+                Divider()
+                MenuCommandButton("Remove from archive", icon: .remove) { onRemove() }
             }
-            Divider()
-            MenuCommandButton("Remove from archive", icon: .remove) { onRemove() }
         }
         .sharePickerAnchor(shareAnchor)
         .preference(key: InternalDraggingKey.self, value: isDragging)
@@ -1914,9 +1986,8 @@ private struct ExpandedStackGroup: View {
     let stack: ArchiveStack
     var archiveModel: NotchArchiveModel
     var selection: ArchiveSelectionState
-    /// The whole selection, resolved when a drag starts. Built by the archive —
-    /// a cell knows what it holds, not what else is picked.
-    let selectionDrag: ArchiveSelectionDrag
+    /// The whole selection: what a drag carries and what the menu offers.
+    let selectionActions: ArchiveSelectionActions
     let height: CGFloat
     let cornerRadius: CGFloat
     let badgeBleed: CGFloat
@@ -1946,6 +2017,11 @@ private struct ExpandedStackGroup: View {
         guard let name = stack.folder?.lastPathComponent, name != "/" else { return nil }
         return name
     }
+    /// As for the collapsed cell: any picked member makes the stack part of
+    /// the selection, and its header's menu gives way to the selection's.
+    private var isPicked: Bool {
+        selection.isActive && selection.checkState(forMembers: stack.urls) != .empty
+    }
     private var shownURLs: [URL] { Array(stack.urls.prefix(memberCap)) }
     private var overflow: Int { max(0, stack.urls.count - memberCap) }
 
@@ -1961,7 +2037,7 @@ private struct ExpandedStackGroup: View {
                     url: url,
                     loader: archiveModel.stackThumbnailLoader(for: url),
                     selection: selection,
-                    selectionDrag: selectionDrag,
+                    selectionActions: selectionActions,
                     height: height,
                     badgeBleed: badgeBleed,
                     labelOffset: labelOffset,
@@ -2021,17 +2097,21 @@ private struct ExpandedStackGroup: View {
         // Left click collapses; right click opens the stack-level menu.
         .onTapGesture { onCollapse() }
         .contextMenu {
-            MenuCommandButton("Show in Finder", icon: .finder) { onRevealAll() }
-            MenuCommandButton("Copy", icon: .copy) { copyAll() }
-            MenuCommandButton("Share", icon: .share) { shareAnchor.present(stack.urls) }
-            MenuCommandButton("Collapse", icon: .collapse) { onCollapse() }
-            if !selection.isActive {
-                MenuCommandButton("Select Items", icon: .select) {
-                    selection.pickMembers(stack.urls)
+            if isPicked {
+                archiveSelectionMenu(selectionActions)
+            } else {
+                MenuCommandButton("Show in Finder", icon: .finder) { onRevealAll() }
+                MenuCommandButton("Copy", icon: .copy) { copyAll() }
+                MenuCommandButton("Share", icon: .share) { shareAnchor.present(stack.urls) }
+                MenuCommandButton("Collapse", icon: .collapse) { onCollapse() }
+                if !selection.isActive {
+                    MenuCommandButton("Select Items", icon: .select) {
+                        selection.pickMembers(stack.urls)
+                    }
                 }
+                Divider()
+                MenuCommandButton("Remove from archive", icon: .remove) { onRemoveStack() }
             }
-            Divider()
-            MenuCommandButton("Remove from archive", icon: .remove) { onRemoveStack() }
         }
         .sharePickerAnchor(shareAnchor)
         .help("Collapse")
@@ -2060,9 +2140,8 @@ private struct StackMemberCell: View {
     let url: URL
     let loader: ThumbnailLoader
     var selection: ArchiveSelectionState
-    /// The whole selection, resolved when a drag starts. Built by the archive —
-    /// a cell knows what it holds, not what else is picked.
-    let selectionDrag: ArchiveSelectionDrag
+    /// The whole selection: what a drag carries and what the menu offers.
+    let selectionActions: ArchiveSelectionActions
     let height: CGFloat
     let badgeBleed: CGFloat
     let labelOffset: CGFloat
@@ -2097,7 +2176,7 @@ private struct StackMemberCell: View {
             preview: previewImage,
             selection: selection,
             selectionKey: .file(url),
-            selectionDrag: selectionDrag,
+            selectionActions: selectionActions,
             displayName: displayName,
             height: height,
             badgeBleed: badgeBleed,
