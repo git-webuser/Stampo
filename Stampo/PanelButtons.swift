@@ -244,27 +244,27 @@ struct PopUpMoreButtonWrapper: NSViewRepresentable {
             }
         }
 
-        /// A menu row's glyph at one fixed size, whatever the symbol is.
+        /// A menu row's glyph, asked for by point size and left at whatever
+        /// size it comes back.
         ///
-        /// Sizing is the whole job here. Asked for the same point size, the
-        /// symbols come back at sizes of their own — measured, `doc.on.doc` at
-        /// 16×18, `xmark.circle` at 15×15, `checkmark.rectangle.stack` at
-        /// 17×18. NSMenu takes its row height from the image, so a menu built
-        /// from them straight sets every row to a slightly different height and
-        /// indent. Pinning them to one square puts the rows back in line.
+        /// The sizes differ between symbols — `doc.on.doc` returns 16×18 where
+        /// `xmark.circle` returns 15×15 — and that is deliberate on Apple's
+        /// side, not something to correct: SF Symbols are balanced optically
+        /// rather than geometrically, so a round glyph is drawn smaller than a
+        /// square one to carry the same weight beside it. Pinning them all to
+        /// one square makes the bounding boxes agree and the glyphs stop
+        /// agreeing, which is the half a reader actually sees.
         ///
-        /// A row with no icon still gets a blank of that square, for the reason
+        /// A row with no icon gets a blank instead, for the reason
         /// `MenuCommandLabel(indented:)` draws one: without it the title slides
         /// left, out of the column every other row keeps.
-        private static let menuIconSide = NSSize(width: 14, height: 14)
-
         private static func menuImage(_ icon: MenuIcon?) -> NSImage {
             guard let icon,
                   let image = NSImage(systemSymbolName: icon.rawValue,
-                                      accessibilityDescription: nil)
-            else { return NSImage(size: menuIconSide) }
+                                      accessibilityDescription: nil)?
+                      .withSymbolConfiguration(.init(pointSize: 13, weight: .regular))
+            else { return NSImage(size: NSSize(width: 14, height: 14)) }
             image.isTemplate = true
-            image.size = menuIconSide
             return image
         }
 
