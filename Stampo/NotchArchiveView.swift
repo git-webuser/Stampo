@@ -945,7 +945,7 @@ struct ArchiveSelectionBadge: View {
 
     private static let side: CGFloat = 16
     private static let disc = Color(white: 0.914)
-    private static let tick = Color(red: 0.25, green: 0.55, blue: 1.0)
+    private static let tick = archivePickedTint
     private static let ink  = Color(red: 0.125, green: 0.125, blue: 0.125)
 
     var body: some View {
@@ -989,6 +989,40 @@ struct ArchiveSelectionBadge: View {
         Image(systemName: name)
             .font(.system(size: Self.side * 0.56, weight: .bold))
             .foregroundStyle(.white)
+    }
+}
+
+/// The blue that means "picked", worn by the checkbox and by the ring around
+/// the cell it sits on.
+private let archivePickedTint = Color(red: 0.25, green: 0.55, blue: 1.0)
+
+/// The ring a picked cell wears.
+///
+/// The checkbox alone already says which cells are picked — but it is 16pt in
+/// the corner of a 51×32 cell, so reading the row means aiming at corners one
+/// at a time. Finder tints the whole row and iOS dims the picture; over a strip
+/// of photographic thumbnails on a dark panel a ring is what stays legible on
+/// any content, bright or dark, without touching what the cell is showing.
+private struct ArchivePickedRing: View {
+    let isPicked: Bool
+    let cornerRadius: CGFloat
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            // strokeBorder, not stroke: it draws inside the path, so the ring
+            // cannot spill past the cell into the 8pt gap before its neighbour.
+            .strokeBorder(archivePickedTint, lineWidth: 2)
+            // A hairline of shadow just inside it, the same trick the badge
+            // uses on its own disc. Without it the ring disappears against a
+            // colour cell holding roughly this blue — measured, not guessed.
+            .overlay {
+                RoundedRectangle(cornerRadius: cornerRadius - 2, style: .continuous)
+                    .strokeBorder(Color.black.opacity(0.35), lineWidth: 1)
+                    .padding(2)
+            }
+            .opacity(isPicked ? 1 : 0)
+            .animation(.easeInOut(duration: 0.12), value: isPicked)
+            .allowsHitTesting(false)
     }
 }
 
@@ -1129,6 +1163,8 @@ private struct ArchiveColorCell: View {
                     }
                 )
             }
+            .overlay { ArchivePickedRing(isPicked: selection.contains(selectionKey),
+                                         cornerRadius: cornerRadius) }
             // Badge after the shim, mirroring the file cells' z-order note.
             .overlay(alignment: .topTrailing) {
                 ArchiveCellBadge(
@@ -1305,6 +1341,8 @@ private struct ArchiveTextCell: View {
                 }
             )
         }
+        .overlay { ArchivePickedRing(isPicked: selection.contains(selectionKey),
+                                     cornerRadius: cornerRadius) }
         .overlay(alignment: .topTrailing) {
             ArchiveCellBadge(
                 selection: selection,
@@ -1537,6 +1575,8 @@ private struct ArchiveFileCell<Menu: View>: View {
                 }
             )
         }
+        .overlay { ArchivePickedRing(isPicked: selection.contains(selectionKey),
+                                     cornerRadius: cornerRadius) }
         // Badge is placed AFTER ArchiveDragShim so it sits above the NSView in z-order
         // and receives SwiftUI hit-testing before the NSView can intercept.
         .overlay(alignment: .topTrailing) {
@@ -1822,6 +1862,9 @@ private struct ArchiveStackCell: View {
                 }
             )
         }
+        // A mixed stack wears the ring too: it is visibly part of the
+        // selection, which is the same line the drag gate draws.
+        .overlay { ArchivePickedRing(isPicked: isPicked, cornerRadius: cornerRadius) }
         // Badge after the shim, mirroring ArchiveScreenshotCell's z-order note.
         .overlay(alignment: .topTrailing) {
             ArchiveCellBadge(
