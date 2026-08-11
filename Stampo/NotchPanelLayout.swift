@@ -78,12 +78,11 @@ extension NotchPanelController {
 
         let schemeControlWidth: CGFloat = 68
         let backButtonWidth: CGFloat = metrics.cellWidth
-        // Room for the selection count button, held whether or not the mode is
-        // running. Reserved rather than conditional: making the panel's width
-        // depend on the mode would resize it on the way in, and again every
-        // time the count grew a digit. The widest it ever gets ("99+") plus its
-        // gap, so the header can never outgrow the shape around it.
-        let selectionControlWidth = metrics.countCellWidth(for: 100) + metrics.gap
+        // Room for the selection button, held whether or not the mode is
+        // running: a panel whose width depended on the mode would resize on the
+        // way in. It is a plain icon button like the pin, and its badge sits
+        // inside it, so one cell and a gap is the whole of it.
+        let selectionControlWidth = metrics.cellWidth + metrics.gap
 
         return baseSide + backButtonWidth + metrics.gap + schemeControlWidth + metrics.gap
             + selectionControlWidth + min(contentWidth, 300) + baseSide

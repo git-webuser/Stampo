@@ -2365,10 +2365,11 @@ private struct CollapseButton: View {
 
 // MARK: - Selection count button
 
-/// See `NotchArchiveView.selectionCountButton`. Mirrors `PanelTimerMenuButton`:
-/// an NSPopUpButton underneath for the menu, the glyph and count drawn on top
-/// of it and not hit-testable, so AppKit owns the click and SwiftUI owns the
-/// look.
+/// See `NotchArchiveView.selectionCountButton`. An icon button the size and
+/// shape of the pin beside it — the panel's own vocabulary for "a control
+/// belonging to this route", the same one the translator's Copy uses — with an
+/// NSPopUpButton underneath for the menu and the glyph drawn on top of it and
+/// not hit-testable, so AppKit owns the click and SwiftUI owns the look.
 struct ArchiveSelectionCountButton: View {
     let count: Int
     let metrics: NotchMetrics
@@ -2378,53 +2379,36 @@ struct ArchiveSelectionCountButton: View {
     @State private var isPressed  = false
     @State private var isMenuOpen = false
 
-    private var cellWidth: CGFloat { metrics.countCellWidth(for: count) }
-    private var hasValue: Bool { count > 0 }
-
     var body: some View {
         ZStack {
             PopUpMoreButtonWrapper(
                 extraCommands: commands,
                 includesAppCommands: false,
                 accessibilityKey: "Selected items",
+                accessibilityValue: count > 0 ? NotchMetrics.countLabel(for: count) : nil,
                 onOpen:  { isMenuOpen = true  },
                 onClose: { isMenuOpen = false }
             )
-            .frame(width: cellWidth, height: metrics.iconSize)
+            .frame(width: metrics.cellWidth, height: metrics.iconSize)
 
-            HStack(spacing: metrics.timerIconToValueGap) {
-                // Not `checkmark.circle`: that is the mark the cells wear, and
-                // a lone tick reads as "done" — the button was being taken for
-                // the way out of the mode rather than the way into its menu.
-                // A checked stack says several things, chosen.
-                Image(systemName: "checkmark.rectangle.stack")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(foreground)
-                    .frame(width: metrics.iconSize, height: metrics.iconSize)
-
-                if hasValue {
-                    Text(verbatim: NotchMetrics.countLabel(for: count))
-                        .font(.system(size: 12, weight: .medium))
-                        .monospacedDigit()
-                        .foregroundStyle(foreground)
-                        .fixedSize()
-                }
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(foreground)
-                    .padding(.leading, metrics.countChevronGap)
-            }
-            .padding(.leading,  metrics.timerLeadingInsetWithValue)
-            .padding(.trailing, metrics.timerTrailingInsetWithValue)
-            .frame(width: cellWidth, height: metrics.iconSize, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: 6, style: .continuous).fill(background)
-            )
-            .scaleEffect(isPressed ? 0.88 : 1.0)
-            .animation(.spring(response: 0.18, dampingFraction: 0.7), value: isPressed)
-            .allowsHitTesting(false)
+            // Not `checkmark.circle`: that is the mark the cells wear, and a
+            // lone tick reads as "done" — the button was being taken for the
+            // way out of the mode rather than the way into its menu. A checked
+            // stack says several things, chosen.
+            Image(systemName: "checkmark.rectangle.stack")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(foreground)
+                .frame(width: 24, height: 24)
+                .frame(width: metrics.cellWidth, height: metrics.iconSize)
+                .background(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous).fill(background)
+                )
+                .overlay(alignment: .topTrailing) { badge }
+                .scaleEffect(isPressed ? 0.88 : 1.0)
+                .animation(.spring(response: 0.18, dampingFraction: 0.7), value: isPressed)
+                .allowsHitTesting(false)
         }
-        .frame(width: cellWidth, height: metrics.iconSize)
+        .frame(width: metrics.cellWidth, height: metrics.iconSize)
         .contentShape(Rectangle())
         .onHover { isHovered = $0 }
         .simultaneousGesture(
@@ -2434,16 +2418,37 @@ struct ArchiveSelectionCountButton: View {
         )
         .animation(.easeInOut(duration: 0.12), value: isHovered)
         .animation(.easeInOut(duration: 0.12), value: isMenuOpen)
-        .animation(.easeInOut(duration: 0.16), value: cellWidth)
+        // Labelled from AppKit inside the wrapper — see the note there. A
+        // SwiftUI label here would not reach the NSPopUpButton VoiceOver lands
+        // on, and "Selection" in the catalogue is the capture mode ("Область"),
+        // not this.
     }
 
-    /// Idle at rest, exactly like the pin and the "⋯" beside it.
-    ///
-    /// It used to sit permanently filled, to say the mode was on. But a filled
+    /// The count, small and tucked into the button's own corner rather than
+    /// bled outside it: the header's controls sit 4pt apart, and a badge
+    /// reaching into that gap would touch the pin. Nothing picked shows
+    /// nothing — the button's presence already says the mode is on, and a
+    /// badge reading "0" would be a number worth no space at all.
+    @ViewBuilder
+    private var badge: some View {
+        if count > 0 {
+            Text(verbatim: NotchMetrics.countLabel(for: count))
+                .font(.system(size: 8, weight: .bold))
+                .monospacedDigit()
+                .foregroundStyle(.white)
+                .padding(.horizontal, 2.5)
+                .frame(minWidth: 12, minHeight: 12)
+                .background(Capsule(style: .continuous).fill(archivePickedTint))
+                .fixedSize()
+                .padding(.top, 1)
+                .padding(.trailing, 1)
+        }
+    }
+
+    /// Idle at rest, exactly like the pin and the "⋯" beside it. A filled
     /// background already means something in this header — the pin wears one
     /// while the panel is pinned — so a button that is always filled reads as a
-    /// toggle stuck in the on position. The button's presence is what says the
-    /// mode is running; it does not also need to look pressed.
+    /// toggle stuck on. The badge is what reports; the chrome stays quiet.
     private var background: Color {
         if isMenuOpen { return .white.opacity(0.22) }
         if isPressed  { return .white.opacity(0.28) }

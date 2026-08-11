@@ -98,6 +98,10 @@ struct PopUpMoreButtonWrapper: NSViewRepresentable {
     /// what it lands on — a SwiftUI label on the wrapping ZStack does not
     /// reliably reach it).
     var accessibilityKey: String = "Settings and quit"
+    /// Already-localized value spoken after the label — the selection button's
+    /// count. nil for a menu that is a list of commands rather than a choice,
+    /// which is what the "⋯" is.
+    var accessibilityValue: String? = nil
     var onOpen:  () -> Void
     var onClose: () -> Void
     @Environment(\.locale) private var locale
@@ -139,11 +143,12 @@ struct PopUpMoreButtonWrapper: NSViewRepresentable {
         context.coordinator.includesAppCommands = includesAppCommands
         context.coordinator.rebuildMenu(in: button, commands: extraCommands, locale: locale)
         // The NSPopUpButton is what VoiceOver focuses; a SwiftUI label on the
-        // ZStack that wraps it doesn't reliably reach it. This menu is a list of
-        // commands rather than a choice — nothing is ever selected (see the
-        // selectItem(at: -1) below) — so there is no value to expose alongside
-        // the label.
+        // ZStack that wraps it doesn't reliably reach it, so both halves are set
+        // from here. The "⋯" passes no value: it is a list of commands rather
+        // than a choice, and nothing in it is ever selected (see the
+        // selectItem(at: -1) below).
         button.setAccessibilityLabel(LocaleManager.string(accessibilityKey, locale: locale))
+        button.setAccessibilityValue(accessibilityValue)
         button.selectItem(at: -1)
         context.coordinator.parent = self
     }
