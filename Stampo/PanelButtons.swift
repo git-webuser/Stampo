@@ -90,6 +90,14 @@ struct PanelMenuCommand {
 
 struct PopUpMoreButtonWrapper: NSViewRepresentable {
     var extraCommands: [PanelMenuCommand] = []
+    /// Whether Settings and Quit are tacked on below the extras. The "⋯" is the
+    /// app's only menu and has to carry them; a button that opens one specific
+    /// set of commands — the archive's selection verbs — must not.
+    var includesAppCommands: Bool = true
+    /// Localization key for the button VoiceOver focuses (the NSPopUpButton is
+    /// what it lands on — a SwiftUI label on the wrapping ZStack does not
+    /// reliably reach it).
+    var accessibilityKey: String = "Settings and quit"
     var onOpen:  () -> Void
     var onClose: () -> Void
     @Environment(\.locale) private var locale
@@ -104,6 +112,7 @@ struct PopUpMoreButtonWrapper: NSViewRepresentable {
 
         button.menu?.autoenablesItems = false
         button.target = context.coordinator
+        context.coordinator.includesAppCommands = includesAppCommands
         context.coordinator.rebuildMenu(in: button, commands: extraCommands, locale: locale)
 
         NotificationCenter.default.addObserver(
@@ -127,13 +136,14 @@ struct PopUpMoreButtonWrapper: NSViewRepresentable {
         // itself is only rebuilt when its shape actually changed (see
         // rebuildMenu) — replacing items under an open menu would flicker.
         context.coordinator.commands = extraCommands
+        context.coordinator.includesAppCommands = includesAppCommands
         context.coordinator.rebuildMenu(in: button, commands: extraCommands, locale: locale)
         // The NSPopUpButton is what VoiceOver focuses; a SwiftUI label on the
         // ZStack that wraps it doesn't reliably reach it. This menu is a list of
         // commands rather than a choice — nothing is ever selected (see the
         // selectItem(at: -1) below) — so there is no value to expose alongside
         // the label.
-        button.setAccessibilityLabel(LocaleManager.string("Settings and quit", locale: locale))
+        button.setAccessibilityLabel(LocaleManager.string(accessibilityKey, locale: locale))
         button.selectItem(at: -1)
         context.coordinator.parent = self
     }
@@ -145,6 +155,7 @@ struct PopUpMoreButtonWrapper: NSViewRepresentable {
         /// Live commands, re-assigned on every update so a menu item always
         /// runs the current closure.
         var commands: [PanelMenuCommand] = []
+        var includesAppCommands = true
         /// Shape of the menu as last built: titles + enablement + language.
         private var menuSignature: String?
 
@@ -158,7 +169,7 @@ struct PopUpMoreButtonWrapper: NSViewRepresentable {
         func rebuildMenu(in button: NSPopUpButton, commands: [PanelMenuCommand], locale: Locale) {
             self.commands = commands
             let signature = commands.map { "\($0.titleKey)|\($0.isEnabled)" }
-                .joined(separator: ",") + "#\(locale.identifier)"
+                .joined(separator: ",") + "#\(locale.identifier)#\(includesAppCommands)"
             guard signature != menuSignature, let menu = button.menu else { return }
             menuSignature = signature
 
@@ -175,6 +186,7 @@ struct PopUpMoreButtonWrapper: NSViewRepresentable {
                 item.state = .off
                 menu.addItem(item)
             }
+            guard includesAppCommands else { return }
             if !commands.isEmpty { menu.addItem(.separator()) }
 
             for (titleKey, selector) in [

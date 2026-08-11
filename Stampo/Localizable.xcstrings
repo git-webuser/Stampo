@@ -4344,6 +4344,23 @@
         }
       }
     },
+    "Selected items" : {
+      "comment" : "VoiceOver label of the archive button that shows how many entries are picked and opens their menu",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Selected items"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Выбранные элементы"
+          }
+        }
+      }
+    },
     "Selection" : {
       "comment" : "Capture mode option: select a region with the mouse",
       "extractionState" : "stale",

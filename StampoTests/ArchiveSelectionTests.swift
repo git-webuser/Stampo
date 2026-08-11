@@ -209,6 +209,32 @@ import Testing
         #expect(!state.canSelectAll(in: items))
     }
 
+    // MARK: The count button's width
+
+    /// It follows the timer's collapse rule: nothing to say, no digit slot.
+    @Test func anEmptyCountCollapsesToAPlainIconButton() {
+        let m = NotchMetrics.fallback()
+        #expect(m.countCellWidth(for: 0) == m.cellWidth)
+        #expect(m.countCellWidth(for: 1) > m.cellWidth)
+    }
+
+    /// The timer's own slot stops at two digits because a delay never has
+    /// three. A selection can — a single stack holds more than a hundred files
+    /// — so the label caps instead of the slot overflowing.
+    @Test func aLongCountCapsRatherThanOutgrowingItsSlot() {
+        let m = NotchMetrics.fallback()
+        #expect(NotchMetrics.countLabel(for: 99) == "99")
+        #expect(NotchMetrics.countLabel(for: 100) == "99+")
+        #expect(NotchMetrics.countLabel(for: 4321) == "99+")
+        #expect(m.countCellWidth(for: 4321) == m.countCellWidth(for: 100))
+    }
+
+    @Test func theSlotGrowsWithTheDigits() {
+        let m = NotchMetrics.fallback()
+        #expect(m.countCellWidth(for: 9) < m.countCellWidth(for: 10))
+        #expect(m.countCellWidth(for: 10) < m.countCellWidth(for: 100))
+    }
+
     // MARK: Which cells a drag may start from
 
     @Test func outsideTheModeEveryCellDrags() {

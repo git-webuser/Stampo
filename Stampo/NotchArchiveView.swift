@@ -432,6 +432,7 @@ struct NotchArchiveView: View {
                         Color.clear.frame(width: metrics.notchGap)
 
                         HStack(spacing: metrics.gap) {
+                            if selection.isActive { selectionCountButton }
                             pinButton
                             moreButton
                         }
@@ -471,6 +472,7 @@ struct NotchArchiveView: View {
                     } else {
                         Spacer()
                     }
+                    if selection.isActive { selectionCountButton }
                     pinButton
                     moreButton
                 }
@@ -711,6 +713,23 @@ struct NotchArchiveView: View {
             .accessibilityLabel(title)
     }
 
+
+    /// The selection's own control: how many are picked, and the verbs for them.
+    ///
+    /// Shaped like the timer in Main — a glyph that grows a number — because
+    /// that is a shape this panel already has, and because the number is what
+    /// carries the meaning. No SF Symbol says "multi-select" on its own; the
+    /// timer's `timer` glyph does not say "delayed capture" either, the "5"
+    /// beside it does. It follows the timer's collapse rule too: nothing picked
+    /// is a plain 32pt icon button, saying only that the mode is on.
+    private var selectionCountButton: some View {
+        ArchiveSelectionCountButton(
+            count: selection.selectedItems(in: archiveModel.items).count,
+            metrics: metrics,
+            commands: selectionCommands
+        )
+    }
+
     private var pinButton: some View {
         PanelIconButton(
             systemName: isPinned ? "pin.fill" : "pin",
@@ -735,16 +754,16 @@ struct NotchArchiveView: View {
             .sharePickerAnchor(shareAnchor)
     }
 
-    /// The "⋯" menu's archive commands.
+    /// The "⋯" menu's archive commands: the way into the mode, and nothing else.
     ///
-    /// Every verb lives on the selection now. There used to be a whole-archive
-    /// Copy / Share / Clear beside it, but acting on everything is the edge case
-    /// of acting on what is picked — "Select" then "Select All" reaches it in
-    /// two more clicks — and keeping both meant three commands whose scope the
-    /// user had to work out from their titles. One scope, one set of verbs, and
-    /// the menu outside the mode is a single row: the way in.
+    /// Once the mode is running its verbs have a button of their own, so the
+    /// "⋯" hands them over and is left holding what actually belongs to it —
+    /// Settings and Quit. That is the split the count button is for: this menu
+    /// is the app's only one and has to carry the app-level rows, which is
+    /// exactly why a selection of three files should not be sharing it.
     private var archiveCommands: [PanelMenuCommand] {
-        selection.isActive ? selectionCommands : [
+        guard !selection.isActive else { return [] }
+        return [
             PanelMenuCommand(titleKey: "Select Items",
                              isEnabled: !archiveModel.items.isEmpty) {
                 selection.isActive = true
@@ -2341,6 +2360,84 @@ private struct CollapseButton: View {
         .help("Collapse")
         .accessibilityLabel("Collapse")
         .accessibilityAddTraits(.isButton)
+    }
+}
+
+// MARK: - Selection count button
+
+/// See `NotchArchiveView.selectionCountButton`. Mirrors `PanelTimerMenuButton`:
+/// an NSPopUpButton underneath for the menu, the glyph and count drawn on top
+/// of it and not hit-testable, so AppKit owns the click and SwiftUI owns the
+/// look.
+struct ArchiveSelectionCountButton: View {
+    let count: Int
+    let metrics: NotchMetrics
+    let commands: [PanelMenuCommand]
+
+    @State private var isHovered  = false
+    @State private var isPressed  = false
+    @State private var isMenuOpen = false
+
+    private var cellWidth: CGFloat { metrics.countCellWidth(for: count) }
+    private var hasValue: Bool { count > 0 }
+
+    var body: some View {
+        ZStack {
+            PopUpMoreButtonWrapper(
+                extraCommands: commands,
+                includesAppCommands: false,
+                accessibilityKey: "Selected items",
+                onOpen:  { isMenuOpen = true  },
+                onClose: { isMenuOpen = false }
+            )
+            .frame(width: cellWidth, height: metrics.iconSize)
+
+            HStack(spacing: metrics.timerIconToValueGap) {
+                Image(systemName: "checkmark.circle")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: metrics.iconSize, height: metrics.iconSize)
+
+                if hasValue {
+                    Text(verbatim: NotchMetrics.countLabel(for: count))
+                        .font(.system(size: 12, weight: .medium))
+                        .monospacedDigit()
+                        .foregroundStyle(.white.opacity(0.9))
+                        .fixedSize()
+                }
+            }
+            .padding(.leading,  hasValue ? metrics.timerLeadingInsetWithValue  : 0)
+            .padding(.trailing, hasValue ? metrics.timerTrailingInsetWithValue : 0)
+            .frame(width: cellWidth, height: metrics.iconSize,
+                   alignment: hasValue ? .leading : .center)
+            .background(
+                RoundedRectangle(cornerRadius: 6, style: .continuous).fill(background)
+            )
+            .scaleEffect(isPressed ? 0.88 : 1.0)
+            .animation(.spring(response: 0.18, dampingFraction: 0.7), value: isPressed)
+            .allowsHitTesting(false)
+        }
+        .frame(width: cellWidth, height: metrics.iconSize)
+        .contentShape(Rectangle())
+        .onHover { isHovered = $0 }
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { _ in isPressed = true  }
+                .onEnded   { _ in isPressed = false }
+        )
+        .animation(.easeInOut(duration: 0.12), value: isHovered)
+        .animation(.easeInOut(duration: 0.12), value: isMenuOpen)
+        .animation(.easeInOut(duration: 0.16), value: cellWidth)
+    }
+
+    /// Always filled, unlike the pin and the "⋯": the button exists only while
+    /// the mode is running, so it is the mode's indicator as much as its menu,
+    /// and an idle-looking one would be saying nothing at all.
+    private var background: Color {
+        if isMenuOpen { return .white.opacity(0.34) }
+        if isPressed  { return .white.opacity(0.34) }
+        if isHovered  { return .white.opacity(0.28) }
+        return .white.opacity(0.22)
     }
 }
 

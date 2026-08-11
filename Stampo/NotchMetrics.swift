@@ -113,6 +113,24 @@ struct NotchMetrics {
         }
     }
 
+    /// Width of a cell that shows a glyph and a count, sized like the timer's:
+    /// bare `cellWidth` with nothing to say, and the icon plus a digit slot
+    /// once there is. The timer's own slot stops at two digits because a delay
+    /// never has three — a selection can, so this one measures the string it is
+    /// actually given and caps the rendering at "99+".
+    func countCellWidth(for count: Int) -> CGFloat {
+        guard count > 0 else { return cellWidth }
+        let digits = CGFloat(Self.countLabel(for: count).count) * 8
+        return timerLeadingInsetWithValue + iconSize + timerIconToValueGap
+            + digits + timerTrailingInsetWithValue
+    }
+
+    /// What a count reads as. Past 99 the number stops being information worth
+    /// three more points of a 182pt shoulder.
+    static func countLabel(for count: Int) -> String {
+        count > 99 ? "99+" : "\(count)"
+    }
+
     /// Total timer cell width for a given shortLabel.
     func timerCellWidth(for shortLabel: String?) -> CGFloat {
         guard shortLabel != nil else { return cellWidth }
