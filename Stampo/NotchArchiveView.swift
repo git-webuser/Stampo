@@ -764,7 +764,7 @@ struct NotchArchiveView: View {
     private var archiveCommands: [PanelMenuCommand] {
         guard !selection.isActive else { return [] }
         return [
-            PanelMenuCommand(titleKey: "Select Items",
+            PanelMenuCommand(titleKey: "Select Items", icon: .select,
                              isEnabled: !archiveModel.items.isEmpty) {
                 selection.isActive = true
             }
@@ -780,15 +780,22 @@ struct NotchArchiveView: View {
             // Leads, because it is what the other three are aimed with — and it
             // keeps the destructive row last, where a slipped click is least
             // likely to find it.
-            PanelMenuCommand(titleKey: "Select All",
+            PanelMenuCommand(titleKey: "Select All", icon: .selectAll,
                              isEnabled: selection.canSelectAll(in: archiveModel.items)) {
                 withAnimation(.easeInOut(duration: 0.18)) {
                     selection.selectAll(in: archiveModel.items)
                 }
             },
-            PanelMenuCommand(titleKey: "Copy", isEnabled: hasAny, action: copySelection),
-            PanelMenuCommand(titleKey: "Share", isEnabled: hasAny, action: shareSelection),
-            PanelMenuCommand(titleKey: "Delete", isEnabled: hasAny, action: deleteSelection)
+            PanelMenuCommand(titleKey: "Copy", icon: .copy,
+                             isEnabled: hasAny, action: copySelection),
+            PanelMenuCommand(titleKey: "Share", icon: .share,
+                             isEnabled: hasAny, action: shareSelection),
+            // Named and set apart exactly as in a cell's own menu: this drops
+            // archive entries and leaves every file on disk, which "Delete"
+            // promised more than it did.
+            PanelMenuCommand(titleKey: "Remove from archive", icon: .remove,
+                             isEnabled: hasAny, startsSection: true,
+                             action: deleteSelection)
         ]
     }
 
@@ -854,9 +861,7 @@ struct NotchArchiveView: View {
         ArchiveSelectionActions(
             dragPayload: selectionDragPayload,
             dragImages: selectionDragImages,
-            copy: copySelection,
-            share: shareSelection,
-            delete: deleteSelection
+            commands: selectionCommands
         )
     }
 
@@ -1511,27 +1516,22 @@ private func archiveTextDragImage(_ firstLine: String, size: NSSize, cornerRadiu
 struct ArchiveSelectionActions {
     let dragPayload: () -> [NSPasteboardWriting]
     let dragImages: () -> [NSImage?]
-    let copy: () -> Void
-    let share: () -> Void
-    let delete: () -> Void
+    /// The selection's menu, as the header button also receives it — one list,
+    /// rendered by AppKit there and by SwiftUI here.
+    let commands: [PanelMenuCommand]
 }
 
-/// The menu a picked cell shows in place of its own.
+/// The menu a picked cell shows in place of its own — the selection's own
+/// commands, the very list its header button opens.
 ///
-/// Right-clicking one of several picked cells acts on all of them — the rule
+/// Right-clicking one of several picked cells acts on all of them: the rule
 /// Finder states out loud when it offers "Copy 5 Items". The cell's own
-/// commands stand aside whole rather than being re-scoped one by one: Edit,
-/// Open and Pin to Screen have no meaning for a pile that mixes colours,
-/// snippets and files, and the three that do are exactly the three the "⋯"
-/// menu already offers on the same selection.
+/// commands stand aside whole rather than being re-scoped one by one, since
+/// Edit, Open and Pin to Screen mean nothing for a pile that mixes colours,
+/// snippets and files.
 @ViewBuilder
 private func archiveSelectionMenu(_ actions: ArchiveSelectionActions) -> some View {
-    MenuCommandButton("Copy", icon: .copy, action: actions.copy)
-    MenuCommandButton("Share", icon: .share, action: actions.share)
-    Divider()
-    // Not `.destructive`: this drops archive entries, exactly like the
-    // per-cell "Remove from archive", and leaves every file on disk.
-    MenuCommandButton("Delete", icon: .remove, action: actions.delete)
+    panelMenuRows(actions.commands)
 }
 
 /// What a cell's drag actually carries.

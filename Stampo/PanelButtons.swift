@@ -84,8 +84,38 @@ struct PanelIconButton: View {
 struct PanelMenuCommand {
     /// Localization key, also the item's identity for the rebuild check.
     let titleKey: String
+    /// The glyph from the app's shared vocabulary. The same verbs appear in the
+    /// cells' context menus, and a command that wears one symbol there and none
+    /// here reads as a different command.
+    var icon: MenuIcon? = nil
     var isEnabled: Bool = true
+    /// Puts a separator above this item — how a destructive row is set apart
+    /// from the ones above it, as in every context menu in the app.
+    var startsSection: Bool = false
     let action: () -> Void
+}
+
+/// Renders a command list as SwiftUI menu rows.
+///
+/// The same list can then be shown two ways: by the AppKit popup a header
+/// button opens, and by a cell's context menu. They used to be written twice
+/// and drifted exactly as you would expect — the same four verbs carried icons
+/// and a divider in a cell, and neither on the button.
+@ViewBuilder
+func panelMenuRows(_ commands: [PanelMenuCommand]) -> some View {
+    ForEach(Array(commands.enumerated()), id: \.offset) { index, command in
+        if command.startsSection, index > 0 { Divider() }
+        if let icon = command.icon {
+            MenuCommandButton(LocalizedStringKey(command.titleKey),
+                              icon: icon, action: command.action)
+                .disabled(!command.isEnabled)
+        } else {
+            Button(action: command.action) {
+                Text(LocalizedStringKey(command.titleKey))
+            }
+            .disabled(!command.isEnabled)
+        }
+    }
 }
 
 struct PopUpMoreButtonWrapper: NSViewRepresentable {
@@ -173,13 +203,15 @@ struct PopUpMoreButtonWrapper: NSViewRepresentable {
         /// so the didEndTracking observer registered against it stays valid.
         func rebuildMenu(in button: NSPopUpButton, commands: [PanelMenuCommand], locale: Locale) {
             self.commands = commands
-            let signature = commands.map { "\($0.titleKey)|\($0.isEnabled)" }
+            let signature = commands
+                .map { "\($0.titleKey)|\($0.isEnabled)|\($0.icon?.rawValue ?? "")|\($0.startsSection)" }
                 .joined(separator: ",") + "#\(locale.identifier)#\(includesAppCommands)"
             guard signature != menuSignature, let menu = button.menu else { return }
             menuSignature = signature
 
             menu.removeAllItems()
             for (index, command) in commands.enumerated() {
+                if command.startsSection, index > 0 { menu.addItem(.separator()) }
                 let item = NSMenuItem(
                     title: LocaleManager.string(command.titleKey, locale: locale),
                     action: #selector(extraCommandTapped(_:)),
@@ -189,6 +221,7 @@ struct PopUpMoreButtonWrapper: NSViewRepresentable {
                 item.isEnabled = command.isEnabled
                 item.tag = index
                 item.state = .off
+                item.image = Self.menuImage(command.icon)
                 menu.addItem(item)
             }
             guard includesAppCommands else { return }
@@ -206,8 +239,25 @@ struct PopUpMoreButtonWrapper: NSViewRepresentable {
                 )
                 item.target = self
                 item.state = .off
+                item.image = Self.menuImage(nil)
                 menu.addItem(item)
             }
+        }
+
+        /// A menu row's glyph, or a blank of the same size when it has none.
+        ///
+        /// The blank is not padding: without it a row with no symbol pulls its
+        /// title left, out of line with every row that has one — the same reason
+        /// `MenuCommandLabel(indented:)` draws an empty NSImage.
+        private static func menuImage(_ icon: MenuIcon?) -> NSImage {
+            let side: CGFloat = 14
+            guard let icon,
+                  let image = NSImage(systemSymbolName: icon.rawValue,
+                                      accessibilityDescription: nil)?
+                      .withSymbolConfiguration(.init(pointSize: 13, weight: .regular))
+            else { return NSImage(size: NSSize(width: side, height: side)) }
+            image.isTemplate = true
+            return image
         }
 
         @objc func extraCommandTapped(_ sender: NSMenuItem) {

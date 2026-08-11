@@ -30,6 +30,9 @@ enum MenuIcon: String {
     /// on themselves once it is on, so the row that turns it on and the badges
     /// it produces are recognisably the same thing.
     case select   = "checkmark.circle"
+    /// Reaching the whole archive from inside the mode — the same checked stack
+    /// the selection button wears, since it picks exactly what that button counts.
+    case selectAll = "checkmark.rectangle.stack"
     case remove   = "xmark.circle"
     case trash    = "trash"
 }
