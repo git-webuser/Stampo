@@ -20,6 +20,11 @@ import OSLog
 /// user types would be unforgivable. Its owner is pushed only while the
 /// pointer rests on an archive cell — the cursor being parked on our panel is
 /// what makes it safe to claim the key.
+///
+/// ⌘A is the third, and is claimed only while the archive's selection mode is
+/// running — a mode the user switched on by hand, and inside which ⌘A is the
+/// likeliest key on the board. Delete deliberately has no owner here: a pinned
+/// panel left in the mode would eat backspaces in whatever the user typed next.
 @MainActor
 final class TransientHotkeyCenter {
     /// Closes the topmost surface.
@@ -28,13 +33,20 @@ final class TransientHotkeyCenter {
     /// Quick Look for the archive cell under the pointer.
     static let space = TransientHotkeyCenter(keyCode: UInt32(kVK_Space),
                                              signature: 0x5354_514C /* 'STQL' */, id: 1)
+    /// Pick every archive entry, while the selection mode is running.
+    static let selectAll = TransientHotkeyCenter(keyCode: UInt32(kVK_ANSI_A),
+                                                 modifiers: UInt32(cmdKey),
+                                                 signature: 0x5354_5341 /* 'STSA' */, id: 1)
 
     private let keyCode: UInt32
+    /// Carbon modifier mask; 0 for a bare key, which the first two users are.
+    private let modifiers: UInt32
     private let signature: UInt32
     private let hotKeyIdentifier: UInt32
 
-    private init(keyCode: UInt32, signature: UInt32, id: UInt32) {
+    private init(keyCode: UInt32, modifiers: UInt32 = 0, signature: UInt32, id: UInt32) {
         self.keyCode = keyCode
+        self.modifiers = modifiers
         self.signature = signature
         self.hotKeyIdentifier = id
     }
@@ -141,7 +153,7 @@ final class TransientHotkeyCenter {
         var ref: EventHotKeyRef?
         let hotKeyID = EventHotKeyID(signature: OSType(signature), id: hotKeyIdentifier)
         let status = RegisterEventHotKey(
-            keyCode, 0, hotKeyID, GetApplicationEventTarget(), 0, &ref
+            keyCode, modifiers, hotKeyID, GetApplicationEventTarget(), 0, &ref
         )
         if status == noErr {
             hotKeyRef = ref

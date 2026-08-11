@@ -743,13 +743,15 @@ final class NotchPanelController: NSObject {
         panel?.close()
         panel = nil
         removeEscMonitor()
-        // The archive's Space owner went with the hosting view just released,
-        // and its token went with it — `onDisappear` is not promised on a view
-        // that is deallocated rather than removed. Esc is handed back by the
-        // line above because the panel holds that token itself; Space has to be
-        // taken back from this side or nobody can. Not `.escape.releaseAll()`:
-        // an open Quick Look panel is still on screen and still needs its Esc.
+        // The archive's Space and ⌘A owners went with the hosting view just
+        // released, and their tokens went with them — `onDisappear` is not
+        // promised on a view that is deallocated rather than removed. Esc is
+        // handed back by the line above because the panel holds that token
+        // itself; these two have to be taken back from this side or nobody can.
+        // Not `.escape.releaseAll()`: an open Quick Look panel is still on
+        // screen and still needs its Esc.
         TransientHotkeyCenter.space.releaseAll()
+        TransientHotkeyCenter.selectAll.releaseAll()
         state = .stale(reason: reason)
         isSharePickerOpen = false
         isQuickLookOpen = false

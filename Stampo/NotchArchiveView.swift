@@ -54,6 +54,7 @@ struct NotchArchiveView: View {
     /// held only while the pointer actually rests on a previewable cell.
     @State private var hoveredPreviewURLs: [URL] = []
     @State private var spaceToken: UUID?
+    @State private var selectAllToken: UUID?
     /// True while any archive cell is mid drag-out (its ArchiveDragShim reports through
     /// `InternalDraggingKey`). SwiftUI's `.onDrop` also fires `isDropTargeted`
     /// for the app's OWN drags, so this gates them out: without it, dragging a
@@ -181,7 +182,11 @@ struct NotchArchiveView: View {
             selection.clear()
             hoveredPreviewURLs = []
             updateSpaceHotkey()
+            updateSelectAllHotkey()
         }
+        // ⌘A is the archive's only claim on a modified key, and it is claimed
+        // and handed back with the mode itself.
+        .onChange(of: selection.isActive) { updateSelectAllHotkey() }
         // Clear the stored id once its stack is gone (last member removed, trim,
         // Remove) — effectiveExpandedID already masks the render; this dedupes
         // the latent @State so it can never point at a dead stack.
@@ -204,6 +209,7 @@ struct NotchArchiveView: View {
         .onDisappear {
             hoveredPreviewURLs = []
             updateSpaceHotkey()
+            updateSelectAllHotkey()
         }
     }
 
@@ -229,6 +235,35 @@ struct NotchArchiveView: View {
                                  isContentVisible: Bool,
                                  hoveredURLs: [URL]) -> Bool {
         enabled && isContentVisible && !hoveredURLs.isEmpty
+    }
+
+    /// Whether the archive should be holding ⌘A right now.
+    ///
+    /// Pure and kept apart for the same reason `wantsSpaceHotkey` is: while it
+    /// is held the key is taken from every app on the machine, so what makes
+    /// that acceptable belongs in one line that can be read on its own. Here it
+    /// is the mode — switched on by hand, and the one place where ⌘A is the
+    /// likeliest key on the board.
+    static func wantsSelectAllHotkey(isContentVisible: Bool, isSelecting: Bool) -> Bool {
+        isContentVisible && isSelecting
+    }
+
+    /// Holds ⌘A exactly while the selection mode is running. Re-pushed rather
+    /// than kept, like the Space owner, so the action always sees the archive
+    /// as it is now.
+    private func updateSelectAllHotkey() {
+        if let token = selectAllToken {
+            TransientHotkeyCenter.selectAll.remove(token)
+            selectAllToken = nil
+        }
+        guard Self.wantsSelectAllHotkey(isContentVisible: isContentVisible,
+                                        isSelecting: selection.isActive)
+        else { return }
+        selectAllToken = TransientHotkeyCenter.selectAll.push {
+            withAnimation(.easeInOut(duration: 0.18)) {
+                selection.selectAll(in: archiveModel.items)
+            }
+        }
     }
 
     /// Holds the Space hotkey exactly while a previewable cell is hovered.
