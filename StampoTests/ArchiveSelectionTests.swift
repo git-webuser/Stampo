@@ -209,6 +209,47 @@ import Testing
         #expect(!state.canSelectAll(in: items))
     }
 
+    // MARK: What the badge counts
+
+    /// The bug this replaces: a stack is one archive entry however many of its
+    /// members are checked, so counting entries showed a picked pile of twenty
+    /// as "1".
+    @Test func aPickedStackCountsItsMembersNotItself() {
+        let items: [ArchiveItem] = [.stack(ArchiveStack(urls: [a, b, c]))]
+        let state = ArchiveSelectionState()
+        state.pickMembers([a, b, c])
+        #expect(state.selectedItems(in: items).count == 1)
+        #expect(state.pickedCount(in: items) == 3)
+    }
+
+    @Test func aPartlyPickedStackCountsOnlyWhatIsChecked() {
+        let items: [ArchiveItem] = [.stack(ArchiveStack(urls: [a, b, c]))]
+        let state = ArchiveSelectionState()
+        state.setMembers([a, c], selected: true)
+        #expect(state.pickedCount(in: items) == 2)
+    }
+
+    /// The badge and the payload count the same things — the badge is a promise
+    /// about what Copy, Share and a drag are about to carry.
+    @Test func theCountMatchesWhatTheSelectionCarries() {
+        let red = color("#FF0000")
+        let capture = ArchiveScreenshot(url: shot)
+        let items: [ArchiveItem] = [.color(red),
+                                    .stack(ArchiveStack(urls: [a, b, c])),
+                                    .text(ArchiveText(text: "hello")),
+                                    .screenshot(capture)]
+        let state = ArchiveSelectionState()
+        state.selectAll(in: items)
+        let carried = NotchArchiveModel.payload(for: state.selectedItems(in: items),
+                                                colorScheme: .hex).count
+        #expect(state.pickedCount(in: items) == carried)
+        #expect(carried == 6)
+    }
+
+    @Test func nothingPickedCountsZero() {
+        #expect(ArchiveSelectionState().pickedCount(in: [.stack(ArchiveStack(urls: [a, b]))]) == 0)
+    }
+
     // MARK: The count badge
 
     /// The badge is micro and lives inside a 32pt button, so past two digits

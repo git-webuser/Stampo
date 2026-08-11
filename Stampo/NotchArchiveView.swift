@@ -724,7 +724,7 @@ struct NotchArchiveView: View {
     /// is a plain 32pt icon button, saying only that the mode is on.
     private var selectionCountButton: some View {
         ArchiveSelectionCountButton(
-            count: selection.selectedItems(in: archiveModel.items).count,
+            count: selection.pickedCount(in: archiveModel.items),
             metrics: metrics,
             commands: selectionCommands
         )

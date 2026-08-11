@@ -236,6 +236,24 @@ func archiveTapIntent(kind: ArchiveCellKind,
         Self.selectedItems(in: items, keys: keys)
     }
 
+    /// How many things are picked, counted as leaves.
+    ///
+    /// Not `selectedItems.count`: that counts archive entries, and a stack is
+    /// one entry however many of its members are checked — so picking a pile of
+    /// twenty read as "1". The number has to be the one Copy, Share and a drag
+    /// will actually carry, which is a stack's picked members one by one. It
+    /// fans out exactly as `NotchArchiveModel.payload` does, since that is the
+    /// list it is counting.
+    func pickedCount(in items: [ArchiveItem]) -> Int {
+        selectedItems(in: items).reduce(into: 0) { total, item in
+            if case .stack(let stack) = item {
+                total += stack.urls.count
+            } else {
+                total += 1
+            }
+        }
+    }
+
     // MARK: Leaving
 
     /// Leaves the mode and forgets what was in it. One call, because the two
