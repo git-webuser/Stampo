@@ -186,17 +186,23 @@ nonisolated extension Locale.Language {
     ///
     /// **A download that is running and one that was cancelled look identical
     /// from here** — `.supported` in both cases, and a dismissed sheet returns
-    /// exactly like an accepted one. So the wait is a guess with a time limit,
-    /// and the limit is three minutes.
+    /// exactly like an accepted one.
     ///
-    /// Short, because the cost of overrunning is a spinner insisting on a
-    /// download that was called off in System Settings. The cost of stopping
-    /// early used to be the worse one — an Install button that did nothing,
-    /// because macOS was already busy — but it is no longer a dead end:
-    /// pressing it prepares again, which either brings the system sheet back
-    /// (the download really had stopped) or silently re-arms this watch (it
-    /// had not). Either way something visible happens, which is all the button
-    /// ever owed the user.
+    /// So this does not guess for the user by giving up after a while. It ran
+    /// on a timer twice and both timers were wrong: the user had already asked
+    /// for the language, and a clock they cannot see expiring turned the
+    /// spinner back into the button they just pressed — asking them to repeat a
+    /// command they had given, for no reason visible to them, on a download
+    /// that was still running. Several packs on a slow line take longer than
+    /// any number worth hard-coding.
+    ///
+    /// It therefore waits until the pack lands, and the one person who can
+    /// know the download is not coming — the one who cancelled it — can stop
+    /// the wait from the row. See `stopWaiting(for:)`.
+    ///
+    /// The poll slows down rather than stopping: three seconds while the
+    /// download is plausibly short, fifteen after the first minute, so an
+    /// hour-long wait costs nothing worth counting.
     func watchForDownload(of code: String) {
         guard watchers[code] == nil, !installed.contains(code) else { return }
         downloading.insert(code)
@@ -205,14 +211,29 @@ nonisolated extension Locale.Language {
                 self?.downloading.remove(code)
                 self?.watchers[code] = nil
             }
-            for _ in 0..<60 {
-                try? await Task.sleep(for: .seconds(3))
+            var polls = 0
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(polls < 20 ? 3 : 15))
                 if Task.isCancelled { return }
                 guard let self else { return }
+                polls += 1
                 await self.refresh()
                 if self.installed.contains(code) { return }
             }
         }
+    }
+
+    /// Stops waiting for one language, at the user's word.
+    ///
+    /// It does not cancel anything: the download belongs to macOS and there is
+    /// no call to stop it. All this does is put the row back to offering an
+    /// install, for the case only the user can recognise — that the download
+    /// they started is not coming, because they called it off themselves.
+    func stopWaiting(for language: Locale.Language) {
+        let code = language.baseCode
+        watchers[code]?.cancel()
+        watchers[code] = nil
+        downloading.remove(code)
     }
 
     func isDownloading(_ language: Locale.Language) -> Bool {

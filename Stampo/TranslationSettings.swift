@@ -234,7 +234,21 @@ struct TranslationSettingsSection: View {
         // known. It replaces the Install button rather than sitting beside it:
         // pressing that button again while the download runs does nothing, and
         // a button that does nothing is the thing being fixed.
-        if model.isBusy(language) {
+        if languages.isDownloading(language) {
+            // The spinner is the control. Waiting has no end of its own — the
+            // pack lands or it does not — and the only one who can know it is
+            // not coming is whoever cancelled it in System Settings. So the
+            // way out is here, on the thing that is turning, rather than in a
+            // timer that would expire on a download still running.
+            Button {
+                languages.stopWaiting(for: language)
+            } label: {
+                ProgressView().controlSize(.small)
+            }
+            .buttonStyle(.plain)
+            .help("Stop waiting. The download macOS is running will not be cancelled.")
+        } else if model.isBusy(language) {
+            // The system sheet is up for this one: nothing to stop yet.
             ProgressView()
                 .controlSize(.small)
         } else if !languages.hasChecked {

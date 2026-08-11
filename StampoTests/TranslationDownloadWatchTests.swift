@@ -48,6 +48,23 @@ import Testing
         #expect(store.isDownloading(Locale.Language(identifier: "xb")))
     }
 
+    /// The wait has no clock of its own: a timer the user cannot see, expiring
+    /// on a download that is still running, turns the spinner back into the
+    /// button they already pressed and asks them to press it again. Only they
+    /// know when the download is not coming, so only they end the wait.
+    @Test func theWaitEndsWhenTheUserSaysSoAndNotOnATimer() async {
+        let store = TranslationLanguages.shared
+        defer { store.stopWatchingDownloads() }
+        let ghost = Locale.Language(identifier: "xd")
+
+        store.watchForDownload(of: "xd")
+        try? await Task.sleep(for: .milliseconds(200))
+        #expect(store.isDownloading(ghost), "still waiting: the pack has not landed")
+
+        store.stopWaiting(for: ghost)
+        #expect(!store.isDownloading(ghost))
+    }
+
     @Test func askingTwiceKeepsOneWatch() async {
         let store = TranslationLanguages.shared
         defer { store.stopWatchingDownloads() }

@@ -5135,6 +5135,23 @@
         }
       }
     },
+    "Stop waiting. The download macOS is running will not be cancelled." : {
+      "comment" : "Tooltip on the spinner while a language pack downloads",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stop waiting. The download macOS is running will not be cancelled."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Перестать ждать. Загрузку, которую ведёт macOS, это не отменит."
+          }
+        }
+      }
+    },
     "Strikethrough" : {
       "extractionState" : "stale",
       "localizations" : {
