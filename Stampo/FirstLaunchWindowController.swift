@@ -23,6 +23,18 @@ extension NSImage {
 
 // MARK: - Window Controller
 
+/// Esc closes the wizard, the way the title-bar button already does.
+///
+/// The usual route — `.keyboardShortcut(.cancelAction)` — has nowhere to go
+/// here: the only button on the closing step is the primary one, and it is
+/// already spoken for by `.defaultAction`. Taking `cancelOperation` on the
+/// window catches Esc wherever focus sits. It belongs on the window rather
+/// than the controller below, which is a plain NSObject and so is not in the
+/// responder chain at all.
+private final class FirstLaunchWindow: NSWindow {
+    override func cancelOperation(_ sender: Any?) { close() }
+}
+
 final class FirstLaunchWindowController: NSObject, NSWindowDelegate {
     static let shared = FirstLaunchWindowController()
     private var window: NSWindow?
@@ -45,7 +57,7 @@ final class FirstLaunchWindowController: NSObject, NSWindowDelegate {
         )
         hosting.sizingOptions = .preferredContentSize
 
-        let win = NSWindow(contentViewController: hosting)
+        let win = FirstLaunchWindow(contentViewController: hosting)
         win.styleMask = [.titled, .closable]
         win.title = LocaleManager.shared.string("Welcome to Stampo")
         win.titleVisibility = .hidden
@@ -111,42 +123,14 @@ final class FirstLaunchWindowController: NSObject, NSWindowDelegate {
     }
 
     private func centerWindow(_ window: NSWindow) {
-        let mouseLocation = NSEvent.mouseLocation
-        let targetScreen = NSScreen.screens.first {
-            NSMouseInRect(mouseLocation, $0.frame, false)
-        } ?? NSScreen.main ?? window.screen
-        guard let visibleFrame = targetScreen?.visibleFrame else {
-            window.center()
-            return
-        }
-
-        let frame = window.frame
-        let origin = NSPoint(
-            x: visibleFrame.midX - frame.width / 2,
-            y: visibleFrame.midY - frame.height / 2
-        )
-        window.setFrameOrigin(origin)
-        keepWindowVisible(window, within: visibleFrame)
+        window.centerOnPointerScreen()
     }
 
     private func keepWindowVisible(
         _ window: NSWindow,
         within explicitVisibleFrame: NSRect? = nil
     ) {
-        guard let visibleFrame = explicitVisibleFrame
-            ?? window.screen?.visibleFrame
-            ?? NSScreen.main?.visibleFrame
-        else { return }
-
-        var frame = window.frame
-        let maximumX = max(visibleFrame.minX, visibleFrame.maxX - frame.width)
-        let maximumY = max(visibleFrame.minY, visibleFrame.maxY - frame.height)
-        frame.origin.x = min(max(frame.minX, visibleFrame.minX), maximumX)
-        frame.origin.y = min(max(frame.minY, visibleFrame.minY), maximumY)
-
-        if frame.origin != window.frame.origin {
-            window.setFrameOrigin(frame.origin)
-        }
+        window.keepOnScreen(within: explicitVisibleFrame)
     }
 
     /// Relaunches the app: Screen Recording / Input Monitoring only take

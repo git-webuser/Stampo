@@ -15,13 +15,18 @@ struct ArchiveSettingsView: View {
                     title: "Maximum items",
                     description: "Older items are removed when the limit is reached — files on disk are not affected"
                 ) {
-                    HStack {
-                        Stepper(value: $trayMaxItems, in: 5...50, step: 5) { EmptyView() }
-                            .labelsHidden()
-                        Text("\(trayMaxItems)")
-                            .foregroundStyle(.secondary)
-                            .frame(width: 30, alignment: .trailing)
+                    // A pop-up rather than a stepper: the range is ten fixed
+                    // values, and a stepper made the far end nine clicks on an
+                    // arrow a few points tall. It also matches the other rows
+                    // in this pane, which are all pop-ups.
+                    Picker("Maximum items", selection: $trayMaxItems) {
+                        ForEach(Array(stride(from: 5, through: 50, by: 5)), id: \.self) { count in
+                            Text(verbatim: "\(count)").tag(count)
+                        }
                     }
+                    .pickerStyle(.menu)
+                    .labelsHidden()
+                    .fixedSize()
                 }
 
                 SettingRow(icon: "arrow.triangle.2.circlepath", title: "Persist between sessions") {
@@ -51,6 +56,15 @@ struct ArchiveSettingsView: View {
                     .pickerStyle(.menu)
                     .labelsHidden()
                 }
+            }
+
+            // MARK: Translation
+            //
+            // Filed under Archive because that is where translating happens
+            // today: a recognized-text entry becomes another entry. The row
+            // moves if translation ever grows entry points outside the archive.
+            Section("Translation") {
+                TranslationSettingsSection()
             }
         }
         .formStyle(.grouped)

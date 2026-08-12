@@ -1,4 +1,4 @@
-# Stampo
+<img src="assets/brand/banner.png" alt="Stampo — screenshots, scan, colors" width="812">
 
 Screenshot, text capture, and color picker for any Mac. The panel lives at the notch (or at the center of the menu bar on screens without one) — no Dock icon, minimal menu bar presence.
 
@@ -6,7 +6,7 @@ Screenshot, text capture, and color picker for any Mac. The panel lives at the n
 
 ## What is Stampo
 
-Stampo replaces the usual screenshot workflow with a panel that appears when you hover near the top of your screen. From the panel you can take area, window, or fullscreen screenshots, annotate them in the built-in editor, scan any region for text and QR/barcodes, pick colors, and browse your recent captures in the archive.
+Stampo replaces the usual screenshot workflow with a panel that opens when you click the notch. From the panel you can take area, window, or fullscreen screenshots, mark them up in the built-in editor, scan any region for text and QR/barcodes, pick colors, and browse your recent captures in the archive.
 
 ## Requirements
 
@@ -55,7 +55,9 @@ Clicking the notch and global hotkeys work without any permission — they use s
 
 ## How to use
 
-- **Hover** near the top center of your screen (at the notch) to open the panel.
+![The Stampo panel, open at the notch](assets/screenshots/panel-capture.png)
+
+- **Click the notch** (or the top center of the menu bar on screens without one) to open the panel. Click it again to close, or press `⌃⌥⌘N`.
 - **Click a capture mode** to start a screenshot, scan, or color pick.
 - **Click the archive icon** (stack icon) to browse recent captures.
 - All screenshots are saved to your chosen folder (default: `~/Pictures/Stampo`).
@@ -66,17 +68,42 @@ Select an area of the screen and Stampo reads it in a single pass: every QR/barc
 
 The recognized text comes back as paragraphs, not as the lines the original layout happened to wrap it into: a hyphen at a wrap is kept (so `кто-то` survives), a soft hyphen is dropped, and a blank line or a change of type size starts a new paragraph. Barcode payloads always stay on a line of their own.
 
-Hold **⌥ as you release the selection** to keep every line break instead — for the blocks where the breaks are the content, like verse, code, or one column of a table. The modifier is read when the selection ends, not when the overlay opens, so `⌃⌥⌘S` on its own doesn't trigger it.
+While the selection overlay is up, **⌥** and **⌃** switch what happens on release, and the frame says which mode is armed:
 
-## Annotation Editor
+- **⌥ — Keep line breaks.** An orange frame. Every break the original layout produced survives, for the blocks where the breaks are the content: verse, code, one column of a table.
+- **⌃ — Translate.** A blue frame. The recognized text is translated and added to the archive alongside the original. Barcode payloads are left alone.
+
+Both are toggles, not keys to hold: press once to arm, again to disarm. They are alternatives — arming one disarms the other, since translating rejoins the lines that ⌥ exists to keep. Pressing them is what counts, so releasing the `⌃⌥⌘S` chord that opened the overlay changes nothing.
+
+## Translate
+
+Recognized text can be translated on the spot, between English and Russian. The direction follows the text, so there is nothing to choose: Russian goes out to English, anything else comes in to Russian.
+
+Three ways in:
+
+- **Right-click a text entry in the archive → Translate.** The translation arrives as a new entry above it.
+- **`⌃⌥⌘T`** translates whatever text is on the clipboard — select anywhere, press `⌘C`, then the hotkey. The archive opens with the result.
+- **`⌃` while framing a scan** (see above), for text that cannot be selected at all: a picture, a PDF without a text layer, a video, another machine over VNC.
+
+The result is an ordinary archive entry: click to copy, drag out, share, remove. Text that is already in the target language is reported rather than filed, so the archive does not fill up with copies of itself.
+
+Translation runs entirely on your Mac, through the translator built into macOS. Nothing is uploaded — see [Privacy & Security](#privacy--security).
+
+### Language pack
+
+macOS ships no translation packs installed, and downloads them itself the first time one is needed. Open **Settings → Archive → Translation**: the row reports whether the pack is present and offers to install it, macOS asks for confirmation, and after that translation works offline and never asks again. Asking to translate without the pack tells you which language is missing and opens that setting.
+
+## Markup Editor
+
+![The editor with a screenshot marked up: a callout loupe magnifying a region, an arrow, a star, a text label, and freehand handwriting](assets/screenshots/editor.png)
 
 Click the post-capture thumbnail (or right-click a screenshot in the archive → **Edit**) to open the built-in editor: lines, arrows, rectangles, rounded rectangles, ovals, triangles, polygons, stars, speech bubbles, freehand drawing, numbered steps, text labels, loupes, and blur/pixelate regions, with full undo/redo (`⌘Z` / `⇧⌘Z`). Shapes live behind one toolbar button with a popover, as do the drawing brushes. The second toolbar row shows the settings for the active tool — colors, solid/dashed line styles, arrow route (straight, curved, or elbow) chosen independently of the stroke, arrowheads at the start, end, or both endpoints, text formatting (bold, italic, underline, strikethrough, shadow, a light/dark/none background plate, and left/center/right alignment), loupe shape and mode, and controls for line thickness, brush size, text size, marker size, fill opacity (0–100%), magnification, and blur/pixelate intensity. On narrow windows the toolbar buttons collapse from label to icon so nothing wraps.
 
 - **Save** (`⌘S`) always writes a **new file** to your save folder — the original screenshot is never modified — and the result appears in the archive.
-- **Copy** (`⌘C`) puts the annotated image on the clipboard at the original pixel resolution.
+- **Copy** (`⌘C`) puts the marked-up image on the clipboard at the original pixel resolution.
 - Rotate the whole image in 90° steps with the toolbar buttons.
 - **Crop** the image: drag a frame with corner/edge handles (or type an exact **W × H** in the toolbar), then **Apply** (**Return**) or **Cancel** (**Esc**). The frame shows a rule-of-thirds grid, nudges with the arrow keys (`⇧` 10 px, `⌥⇧` 50 px), rotates with the image, and stays within the picture; cropping is undoable.
-- **Share** hands the annotated image to the system share sheet — Mail, Messages, AirDrop, or anything else you have installed. It exports a real file named after the document in your configured format, and never saves: an unsaved edit stays unsaved.
+- **Share** hands the marked-up image to the system share sheet — Mail, Messages, AirDrop, or anything else you have installed. It exports a real file named after the document in your configured format, and never saves: an unsaved edit stays unsaved.
 - **Scan** a region: click the Scan button (next to Crop), drag over an area, and every QR/barcode payload and all readable text is copied to the clipboard and added to the archive. The **Line Breaks** control in the second toolbar row switches between paragraphs (the default) and the raw line-by-line text.
 - Hover any toolbar control for a tooltip describing it.
 - Double-click a text label or step marker to edit it; inside a text label, **Return** commits and **⇧Return** starts a new line. New step markers auto-number from the highest numeric label (labels can be any text, e.g. `1.1` or `4.12`).
@@ -102,8 +129,10 @@ Click the post-capture thumbnail (or right-click a screenshot in the archive →
 | Window screenshot | `⌃⌥⌘G` |
 | Pick color | `⌃⌥⌘C` |
 | Scan (text & codes) | `⌃⌥⌘S` |
-| Pin last screenshot | `⌃⌥⌘P` |
-| Collect files | `⌃⌥⌘T` |
+| Translate clipboard | `⌃⌥⌘T` |
+| Pin latest capture | `⌃⌥⌘L` |
+| Pin panel (collect files) | `⌃⌥⌘P` |
+| Share last item | `⌃⌥⌘D` |
 
 Every hotkey is fully customizable in **Settings → Hotkeys** — record a new combination, restore the default, or clear it to disable the action.
 
@@ -115,26 +144,37 @@ File names follow one of four presets, selectable in **Settings → Capture**: c
 
 ## Archive
 
-The archive shows recent screenshots, color swatches, and scanned text — and it's also a drop target for files.
+The archive shows recent screenshots, color swatches, and scanned or translated text — and it's also a drop target for files.
+
+![The archive: screenshots, color swatches, and scanned text side by side](assets/screenshots/panel-archive.png)
+
+Entries stay in the order they were captured, newest first, and the row scrolls once it fills up. The header switches the notation color swatches are copied in — HEX, RGB, HSL, HSB, or CMYK.
 
 - **Click** a screenshot to open it.
 - **Right-click** for options: Edit, Open, Pin to Screen, Show in Finder, Copy, Move to Trash.
-- **X button** (on hover) removes the item from the archive — the file is not deleted.
+- **X button** (on hover) removes the item from the archive — the file is not deleted. The same is on the right-click menu.
 - **Drag** a screenshot out of the archive to copy it anywhere.
 
 ### Collect files
 
 Drop files onto the open archive and they gather into a **stack** — a temporary pile you fill from several windows, then drag out all at once into a destination folder. Files are grouped by their source folder, so dropping from Downloads and Desktop makes two separate stacks, each labeled with its folder name. Drag a stack out to move everything it holds in one gesture; the stack clears once the files land. The archive keeps references to the originals, never copies, so nothing is duplicated on disk while they sit there.
 
-Press `⌃⌥⌘T` to open the archive straight into collect mode — the panel pins itself so it survives the mouse-down that starts a drag from another window; press it again to close.
+Press `⌃⌥⌘P` to open the archive straight into collect mode — the panel pins itself so it survives the mouse-down that starts a drag from another window; press it again to close.
 
 Every file in the archive shows a real preview, whatever it is: PDFs, videos, Pages documents and anything else macOS can render appear as their content rather than a generic document icon. Files with nothing to preview fall back to their file-type icon.
 
 ## Pin to Screen
 
-Keep a screenshot floating above all windows while you work — handy for copying data into another app or comparing against a reference. Right-click a screenshot in the archive or on the post-capture thumbnail → **Pin to Screen**, or press `⌃⌥⌘P` to pin the last capture.
+Keep a screenshot floating above all windows while you work — handy for copying data into another app or comparing against a reference. Right-click a screenshot in the archive or on the post-capture thumbnail → **Pin to Screen**, or press `⌃⌥⌘L` to pin the last capture.
 
 Pinned screenshots stay on top of everything, follow you across Spaces, and never steal focus. Drag a pin by its body to move it, resize it from the edges (proportions are kept), and close it with the **X** button, a **double-click**, or **Esc** while hovering it. Right-click a pin for Copy, Edit, Show in Finder, Unpin, or Close All Pins.
+
+## Accessibility
+
+- **The shortcut recorder** works from the keyboard. Tab to it, press Space or Return to arm it, type the combination, or press Esc to back out. (Tab reaches it once **System Settings → Keyboard → Keyboard navigation** is on, as with any non-text control on macOS.)
+- **Increase Contrast** (System Settings → Accessibility → Display) is honoured: the panel's hover, pressed and active states come back stronger instead of separating by a few percent of alpha.
+- **Esc** closes the welcome window, and cancels the panel, the colour picker, a capture overlay or a hovered pin.
+- Not there yet: **VoiceOver** support, **Reduce Motion**, and walking the editor's toolbar with Tab — its buttons answer to their own shortcuts instead (V, L, A, R, O, T, P, E, B, S, M, plus `⌘Z`, `⌘±`, `⌘0`).
 
 ## Known Limitations
 
@@ -143,7 +183,7 @@ Pinned screenshots stay on top of everything, follow you across Spaces, and neve
 
 ## Privacy & Security
 
-Stampo does not upload screenshots, sampled colors, or any other data.
+Stampo does not upload screenshots, sampled colors, or any other data. The full account — including how to report a vulnerability — is in [SECURITY.md](SECURITY.md).
 
 - **One optional network request**: once a day Stampo asks the GitHub API
   for the latest release version to offer an update notification. It sends
@@ -153,6 +193,11 @@ Stampo does not upload screenshots, sampled colors, or any other data.
   Stampo writes the image to a temporary file and hands it to the macOS
   service you pick from the sheet. Whatever that service then does with it is
   between you and that app — Stampo itself sends nothing.
+- **Translation is on-device.** It uses the translator built into macOS, with
+  a language pack downloaded once by the system. The text being translated
+  never leaves your Mac, and no translation service is contacted — which is
+  also why Stampo translates between English and Russian only, rather than
+  everything a cloud API would offer.
 - No analytics or telemetry.
 - No crash reporting.
 - All captures stay on your Mac.
@@ -186,4 +231,4 @@ MIT License. See [LICENSE](LICENSE).
 
 ---
 
-*Stampo 0.7.2 — for macOS 15.7+*
+*Stampo 0.8.0 — for macOS 15.7+*

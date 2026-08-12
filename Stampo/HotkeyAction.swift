@@ -34,6 +34,7 @@ enum HotkeyAction: UInt32, CaseIterable {
     case pinLastCapture = 8
     case collectFiles = 9
     case shareLastItem = 10
+    case translateClipboard = 11
 
     /// Settings grouping. Nine editable shortcuts in one flat list stopped
     /// being scannable; the split follows what the action does rather than
@@ -45,18 +46,24 @@ enum HotkeyAction: UInt32, CaseIterable {
             return .panel
         case .selection, .fullscreen, .window:
             return .capture
-        case .color, .scan:
+        case .color, .scan, .translateClipboard:
             return .tools
         }
     }
 
-    /// Extra modifier the action honors, described for the settings row. Only
-    /// behaviour the user cannot discover from the shortcut itself belongs
-    /// here — nil for actions that do exactly one thing.
-    var modifierHintKey: String? {
+    /// A second line for the settings row: whatever the shortcut does that
+    /// pressing it would not reveal. Modifiers it honours, or — for Translate —
+    /// what it expects to already be there. Nil for actions that do exactly one
+    /// thing to something already on screen.
+    var hintKey: String? {
         switch self {
         case .scan:
-            return "Hold ⌥ to keep line breaks"
+            return "Press ⌥ to keep line breaks, ⌃ to translate"
+        case .translateClipboard:
+            // The one shortcut with a prerequisite. Pressed on its own it can
+            // only report an empty clipboard, and a shortcut that answers "no"
+            // until you know its unwritten half is a shortcut nobody keeps.
+            return "Translates text copied with ⌘C"
         default:
             return nil
         }
@@ -71,9 +78,13 @@ enum HotkeyAction: UInt32, CaseIterable {
         case .window:      return "Window Screenshot"
         case .color:       return "Pick Color"
         case .scan:        return "Scan"
-        case .pinLastCapture: return "Pin Last Screenshot"
+        case .pinLastCapture: return "Pin Latest Capture"
+        // Named for what it does, not for the flow it was added for: the
+        // hotkey opens the archive pinned, which is the same state as the
+        // pin button in the archive header.
         case .collectFiles: return "Pin Panel"
         case .shareLastItem: return "Share Last Item"
+        case .translateClipboard: return "Translate"
         }
     }
 
@@ -86,9 +97,15 @@ enum HotkeyAction: UInt32, CaseIterable {
         case .window:      return "macwindow"
         case .color:       return "eyedropper"
         case .scan:        return "doc.viewfinder"
-        case .pinLastCapture: return "pin"
-        case .collectFiles: return "arrow.down.document"
+        // Two different pins, told apart by shape rather than by a detail:
+        // bare `pin` is the panel everywhere in the app (the archive header
+        // button this hotkey presses), so the floating capture takes the
+        // picture-over-a-surface glyph instead. At 14pt in a settings list,
+        // `pin` against `pin.circle` two rows apart is no difference at all.
+        case .pinLastCapture: return "inset.filled.topright.rectangle"
+        case .collectFiles: return "pin"
         case .shareLastItem: return "square.and.arrow.up"
+        case .translateClipboard: return "translate"
         }
     }
 
@@ -103,11 +120,15 @@ enum HotkeyAction: UInt32, CaseIterable {
         case .window:      key = kVK_ANSI_G
         case .color:       key = kVK_ANSI_C
         case .scan:        key = kVK_ANSI_S
-        case .pinLastCapture: key = kVK_ANSI_P
-        case .collectFiles: key = kVK_ANSI_T
-        // S (Scan) and P (Pin) are taken; D is free and unreserved by macOS
-        // under ⌃⌥⌘.
+        // L for "latest"; P went to the panel pin, which is what the word
+        // means everywhere else in the app.
+        case .pinLastCapture: key = kVK_ANSI_L
+        case .collectFiles: key = kVK_ANSI_P
+        // S (Scan) is taken; D is free and unreserved by macOS under ⌃⌥⌘.
         case .shareLastItem: key = kVK_ANSI_D
+        // T was the retired Capture Text action, so the muscle memory it
+        // carries is "text" — which is what this one operates on.
+        case .translateClipboard: key = kVK_ANSI_T
         }
         return HotkeyCombo(keyCode: UInt16(key), carbonModifiers: mods)
     }
@@ -132,6 +153,8 @@ enum HotkeyAction: UInt32, CaseIterable {
         // Storage key predates the rename from "Share Last Screenshot"; only
         // pre-migration installs ever read it, so it stays as written.
         case .shareLastItem: return "hotkeyShareLastCaptureEnabled"
+        // Added long after the combo migration; nothing ever wrote this.
+        case .translateClipboard: return "hotkeyTranslateClipboardEnabled"
         }
     }
 
@@ -233,6 +256,98 @@ enum HotkeyAction: UInt32, CaseIterable {
         }
         if scanCombo == nil && ocrStored.combo != nil {
             storeScan(HotkeyAction.scan.defaultCombo)
+        }
+    }
+
+    // MARK: - Pin reshuffle
+
+    private static let pinReshuffleKey = "hotkeysReshuffledPins"
+
+    /// One-time move of two defaults, freeing ⌃⌥⌘T for Translate:
+    ///
+    ///     Pin Latest Capture   ⌃⌥⌘P → ⌃⌥⌘L
+    ///     Pin Panel            ⌃⌥⌘T → ⌃⌥⌘P
+    ///
+    /// Users who never touched their shortcuts need nothing done: `combo`
+    /// falls back to `defaultCombo`, so a changed default reaches them on its
+    /// own. This exists for the ones who do have something stored — where the
+    /// rule is that an explicit choice always outranks a factory one.
+    ///
+    /// The hazard worth the whole function is that two actions can end up on
+    /// one combo. `HotkeyValidator` rejects duplicates while recording, but it
+    /// never inspects what is already in storage, and Carbon simply refuses the
+    /// second registration — so a collision here would silently kill one of the
+    /// two shortcuts with nothing in the UI to explain it. The plan is
+    /// therefore resolved in full before a single value is written, and a
+    /// loser is disabled outright: an empty row in Settings is something the
+    /// user can see and fix, a shadowed one is not.
+    ///
+    /// `defaults` is injectable for tests only.
+    static func migratePinReshuffleIfNeeded(defaults: UserDefaults = .standard) {
+        guard !defaults.bool(forKey: pinReshuffleKey) else { return }
+        defaults.set(true, forKey: pinReshuffleKey)
+
+        let mods = UInt32(controlKey | optionKey | cmdKey)
+        func legacy(_ key: Int) -> HotkeyCombo {
+            HotkeyCombo(keyCode: UInt16(key), carbonModifiers: mods)
+        }
+        let moves: [(action: HotkeyAction, from: HotkeyCombo)] = [
+            (.pinLastCapture, legacy(kVK_ANSI_P)),
+            (.collectFiles,   legacy(kVK_ANSI_T)),
+        ]
+
+        func stored(_ action: HotkeyAction) -> Stored? {
+            guard let data = defaults.data(forKey: action.storageKey) else { return nil }
+            return try? JSONDecoder().decode(Stored.self, from: data)
+        }
+
+        // Where every action stands before anything moves. An action with
+        // nothing stored is already following the new default.
+        var enabled: [HotkeyAction: HotkeyCombo] = [:]
+        for action in allCases {
+            if let box = stored(action) {
+                if let combo = box.combo { enabled[action] = combo }
+            } else {
+                enabled[action] = action.defaultCombo
+            }
+        }
+
+        // The moves themselves: only an action still sitting on its old
+        // factory combo follows. Anything the user chose stays put.
+        for move in moves where enabled[move.action] == move.from {
+            guard stored(move.action) != nil else { continue }
+            enabled[move.action] = move.action.defaultCombo
+        }
+
+        // Resolve collisions. Deterministic order, and an explicitly stored
+        // combo beats one that is merely the factory value.
+        var claimed: [HotkeyCombo: HotkeyAction] = [:]
+        for action in allCases.sorted(by: { $0.rawValue < $1.rawValue }) {
+            guard let combo = enabled[action] else { continue }
+            guard let holder = claimed[combo] else {
+                claimed[combo] = action
+                continue
+            }
+            let holderChosen = stored(holder)?.combo != nil
+            let actionChosen = stored(action)?.combo != nil
+            if actionChosen && !holderChosen {
+                enabled[holder] = nil
+                claimed[combo] = action
+            } else {
+                enabled[action] = nil
+            }
+        }
+
+        // Write only what actually differs from what storage already says, so
+        // actions left at their factory value keep following future defaults
+        // instead of being frozen by this migration.
+        for action in allCases {
+            let resolved = enabled[action]
+            let current: HotkeyCombo? = stored(action).map(\.combo) ?? action.defaultCombo
+            guard resolved != current else { continue }
+            if let data = try? JSONEncoder().encode(Stored(combo: resolved)) {
+                defaults.set(data, forKey: action.storageKey)
+            }
         }
     }
 }

@@ -162,17 +162,28 @@ final class ColorSampler {
         }
         switch event.keyCode {
         case KeyCode.escape: cancel()
+        // F for Format, and ⇥ because that is what the scan overlay cycles its
+        // language with — one gesture for "show me the next one" across both
+        // overlays. F stays: it is the one people already have, and it is what
+        // the settings row has always shown.
         case KeyCode.f where AppSettings.hotkeyHUDFormatEnabled:
-            let all = HUDColorFormat.allCases
-            if let idx = all.firstIndex(of: format) {
-                format = all[(idx + 1) % all.count]
-                onColorChanged?(lastColor, NSEvent.mouseLocation, nil)
-            }
+            cycleFormat()
+        case KeyCode.tab where AppSettings.hotkeyHUDFormatEnabled
+            && event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+                .isDisjoint(with: [.command, .option, .control]):
+            // Having claimed Tab, ⇧⇥ has to walk back — five formats is enough
+            // that overshooting the one you wanted is a real annoyance.
+            cycleFormat(backwards: event.modifierFlags.contains(.shift))
         default: break
         }
     }
 
 
+
+    private func cycleFormat(backwards: Bool = false) {
+        format = nextCase(after: format, backwards: backwards)
+        onColorChanged?(lastColor, NSEvent.mouseLocation, nil)
+    }
 
     private func confirm() {
         let color = lastColor

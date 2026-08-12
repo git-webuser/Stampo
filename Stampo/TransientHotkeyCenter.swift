@@ -37,9 +37,20 @@ final class TransientHotkeyCenter {
     static let selectAll = TransientHotkeyCenter(keyCode: UInt32(kVK_ANSI_A),
                                                  modifiers: UInt32(cmdKey),
                                                  signature: 0x5354_5341 /* 'STSA' */, id: 1)
+    /// Cycles whatever the open panel's header offers — the colour format in
+    /// the archive, the language in the translator. Pushed only while the
+    /// pointer is on the panel, for the reason Space is: a claimed key is
+    /// claimed for every app on the machine, and a pinned panel would
+    /// otherwise eat Tab in the editor the user is actually typing in.
+    static let tab = TransientHotkeyCenter(keyCode: UInt32(kVK_Tab),
+                                           signature: 0x5354_4359 /* 'STCY' */, id: 1)
+    /// The same, backwards. Its own registration because a Carbon hotkey
+    /// matches one exact set of modifiers — bare Tab does not fire for ⇧⇥.
+    static let shiftTab = TransientHotkeyCenter(keyCode: UInt32(kVK_Tab),
+                                                modifiers: UInt32(shiftKey),
+                                                signature: 0x5354_4342 /* 'STCB' */, id: 1)
 
     private let keyCode: UInt32
-    /// Carbon modifier mask; 0 for a bare key, which the first two users are.
     private let modifiers: UInt32
     private let signature: UInt32
     private let hotKeyIdentifier: UInt32

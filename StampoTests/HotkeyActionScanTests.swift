@@ -53,12 +53,18 @@ import Testing
         #expect(keys == ["Panel and Archive", "Screen Capture", "Tools"])
     }
 
-    /// Scan is the one action whose behaviour changes under a modifier; the
-    /// row subtitle is where that gets documented.
-    @Test func onlyScanCarriesAModifierHint() {
-        #expect(HotkeyAction.scan.modifierHintKey == "Hold ⌥ to keep line breaks")
-        let withHints = HotkeyAction.allCases.filter { $0.modifierHintKey != nil }
-        #expect(withHints == [.scan])
+    /// Two actions do something the shortcut alone does not say, and the row
+    /// subtitle is the only place either is written down.
+    @Test func hintsAreCarriedByTheActionsThatNeedThem() {
+        // Both modifiers: a key held during a drag leaves no trace anywhere
+        // else in the interface.
+        #expect(HotkeyAction.scan.hintKey == "Press ⌥ to keep line breaks, ⌃ to translate")
+        // The prerequisite: pressed with an empty clipboard this shortcut can
+        // only say no, and its other half — ⌘C — happens in another app.
+        #expect(HotkeyAction.translateClipboard.hintKey == "Translates text copied with ⌘C")
+
+        let withHints = Set(HotkeyAction.allCases.filter { $0.hintKey != nil })
+        #expect(withHints == [.scan, .translateClipboard])
     }
 }
 

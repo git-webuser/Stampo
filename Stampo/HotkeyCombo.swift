@@ -58,11 +58,50 @@ struct HotkeyCombo: Codable, Equatable, Hashable {
     /// Single-string form for compact display (e.g. menus): `⌃⌥⌘N`.
     var displayString: String { displayCaps.joined() }
 
+    /// Spoken form for VoiceOver: `Control Option Command N`. The glyphs the
+    /// caps are drawn from have no useful pronunciation — ⌘ is read as its
+    /// Unicode name, "place of interest sign" — so the modifiers are named and
+    /// the punctuation keys spelled out. The names stay in Latin on purpose:
+    /// that is how the keys are labelled on the hardware in every locale.
+    var spokenDescription: String {
+        var parts: [String] = []
+        if hasControl { parts.append("Control") }
+        if hasOption  { parts.append("Option") }
+        if hasShift   { parts.append("Shift") }
+        if hasCommand { parts.append("Command") }
+        parts.append(Self.spokenKeyLabel(for: keyCode))
+        return parts.joined(separator: " ")
+    }
+
     /// Human-readable label for a virtual key code.
     static func keyLabel(for code: UInt16) -> String {
         if let named = namedKeys[code] { return named }
         return "?"
     }
+
+    /// `keyLabel`, with the glyph-only keys replaced by their names.
+    static func spokenKeyLabel(for code: UInt16) -> String {
+        if let spoken = spokenKeys[code] { return spoken }
+        return keyLabel(for: code)
+    }
+
+    /// Names for the keys `namedKeys` draws as a glyph. Letters, digits and
+    /// F-keys already read correctly and are left out.
+    private static let spokenKeys: [UInt16: String] = [
+        UInt16(kVK_ANSI_Minus): "Minus", UInt16(kVK_ANSI_Equal): "Equals",
+        UInt16(kVK_ANSI_LeftBracket): "Left Bracket",
+        UInt16(kVK_ANSI_RightBracket): "Right Bracket",
+        UInt16(kVK_ANSI_Backslash): "Backslash", UInt16(kVK_ANSI_Semicolon): "Semicolon",
+        UInt16(kVK_ANSI_Quote): "Quote", UInt16(kVK_ANSI_Comma): "Comma",
+        UInt16(kVK_ANSI_Period): "Period", UInt16(kVK_ANSI_Slash): "Slash",
+        UInt16(kVK_ANSI_Grave): "Backtick",
+        UInt16(kVK_Return): "Return", UInt16(kVK_Tab): "Tab", UInt16(kVK_Space): "Space",
+        UInt16(kVK_Delete): "Delete", UInt16(kVK_ForwardDelete): "Forward Delete",
+        UInt16(kVK_Escape): "Escape", UInt16(kVK_Home): "Home", UInt16(kVK_End): "End",
+        UInt16(kVK_PageUp): "Page Up", UInt16(kVK_PageDown): "Page Down",
+        UInt16(kVK_LeftArrow): "Left Arrow", UInt16(kVK_RightArrow): "Right Arrow",
+        UInt16(kVK_UpArrow): "Up Arrow", UInt16(kVK_DownArrow): "Down Arrow",
+    ]
 
     /// Virtual-key-code → display label for keys a user can bind.
     private static let namedKeys: [UInt16: String] = {

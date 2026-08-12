@@ -22,6 +22,7 @@ enum MenuIcon: String {
     case unpinAll = "rectangle.on.rectangle.slash"
     case finder   = "folder"
     case copy     = "doc.on.doc"
+    case translate = "translate"
     case share    = "square.and.arrow.up"
     /// The glyph the archive's inline CollapseButton already shows, so the menu
     /// row and the button on screen read as one command.

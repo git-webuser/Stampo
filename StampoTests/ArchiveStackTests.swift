@@ -185,20 +185,26 @@ import Testing
     }
 }
 
-// MARK: - Pin Panel hotkey metadata
+// MARK: - Collect Files hotkey metadata
 
-@Suite struct PinPanelHotkeyTests {
+@Suite struct CollectFilesHotkeyTests {
 
-    /// The row is named for what the action does — it pins the panel open —
-    /// rather than for the flow it enables (collecting files).
+    /// The row is named for the flow it enables, not for the mechanism. It was
+    /// "Pin Panel" — named for what the keystroke literally does — until that
+    /// turned out to disagree with everything around it: the icon draws files
+    /// Renamed from Collect files: the action opens the archive pinned, which
+    /// is the same state as the pin button in the archive header, and it now
+    /// carries that button's glyph and wording. "Pin" no longer clashes with
+    /// the row above — floating a capture above all windows took a distinct
+    /// glyph precisely so these two stopped looking alike at 14pt.
     @Test func pinPanelRowMetadataIsFilledIn() {
         #expect(HotkeyAction.collectFiles.rawValue == 9)
         #expect(HotkeyAction.collectFiles.labelKey == "Pin Panel")
-        #expect(HotkeyAction.collectFiles.icon == "arrow.down.document")
-        #expect(HotkeyAction.collectFiles.defaultCombo.displayString == "⌃⌥⌘T")
+        #expect(HotkeyAction.collectFiles.icon == "pin")
+        #expect(HotkeyAction.collectFiles.defaultCombo.displayString == "⌃⌥⌘P")
     }
 
-    @Test func pinPanelDefaultComboIsNotSystemReserved() {
+    @Test func collectFilesDefaultComboIsNotSystemReserved() {
         let result = HotkeyValidator.validate(
             HotkeyAction.collectFiles.defaultCombo, for: .collectFiles)
         #expect(result != .systemReserved)

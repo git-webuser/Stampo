@@ -298,6 +298,19 @@ struct EditorView: View {
     private let colorNames: [String] =
         ["Red", "Orange", "Yellow", "Green", "Blue", "Black", "White"]
 
+    /// Which swatch is ringed: the selected annotation's own colour, falling
+    /// back to the tool's.
+    ///
+    /// Reading straight from `style` showed the tool's colour over a selection
+    /// painted in another one — a red shape under a ring on blue, and a first
+    /// click on blue that appeared to do nothing because the ring was already
+    /// there. Every other control in this bar already resolves through the
+    /// selection this way (see `lineWidthBinding` and friends); this one was
+    /// the exception.
+    private var activeColor: AnnotationColor {
+        document.selectedAnnotation?.color ?? style.color
+    }
+
     private var colorSwatches: some View {
         HStack(spacing: 5) {
             ForEach(Array(AnnotationColor.presets.enumerated()), id: \.offset) { index, preset in
@@ -309,7 +322,7 @@ struct EditorView: View {
                         .fill(Color(nsColor: preset.nsColor))
                         .overlay(Circle().strokeBorder(.quaternary, lineWidth: 1))
                         .overlay {
-                            if style.color == preset {
+                            if activeColor == preset {
                                 Circle().strokeBorder(Color.accentColor, lineWidth: 2).padding(-3)
                             }
                         }
@@ -317,6 +330,9 @@ struct EditorView: View {
                 }
                 .buttonStyle(.plain)
                 .hoverTip(colorNames[index])
+                // The accent ring is the only thing marking the current
+                // colour, and a ring is not a thing VoiceOver reads.
+                .accessibilityAddTraits(activeColor == preset ? [.isButton, .isSelected] : .isButton)
             }
         }
         .accessibilityLabel("Color")

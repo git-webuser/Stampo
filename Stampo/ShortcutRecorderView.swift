@@ -15,7 +15,7 @@ private struct Shake: GeometryEffect {
 
 // MARK: - ShortcutRecorderView
 
-/// Click-to-record shortcut field, styled with the app's key caps.
+/// Click- or key-to-record shortcut field, styled with the app's key caps.
 /// Inspired by Snapzy's ShortcutRecorderView (BSD 3-Clause), rebuilt on
 /// Stampo's KeyCapView and HotkeyValidator.
 struct ShortcutRecorderView: View {
@@ -29,6 +29,17 @@ struct ShortcutRecorderView: View {
     @State private var shake: CGFloat = 0
     @State private var monitor: Any?
     @State private var clickMonitor: Any?
+    @FocusState private var isFocused: Bool
+    /// Whether the field takes keyboard focus at all.
+    ///
+    /// `.focusable()` on its own ignores the system setting, and SwiftUI hands
+    /// initial focus to the first focusable view as soon as the window becomes
+    /// key — so an unconditionally focusable field lit its ring on the first
+    /// row of Settings with the setting off and no key ever pressed. Gated on
+    /// the setting, the field behaves like every other non-text control on
+    /// macOS: reachable by Tab when the user has asked for that, inert when
+    /// they have not.
+    @State private var keyboardAccess = NSApp.isFullKeyboardAccessEnabled
 
     /// Field width measured while the × button is present. When the shortcut is
     /// cleared the × disappears, so the field grows to (this + gap + ×) and the
@@ -53,6 +64,10 @@ struct ShortcutRecorderView: View {
                     }
                     .buttonStyle(.plain)
                     .help(Text("Remove shortcut"))
+                    // The glyph is the whole label, so it is also the whole
+                    // thing VoiceOver has to go on: unnamed it reads out as
+                    // "xmark circle fill".
+                    .accessibilityLabel(Text("Remove shortcut"))
                 }
             }
 
@@ -102,7 +117,61 @@ struct ShortcutRecorderView: View {
         )
         .modifier(Shake(animatableData: shake))
 
-        content.onTapGesture { toggleRecording() }
+        content
+            // No `isFocused = true` here: on macOS a click does not give a
+            // non-text control keyboard focus, and forcing it lit the ring for
+            // a pointer user who never asked for one.
+            .onTapGesture { toggleRecording() }
+            // No hand-drawn focus ring, and nothing disabling the system's.
+            // The drawn one lit up the moment the window became key — SwiftUI
+            // gives initial focus to the first focusable view — and then never
+            // went out, because on macOS nothing takes keyboard focus away
+            // from a control until the keyboard moves it. Photographed with
+            // the ring removed and the system effect left alone: opening the
+            // pane draws no ring at all, which is the behaviour asked for.
+            .focusable(keyboardAccess)
+            .focused($isFocused)
+            // Space and Return arm the field; from there the local monitor
+            // owns the keyboard, so Escape — which it already handles — is
+            // what backs out. Both keys are swallowed while recording, so
+            // there is no second meaning to disambiguate here.
+            .onKeyPress(.space) { toggleRecording(); return .handled }
+            .onKeyPress(.return) { toggleRecording(); return .handled }
+            // Tabbing away has to disarm: the monitor is global to the app and
+            // would otherwise keep swallowing keys for a field the user left.
+            .onChange(of: isFocused) { _, focused in
+                if !focused { stopRecording() }
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(accessibilityLabelText)
+            .accessibilityValue(accessibilityValueText)
+            .accessibilityHint(Text("Press Space to record a shortcut, Escape to cancel"))
+            .accessibilityAddTraits(.isButton)
+            // The setting is flipped in System Settings, so the app hears about
+            // it on the way back — the same trigger GeneralSettingsView uses to
+            // re-read the Screen Recording grant.
+            .onReceive(NotificationCenter.default.publisher(
+                for: NSApplication.didBecomeActiveNotification
+            )) { _ in
+                keyboardAccess = NSApp.isFullKeyboardAccessEnabled
+            }
+    }
+
+    /// The row's own title is not part of this control, and until SettingRow
+    /// groups itself for VoiceOver the field is announced on its own — so it
+    /// names the action it binds.
+    private var accessibilityLabelText: Text {
+        // Through LocaleManager, not `String(localized:)`: the latter reads the
+        // process locale and would keep announcing the English action name
+        // while the row beside it is drawn in the language chosen in Settings.
+        let name = LocaleManager.shared.string(action.labelKey)
+        return Text("\(name) shortcut")
+    }
+
+    private var accessibilityValueText: Text {
+        if isRecording { return Text("Press keys…") }
+        if let combo { return Text(combo.spokenDescription) }
+        return Text("None")
     }
 
     /// Remember the field width only while the × is showing — that's the size to

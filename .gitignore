@@ -25,7 +25,13 @@ build/
 Pods/
 
 # Docs (local documentation, not tracked)
-Docs/
+# The contents rather than the directory: git does not descend into an
+# ignored directory, so `Docs/` would make the exceptions below unreachable.
+Docs/*
+# …except the two that are about the project rather than about one machine:
+# what is parked and why, and how to check the accessibility work by hand.
+!Docs/backlog.md
+!Docs/a11y-checklist-2026-08.md
 
 # Claude Code local state. Machine-specific: settings.local.json holds absolute
 # paths, and these were previously ignored only via a global ~/.config/git

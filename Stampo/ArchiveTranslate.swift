@@ -1,0 +1,218 @@
+import AppKit
+import SwiftUI
+
+/// Translating an archive text entry into another archive text entry.
+///
+/// Translation produces a new entry rather than replacing the old one, and the
+/// result is an ordinary `ArchiveText`: it copies on tap, drags out, shares,
+/// and is removed like any other. Nothing about the archive learns that
+/// translation exists — which is the whole reason this fits in one file.
+enum ArchiveTranslate {
+
+    /// One HUD for every translation, mirroring `AirDropSender`: the toast is
+    /// a transient screen-level thing with no owner in the view tree, and a
+    /// per-cell instance would go away with the cell that started the work.
+    @MainActor private static let feedbackHUD = TextCaptureHUD()
+
+    /// Lets the translator's own surfaces reach the same toast the archive
+    /// path uses, so one outcome never gets two voices.
+    static func report(_ outcome: TextCaptureHUD.Outcome, on screen: NSScreen?) {
+        feedbackHUD.show(outcome, on: screen)
+    }
+
+    /// Translates `text` and files the result at the top of the archive.
+    ///
+    /// Nobody chose a target, so the app reads one: the source off the text,
+    /// the destination off the user's setting. Every failure ends in the HUD
+    /// rather than silently: the user asked for something visible to happen,
+    /// so something visible has to happen even when it could not.
+    static func run(_ text: String,
+                    archiveModel: NotchArchiveModel,
+                    on screen: NSScreen?) {
+        let languages = TranslationLanguages.shared
+        guard !offerSetupIfUnavailable(languages) else { return }
+        run(text,
+            route: TranslationService.automaticRoute(from: TranslationService.detect(text),
+                                                     destination: languages.destination,
+                                                     favourites: languages.favourites),
+            chosen: false,
+            archiveModel: archiveModel, on: screen)
+    }
+
+    /// The same work for a language the user picked by hand, from a menu. The
+    /// direction is not second-guessed here — an explicit pick is answered as
+    /// asked or refused, never reversed.
+    ///
+    /// `nil` means nobody picked anything after all, which is what the scan
+    /// overlay hands over when ⇥ was never pressed.
+    static func run(_ text: String,
+                    to target: Locale.Language?,
+                    archiveModel: NotchArchiveModel,
+                    on screen: NSScreen?) {
+        guard let target else {
+            run(text, archiveModel: archiveModel, on: screen)
+            return
+        }
+        guard !offerSetupIfUnavailable(TranslationLanguages.shared) else { return }
+        run(text,
+            route: TranslationService.route(from: TranslationService.detect(text), to: target),
+            chosen: true,
+            archiveModel: archiveModel, on: screen)
+    }
+
+    /// Opens the setup window instead of translating, when there is nothing to
+    /// translate with. Returns true when it did, meaning the caller is done.
+    ///
+    /// Asked before the text is even read, because "which language is this"
+    /// cannot be answered on a machine with no packs: detection ranks against
+    /// the installed set, so a fresh Mac answered `.unknown` and the user was
+    /// told the language could not be recognized — blaming their text for the
+    /// app never having been set up. Nothing ships installed, so this is every
+    /// user's first translation.
+    private static func offerSetupIfUnavailable(_ languages: TranslationLanguages) -> Bool {
+        guard !languages.canTranslate else { return false }
+        // Same duty as the refusals below, and it was missed here first: this
+        // returns before reaching them, so a panel dimmed in anticipation of
+        // the next language would have stayed dimmed behind the window. It is
+        // reachable — the packs can be removed in System Settings while the
+        // Translator is open, and the ⇥ that follows lands right here.
+        TranslationPanelModel.shared.endRework()
+        TranslationSetupWindowController.shared.show()
+        return true
+    }
+
+    /// Turns a route into either work or the one thing worth saying about why
+    /// there is none.
+    private static func run(_ text: String,
+                            route: TranslationRoute,
+                            chosen: Bool,
+                            archiveModel: NotchArchiveModel,
+                            on screen: NSScreen?) {
+        guard case .translate(let pair) = route else {
+            // Nothing is going to run, and the callers that dim the panel body
+            // before asking cannot know that. `beginRework()` is normally
+            // undone by `.translationDidEnd`, which is posted around the work
+            // itself — so a route that produces no work left the body dimmed
+            // for good, and ⇥ dead behind its own `!isReworking` guard.
+            //
+            // Cleared here rather than at each caller because this is the only
+            // place that knows the answer, and the next caller to dim the panel
+            // will be just as unable to tell.
+            TranslationPanelModel.shared.endRework()
+            report(route, chosen: chosen, for: text, on: screen)
+            return
+        }
+        run(text, pair: pair, archiveModel: archiveModel, on: screen)
+    }
+
+    /// The one thing worth saying about why there is no translation.
+    private static func report(_ route: TranslationRoute,
+                               chosen: Bool,
+                               for text: String,
+                               on screen: NSScreen?) {
+        switch route {
+        case .translate:
+            // Handled by the caller; here only because the switch is total.
+            break
+        case .alreadyThere where !chosen:
+            // Nobody named a language, and the text is already in the one this
+            // would have sent it to. A toast here was a dead end: it named the
+            // problem and offered no way out, so text in the primary language
+            // simply could not be translated at all from the hotkey.
+            //
+            // So the panel opens on it instead, where the header menu lists
+            // every language and ⇥ steps them. The refusal becomes the
+            // question it was standing in for — where should this go?
+            NotificationCenter.default.post(name: .requestTranslatePreview, object: text)
+        case .alreadyThere:
+            // A language picked by hand, over text already in it. The menu is
+            // already open in front of the user with the tick on the item they
+            // just pressed, so there is nothing to offer them that they are not
+            // already looking at.
+            report(.translationUnchanged, on: screen)
+        case .sourceMissing(let language):
+            // The most useful thing the feature does: the app has read the
+            // text and named the language, and the only thing missing is a
+            // download. The toast carries the name — the window has no way to
+            // say "German" — and the window is where it gets added.
+            feedbackHUD.show(
+                .translationPackMissing(language: TranslationService.displayName(language)),
+                on: screen)
+            TranslationSetupWindowController.shared.show()
+        case .unknownSource:
+            report(.translationFailed, on: screen)
+        }
+    }
+
+    /// The settings window is the only surface that can install a pack: the
+    /// system sheet needs a real window to attach to, and from the borderless
+    /// panel `prepareTranslation()` returns having shown nothing.
+    private static func openTranslationSettings() {
+        NotificationCenter.default.post(
+            name: .requestOpenSettings,
+            object: nil,
+            userInfo: [SettingsWindowController.tabUserInfoKey: SettingsTab.archive.rawValue]
+        )
+    }
+
+    private static func run(_ text: String,
+                            pair: TranslationPair,
+                            archiveModel: NotchArchiveModel,
+                            on screen: NSScreen?) {
+        NotificationCenter.default.post(name: .translationDidStart, object: nil)
+
+        Task { @MainActor in
+            // Balanced whatever happens below, including the throws.
+            defer { NotificationCenter.default.post(name: .translationDidEnd, object: nil) }
+            do {
+                let translated = try await TranslationService.shared.translate(
+                    text, from: pair.source, to: pair.target)
+
+                // Nothing to file. Worth saying out loud: `add(text:)`
+                // deduplicates on the exact string, so filing this would
+                // delete the original entry and re-insert it at the top —
+                // reading, from the outside, as a cell that jumped for no
+                // reason and no translation at all.
+                guard translated.trimmingCharacters(in: .whitespacesAndNewlines)
+                        != text.trimmingCharacters(in: .whitespacesAndNewlines) else {
+                    feedbackHUD.show(.translationUnchanged, on: screen)
+                    return
+                }
+
+                withAnimation(.easeInOut(duration: 0.18)) {
+                    archiveModel.add(text: translated)
+                }
+                // Filed and shown: the archive keeps it for later, the panel
+                // puts it where it can actually be read. A 55pt archive cell
+                // shows one line of a paragraph.
+                NotificationCenter.default.post(
+                    name: .translationDidFinish,
+                    object: TranslationPanelModel.Result(
+                        text: translated, language: pair.target)
+                )
+            } catch TranslationFailure.packMissing {
+                // The framework is the only thing that knows for certain, and
+                // it has just said no. Our own idea of what is installed can be
+                // hours old — the packs belong to macOS and can be removed in
+                // System Settings without a word to us — so it is refreshed
+                // from this answer rather than trusted.
+                //
+                // Then the setup window, which lists every language with its
+                // real state and installs the missing one. It used to be a
+                // toast plus the settings window, which is how a pack deleted
+                // behind the app's back led nowhere at all.
+                await TranslationLanguages.shared.refresh()
+                TranslationSetupWindowController.shared.show()
+            } catch TranslationFailure.unsupported {
+                feedbackHUD.show(.translationFailed, on: screen)
+            } catch is CancellationError {
+                // The panel went away mid-flight (sleep, Space change). The
+                // user is not looking at a panel any more, so a toast about it
+                // would arrive with no context to land in.
+                return
+            } catch {
+                feedbackHUD.show(.translationFailed, on: screen)
+            }
+        }
+    }
+}

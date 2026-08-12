@@ -34,6 +34,7 @@ struct NotchArchiveView: View {
     let onBack: () -> Void
     let onHidePanel: () -> Void
     let onTogglePin: () -> Void
+    let onPreviewText: (String) -> Void
 
     @AppStorage(AppSettings.Keys.defaultColorFormat) private var scheme: ColorSchemeType = .hex
     /// Whether Space over a cell opens a preview. Read here rather than from
@@ -53,6 +54,7 @@ struct NotchArchiveView: View {
     /// there is one. Space is claimed system-wide while registered, so it is
     /// held only while the pointer actually rests on a previewable cell.
     @State private var hoveredPreviewURLs: [URL] = []
+    @State private var hoveredText: String?
     @State private var spaceToken: UUID?
     @State private var selectAllToken: UUID?
     /// True while any archive cell is mid drag-out (its ArchiveDragShim reports through
@@ -188,6 +190,7 @@ struct NotchArchiveView: View {
             expandedStackID = nil
             selection.clear()
             hoveredPreviewURLs = []
+            hoveredText = nil
             updateSpaceHotkey()
             updateSelectAllHotkey()
         }
@@ -206,6 +209,10 @@ struct NotchArchiveView: View {
             hoveredPreviewURLs = urls
             updateSpaceHotkey()
         }
+        .onPreferenceChange(HoveredTextKey.self) { text in
+            hoveredText = text
+            updateSpaceHotkey()
+        }
         // Turning the preview off gives the key back on the spot, even with the
         // pointer still resting on a cell: the whole point of the switch is that
         // Space stops being ours, and "after you move the mouse" is not that.
@@ -215,6 +222,7 @@ struct NotchArchiveView: View {
         }
         .onDisappear {
             hoveredPreviewURLs = []
+            hoveredText = nil
             updateSpaceHotkey()
             updateSelectAllHotkey()
         }
@@ -285,6 +293,17 @@ struct NotchArchiveView: View {
             TransientHotkeyCenter.space.remove(token)
             spaceToken = nil
         }
+        // Text first: a cell is one kind or the other, and only the text one
+        // sets this. Recognized text and scanned links have nothing Quick Look
+        // could open — a payload is not a file — so they open in the panel,
+        // where they are already legible and one menu away from a translation.
+        if spacePreviewEnabled, isContentVisible, let text = hoveredText {
+            spaceToken = TransientHotkeyCenter.space.push {
+                onPreviewText(text)
+            }
+            return
+        }
+
         guard Self.wantsSpaceHotkey(enabled: spacePreviewEnabled,
                                     isContentVisible: isContentVisible,
                                     hoveredURLs: hoveredPreviewURLs)
@@ -531,6 +550,14 @@ struct NotchArchiveView: View {
     private var scrollContent: some View {
         ScrollViewReader { proxy in
         ScrollView(.horizontal, showsIndicators: false) {
+            // Eager on purpose. A lazy stack would drop the cells scrolled off
+            // the end, and with them the @State of a cell being dragged: the
+            // drag publishes isDragging through InternalDraggingKey, and the
+            // NSView carrying the drag belongs to the cell, so a strip that
+            // scrolls mid-gesture would tear both away. The saving it would buy
+            // is close to nothing anyway — ThumbnailLoaders are cached in the
+            // model by id and deliberately outlive their cells, so a cell built
+            // on the way in does not decode anything twice.
             HStack(alignment: .top, spacing: cellSpacing) {
                 ForEach(archiveModel.items) { item in
                     Group {
@@ -587,6 +614,17 @@ struct NotchArchiveView: View {
                                     withAnimation(.easeInOut(duration: 0.18)) {
                                         archiveModel.remove(id: t.id)
                                     }
+                                },
+                                onTranslate: {
+                                    ArchiveTranslate.run(t.text,
+                                                         archiveModel: archiveModel,
+                                                         on: NSScreen.main)
+                                },
+                                onTranslateTo: { language in
+                                    ArchiveTranslate.run(t.text,
+                                                         to: language,
+                                                         archiveModel: archiveModel,
+                                                         on: NSScreen.main)
                                 }
                             )
                         case .stack(let stack):
@@ -1147,6 +1185,8 @@ private struct ArchiveColorCell: View {
     let cornerRadius: CGFloat
     let onRemove: () -> Void
 
+    @Environment(\.colorSchemeContrast) private var contrast
+
     @State private var isHovered    = false
     @State private var isPressed    = false
     @State private var isCopied     = false
@@ -1180,7 +1220,7 @@ private struct ArchiveColorCell: View {
             .frame(width: height, height: height)
             .overlay(
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .stroke(Color.white.opacity(isHovered ? 0.35 : 0.12), lineWidth: 1)
+                    .stroke(PanelChrome.stroke(isHovered ? 0.35 : 0.12, contrast), lineWidth: 1)
             )
             .overlay(alignment: .bottom) {
                 ZStack {
@@ -1319,6 +1359,12 @@ private struct ArchiveTextCell: View {
     let labelOffset: CGFloat
     let cornerRadius: CGFloat
     let onRemove: () -> Void
+    let onTranslate: () -> Void
+    let onTranslateTo: (Locale.Language) -> Void
+
+    @Environment(\.colorSchemeContrast) private var contrast
+    /// Read in the body so the menu is rebuilt when the user's list changes.
+    private var languages: TranslationLanguages { TranslationLanguages.shared }
 
     @State private var isHovered    = false
     @State private var isPressed    = false
@@ -1351,10 +1397,10 @@ private struct ArchiveTextCell: View {
     var body: some View {
         ZStack(alignment: .topLeading) {
             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .fill(Color.white.opacity(0.08))
+                .fill(PanelChrome.fill(0.08, contrast))
                 .overlay(
                     RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .stroke(Color.white.opacity(isHovered ? 0.35 : 0.12), lineWidth: 1)
+                        .stroke(PanelChrome.stroke(isHovered ? 0.35 : 0.12, contrast), lineWidth: 1)
                 )
 
             // Miniature of the recognized text — enough to tell snippets apart.
@@ -1449,6 +1495,53 @@ private struct ArchiveTextCell: View {
                 // Plain string, not a file: the share sheet offers Messages, Notes,
                 // Mail — the same payload the tap-to-copy puts on the pasteboard.
                 MenuCommandButton("Share", icon: .share) { shareAnchor.present([item.text]) }
+                // Absent for barcode payloads: a Wi-Fi config or a tracking number
+                // is a value, and running it through a translator returns damaged
+                // nonsense rather than an error. Hidden rather than disabled — a
+                // greyed row invites the user to work out what would enable it,
+                // and nothing ever will.
+                if !item.isCodePayload {
+                    // With two languages Translate is a verb, not a destination:
+                    // the entry holds the text, the direction is read off it, and
+                    // the only other language is the answer. A submenu there would
+                    // offer one real choice and one that means "already in that
+                    // language".
+                    //
+                    // Past two, the destination stops following from the source
+                    // and has to be asked for. Every language is listed, including
+                    // the one the text looks like: detection is right most of the
+                    // time, not all of it, and a list that hid the answer on a
+                    // wrong guess would leave no way back. Picking it lands on the
+                    // "already in that language" toast, which is cheap.
+                    if languages.offersChoice {
+                        Menu {
+                            ForEach(languages.favourites, id: \.baseCode) { language in
+                                Button {
+                                    onTranslateTo(language)
+                                } label: {
+                                    Text(verbatim: TranslationService.displayName(language))
+                                }
+                            }
+                            Divider()
+                            // Adding a language is a system download behind a sheet
+                            // that only a real window can present, so this leads
+                            // there rather than pretending to do it here.
+                            Button {
+                                NotificationCenter.default.post(
+                                    name: .requestOpenSettings,
+                                    object: nil,
+                                    userInfo: [SettingsWindowController.tabUserInfoKey:
+                                                SettingsTab.archive.rawValue])
+                            } label: {
+                                Text("Add language…")
+                            }
+                        } label: {
+                            MenuCommandLabel("Translate", icon: .translate)
+                        }
+                    } else {
+                        MenuCommandButton("Translate", icon: .translate) { onTranslate() }
+                    }
+                }
                 if !selection.isActive {
                     MenuCommandButton("Select Items", icon: .select) {
                         selection.pick(selectionKey)
@@ -1459,6 +1552,7 @@ private struct ArchiveTextCell: View {
             }
         }
         .preference(key: InternalDraggingKey.self, value: isDragging)
+        .preference(key: HoveredTextKey.self, value: isHovered ? item.text : nil)
         .accessibilityLabel("Recognized text \(item.firstLine)")
         .accessibilityHint("Tap to copy, drag to carry the text out")
         .accessibilityAddTraits(.isButton)
@@ -1591,6 +1685,8 @@ private struct ArchiveFileCell<Menu: View>: View {
     let accessibilityHintText: Text
     @ViewBuilder let menu: () -> Menu
 
+    @Environment(\.colorSchemeContrast) private var contrast
+
     @State private var isHovered     = false
     @State private var isPressed     = false
     @State private var isDragging    = false
@@ -1604,10 +1700,10 @@ private struct ArchiveFileCell<Menu: View>: View {
     var body: some View {
         ZStack {
             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .fill(Color.white.opacity(0.08))
+                .fill(PanelChrome.fill(0.08, contrast))
                 .overlay(
                     RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .stroke(Color.white.opacity(isHovered ? 0.35 : 0.12), lineWidth: 1)
+                        .stroke(PanelChrome.stroke(isHovered ? 0.35 : 0.12, contrast), lineWidth: 1)
                 )
 
             if let preview {
@@ -1830,6 +1926,8 @@ private struct ArchiveStackCell: View {
     let onDragOutCompleted: () -> Void
     let onRemove: () -> Void
 
+    @Environment(\.colorSchemeContrast) private var contrast
+
     @State private var isPressed     = false
     @State private var isDragging    = false
     @State private var isCopied      = false
@@ -1884,10 +1982,10 @@ private struct ArchiveStackCell: View {
     var body: some View {
         ZStack {
             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .fill(Color.white.opacity(0.08))
+                .fill(PanelChrome.fill(0.08, contrast))
                 .overlay(
                     RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .stroke(Color.white.opacity(isHovered ? 0.35 : 0.12), lineWidth: 1)
+                        .stroke(PanelChrome.stroke(isHovered ? 0.35 : 0.12, contrast), lineWidth: 1)
                 )
 
             // Fan of member previews, centred; reversed so slot 0 (the newest
@@ -2297,16 +2395,18 @@ private struct OverflowTailCell: View {
     let cornerRadius: CGFloat
     let onReveal: () -> Void
 
+    @Environment(\.colorSchemeContrast) private var contrast
+
     @State private var isHovered = false
     private var width: CGFloat { height * 1.6 }
 
     var body: some View {
         ZStack {
             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .fill(Color.white.opacity(0.08))
+                .fill(PanelChrome.fill(0.08, contrast))
                 .overlay(
                     RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .stroke(Color.white.opacity(isHovered ? 0.35 : 0.12), lineWidth: 1)
+                        .stroke(PanelChrome.stroke(isHovered ? 0.35 : 0.12, contrast), lineWidth: 1)
                 )
             if isHovered {
                 Image(systemName: "arrow.forward.folder")
@@ -2337,15 +2437,17 @@ private struct CollapseButton: View {
     let cornerRadius: CGFloat
     let onCollapse: () -> Void
 
+    @Environment(\.colorSchemeContrast) private var contrast
+
     @State private var isHovered = false
 
     var body: some View {
         ZStack {
             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .fill(Color.white.opacity(0.08))
+                .fill(PanelChrome.fill(0.08, contrast))
                 .overlay(
                     RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .stroke(Color.white.opacity(isHovered ? 0.35 : 0.12), lineWidth: 1)
+                        .stroke(PanelChrome.stroke(isHovered ? 0.35 : 0.12, contrast), lineWidth: 1)
                 )
             Image(systemName: "arrow.down.forward.and.arrow.up.backward")
                 .font(.system(size: 13, weight: .medium))
@@ -2373,6 +2475,8 @@ struct ArchiveSelectionCountButton: View {
     let count: Int
     let metrics: NotchMetrics
     let commands: [PanelMenuCommand]
+
+    @Environment(\.colorSchemeContrast) private var contrast
 
     @State private var isHovered  = false
     @State private var isPressed  = false
@@ -2449,14 +2553,15 @@ struct ArchiveSelectionCountButton: View {
     /// while the panel is pinned — so a button that is always filled reads as a
     /// toggle stuck on. The badge is what reports; the chrome stays quiet.
     private var background: Color {
-        if isMenuOpen { return .white.opacity(0.22) }
-        if isPressed  { return .white.opacity(0.28) }
-        if isHovered  { return .white.opacity(0.16) }
+        if isMenuOpen { return PanelChrome.fill(0.22, contrast) }
+        if isPressed  { return PanelChrome.fill(0.28, contrast) }
+        if isHovered  { return PanelChrome.fill(0.16, contrast) }
         return .clear
     }
 
     private var foreground: Color {
-        (isMenuOpen || isPressed || isHovered) ? .white : .white.opacity(0.8)
+        if isMenuOpen || isPressed || isHovered { return .white }
+        return PanelChrome.foreground(0.8, contrast)
     }
 }
 
@@ -2626,6 +2731,16 @@ private struct InternalDraggingKey: PreferenceKey {
 
 /// Files of the cell currently under the pointer, for Space-to-preview.
 /// First non-empty wins — cells never overlap, so at most one publishes.
+/// Text under the pointer, for the Space preview. Separate from the file
+/// key: one goes to Quick Look, the other opens in the panel, and a cell can
+/// only ever be one of the two.
+private struct HoveredTextKey: PreferenceKey {
+    static let defaultValue: String? = nil
+    static func reduce(value: inout String?, nextValue: () -> String?) {
+        value = nextValue() ?? value
+    }
+}
+
 private struct HoveredPreviewKey: PreferenceKey {
     static let defaultValue: [URL] = []
     static func reduce(value: inout [URL], nextValue: () -> [URL]) {

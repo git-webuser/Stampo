@@ -47,6 +47,18 @@ enum AppSettings {
         /// Space-to-preview over an archive cell. Off means the key is never
         /// claimed at all — see `TransientHotkeyCenter`.
         static let archiveSpacePreview   = "archiveSpacePreview"
+        /// Language codes the user keeps for translation, in their own order.
+        /// Absent means "never seeded"; an empty array is a list the user
+        /// emptied themselves and must not be re-seeded over.
+        static let translationLanguages  = "translationLanguages"
+        /// The language the user reads in. Absent means they never said, and
+        /// the destination follows the list above — see
+        /// `TranslationLanguages.primary`.
+        ///
+        /// A new key rather than the `translationTarget` it replaces: that one
+        /// could hold a language cycled in passing on the scan overlay, which
+        /// is exactly the value that must not become a standing setting.
+        static let translationPrimary    = "translationPrimary"
         // Updates
         static let checkForUpdates        = "checkForUpdates"
         static let lastUpdateCheck        = "lastUpdateCheck"

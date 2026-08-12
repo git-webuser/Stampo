@@ -14,6 +14,17 @@ enum ScanRecognition {
         var box: CGRect
     }
 
+    /// One entry on its way to the archive, with where it came from attached.
+    ///
+    /// The distinction outlives the scan: a barcode payload is a value, not
+    /// prose, so the archive must not offer to translate it. Carrying a bare
+    /// string here would drop that the moment the entry is filed, and no
+    /// downstream code could tell a Wi-Fi config from a sentence.
+    struct ArchiveEntry: Equatable {
+        var string: String
+        var isCode: Bool
+    }
+
     struct Result: Equatable {
         /// Every barcode payload, in visual order (top-to-bottom, then
         /// left-to-right within a row).
@@ -26,7 +37,7 @@ enum ScanRecognition {
         /// its own, plus the whole recognized text as one entry placed where
         /// its topmost line falls. Callers add these in reverse so the archive —
         /// which inserts at the top — lists the visually-topmost finding first.
-        var archiveEntries: [String] = []
+        var archiveEntries: [ArchiveEntry] = []
 
         var isEmpty: Bool { codePayloads.isEmpty && text.isEmpty }
     }
@@ -138,13 +149,13 @@ enum ScanRecognition {
 
         // Archive order = visual order: each code on its own, and the whole text
         // blob once, at the position of its topmost line.
-        var archiveEntries: [String] = []
+        var archiveEntries: [ArchiveEntry] = []
         var textInserted = false
         for item in ordered {
             if item.isCode {
-                archiveEntries.append(item.candidate.string)
+                archiveEntries.append(ArchiveEntry(string: item.candidate.string, isCode: true))
             } else if !textInserted {
-                archiveEntries.append(text)
+                archiveEntries.append(ArchiveEntry(string: text, isCode: false))
                 textInserted = true
             }
         }

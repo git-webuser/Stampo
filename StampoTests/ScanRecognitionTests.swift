@@ -53,7 +53,9 @@ import Testing
         #expect(result.clipboardText == "Title\nleft QR\nright QR\nFooter")
         // Archive entries follow the same visual order: the text blob sits where
         // its topmost line (Title) falls — above both codes.
-        #expect(result.archiveEntries == ["Title\nFooter", "left QR", "right QR"])
+        #expect(result.archiveEntries == [.init(string: "Title\nFooter", isCode: false),
+                                          .init(string: "left QR", isCode: true),
+                                          .init(string: "right QR", isCode: true)])
     }
 
     @Test func archiveEntriesPlaceTextBlobAtItsTopmostLine() {
@@ -64,13 +66,15 @@ import Testing
         let caption = code("Caption below", CGRect(x: 0.3, y: 0.1, width: 0.4, height: 0.08))
 
         let result = ScanRecognition.assemble(codes: [qr], textLines: [caption])
-        #expect(result.archiveEntries == ["payload", "Caption below"])
+        #expect(result.archiveEntries == [.init(string: "payload", isCode: true),
+                                          .init(string: "Caption below", isCode: false)])
 
         // A caption ABOVE the code: text leads.
         let above = code("Caption above", CGRect(x: 0.3, y: 0.9, width: 0.4, height: 0.08))
         let low = code("payload", CGRect(x: 0.3, y: 0.3, width: 0.4, height: 0.3))
         let flipped = ScanRecognition.assemble(codes: [low], textLines: [above])
-        #expect(flipped.archiveEntries == ["Caption above", "payload"])
+        #expect(flipped.archiveEntries == [.init(string: "Caption above", isCode: false),
+                                           .init(string: "payload", isCode: true)])
     }
 }
 
@@ -115,7 +119,7 @@ import Testing
             codes: [], textLines: [row("one", 0), row("two", 1)], joinsLines: true)
         #expect(result.text == "one two")
         #expect(result.clipboardText == "one two")
-        #expect(result.archiveEntries == ["one two"])
+        #expect(result.archiveEntries == [.init(string: "one two", isCode: false)])
     }
 
     /// A payload is a value, not prose: joining must never weld a code onto
@@ -185,7 +189,7 @@ import Testing
             joinsLines: true
         )
         #expect(result.clipboardText == "a one a two a three\nb one b two")
-        #expect(result.archiveEntries == ["a one a two a three\nb one b two"])
+        #expect(result.archiveEntries == [.init(string: "a one a two a three\nb one b two", isCode: false)])
     }
 }
 
