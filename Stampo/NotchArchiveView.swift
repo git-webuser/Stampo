@@ -220,6 +220,12 @@ struct NotchArchiveView: View {
             if !spacePreviewEnabled { QuickLookPresenter.shared.close() }
             updateSpaceHotkey()
         }
+        // The other half of the release below, and the reason it can be
+        // unconditional: the mode belongs to the controller and can outlive
+        // this view, so a view that comes back to a mode already running would
+        // otherwise never ask for ⌘A — nothing changed while it was away, so
+        // no `onChange` fires. Idempotent, like every other caller of it.
+        .onAppear { updateSelectAllHotkey() }
         .onDisappear {
             hoveredPreviewURLs = []
             hoveredText = nil
