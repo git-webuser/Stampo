@@ -18,6 +18,9 @@ struct NotchArchiveView: View {
     let metrics: NotchMetrics
     var archiveModel: NotchArchiveModel
     var expansion: ArchiveExpansionState
+    /// Multi-select, owned by the controller for the same reason `expansion` is:
+    /// Esc has to be able to switch the mode off from outside this view.
+    var selection: ArchiveSelectionState
     /// Owned by the panel controller, not by this view: the "Share Last
     /// Screenshot" hotkey presents through the same anchor, so the sheet always
     /// hangs off the "⋯" button whether it was opened from the menu or the
@@ -53,6 +56,7 @@ struct NotchArchiveView: View {
     @State private var hoveredPreviewURLs: [URL] = []
     @State private var hoveredText: String?
     @State private var spaceToken: UUID?
+    @State private var selectAllToken: UUID?
     /// True while any archive cell is mid drag-out (its ArchiveDragShim reports through
     /// `InternalDraggingKey`). SwiftUI's `.onDrop` also fires `isDropTargeted`
     /// for the app's OWN drags, so this gates them out: without it, dragging a
@@ -87,8 +91,25 @@ struct NotchArchiveView: View {
         return id
     }
 
+    /// The chevron climbs the same ladder Esc does, one rung per press: collapse
+    /// the open stack, leave selection mode, then go. Deliberately identical, so
+    /// the user does not have to remember which of the two they reached for —
+    /// the only difference is at the bottom, where Esc closes the panel and this
+    /// returns to Main.
+    private var backStep: ArchiveUnwindStep {
+        archiveUnwindStep(hasExpandedStack: effectiveExpandedID != nil,
+                          isSelecting: selection.isActive)
+    }
+
     private func handleBack() {
-        onBack()  // controller drives the content fade-out
+        switch backStep {
+        case .collapseStack:
+            collapseStack()
+        case .exitSelection:
+            withAnimation(.easeInOut(duration: 0.18)) { selection.clear() }
+        case .leaveArchive:
+            onBack()  // controller drives the content fade-out
+        }
     }
 
     // Real notch has a large corner radius and wide flared shape, so it needs
@@ -109,6 +130,13 @@ struct NotchArchiveView: View {
     private let cellSpacing:   CGFloat = 8
     private let cellH:         CGFloat = 32
     private let badgeBleed:    CGFloat = 3
+    /// How far a badge's ink reaches past the 16pt box it is given.
+    ///
+    /// A 16pt symbol is not 16pt of drawing: measured, `circle` comes back 18
+    /// across where `xmark.circle.fill` comes back 16, because the type system
+    /// sizes them to weigh the same rather than to measure the same. The row
+    /// makes room for the widest of them; the glyphs are not cut to fit.
+    private let badgeInk:      CGFloat = 1
     private let labelOffset:   CGFloat = 18
 
     var scrollRowHeight: CGFloat { 55 }
@@ -150,18 +178,25 @@ struct NotchArchiveView: View {
         ))
         // Everything the archive closing has to undo, in one place.
         //
-        // Expansion is ephemeral, so the archive always reopens in the compact
-        // grid. And the pointer can leave with the archive itself (Esc, hotkey,
+        // Expansion and selection are both ephemeral, so the archive always
+        // reopens in the compact grid with nothing picked — a set of checkboxes
+        // surviving a close would be a decision the user made in a session they
+        // have already left. And the pointer can leave with the archive itself (Esc, hotkey,
         // auto-hide) without any cell reporting a hover-out, so the Space key —
         // claimed system-wide while a cell is under the pointer — has to be
         // handed back from here or it never is.
         .onChange(of: isContentVisible) {
             guard !isContentVisible else { return }
             expandedStackID = nil
+            selection.clear()
             hoveredPreviewURLs = []
             hoveredText = nil
             updateSpaceHotkey()
+            updateSelectAllHotkey()
         }
+        // ⌘A is the archive's only claim on a modified key, and it is claimed
+        // and handed back with the mode itself.
+        .onChange(of: selection.isActive) { updateSelectAllHotkey() }
         // Clear the stored id once its stack is gone (last member removed, trim,
         // Remove) — effectiveExpandedID already masks the render; this dedupes
         // the latent @State so it can never point at a dead stack.
@@ -189,6 +224,7 @@ struct NotchArchiveView: View {
             hoveredPreviewURLs = []
             hoveredText = nil
             updateSpaceHotkey()
+            updateSelectAllHotkey()
         }
     }
 
@@ -214,6 +250,35 @@ struct NotchArchiveView: View {
                                  isContentVisible: Bool,
                                  hoveredURLs: [URL]) -> Bool {
         enabled && isContentVisible && !hoveredURLs.isEmpty
+    }
+
+    /// Whether the archive should be holding ⌘A right now.
+    ///
+    /// Pure and kept apart for the same reason `wantsSpaceHotkey` is: while it
+    /// is held the key is taken from every app on the machine, so what makes
+    /// that acceptable belongs in one line that can be read on its own. Here it
+    /// is the mode — switched on by hand, and the one place where ⌘A is the
+    /// likeliest key on the board.
+    static func wantsSelectAllHotkey(isContentVisible: Bool, isSelecting: Bool) -> Bool {
+        isContentVisible && isSelecting
+    }
+
+    /// Holds ⌘A exactly while the selection mode is running. Re-pushed rather
+    /// than kept, like the Space owner, so the action always sees the archive
+    /// as it is now.
+    private func updateSelectAllHotkey() {
+        if let token = selectAllToken {
+            TransientHotkeyCenter.selectAll.remove(token)
+            selectAllToken = nil
+        }
+        guard Self.wantsSelectAllHotkey(isContentVisible: isContentVisible,
+                                        isSelecting: selection.isActive)
+        else { return }
+        selectAllToken = TransientHotkeyCenter.selectAll.push {
+            withAnimation(.easeInOut(duration: 0.18)) {
+                selection.selectAll(in: archiveModel.items)
+            }
+        }
     }
 
     /// Holds the Space hotkey exactly while a previewable cell is hovered.
@@ -393,6 +458,7 @@ struct NotchArchiveView: View {
                         Color.clear.frame(width: metrics.notchGap)
 
                         HStack(spacing: metrics.gap) {
+                            if selection.isActive { selectionCountButton }
                             pinButton
                             moreButton
                         }
@@ -432,6 +498,7 @@ struct NotchArchiveView: View {
                     } else {
                         Spacer()
                     }
+                    if selection.isActive { selectionCountButton }
                     pinButton
                     moreButton
                 }
@@ -499,6 +566,8 @@ struct NotchArchiveView: View {
                             ArchiveScreenshotCell(
                                 shot: shot,
                                 loader: archiveModel.thumbnailLoader(for: shot),
+                                selection: selection,
+                                selectionActions: selectionActions,
                                 height: cellH,
                                 badgeBleed: badgeBleed,
                                 labelOffset: labelOffset,
@@ -520,6 +589,8 @@ struct NotchArchiveView: View {
                             ArchiveColorCell(
                                 item: c,
                                 scheme: scheme,
+                                selection: selection,
+                                selectionActions: selectionActions,
                                 height: cellH,
                                 badgeBleed: badgeBleed,
                                 labelOffset: labelOffset,
@@ -533,6 +604,8 @@ struct NotchArchiveView: View {
                         case .text(let t):
                             ArchiveTextCell(
                                 item: t,
+                                selection: selection,
+                                selectionActions: selectionActions,
                                 height: cellH,
                                 badgeBleed: badgeBleed,
                                 labelOffset: labelOffset,
@@ -559,6 +632,8 @@ struct NotchArchiveView: View {
                                 ExpandedStackGroup(
                                     stack: stack,
                                     archiveModel: archiveModel,
+                                    selection: selection,
+                                    selectionActions: selectionActions,
                                     height: cellH,
                                     cornerRadius: metrics.buttonRadius,
                                     badgeBleed: badgeBleed,
@@ -580,6 +655,8 @@ struct NotchArchiveView: View {
                                 ArchiveStackCell(
                                     stack: stack,
                                     loaders: stack.urls.prefix(3).map { archiveModel.stackThumbnailLoader(for: $0) },
+                                    selection: selection,
+                                    selectionActions: selectionActions,
                                     height: cellH,
                                     badgeBleed: badgeBleed,
                                     labelOffset: labelOffset,
@@ -617,7 +694,7 @@ struct NotchArchiveView: View {
                 }
             }
             .padding(.horizontal, contentInset)
-            .padding(.top, badgeBleed)
+            .padding(.top, badgeBleed + badgeInk)
             .frame(maxHeight: .infinity, alignment: .top)
         }
         .frame(maxHeight: .infinity, alignment: .top)
@@ -668,10 +745,34 @@ struct NotchArchiveView: View {
     // MARK: - Buttons
 
     private var backButton: some View {
-        PanelIconButton(systemName: "chevron.left", size: 14, weight: .semibold, action: handleBack)
+        // The label follows what the press will actually do, or VoiceOver goes
+        // on promising a return to Main that this press is not going to make.
+        let title: LocalizedStringKey = switch backStep {
+        case .collapseStack: "Collapse"
+        case .exitSelection: "Cancel selection"
+        case .leaveArchive:  "Back to panel"
+        }
+        return PanelIconButton(systemName: "chevron.left", size: 14, weight: .semibold, action: handleBack)
             .frame(width: metrics.cellWidth, height: metrics.iconSize)
-            .help("Back to panel")
-            .accessibilityLabel("Back to panel")
+            .help(title)
+            .accessibilityLabel(title)
+    }
+
+
+    /// The selection's own control: how many are picked, and the verbs for them.
+    ///
+    /// Shaped like the timer in Main — a glyph that grows a number — because
+    /// that is a shape this panel already has, and because the number is what
+    /// carries the meaning. No SF Symbol says "multi-select" on its own; the
+    /// timer's `timer` glyph does not say "delayed capture" either, the "5"
+    /// beside it does. It follows the timer's collapse rule too: nothing picked
+    /// is a plain 32pt icon button, saying only that the mode is on.
+    private var selectionCountButton: some View {
+        ArchiveSelectionCountButton(
+            count: selection.pickedCount(in: archiveModel.items),
+            metrics: metrics,
+            commands: selectionCommands
+        )
     }
 
     private var pinButton: some View {
@@ -698,24 +799,141 @@ struct NotchArchiveView: View {
             .sharePickerAnchor(shareAnchor)
     }
 
-    /// Whole-archive commands in the "⋯" menu. All three are disabled on an empty
-    /// archive rather than hidden, so the menu never changes shape under the user.
+    /// The "⋯" menu's archive commands: the way into the mode, and nothing else.
+    ///
+    /// Once the mode is running its verbs have a button of their own, so the
+    /// "⋯" hands them over and is left holding what actually belongs to it —
+    /// Settings and Quit. That is the split the count button is for: this menu
+    /// is the app's only one and has to carry the app-level rows, which is
+    /// exactly why a selection of three files should not be sharing it.
     private var archiveCommands: [PanelMenuCommand] {
-        let isEmpty = archiveModel.items.isEmpty
+        guard !selection.isActive else { return [] }
         return [
-            PanelMenuCommand(titleKey: "Copy All", isEnabled: !isEmpty) {
-                let payload = NotchArchiveModel.payload(for: archiveModel.items, colorScheme: scheme)
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.writeObjects(payload.objects.compactMap { $0 as? NSPasteboardWriting })
-            },
-            PanelMenuCommand(titleKey: "Share All", isEnabled: !isEmpty) {
-                let payload = NotchArchiveModel.payload(for: archiveModel.items, colorScheme: scheme)
-                shareAnchor.present(payload.objects)
-            },
-            PanelMenuCommand(titleKey: "Clear Archive", isEnabled: !isEmpty) {
-                withAnimation(.easeInOut(duration: 0.18)) { archiveModel.removeAll() }
+            PanelMenuCommand(titleKey: "Select Items", icon: .select,
+                             isEnabled: !archiveModel.items.isEmpty) {
+                selection.isActive = true
             }
         ]
+    }
+
+    /// Enablement asks what the keys still resolve to, not whether there are
+    /// any: a picked capture whose file vanished leaves its key behind, and a
+    /// live "Share" that shares nothing is worse than a greyed one.
+    private var selectionCommands: [PanelMenuCommand] {
+        let hasAny = !selection.selectedItems(in: archiveModel.items).isEmpty
+        return [
+            // Leads, because it is what the other three are aimed with — and it
+            // keeps the destructive row last, where a slipped click is least
+            // likely to find it.
+            PanelMenuCommand(titleKey: "Select All", icon: .selectAll,
+                             isEnabled: selection.canSelectAll(in: archiveModel.items)) {
+                withAnimation(.easeInOut(duration: 0.18)) {
+                    selection.selectAll(in: archiveModel.items)
+                }
+            },
+            PanelMenuCommand(titleKey: "Copy", icon: .copy,
+                             isEnabled: hasAny, action: copySelection),
+            PanelMenuCommand(titleKey: "Share", icon: .share,
+                             isEnabled: hasAny, action: shareSelection),
+            // Named and set apart exactly as in a cell's own menu: this drops
+            // archive entries and leaves every file on disk, which "Delete"
+            // promised more than it did.
+            PanelMenuCommand(titleKey: "Remove from archive", icon: .remove,
+                             isEnabled: hasAny, startsSection: true,
+                             action: deleteSelection)
+        ]
+    }
+
+    // MARK: The three verbs
+
+    /// Reached from the "⋯" menu and from a picked cell's own context menu, and
+    /// written once so the two can never come to mean different things — the
+    /// reason `NotchArchiveModel.payload` is a single static function too.
+
+    private func copySelection() {
+        let payload = NotchArchiveModel.payload(for: selection.selectedItems(in: archiveModel.items),
+                                                colorScheme: scheme)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.writeObjects(payload.objects.compactMap { $0 as? NSPasteboardWriting })
+        finishSelecting()
+    }
+
+    private func shareSelection() {
+        let payload = NotchArchiveModel.payload(for: selection.selectedItems(in: archiveModel.items),
+                                                colorScheme: scheme)
+        shareAnchor.present(payload.objects)
+        finishSelecting()
+    }
+
+    private func deleteSelection() {
+        removeSelected(selection.selectedItems(in: archiveModel.items))
+    }
+
+    /// Leaving the mode, because the scenario it was entered for is over.
+    ///
+    /// Copy, Share and Delete are the ends of that scenario — you turn selecting
+    /// on in order to reach one of them — so each of the three switches it off
+    /// rather than leaving the row checkboxed behind a finished job. "Select
+    /// All" is not one of them: it aims the three, it does not finish anything.
+    private func finishSelecting() {
+        withAnimation(.easeInOut(duration: 0.18)) { selection.clear() }
+    }
+
+    /// Drops every picked leaf from the archive — the entries only, exactly like
+    /// the per-cell "Remove from archive"; the files stay on disk. Stack members
+    /// leave one at a time, and a stack that loses its last one goes with it.
+    private func removeSelected(_ chosen: [ArchiveItem]) {
+        withAnimation(.easeInOut(duration: 0.18)) {
+            for item in chosen {
+                // A resolved stack is a fresh value carrying only the picked
+                // members, so its id is not the archive's — remove by member.
+                if case .stack(let stack) = item {
+                    for url in stack.urls { archiveModel.removeStackMember(url: url) }
+                } else {
+                    archiveModel.remove(id: item.id)
+                }
+            }
+            selection.clear()
+        }
+    }
+
+    // MARK: - Dragging the selection
+
+    /// Everything picked, encoded the way each cell's own drag encodes it.
+    /// Handed to every draggable cell, because a drag started anywhere in the
+    /// selection carries all of it.
+    private var selectionActions: ArchiveSelectionActions {
+        ArchiveSelectionActions(
+            dragPayload: selectionDragPayload,
+            dragImages: selectionDragImages,
+            commands: selectionCommands
+        )
+    }
+
+    private func selectionDragPayload() -> [NSPasteboardWriting] {
+        NotchArchiveModel.dragPayload(for: selection.selectedItems(in: archiveModel.items),
+                                      colorScheme: scheme)
+    }
+
+    /// The pictures for that drag, one per payload item and in the same order —
+    /// `ArchiveDragShimView` pairs them by index, so this switch has to fan a
+    /// stack out exactly the way `dragPayload` does, one image per member.
+    private func selectionDragImages() -> [NSImage?] {
+        selection.selectedItems(in: archiveModel.items).flatMap { item -> [NSImage?] in
+            switch item {
+            case .color(let c):
+                return [archiveColorDragImage(c.color, side: cellH,
+                                              cornerRadius: metrics.buttonRadius)]
+            case .text(let t):
+                return [archiveTextDragImage(t.firstLine,
+                                             size: NSSize(width: cellH * 1.6, height: cellH),
+                                             cornerRadius: metrics.buttonRadius)]
+            case .screenshot(let s):
+                return [archiveModel.thumbnailLoader(for: s).image]
+            case .stack(let stack):
+                return stack.urls.map { archiveModel.stackThumbnailLoader(for: $0).image }
+            }
+        }
     }
 
     private var schemeMenu: some View {
@@ -830,11 +1048,137 @@ struct ArchiveDeleteBadge: View {
     }
 }
 
+// MARK: - Selection Badge
+
+/// The checkbox that stands in for the delete badge while the archive is in
+/// selection mode.
+///
+/// A view of its own rather than a third state on `ArchiveDeleteBadge`: that one
+/// is shared with the capture thumbnail and the pinned screenshot window, and
+/// neither of them has anything that could be half-chosen. It borrows the
+/// badge's disc, ring and 16pt sizing so the two read as the same fixture in
+/// the same corner.
+///
+/// Unlike the delete badge it is always on screen while the mode is on — a
+/// checkbox that appears on hover would make the user sweep the row to find out
+/// what they have picked.
+struct ArchiveSelectionBadge: View {
+    let state: ArchiveCheckState
+    let action: () -> Void
+
+    private var systemName: String {
+        switch state {
+        case .empty: return "circle"
+        case .mixed: return "minus.circle.fill"
+        case .full:  return "checkmark.circle.fill"
+        }
+    }
+
+    var body: some View {
+        // Sized by point size and weight, like the delete badge it swaps with
+        // and like any other glyph of the system face. The three symbols come
+        // back at different sizes — `circle` wider than the filled two — and
+        // that is the type system balancing them optically, not something to
+        // square up: drawing the disc by hand made the boxes agree and the
+        // glyphs stop agreeing.
+        Image(systemName: systemName)
+            .symbolRenderingMode(.palette)
+            .foregroundStyle(
+                state == .empty ? Color(red: 0.125, green: 0.125, blue: 0.125) : Color.white,
+                archivePickedTint
+            )
+            .font(.system(size: 16))
+            // `circle` is an outline with nothing behind it, so on a bright
+            // capture it would be a thin ring on white. The filled states bring
+            // their own disc in the second palette colour. The backing takes the
+            // glyph's own size, so it follows the optics rather than fixing them.
+            .background { if state == .empty { Circle().fill(Color(white: 0.914)) } }
+            .overlay(Circle().strokeBorder(Color.black.opacity(0.25), lineWidth: 1))
+            .frame(width: 16, height: 16)
+            .contentShape(Rectangle())
+            // Same gesture as the delete badge, for the same reason: the badge
+            // sits above the drag shim in the overlay order and takes the click
+            // before the cell can act on it.
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 0).onEnded { _ in action() }
+            )
+            .accessibilityAddTraits(.isButton)
+            .accessibilityLabel(state == .empty ? "Select item" : "Deselect item")
+    }
+}
+
+/// The blue that means "picked", worn by the checkbox and by the ring around
+/// the cell it sits on.
+private let archivePickedTint = Color(red: 0.25, green: 0.55, blue: 1.0)
+
+/// The ring a picked cell wears.
+///
+/// The checkbox alone already says which cells are picked — but it is 16pt in
+/// the corner of a 51×32 cell, so reading the row means aiming at corners one
+/// at a time. Finder tints the whole row and iOS dims the picture; over a strip
+/// of photographic thumbnails on a dark panel a ring is what stays legible on
+/// any content, bright or dark, without touching what the cell is showing.
+private struct ArchivePickedRing: View {
+    let isPicked: Bool
+    let cornerRadius: CGFloat
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            // strokeBorder, not stroke: it draws inside the path, so the ring
+            // cannot spill past the cell into the 8pt gap before its neighbour.
+            .strokeBorder(archivePickedTint, lineWidth: 2)
+            // A hairline of shadow just inside it, the same trick the badge
+            // uses on its own disc. Without it the ring disappears against a
+            // colour cell holding roughly this blue — measured, not guessed.
+            .overlay {
+                RoundedRectangle(cornerRadius: cornerRadius - 2, style: .continuous)
+                    .strokeBorder(Color.black.opacity(0.35), lineWidth: 1)
+                    .padding(2)
+            }
+            .opacity(isPicked ? 1 : 0)
+            .animation(.easeInOut(duration: 0.12), value: isPicked)
+            .allowsHitTesting(false)
+    }
+}
+
+/// What sits in a cell's top-right corner: the ✕ that drops the entry, or —
+/// while the archive is selecting — the checkbox that picks it. One place for
+/// the swap, so the four cells can't drift apart on when a badge shows.
+private struct ArchiveCellBadge: View {
+    var selection: ArchiveSelectionState
+    /// A leaf passes `.full`/`.empty` for its own key; a stack passes what its
+    /// members add up to.
+    let checkState: ArchiveCheckState
+    let isHovered: Bool
+    let badgeBleed: CGFloat
+    let onToggle: () -> Void
+    let onRemove: () -> Void
+
+    var body: some View {
+        Group {
+            if selection.isActive {
+                ArchiveSelectionBadge(state: checkState, action: onToggle)
+            } else {
+                ArchiveDeleteBadge(action: onRemove)
+            }
+        }
+        // Hover only gates the ✕. A checkbox has to stay put: it is not an
+        // action offered on the cell under the pointer but the answer to "what
+        // have I picked", which the whole row has to be able to give at once.
+        .opacity((selection.isActive || isHovered) ? 1 : 0)
+        .allowsHitTesting(selection.isActive || isHovered)
+        .offset(x: badgeBleed, y: -badgeBleed)
+    }
+}
+
 // MARK: - Archive Color Cell
 
 private struct ArchiveColorCell: View {
     let item: ArchiveColor
     let scheme: ColorSchemeType
+    var selection: ArchiveSelectionState
+    /// The whole selection: what a drag carries and what the menu offers.
+    let selectionActions: ArchiveSelectionActions
     let height: CGFloat
     let badgeBleed: CGFloat
     let labelOffset: CGFloat
@@ -849,21 +1193,15 @@ private struct ArchiveColorCell: View {
     @State private var isDragging   = false
     @State private var shareAnchor  = SharePickerAnchor()
 
-    /// The drag image: the swatch itself, so what leaves the cell looks like
-    /// the cell. Drawn rather than snapshotted — a plain rounded square is
-    /// cheaper to render than to capture.
     private var dragPreview: NSImage {
-        let side = height
-        let image = NSImage(size: NSSize(width: side, height: side))
-        image.lockFocus()
-        let rect = NSRect(x: 0, y: 0, width: side, height: side)
-        NSBezierPath(roundedRect: rect, xRadius: cornerRadius, yRadius: cornerRadius)
-            .addClip()
-        item.color.setFill()
-        rect.fill()
-        image.unlockFocus()
-        return image
+        archiveColorDragImage(item.color, side: height, cornerRadius: cornerRadius)
     }
+
+    private var selectionKey: ArchiveSelectionKey { .item(item.id) }
+
+    /// True while this cell is part of a running selection — the one condition
+    /// under which its own menu stands aside for the selection's.
+    private var isPicked: Bool { selection.isActive && selection.contains(selectionKey) }
 
     /// Copies `value` and flashes "Copied!" in the label — the same feedback the
     /// tap gesture gives, reused by every menu entry.
@@ -915,55 +1253,90 @@ private struct ArchiveColorCell: View {
             // ArchiveDragPayload.
             .overlay {
                 ArchiveDragShim(
-                    payload: { ArchiveDragPayload.color(item.color,
-                                                        formatted: scheme.convert(item.color)) },
-                    dragImages: [dragPreview],
+                    payload: {
+                        archiveDragContents(isSelecting: selection.isActive,
+                                            isPicked: selection.contains(selectionKey),
+                                            fromSelection: selectionActions.dragPayload,
+                                            fromCell: { ArchiveDragPayload.color(item.color,
+                                                                                 formatted: scheme.convert(item.color)) })
+                    },
+                    dragImages: {
+                        archiveDragContents(isSelecting: selection.isActive,
+                                            isPicked: selection.contains(selectionKey),
+                                            fromSelection: selectionActions.dragImages,
+                                            fromCell: { [dragPreview] })
+                    },
                     cellSize: CGSize(width: height, height: height),
                     isPressed: $isPressed,
                     isDragging: $isDragging,
                     onHoverChange: { isHovered = $0 },
-                    onTap: { copy(scheme.convert(item.color)) }
+                    // In the mode a tap picks the swatch instead of copying it:
+                    // a mis-click that quietly replaced the clipboard while the
+                    // user was assembling a selection would be its own bug.
+                    onTap: { modifiers in
+                        switch archiveTapIntent(kind: .leaf,
+                                                isSelecting: selection.isActive,
+                                                isCommandHeld: modifiers.contains(.command)) {
+                        case .pick:     selection.pick(selectionKey)
+                        case .activate: copy(scheme.convert(item.color))
+                        }
+                    }
                 )
             }
+            .overlay { ArchivePickedRing(isPicked: selection.contains(selectionKey),
+                                         cornerRadius: cornerRadius) }
             // Badge after the shim, mirroring the file cells' z-order note.
             .overlay(alignment: .topTrailing) {
-                ArchiveDeleteBadge(action: { onRemove() })
-                    .opacity(isHovered ? 1 : 0)
-                    .allowsHitTesting(isHovered)
-                    .offset(x: badgeBleed, y: -badgeBleed)
+                ArchiveCellBadge(
+                    selection: selection,
+                    checkState: selection.contains(selectionKey) ? .full : .empty,
+                    isHovered: isHovered,
+                    badgeBleed: badgeBleed,
+                    onToggle: { selection.toggle(selectionKey) },
+                    onRemove: { onRemove() }
+                )
             }
             // After the shim, like the file cells: attached any earlier, the
             // menu belongs to a view the shim's NSView covers, and the right
             // click finds no menu at all.
             .contextMenu {
-                // Tap already copies in the header's format; the submenu is for
-                // the other notations, so a user working in CSS doesn't have to
-                // switch the whole archive's format to grab one HSL value.
-                MenuCommandButton("Copy", icon: .copy) { copy(scheme.convert(item.color)) }
-                Menu {
-                    ForEach(ColorSchemeType.allCases, id: \.title) { format in
-                        Button { copy(format.convert(item.color)) }
-                            label: { Text(verbatim: format.title) }
+                if isPicked {
+                    archiveSelectionMenu(selectionActions)
+                } else {
+                    // Tap already copies in the header's format; the submenu is for
+                    // the other notations, so a user working in CSS doesn't have to
+                    // switch the whole archive's format to grab one HSL value.
+                    MenuCommandButton("Copy", icon: .copy) { copy(scheme.convert(item.color)) }
+                    Menu {
+                        ForEach(ColorSchemeType.allCases, id: \.title) { format in
+                            Button { copy(format.convert(item.color)) }
+                                label: { Text(verbatim: format.title) }
+                        }
+                    } label: {
+                        // No icon of its own: it would only repeat Copy's, one row up.
+                        MenuCommandLabel(indented: "Copy As")
                     }
-                } label: {
-                    // No icon of its own: it would only repeat Copy's, one row up.
-                    MenuCommandLabel(indented: "Copy As")
-                }
-                MenuCommandButton("Share", icon: .share) {
-                    shareAnchor.present([scheme.convert(item.color)])
-                }
-                // Mirrors Copy As: what leaves in a message is a string, so the
-                // notation is as much a choice when sharing as when copying.
-                Menu {
-                    ForEach(ColorSchemeType.allCases, id: \.title) { format in
-                        Button { shareAnchor.present([format.convert(item.color)]) }
-                            label: { Text(verbatim: format.title) }
+                    MenuCommandButton("Share", icon: .share) {
+                        shareAnchor.present([scheme.convert(item.color)])
                     }
-                } label: {
-                    MenuCommandLabel(indented: "Share As")
+                    // Mirrors Copy As: what leaves in a message is a string, so the
+                    // notation is as much a choice when sharing as when copying.
+                    Menu {
+                        ForEach(ColorSchemeType.allCases, id: \.title) { format in
+                            Button { shareAnchor.present([format.convert(item.color)]) }
+                                label: { Text(verbatim: format.title) }
+                        }
+                    } label: {
+                        MenuCommandLabel(indented: "Share As")
+                    }
+                    if !selection.isActive {
+                        MenuCommandButton("Select Items", icon: .select) {
+                            selection.pick(selectionKey)
+                        }
+                    }
+                    Divider()
+                    MenuCommandButton("Remove from archive", icon: .remove) { onRemove() }
                 }
-                Divider()
-                MenuCommandButton("Remove from archive", icon: .remove) { onRemove() }
             }
             .preference(key: InternalDraggingKey.self, value: isDragging)
             .accessibilityLabel("Color \(scheme.convert(item.color))")
@@ -978,6 +1351,9 @@ private struct ArchiveColorCell: View {
 /// clipboard (mirrors ArchiveColorCell); the context menu offers Copy / Remove.
 private struct ArchiveTextCell: View {
     let item: ArchiveText
+    var selection: ArchiveSelectionState
+    /// The whole selection: what a drag carries and what the menu offers.
+    let selectionActions: ArchiveSelectionActions
     let height: CGFloat
     let badgeBleed: CGFloat
     let labelOffset: CGFloat
@@ -997,27 +1373,16 @@ private struct ArchiveTextCell: View {
     @State private var shareAnchor  = SharePickerAnchor()
 
     private var width: CGFloat { height * 1.6 }
+    private var selectionKey: ArchiveSelectionKey { .item(item.id) }
 
-    /// Drag image: the first line on the cell's own plate, so the thing under
-    /// the cursor still says which snippet is being carried.
+    /// True while this cell is part of a running selection — the one condition
+    /// under which its own menu stands aside for the selection's.
+    private var isPicked: Bool { selection.isActive && selection.contains(selectionKey) }
+
     private var dragPreview: NSImage {
-        let size = NSSize(width: width, height: height)
-        let image = NSImage(size: size)
-        image.lockFocus()
-        let rect = NSRect(origin: .zero, size: size)
-        let plate = NSBezierPath(roundedRect: rect, xRadius: cornerRadius, yRadius: cornerRadius)
-        NSColor(calibratedWhite: 0.17, alpha: 1).setFill()
-        plate.fill()
-        NSColor(calibratedWhite: 1, alpha: 0.25).setStroke()
-        plate.stroke()
-        let attributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 6),
-            .foregroundColor: NSColor(calibratedWhite: 1, alpha: 0.75)
-        ]
-        NSAttributedString(string: item.firstLine, attributes: attributes)
-            .draw(in: rect.insetBy(dx: 4, dy: 4))
-        image.unlockFocus()
-        return image
+        archiveTextDragImage(item.firstLine,
+                             size: NSSize(width: width, height: height),
+                             cornerRadius: cornerRadius)
     }
 
     private func copyText() {
@@ -1083,76 +1448,108 @@ private struct ArchiveTextCell: View {
         // the drag out, so the snippet can be dropped straight into a document.
         .overlay {
             ArchiveDragShim(
-                payload: { ArchiveDragPayload.text(item.text) },
-                dragImages: [dragPreview],
+                payload: {
+                    archiveDragContents(isSelecting: selection.isActive,
+                                        isPicked: selection.contains(selectionKey),
+                                        fromSelection: selectionActions.dragPayload,
+                                        fromCell: { ArchiveDragPayload.text(item.text) })
+                },
+                dragImages: {
+                    archiveDragContents(isSelecting: selection.isActive,
+                                        isPicked: selection.contains(selectionKey),
+                                        fromSelection: selectionActions.dragImages,
+                                        fromCell: { [dragPreview] })
+                },
                 cellSize: CGSize(width: width, height: height),
                 isPressed: $isPressed,
                 isDragging: $isDragging,
                 onHoverChange: { isHovered = $0 },
-                onTap: { copyText() }
+                onTap: { modifiers in
+                    switch archiveTapIntent(kind: .leaf,
+                                            isSelecting: selection.isActive,
+                                            isCommandHeld: modifiers.contains(.command)) {
+                    case .pick:     selection.pick(selectionKey)
+                    case .activate: copyText()
+                    }
+                }
             )
         }
+        .overlay { ArchivePickedRing(isPicked: selection.contains(selectionKey),
+                                     cornerRadius: cornerRadius) }
         .overlay(alignment: .topTrailing) {
-            ArchiveDeleteBadge(action: { onRemove() })
-                .opacity(isHovered ? 1 : 0)
-                .allowsHitTesting(isHovered)
-                .offset(x: badgeBleed, y: -badgeBleed)
+            ArchiveCellBadge(
+                selection: selection,
+                checkState: selection.contains(selectionKey) ? .full : .empty,
+                isHovered: isHovered,
+                badgeBleed: badgeBleed,
+                onToggle: { selection.toggle(selectionKey) },
+                onRemove: { onRemove() }
+            )
         }
         // After the shim, for the reason spelled out in ArchiveColorCell.
         .contextMenu {
-            MenuCommandButton("Copy", icon: .copy) { copyText() }
-            // Plain string, not a file: the share sheet offers Messages, Notes,
-            // Mail — the same payload the tap-to-copy puts on the pasteboard.
-            MenuCommandButton("Share", icon: .share) { shareAnchor.present([item.text]) }
-            // Absent for barcode payloads: a Wi-Fi config or a tracking number
-            // is a value, and running it through a translator returns damaged
-            // nonsense rather than an error. Hidden rather than disabled — a
-            // greyed row invites the user to work out what would enable it,
-            // and nothing ever will.
-            if !item.isCodePayload {
-                // With two languages Translate is a verb, not a destination:
-                // the entry holds the text, the direction is read off it, and
-                // the only other language is the answer. A submenu there would
-                // offer one real choice and one that means "already in that
-                // language".
-                //
-                // Past two, the destination stops following from the source
-                // and has to be asked for. Every language is listed, including
-                // the one the text looks like: detection is right most of the
-                // time, not all of it, and a list that hid the answer on a
-                // wrong guess would leave no way back. Picking it lands on the
-                // "already in that language" toast, which is cheap.
-                if languages.offersChoice {
-                    Menu {
-                        ForEach(languages.favourites, id: \.baseCode) { language in
-                            Button {
-                                onTranslateTo(language)
-                            } label: {
-                                Text(verbatim: TranslationService.displayName(language))
+            if isPicked {
+                archiveSelectionMenu(selectionActions)
+            } else {
+                MenuCommandButton("Copy", icon: .copy) { copyText() }
+                // Plain string, not a file: the share sheet offers Messages, Notes,
+                // Mail — the same payload the tap-to-copy puts on the pasteboard.
+                MenuCommandButton("Share", icon: .share) { shareAnchor.present([item.text]) }
+                // Absent for barcode payloads: a Wi-Fi config or a tracking number
+                // is a value, and running it through a translator returns damaged
+                // nonsense rather than an error. Hidden rather than disabled — a
+                // greyed row invites the user to work out what would enable it,
+                // and nothing ever will.
+                if !item.isCodePayload {
+                    // With two languages Translate is a verb, not a destination:
+                    // the entry holds the text, the direction is read off it, and
+                    // the only other language is the answer. A submenu there would
+                    // offer one real choice and one that means "already in that
+                    // language".
+                    //
+                    // Past two, the destination stops following from the source
+                    // and has to be asked for. Every language is listed, including
+                    // the one the text looks like: detection is right most of the
+                    // time, not all of it, and a list that hid the answer on a
+                    // wrong guess would leave no way back. Picking it lands on the
+                    // "already in that language" toast, which is cheap.
+                    if languages.offersChoice {
+                        Menu {
+                            ForEach(languages.favourites, id: \.baseCode) { language in
+                                Button {
+                                    onTranslateTo(language)
+                                } label: {
+                                    Text(verbatim: TranslationService.displayName(language))
+                                }
                             }
-                        }
-                        Divider()
-                        // Adding a language is a system download behind a sheet
-                        // that only a real window can present, so this leads
-                        // there rather than pretending to do it here.
-                        Button {
-                            NotificationCenter.default.post(
-                                name: .requestOpenSettings,
-                                object: nil,
-                                userInfo: [SettingsWindowController.tabUserInfoKey:
-                                            SettingsTab.archive.rawValue])
+                            Divider()
+                            // Adding a language is a system download behind a sheet
+                            // that only a real window can present, so this leads
+                            // there rather than pretending to do it here.
+                            Button {
+                                NotificationCenter.default.post(
+                                    name: .requestOpenSettings,
+                                    object: nil,
+                                    userInfo: [SettingsWindowController.tabUserInfoKey:
+                                                SettingsTab.archive.rawValue])
+                            } label: {
+                                Text("Add language…")
+                            }
                         } label: {
-                            Text("Add language…")
+                            MenuCommandLabel("Translate", icon: .translate)
                         }
-                    } label: {
-                        MenuCommandLabel("Translate", icon: .translate)
+                    } else {
+                        MenuCommandButton("Translate", icon: .translate) { onTranslate() }
                     }
-                } else {
-                    MenuCommandButton("Translate", icon: .translate) { onTranslate() }
                 }
+                if !selection.isActive {
+                    MenuCommandButton("Select Items", icon: .select) {
+                        selection.pick(selectionKey)
+                    }
+                }
+                Divider()
+                MenuCommandButton("Remove from archive", icon: .remove) { onRemove() }
             }
-            Divider()
-            MenuCommandButton("Remove from archive", icon: .remove) { onRemove() }
         }
         .preference(key: InternalDraggingKey.self, value: isDragging)
         .preference(key: HoveredTextKey.self, value: isHovered ? item.text : nil)
@@ -1160,6 +1557,89 @@ private struct ArchiveTextCell: View {
         .accessibilityHint("Tap to copy, drag to carry the text out")
         .accessibilityAddTraits(.isButton)
     }
+}
+
+// MARK: - Drawn drag previews
+
+/// The picture a dragged colour travels as: the swatch itself, so what leaves
+/// the cell looks like the cell. Drawn rather than snapshotted — a plain rounded
+/// square is cheaper to render than to capture.
+///
+/// A free function because a multi-selection drag needs it too, and a colour
+/// should look the same leaving on its own as it does in a pile.
+private func archiveColorDragImage(_ color: NSColor, side: CGFloat, cornerRadius: CGFloat) -> NSImage {
+    let image = NSImage(size: NSSize(width: side, height: side))
+    image.lockFocus()
+    let rect = NSRect(x: 0, y: 0, width: side, height: side)
+    NSBezierPath(roundedRect: rect, xRadius: cornerRadius, yRadius: cornerRadius).addClip()
+    color.setFill()
+    rect.fill()
+    image.unlockFocus()
+    return image
+}
+
+/// The same for a snippet: its first line on the cell's own plate, so the thing
+/// under the cursor still says which snippet is being carried.
+private func archiveTextDragImage(_ firstLine: String, size: NSSize, cornerRadius: CGFloat) -> NSImage {
+    let image = NSImage(size: size)
+    image.lockFocus()
+    let rect = NSRect(origin: .zero, size: size)
+    let plate = NSBezierPath(roundedRect: rect, xRadius: cornerRadius, yRadius: cornerRadius)
+    NSColor(calibratedWhite: 0.17, alpha: 1).setFill()
+    plate.fill()
+    NSColor(calibratedWhite: 1, alpha: 0.25).setStroke()
+    plate.stroke()
+    let attributes: [NSAttributedString.Key: Any] = [
+        .font: NSFont.systemFont(ofSize: 6),
+        .foregroundColor: NSColor(calibratedWhite: 1, alpha: 0.75)
+    ]
+    NSAttributedString(string: firstLine, attributes: attributes)
+        .draw(in: rect.insetBy(dx: 4, dy: 4))
+    image.unlockFocus()
+    return image
+}
+
+/// What a cell needs in order to act on the whole selection rather than on
+/// itself: what a drag of it carries, and the three verbs its context menu
+/// offers once the cell is part of the selection. Built by the archive — a cell
+/// knows what it holds, not what else is picked.
+///
+/// Closures, not values: the drag halves resolve when the drag starts (see the
+/// note on `ArchiveDragShim.payload`), and the verbs when the row is chosen.
+struct ArchiveSelectionActions {
+    let dragPayload: () -> [NSPasteboardWriting]
+    let dragImages: () -> [NSImage?]
+    /// The selection's menu, as the header button also receives it — one list,
+    /// rendered by AppKit there and by SwiftUI here.
+    let commands: [PanelMenuCommand]
+}
+
+/// The menu a picked cell shows in place of its own — the selection's own
+/// commands, the very list its header button opens.
+///
+/// Right-clicking one of several picked cells acts on all of them: the rule
+/// Finder states out loud when it offers "Copy 5 Items". The cell's own
+/// commands stand aside whole rather than being re-scoped one by one, since
+/// Edit, Open and Pin to Screen mean nothing for a pile that mixes colours,
+/// snippets and files.
+@ViewBuilder
+private func archiveSelectionMenu(_ actions: ArchiveSelectionActions) -> some View {
+    panelMenuRows(actions.commands)
+}
+
+/// What a cell's drag actually carries.
+///
+/// Outside selection mode, whatever the cell holds. Inside it, the whole
+/// selection — but only from a cell that is part of it: an unpicked cell yields
+/// nothing, and nothing is what stops `ArchiveDragShimView` from ever opening a
+/// session, so a slipped drag leaves the selection exactly as it was rather
+/// than replacing it with the one cell the pointer happened to be on.
+private func archiveDragContents<T>(isSelecting: Bool,
+                                    isPicked: Bool,
+                                    fromSelection: () -> [T],
+                                    fromCell: () -> [T]) -> [T] {
+    guard isSelecting else { return fromCell() }
+    return isPicked ? fromSelection() : []
 }
 
 /// Finder-style copy: puts the given files on the general pasteboard so a paste
@@ -1183,6 +1663,11 @@ private struct ArchiveFileCell<Menu: View>: View {
     let url: URL
     /// nil → generic placeholder glyph (a still-decoding screenshot thumbnail).
     let preview: NSImage?
+    var selection: ArchiveSelectionState
+    /// This cell's leaf in the selection — a capture's id, a stack member's URL.
+    let selectionKey: ArchiveSelectionKey
+    /// The whole selection: what a drag carries and what the menu offers.
+    let selectionActions: ArchiveSelectionActions
     let displayName: String
     let height: CGFloat
     let badgeBleed: CGFloat
@@ -1207,6 +1692,10 @@ private struct ArchiveFileCell<Menu: View>: View {
     @State private var isDragging    = false
 
     private var width: CGFloat { height * 1.6 }
+    /// True while this cell is part of a running selection — the one condition
+    /// under which its own menu stands aside for the selection's.
+    private var isPicked: Bool { selection.isActive && selection.contains(selectionKey) }
+
 
     var body: some View {
         ZStack {
@@ -1265,24 +1754,58 @@ private struct ArchiveFileCell<Menu: View>: View {
         .animation(.spring(response: 0.15, dampingFraction: 0.7), value: isPressed)
         .overlay {
             ArchiveDragShim(
-                payload: dragPayload,
-                dragImages: [preview],
+                payload: {
+                    archiveDragContents(isSelecting: selection.isActive,
+                                        isPicked: selection.contains(selectionKey),
+                                        fromSelection: selectionActions.dragPayload,
+                                        fromCell: dragPayload)
+                },
+                dragImages: {
+                    archiveDragContents(isSelecting: selection.isActive,
+                                        isPicked: selection.contains(selectionKey),
+                                        fromSelection: selectionActions.dragImages,
+                                        fromCell: { [preview] })
+                },
                 cellSize: CGSize(width: width, height: height),
                 isPressed: $isPressed,
                 isDragging: $isDragging,
                 onHoverChange: { isHovered = $0 },
-                onTap: onTap
+                // Selecting takes the tap over from whatever the caller does
+                // with it. It matters most here: a tap on a capture opens it in
+                // Preview *and* hides the panel, so a mis-click while picking
+                // would launch another app and take the half-built selection
+                // down with it.
+                onTap: { modifiers in
+                    switch archiveTapIntent(kind: .leaf,
+                                            isSelecting: selection.isActive,
+                                            isCommandHeld: modifiers.contains(.command)) {
+                    case .pick:     selection.pick(selectionKey)
+                    case .activate: onTap()
+                    }
+                }
             )
         }
+        .overlay { ArchivePickedRing(isPicked: selection.contains(selectionKey),
+                                     cornerRadius: cornerRadius) }
         // Badge is placed AFTER ArchiveDragShim so it sits above the NSView in z-order
         // and receives SwiftUI hit-testing before the NSView can intercept.
         .overlay(alignment: .topTrailing) {
-            ArchiveDeleteBadge(action: onRemove)
-                .opacity(isHovered ? 1 : 0)
-                .allowsHitTesting(isHovered)
-                .offset(x: badgeBleed, y: -badgeBleed)
+            ArchiveCellBadge(
+                selection: selection,
+                checkState: selection.contains(selectionKey) ? .full : .empty,
+                isHovered: isHovered,
+                badgeBleed: badgeBleed,
+                onToggle: { selection.toggle(selectionKey) },
+                onRemove: onRemove
+            )
         }
-        .contextMenu { menu() }
+        .contextMenu {
+            if isPicked {
+                archiveSelectionMenu(selectionActions)
+            } else {
+                    menu()
+            }
+        }
         .preference(key: InternalDraggingKey.self, value: isDragging)
         // Space previews whatever the pointer rests on (see updateSpaceHotkey).
         .preference(key: HoveredPreviewKey.self, value: isHovered ? [url] : [])
@@ -1297,6 +1820,9 @@ private struct ArchiveFileCell<Menu: View>: View {
 private struct ArchiveScreenshotCell: View {
     let shot: ArchiveScreenshot
     let loader: ThumbnailLoader
+    var selection: ArchiveSelectionState
+    /// The whole selection: what a drag carries and what the menu offers.
+    let selectionActions: ArchiveSelectionActions
     let height: CGFloat
     let badgeBleed: CGFloat
     let labelOffset: CGFloat
@@ -1323,6 +1849,9 @@ private struct ArchiveScreenshotCell: View {
         ArchiveFileCell(
             url: shot.url,
             preview: loader.image,
+            selection: selection,
+            selectionKey: .item(shot.id),
+            selectionActions: selectionActions,
             displayName: displayName,
             height: height,
             badgeBleed: badgeBleed,
@@ -1359,6 +1888,11 @@ private struct ArchiveScreenshotCell: View {
                 // bitmap. (The editor shares an image because its composite
                 // isn't on disk yet.)
                 MenuCommandButton("Share", icon: .share) { shareAnchor.present([shot.url]) }
+                if !selection.isActive {
+                    MenuCommandButton("Select Items", icon: .select) {
+                        selection.pick(.item(shot.id))
+                    }
+                }
                 Divider()
                 MenuCommandButton("Move to Trash", icon: .trash, role: .destructive) {
                     onMoveToTrash()
@@ -1379,6 +1913,9 @@ private struct ArchiveScreenshotCell: View {
 private struct ArchiveStackCell: View {
     let stack: ArchiveStack
     let loaders: [ThumbnailLoader]
+    var selection: ArchiveSelectionState
+    /// The whole selection: what a drag carries and what the menu offers.
+    let selectionActions: ArchiveSelectionActions
     let height: CGFloat
     let badgeBleed: CGFloat
     let labelOffset: CGFloat
@@ -1398,6 +1935,12 @@ private struct ArchiveStackCell: View {
 
     private var width: CGFloat { height * 1.6 }
     private var fanCount: Int { min(stack.urls.count, 3) }
+    /// A stack is part of the selection as soon as any member is — mixed is
+    /// still visibly picked, so a drag may start here and its menu stands aside
+    /// for the selection's.
+    private var isPicked: Bool {
+        selection.isActive && selection.checkState(forMembers: stack.urls) != .empty
+    }
     /// Source folder name for the label, or nil for the filesystem root
     /// ("/".lastPathComponent is "/", which reads as noise) so the label and
     /// VoiceOver fall back to the file count.
@@ -1500,31 +2043,80 @@ private struct ArchiveStackCell: View {
         .animation(.spring(response: 0.15, dampingFraction: 0.7), value: isPressed)
         .overlay {
             ArchiveDragShim(
-                payload: { ArchiveDragPayload.files(stack.urls) },
-                dragImages: (0..<fanCount).map { previewImage(at: $0) },
+                payload: {
+                    archiveDragContents(isSelecting: selection.isActive,
+                                        isPicked: isPicked,
+                                        fromSelection: selectionActions.dragPayload,
+                                        fromCell: { ArchiveDragPayload.files(stack.urls) })
+                },
+                dragImages: {
+                    archiveDragContents(isSelecting: selection.isActive,
+                                        isPicked: isPicked,
+                                        fromSelection: selectionActions.dragImages,
+                                        fromCell: { (0..<fanCount).map { previewImage(at: $0) } })
+                },
                 cellSize: CGSize(width: width, height: height),
                 isPressed: $isPressed,
                 isDragging: $isDragging,
                 onHoverChange: setHovered,
-                onTap: { onExpand() },
-                onDragCompleted: { _ in onDragOutCompleted() }
+                // The one cell whose tap does not change in the mode. A
+                // mis-click here only opens an accordion, and the members
+                // behind it are exactly what the user came to pick from — the
+                // checkbox is how the stack itself is chosen.
+                onTap: { modifiers in
+                    switch archiveTapIntent(kind: .stack,
+                                            isSelecting: selection.isActive,
+                                            isCommandHeld: modifiers.contains(.command)) {
+                    case .pick:     selection.pickMembers(stack.urls)
+                    case .activate: onExpand()
+                    }
+                },
+                // A stack that lands somewhere else leaves the archive: a
+                // dropped pile is transit, not stored history. Not in the mode,
+                // though — there the drag carried a selection that can reach
+                // well past this stack, and removing the one cell it happened
+                // to start from is not what "it landed" means any more.
+                onDragCompleted: { _ in
+                    if !selection.isActive { onDragOutCompleted() }
+                }
             )
         }
+        // A mixed stack wears the ring too: it is visibly part of the
+        // selection, which is the same line the drag gate draws.
+        .overlay { ArchivePickedRing(isPicked: isPicked, cornerRadius: cornerRadius) }
         // Badge after the shim, mirroring ArchiveScreenshotCell's z-order note.
         .overlay(alignment: .topTrailing) {
-            ArchiveDeleteBadge(action: { onRemove() })
-                .opacity(isHovered ? 1 : 0)
-                .allowsHitTesting(isHovered)
-                .offset(x: badgeBleed, y: -badgeBleed)
+            ArchiveCellBadge(
+                selection: selection,
+                // Over every member, not the three the fan draws: a stack whose
+                // hidden members are all picked is full, and saying "mixed"
+                // would send the user looking for a member they never left out.
+                checkState: selection.checkState(forMembers: stack.urls),
+                isHovered: isHovered,
+                badgeBleed: badgeBleed,
+                onToggle: { selection.toggleMembers(stack.urls) },
+                onRemove: { onRemove() }
+            )
         }
         .contextMenu {
-            MenuCommandButton("Show in Finder", icon: .finder) { revealInFinder() }
-            MenuCommandButton("Copy", icon: .copy) { copyAll() }
-            // Every member in one sheet — the same payload the whole-cell drag
-            // carries, so AirDrop sends the pile in a single transfer.
-            MenuCommandButton("Share", icon: .share) { shareAnchor.present(stack.urls) }
-            Divider()
-            MenuCommandButton("Remove from archive", icon: .remove) { onRemove() }
+            if isPicked {
+                archiveSelectionMenu(selectionActions)
+            } else {
+                MenuCommandButton("Show in Finder", icon: .finder) { revealInFinder() }
+                MenuCommandButton("Copy", icon: .copy) { copyAll() }
+                // Every member in one sheet — the same payload the whole-cell drag
+                // carries, so AirDrop sends the pile in a single transfer.
+                MenuCommandButton("Share", icon: .share) { shareAnchor.present(stack.urls) }
+                if !selection.isActive {
+                    // A stack is picked through its members, so "Select" here means
+                    // all of them — the same thing its checkbox does.
+                    MenuCommandButton("Select Items", icon: .select) {
+                        selection.pickMembers(stack.urls)
+                    }
+                }
+                Divider()
+                MenuCommandButton("Remove from archive", icon: .remove) { onRemove() }
+            }
         }
         .sharePickerAnchor(shareAnchor)
         .preference(key: InternalDraggingKey.self, value: isDragging)
@@ -1544,6 +2136,9 @@ private struct ArchiveStackCell: View {
 private struct ExpandedStackGroup: View {
     let stack: ArchiveStack
     var archiveModel: NotchArchiveModel
+    var selection: ArchiveSelectionState
+    /// The whole selection: what a drag carries and what the menu offers.
+    let selectionActions: ArchiveSelectionActions
     let height: CGFloat
     let cornerRadius: CGFloat
     let badgeBleed: CGFloat
@@ -1573,6 +2168,11 @@ private struct ExpandedStackGroup: View {
         guard let name = stack.folder?.lastPathComponent, name != "/" else { return nil }
         return name
     }
+    /// As for the collapsed cell: any picked member makes the stack part of
+    /// the selection, and its header's menu gives way to the selection's.
+    private var isPicked: Bool {
+        selection.isActive && selection.checkState(forMembers: stack.urls) != .empty
+    }
     private var shownURLs: [URL] { Array(stack.urls.prefix(memberCap)) }
     private var overflow: Int { max(0, stack.urls.count - memberCap) }
 
@@ -1587,6 +2187,8 @@ private struct ExpandedStackGroup: View {
                 StackMemberCell(
                     url: url,
                     loader: archiveModel.stackThumbnailLoader(for: url),
+                    selection: selection,
+                    selectionActions: selectionActions,
                     height: height,
                     badgeBleed: badgeBleed,
                     labelOffset: labelOffset,
@@ -1646,12 +2248,21 @@ private struct ExpandedStackGroup: View {
         // Left click collapses; right click opens the stack-level menu.
         .onTapGesture { onCollapse() }
         .contextMenu {
-            MenuCommandButton("Show in Finder", icon: .finder) { onRevealAll() }
-            MenuCommandButton("Copy", icon: .copy) { copyAll() }
-            MenuCommandButton("Share", icon: .share) { shareAnchor.present(stack.urls) }
-            MenuCommandButton("Collapse", icon: .collapse) { onCollapse() }
-            Divider()
-            MenuCommandButton("Remove from archive", icon: .remove) { onRemoveStack() }
+            if isPicked {
+                archiveSelectionMenu(selectionActions)
+            } else {
+                MenuCommandButton("Show in Finder", icon: .finder) { onRevealAll() }
+                MenuCommandButton("Copy", icon: .copy) { copyAll() }
+                MenuCommandButton("Share", icon: .share) { shareAnchor.present(stack.urls) }
+                MenuCommandButton("Collapse", icon: .collapse) { onCollapse() }
+                if !selection.isActive {
+                    MenuCommandButton("Select Items", icon: .select) {
+                        selection.pickMembers(stack.urls)
+                    }
+                }
+                Divider()
+                MenuCommandButton("Remove from archive", icon: .remove) { onRemoveStack() }
+            }
         }
         .sharePickerAnchor(shareAnchor)
         .help("Collapse")
@@ -1679,6 +2290,9 @@ private struct ExpandedStackGroup: View {
 private struct StackMemberCell: View {
     let url: URL
     let loader: ThumbnailLoader
+    var selection: ArchiveSelectionState
+    /// The whole selection: what a drag carries and what the menu offers.
+    let selectionActions: ArchiveSelectionActions
     let height: CGFloat
     let badgeBleed: CGFloat
     let labelOffset: CGFloat
@@ -1711,6 +2325,9 @@ private struct StackMemberCell: View {
         ArchiveFileCell(
             url: url,
             preview: previewImage,
+            selection: selection,
+            selectionKey: .file(url),
+            selectionActions: selectionActions,
             displayName: displayName,
             height: height,
             badgeBleed: badgeBleed,
@@ -1749,6 +2366,11 @@ private struct StackMemberCell: View {
                     }
                 }
                 MenuCommandButton("Share", icon: .share) { shareAnchor.present([url]) }
+                if !selection.isActive {
+                    MenuCommandButton("Select Items", icon: .select) {
+                        selection.pick(.file(url))
+                    }
+                }
                 Divider()
                 MenuCommandButton("Move to Trash", icon: .trash, role: .destructive) {
                     onRemove()
@@ -1839,6 +2461,107 @@ private struct CollapseButton: View {
         .help("Collapse")
         .accessibilityLabel("Collapse")
         .accessibilityAddTraits(.isButton)
+    }
+}
+
+// MARK: - Selection count button
+
+/// See `NotchArchiveView.selectionCountButton`. An icon button the size and
+/// shape of the pin beside it — the panel's own vocabulary for "a control
+/// belonging to this route", the same one the translator's Copy uses — with an
+/// NSPopUpButton underneath for the menu and the glyph drawn on top of it and
+/// not hit-testable, so AppKit owns the click and SwiftUI owns the look.
+struct ArchiveSelectionCountButton: View {
+    let count: Int
+    let metrics: NotchMetrics
+    let commands: [PanelMenuCommand]
+
+    @Environment(\.colorSchemeContrast) private var contrast
+
+    @State private var isHovered  = false
+    @State private var isPressed  = false
+    @State private var isMenuOpen = false
+
+    var body: some View {
+        ZStack {
+            PopUpMoreButtonWrapper(
+                extraCommands: commands,
+                includesAppCommands: false,
+                accessibilityKey: "Selected items",
+                accessibilityValue: count > 0 ? NotchMetrics.countLabel(for: count) : nil,
+                onOpen:  { isMenuOpen = true  },
+                onClose: { isMenuOpen = false }
+            )
+            .frame(width: metrics.cellWidth, height: metrics.iconSize)
+
+            // Not `checkmark.circle`: that is the mark the cells wear, and a
+            // lone tick reads as "done" — the button was being taken for the
+            // way out of the mode rather than the way into its menu. A checked
+            // stack says several things, chosen.
+            Image(systemName: "checkmark.rectangle.stack")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(foreground)
+                .frame(width: 24, height: 24)
+                .frame(width: metrics.cellWidth, height: metrics.iconSize)
+                .background(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous).fill(background)
+                )
+                .overlay(alignment: .topTrailing) { badge }
+                .scaleEffect(isPressed ? 0.88 : 1.0)
+                .animation(.spring(response: 0.18, dampingFraction: 0.7), value: isPressed)
+                .allowsHitTesting(false)
+        }
+        .frame(width: metrics.cellWidth, height: metrics.iconSize)
+        .contentShape(Rectangle())
+        .onHover { isHovered = $0 }
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { _ in isPressed = true  }
+                .onEnded   { _ in isPressed = false }
+        )
+        .animation(.easeInOut(duration: 0.12), value: isHovered)
+        .animation(.easeInOut(duration: 0.12), value: isMenuOpen)
+        // Labelled from AppKit inside the wrapper — see the note there. A
+        // SwiftUI label here would not reach the NSPopUpButton VoiceOver lands
+        // on, and "Selection" in the catalogue is the capture mode ("Область"),
+        // not this.
+    }
+
+    /// The count, small and tucked into the button's own corner rather than
+    /// bled outside it: the header's controls sit 4pt apart, and a badge
+    /// reaching into that gap would touch the pin. Nothing picked shows
+    /// nothing — the button's presence already says the mode is on, and a
+    /// badge reading "0" would be a number worth no space at all.
+    @ViewBuilder
+    private var badge: some View {
+        if count > 0 {
+            Text(verbatim: NotchMetrics.countLabel(for: count))
+                .font(.system(size: 8, weight: .bold))
+                .monospacedDigit()
+                .foregroundStyle(.white)
+                .padding(.horizontal, 2.5)
+                .frame(minWidth: 12, minHeight: 12)
+                .background(Capsule(style: .continuous).fill(archivePickedTint))
+                .fixedSize()
+                .padding(.top, 1)
+                .padding(.trailing, 1)
+        }
+    }
+
+    /// Idle at rest, exactly like the pin and the "⋯" beside it. A filled
+    /// background already means something in this header — the pin wears one
+    /// while the panel is pinned — so a button that is always filled reads as a
+    /// toggle stuck on. The badge is what reports; the chrome stays quiet.
+    private var background: Color {
+        if isMenuOpen { return PanelChrome.fill(0.22, contrast) }
+        if isPressed  { return PanelChrome.fill(0.28, contrast) }
+        if isHovered  { return PanelChrome.fill(0.16, contrast) }
+        return .clear
+    }
+
+    private var foreground: Color {
+        if isMenuOpen || isPressed || isHovered { return .white }
+        return PanelChrome.foreground(0.8, contrast)
     }
 }
 
@@ -2074,12 +2797,16 @@ private struct ArchiveDragShim: NSViewRepresentable {
     /// format disagrees with the setting is re-encoded in here, and doing that
     /// on every SwiftUI update would be absurd.
     let payload: () -> [NSPasteboardWriting]
-    let dragImages: [NSImage?]
+    /// A closure for the same reason `payload` is, and now for one more: in
+    /// selection mode the pictures belong to everything that is picked, which
+    /// the cell the drag started from has no way of knowing until it starts.
+    let dragImages: () -> [NSImage?]
     let cellSize: CGSize
     @Binding var isPressed: Bool
     @Binding var isDragging: Bool
     let onHoverChange: (Bool) -> Void
-    let onTap: () -> Void
+    /// Handed the click's modifiers: ⌘ turns any cell's click into a pick.
+    let onTap: (NSEvent.ModifierFlags) -> Void
     /// Fired when a drag session ends outside this window with a non-empty
     /// operation (i.e. the payload actually landed somewhere external).
     var onDragCompleted: ((NSDragOperation) -> Void)? = nil
@@ -2091,7 +2818,7 @@ private struct ArchiveDragShim: NSViewRepresentable {
 
     func updateNSView(_ nsView: ArchiveDragShimView, context: Context) {
         nsView.makePayload = payload
-        nsView.dragImages = dragImages
+        nsView.makeDragImages = dragImages
         nsView.cellSize = cellSize
         nsView.onHoverChange = onHoverChange
         // Refreshed like the rest, not captured once at creation: the NSView
@@ -2110,7 +2837,7 @@ final class ArchiveDragShimView: NSView, NSDraggingSource {
     /// What the running session is carrying, kept so the operation mask can be
     /// decided from the same items the drag actually began with.
     private var payload: [NSPasteboardWriting] = []
-    var dragImages: [NSImage?] = []
+    var makeDragImages: () -> [NSImage?] = { [] }
     var cellSize: CGSize = .zero
     var onDragCompleted: ((NSDragOperation) -> Void)?
 
@@ -2123,12 +2850,18 @@ final class ArchiveDragShimView: NSView, NSDraggingSource {
     var localIsInHoverZone: Bool = false
     var onHoverChange: (Bool) -> Void
     /// Reassigned on every `updateNSView` — see the note there.
-    var onTap: () -> Void
+    var onTap: (NSEvent.ModifierFlags) -> Void
 
     private var mouseDownPoint: NSPoint?
+    /// Modifiers as they were when the button went down, not when it came up.
+    /// Selection gestures are decided at press time everywhere on the Mac, and
+    /// letting go of ⌘ before the button — which is what a hand actually does —
+    /// must not turn the pick back into a plain click.
+    private var mouseDownModifiers: NSEvent.ModifierFlags = []
 
     init(isPressed: Binding<Bool>, isDragging: Binding<Bool>,
-         onHoverChange: @escaping (Bool) -> Void, onTap: @escaping () -> Void) {
+         onHoverChange: @escaping (Bool) -> Void,
+         onTap: @escaping (NSEvent.ModifierFlags) -> Void) {
         self._isPressed = isPressed
         self._isDragging = isDragging
         self.onHoverChange = onHoverChange
@@ -2206,6 +2939,7 @@ final class ArchiveDragShimView: NSView, NSDraggingSource {
     /// silently did nothing.
     override func mouseDown(with event: NSEvent) {
         mouseDownPoint = convert(event.locationInWindow, from: nil)
+        mouseDownModifiers = event.modifierFlags
         DispatchQueue.main.async { self.isPressed = true }
     }
 
@@ -2220,7 +2954,9 @@ final class ArchiveDragShimView: NSView, NSDraggingSource {
             let current = convert(event.locationInWindow, from: nil)
             // NSEvent.startDragDistance is not exposed to Swift; 4 pt matches
             // the AppKit internal threshold used by NSWindow drag detection.
-            if hypot(current.x - start.x, current.y - start.y) < 4 { onTap() }
+            if hypot(current.x - start.x, current.y - start.y) < 4 {
+                onTap(mouseDownModifiers)
+            }
         }
     }
 
@@ -2232,6 +2968,7 @@ final class ArchiveDragShimView: NSView, NSDraggingSource {
             self.isDragging = true
         }
         let previewSize = NSSize(width: cellSize.width * 0.75, height: cellSize.height * 0.75)
+        let dragImages = makeDragImages()
         let items = payload.enumerated().map { idx, writer -> NSDraggingItem in
             let item = NSDraggingItem(pasteboardWriter: writer)
             // Shallow cascade: the first few items carry previews, the rest

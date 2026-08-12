@@ -173,14 +173,24 @@ extension PanelState {
         }
     }
 
-    /// Which layer Esc unwinds. The archive expands one stack at a time into an
-    /// inline accordion, and that accordion is the only panel state with no
-    /// keyboard way out — so Esc collapses it first and closes the panel on the
-    /// press after. It stops there: returning to Main is what the back button
-    /// is for, and a third press before the panel disappears would undo the
-    /// "Esc means gone" reflex.
-    func escapeAction(hasExpandedStack: Bool, translateCameFromArchive: Bool) -> EscapeAction {
-        if case .archive = self, hasExpandedStack { return .collapseStack }
+    /// Which layer Esc unwinds — one press, one layer, innermost first.
+    ///
+    /// Inside the archive that is the ladder in `archiveUnwindStep`: an
+    /// expanded stack, then a selection in progress, then the panel itself.
+    /// The back chevron climbs the same ladder; they differ only at the
+    /// bottom, where Esc closes the panel outright and Back returns to Main.
+    /// Nothing below that: a further press before the panel disappears would
+    /// undo the "Esc means gone" reflex.
+    func escapeAction(hasExpandedStack: Bool,
+                      isSelecting: Bool,
+                      translateCameFromArchive: Bool) -> EscapeAction {
+        if case .archive = self {
+            switch archiveUnwindStep(hasExpandedStack: hasExpandedStack, isSelecting: isSelecting) {
+            case .collapseStack: return .collapseStack
+            case .exitSelection: return .exitSelection
+            case .leaveArchive:  return .hidePanel
+            }
+        }
         // Reading an archive entry in the Translator is a layer over the
         // archive, like the expanded stack is: Esc puts it back rather than
         // taking the panel with it, the same way it behaves over Quick Look.
@@ -192,6 +202,7 @@ extension PanelState {
 /// What a press of Esc does at a given moment (see `PanelState.escapeAction`).
 enum EscapeAction: Equatable {
     case collapseStack
+    case exitSelection
     case backToArchive
     case hidePanel
 }
@@ -229,6 +240,7 @@ private struct NotchPanelRootView: View {
     var model: NotchPanelModel
     var archiveModel: NotchArchiveModel
     var archiveExpansion: ArchiveExpansionState
+    var archiveSelection: ArchiveSelectionState
     let shareAnchor: SharePickerAnchor
 
     let onClose: () -> Void
@@ -418,6 +430,7 @@ private struct NotchPanelRootView: View {
                 metrics: m,
                 archiveModel: archiveModel,
                 expansion: archiveExpansion,
+                selection: archiveSelection,
                 shareAnchor: shareAnchor,
                 isPinned: rootState.isArchivePinned,
                 // Both halves are needed, and the route is the load-bearing one.
@@ -533,9 +546,9 @@ final class NotchPanelController: NSObject {
     /// True while the Quick Look panel is up (see QuickLookPresenter) — the
     /// preview is anchored to nothing, so the panel behind it must stay put.
     private var isQuickLookOpen: Bool = false
-    /// Anchor for every share sheet opened from the archive — the "⋯" menu's
-    /// Share All and the Share Last Screenshot hotkey. Owned here rather than
-    /// by the view so the hotkey can reach it without the archive being on screen
+    /// Anchor for every share sheet opened from the archive — the selection's
+    /// Share and the Share Last Screenshot hotkey. Owned here rather than by
+    /// the view so the hotkey can reach it without the archive being on screen
     /// first.
     private let archiveShareAnchor = SharePickerAnchor()
     /// Toast for hotkeys that have nothing to act on; a silent global shortcut
@@ -647,6 +660,9 @@ final class NotchPanelController: NSObject {
     /// Lives here rather than inside the archive view so the Esc handler can see
     /// (and clear) an open accordion — see `PanelState.escapeAction`.
     let archiveExpansion = ArchiveExpansionState()
+    /// Lives here for the same reason, and one layer further out: Esc unwinds
+    /// an expanded stack, then the selection mode, then the panel.
+    let archiveSelection = ArchiveSelectionState()
     let screenshot = ScreenshotService()
     let colorPicker = ColorPickingCoordinator()
     let scanCapture = ScanCaptureCoordinator()
@@ -1024,13 +1040,15 @@ final class NotchPanelController: NSObject {
         panel?.close()
         panel = nil
         removeEscMonitor()
-        // The archive's Space owner went with the hosting view just released,
-        // and its token went with it — `onDisappear` is not promised on a view
-        // that is deallocated rather than removed. Esc is handed back by the
-        // line above because the panel holds that token itself; Space has to be
-        // taken back from this side or nobody can. Not `.escape.releaseAll()`:
-        // an open Quick Look panel is still on screen and still needs its Esc.
+        // The archive's Space and ⌘A owners went with the hosting view just
+        // released, and their tokens went with them — `onDisappear` is not
+        // promised on a view that is deallocated rather than removed. Esc is
+        // handed back by the line above because the panel holds that token
+        // itself; these two have to be taken back from this side or nobody can.
+        // Not `.escape.releaseAll()`: an open Quick Look panel is still on
+        // screen and still needs its Esc.
         TransientHotkeyCenter.space.releaseAll()
+        TransientHotkeyCenter.selectAll.releaseAll()
         // Same story, same fix: the root view held both cycle owners in its own
         // @State, and Tab left claimed is Tab taken from every app on the
         // machine.
@@ -1643,11 +1661,16 @@ final class NotchPanelController: NSObject {
                 guard let self, self.isVisible else { return }
                 switch self.state.escapeAction(
                     hasExpandedStack: self.archiveExpansion.stackID != nil,
+                    isSelecting: self.archiveSelection.isActive,
                     translateCameFromArchive: self.translateReturnRoute == .archive
                 ) {
                 case .collapseStack:
                     withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
                         self.archiveExpansion.stackID = nil
+                    }
+                case .exitSelection:
+                    withAnimation(.easeInOut(duration: 0.18)) {
+                        self.archiveSelection.clear()
                     }
                 case .backToArchive:
                     self.leaveTranslate()
@@ -1677,6 +1700,7 @@ final class NotchPanelController: NSObject {
             model: model,
             archiveModel: archiveModel,
             archiveExpansion: archiveExpansion,
+            archiveSelection: archiveSelection,
             shareAnchor: archiveShareAnchor,
             onClose: { [weak self] in self?.hideAnimated(reason: .closeButton) },
             onCapture: { [weak self] mode, delay in

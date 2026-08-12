@@ -28,7 +28,7 @@ import Testing
         @Binding var dragging: Bool
         func makeNSView(context: Context) -> ArchiveDragShimView {
             ArchiveDragShimView(isPressed: $pressed, isDragging: $dragging,
-                                onHoverChange: { _ in }, onTap: {})
+                                onHoverChange: { _ in }, onTap: { _ in })
         }
         func updateNSView(_ view: ArchiveDragShimView, context: Context) {}
     }

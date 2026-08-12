@@ -130,3 +130,28 @@ import Testing
             enabled: true, isContentVisible: true, hoveredURLs: []))
     }
 }
+
+/// ⌘A is the archive's only claim on a modified key, and the narrowest of the
+/// three: it is taken from every app on the machine, so it is held only inside
+/// a mode the user switched on by hand.
+@Suite struct SelectAllHotkeyClaimTests {
+
+    @Test func claimedInsideTheSelectionMode() {
+        #expect(NotchArchiveView.wantsSelectAllHotkey(isContentVisible: true,
+                                                      isSelecting: true))
+    }
+
+    /// The archive being open is not enough. Outside the mode ⌘A means "select
+    /// all" in whatever the user is actually working in, and it stays theirs.
+    @Test func notClaimedByAnArchiveThatIsMerelyOpen() {
+        #expect(!NotchArchiveView.wantsSelectAllHotkey(isContentVisible: true,
+                                                       isSelecting: false))
+    }
+
+    /// The archive can close with the mode still on — Esc, the hotkey,
+    /// auto-hide — and the flag is cleared a beat later than the panel goes.
+    @Test func notClaimedWhileTheArchiveIsHidden() {
+        #expect(!NotchArchiveView.wantsSelectAllHotkey(isContentVisible: false,
+                                                       isSelecting: true))
+    }
+}

@@ -3,9 +3,9 @@ import Foundation
 import Testing
 @testable import Stampo
 
-/// The flattening behind "Copy All" / "Share All": both commands run through
-/// `NotchArchiveModel.payload`, so they can never disagree about what the archive
-/// holds.
+/// The flattening behind the archive's Copy and Share: both commands run
+/// through `NotchArchiveModel.payload`, so they can never disagree about what
+/// was picked.
 @Suite struct ArchivePayloadTests {
 
     private let shot = URL(fileURLWithPath: "/tmp/archive/shot.png")
@@ -59,7 +59,7 @@ import Testing
 @Suite struct ShareLastItemHotkeyTests {
 
     /// The hotkey shares whatever sits at the top of the archive, so it runs
-    /// through the same flattening as Share All — a color goes as a string in
+    /// through the same flattening as Share — a color goes as a string in
     /// the selected notation, a stack goes as every one of its files.
     @Test func newestEntryIsWhatGetsShared() throws {
         let shot = URL(fileURLWithPath: "/tmp/archive/shot.png")

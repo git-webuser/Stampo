@@ -86,12 +86,54 @@ struct PanelIconButton: View {
 struct PanelMenuCommand {
     /// Localization key, also the item's identity for the rebuild check.
     let titleKey: String
+    /// The glyph from the app's shared vocabulary. The same verbs appear in the
+    /// cells' context menus, and a command that wears one symbol there and none
+    /// here reads as a different command.
+    var icon: MenuIcon? = nil
     var isEnabled: Bool = true
+    /// Puts a separator above this item — how a destructive row is set apart
+    /// from the ones above it, as in every context menu in the app.
+    var startsSection: Bool = false
     let action: () -> Void
+}
+
+/// Renders a command list as SwiftUI menu rows.
+///
+/// The same list can then be shown two ways: by the AppKit popup a header
+/// button opens, and by a cell's context menu. They used to be written twice
+/// and drifted exactly as you would expect — the same four verbs carried icons
+/// and a divider in a cell, and neither on the button.
+@ViewBuilder
+func panelMenuRows(_ commands: [PanelMenuCommand]) -> some View {
+    ForEach(Array(commands.enumerated()), id: \.offset) { index, command in
+        if command.startsSection, index > 0 { Divider() }
+        if let icon = command.icon {
+            MenuCommandButton(LocalizedStringKey(command.titleKey),
+                              icon: icon, action: command.action)
+                .disabled(!command.isEnabled)
+        } else {
+            Button(action: command.action) {
+                Text(LocalizedStringKey(command.titleKey))
+            }
+            .disabled(!command.isEnabled)
+        }
+    }
 }
 
 struct PopUpMoreButtonWrapper: NSViewRepresentable {
     var extraCommands: [PanelMenuCommand] = []
+    /// Whether Settings and Quit are tacked on below the extras. The "⋯" is the
+    /// app's only menu and has to carry them; a button that opens one specific
+    /// set of commands — the archive's selection verbs — must not.
+    var includesAppCommands: Bool = true
+    /// Localization key for the button VoiceOver focuses (the NSPopUpButton is
+    /// what it lands on — a SwiftUI label on the wrapping ZStack does not
+    /// reliably reach it).
+    var accessibilityKey: String = "Settings and quit"
+    /// Already-localized value spoken after the label — the selection button's
+    /// count. nil for a menu that is a list of commands rather than a choice,
+    /// which is what the "⋯" is.
+    var accessibilityValue: String? = nil
     var onOpen:  () -> Void
     var onClose: () -> Void
     @Environment(\.locale) private var locale
@@ -106,6 +148,7 @@ struct PopUpMoreButtonWrapper: NSViewRepresentable {
 
         button.menu?.autoenablesItems = false
         button.target = context.coordinator
+        context.coordinator.includesAppCommands = includesAppCommands
         context.coordinator.rebuildMenu(in: button, commands: extraCommands, locale: locale)
 
         NotificationCenter.default.addObserver(
@@ -129,13 +172,15 @@ struct PopUpMoreButtonWrapper: NSViewRepresentable {
         // itself is only rebuilt when its shape actually changed (see
         // rebuildMenu) — replacing items under an open menu would flicker.
         context.coordinator.commands = extraCommands
+        context.coordinator.includesAppCommands = includesAppCommands
         context.coordinator.rebuildMenu(in: button, commands: extraCommands, locale: locale)
         // The NSPopUpButton is what VoiceOver focuses; a SwiftUI label on the
-        // ZStack that wraps it doesn't reliably reach it. This menu is a list of
-        // commands rather than a choice — nothing is ever selected (see the
-        // selectItem(at: -1) below) — so there is no value to expose alongside
-        // the label.
-        button.setAccessibilityLabel(LocaleManager.string("Settings and quit", locale: locale))
+        // ZStack that wraps it doesn't reliably reach it, so both halves are set
+        // from here. The "⋯" passes no value: it is a list of commands rather
+        // than a choice, and nothing in it is ever selected (see the
+        // selectItem(at: -1) below).
+        button.setAccessibilityLabel(LocaleManager.string(accessibilityKey, locale: locale))
+        button.setAccessibilityValue(accessibilityValue)
         button.selectItem(at: -1)
         context.coordinator.parent = self
     }
@@ -147,6 +192,7 @@ struct PopUpMoreButtonWrapper: NSViewRepresentable {
         /// Live commands, re-assigned on every update so a menu item always
         /// runs the current closure.
         var commands: [PanelMenuCommand] = []
+        var includesAppCommands = true
         /// Shape of the menu as last built: titles + enablement + language.
         private var menuSignature: String?
 
@@ -159,13 +205,15 @@ struct PopUpMoreButtonWrapper: NSViewRepresentable {
         /// so the didEndTracking observer registered against it stays valid.
         func rebuildMenu(in button: NSPopUpButton, commands: [PanelMenuCommand], locale: Locale) {
             self.commands = commands
-            let signature = commands.map { "\($0.titleKey)|\($0.isEnabled)" }
-                .joined(separator: ",") + "#\(locale.identifier)"
+            let signature = commands
+                .map { "\($0.titleKey)|\($0.isEnabled)|\($0.icon?.rawValue ?? "")|\($0.startsSection)" }
+                .joined(separator: ",") + "#\(locale.identifier)#\(includesAppCommands)"
             guard signature != menuSignature, let menu = button.menu else { return }
             menuSignature = signature
 
             menu.removeAllItems()
             for (index, command) in commands.enumerated() {
+                if command.startsSection, index > 0 { menu.addItem(.separator()) }
                 let item = NSMenuItem(
                     title: LocaleManager.string(command.titleKey, locale: locale),
                     action: #selector(extraCommandTapped(_:)),
@@ -175,13 +223,15 @@ struct PopUpMoreButtonWrapper: NSViewRepresentable {
                 item.isEnabled = command.isEnabled
                 item.tag = index
                 item.state = .off
+                item.image = Self.menuImage(command.icon)
                 menu.addItem(item)
             }
+            guard includesAppCommands else { return }
             if !commands.isEmpty { menu.addItem(.separator()) }
 
-            for (titleKey, selector) in [
-                ("Settings", #selector(settingsTapped)),
-                ("Quit Stampo", #selector(quitTapped))
+            for (titleKey, icon, selector) in [
+                ("Settings", MenuIcon.settings, #selector(settingsTapped)),
+                ("Quit Stampo", MenuIcon.quit, #selector(quitTapped))
             ] {
                 if titleKey == "Quit Stampo" { menu.addItem(.separator()) }
                 let item = NSMenuItem(
@@ -191,8 +241,33 @@ struct PopUpMoreButtonWrapper: NSViewRepresentable {
                 )
                 item.target = self
                 item.state = .off
+                item.image = Self.menuImage(icon)
                 menu.addItem(item)
             }
+        }
+
+        /// A menu row's glyph, asked for by point size and left at whatever
+        /// size it comes back.
+        ///
+        /// The sizes differ between symbols — `doc.on.doc` returns 16×18 where
+        /// `xmark.circle` returns 15×15 — and that is deliberate on Apple's
+        /// side, not something to correct: SF Symbols are balanced optically
+        /// rather than geometrically, so a round glyph is drawn smaller than a
+        /// square one to carry the same weight beside it. Pinning them all to
+        /// one square makes the bounding boxes agree and the glyphs stop
+        /// agreeing, which is the half a reader actually sees.
+        ///
+        /// A row with no icon gets a blank instead, for the reason
+        /// `MenuCommandLabel(indented:)` draws one: without it the title slides
+        /// left, out of the column every other row keeps.
+        private static func menuImage(_ icon: MenuIcon?) -> NSImage {
+            guard let icon,
+                  let image = NSImage(systemSymbolName: icon.rawValue,
+                                      accessibilityDescription: nil)?
+                      .withSymbolConfiguration(.init(pointSize: 13, weight: .regular))
+            else { return NSImage(size: NSSize(width: 14, height: 14)) }
+            image.isTemplate = true
+            return image
         }
 
         @objc func extraCommandTapped(_ sender: NSMenuItem) {
@@ -220,8 +295,8 @@ struct PopUpMoreButtonWrapper: NSViewRepresentable {
 
 struct PanelMoreMenuButton: View {
     let metrics: NotchMetrics
-    /// Route-specific commands shown above Settings/Quit (the archive's
-    /// whole-archive actions); empty on the main panel.
+    /// Route-specific commands shown above Settings/Quit (the archive's way
+    /// into the selection mode); empty on the main panel.
     var extraCommands: [PanelMenuCommand] = []
 
     @Environment(\.colorSchemeContrast) private var contrast

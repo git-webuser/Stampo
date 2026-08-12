@@ -63,8 +63,11 @@ import Testing
     }
 
     @Test func addingTextCarriesTheFlagIntoTheArchive() {
+        // Not emptied first: `add` inserts at the head, so the two entries
+        // below are items 0 and 1 whatever the restored archive already held —
+        // and the model no longer has a way to empty itself, now that "Clear
+        // Archive" is gone and clearing is a selection of everything.
         let model = NotchArchiveModel()
-        model.removeAll()
         model.add(text: "Guest network")
         model.add(text: "WIFI:S:Net;T:WPA;P:secret;;", isCodePayload: true)
 

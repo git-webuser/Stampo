@@ -102,8 +102,14 @@ extension NotchPanelController {
 
         let schemeControlWidth: CGFloat = 68
         let backButtonWidth: CGFloat = metrics.cellWidth
+        // Room for the selection button, held whether or not the mode is
+        // running: a panel whose width depended on the mode would resize on the
+        // way in. It is a plain icon button like the pin, and its badge sits
+        // inside it, so one cell and a gap is the whole of it.
+        let selectionControlWidth = metrics.cellWidth + metrics.gap
 
-        return baseSide + backButtonWidth + metrics.gap + schemeControlWidth + metrics.gap + min(contentWidth, 300) + baseSide
+        return baseSide + backButtonWidth + metrics.gap + schemeControlWidth + metrics.gap
+            + selectionControlWidth + min(contentWidth, 300) + baseSide
     }
 
     func clampedWidth(_ w: CGFloat, on screen: NSScreen) -> CGFloat {

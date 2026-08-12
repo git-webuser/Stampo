@@ -48,37 +48,71 @@ import Testing
 /// are pure functions on the state rather than branches buried in the handler.
 @Suite struct PanelEscapeTests {
 
+    /// Esc and the back chevron climb one ladder, so it is checked once here
+    /// and each control's own last rung separately below.
+    @Test func theLadderRunsInnermostFirst() {
+        #expect(archiveUnwindStep(hasExpandedStack: true, isSelecting: true) == .collapseStack)
+        #expect(archiveUnwindStep(hasExpandedStack: true, isSelecting: false) == .collapseStack)
+        #expect(archiveUnwindStep(hasExpandedStack: false, isSelecting: true) == .exitSelection)
+        #expect(archiveUnwindStep(hasExpandedStack: false, isSelecting: false) == .leaveArchive)
+    }
+
     @Test func expandedStackSwallowsTheFirstEscape() {
         #expect(PanelState.archive.escapeAction(
-            hasExpandedStack: true, translateCameFromArchive: false) == .collapseStack)
+            hasExpandedStack: true, isSelecting: false,
+            translateCameFromArchive: false) == .collapseStack)
     }
 
     @Test func escapeClosesThePanelOnceNothingIsExpanded() {
         #expect(PanelState.archive.escapeAction(
-            hasExpandedStack: false, translateCameFromArchive: false) == .hidePanel)
+            hasExpandedStack: false, isSelecting: false,
+            translateCameFromArchive: false) == .hidePanel)
+    }
+
+    @Test func selectionIsTheLayerBetweenTheStackAndThePanel() {
+        #expect(PanelState.archive.escapeAction(
+            hasExpandedStack: false, isSelecting: true,
+            translateCameFromArchive: false) == .exitSelection)
+    }
+
+    /// One press, one layer, innermost first: a stack expanded inside a
+    /// selection collapses before the mode is touched, so neither press has to
+    /// undo two things at once.
+    @Test func theStackUnwindsBeforeTheSelectionDoes() {
+        #expect(PanelState.archive.escapeAction(
+            hasExpandedStack: true, isSelecting: true,
+            translateCameFromArchive: false) == .collapseStack)
     }
 
     /// Reading an archive entry in the Translator is a layer over the archive,
     /// the way an expanded stack is: the first press puts it back.
     @Test func aPreviewOpenedFromTheArchiveGoesBackToIt() {
         #expect(PanelState.translate.escapeAction(
-            hasExpandedStack: false, translateCameFromArchive: true) == .backToArchive)
+            hasExpandedStack: false, isSelecting: false,
+            translateCameFromArchive: true) == .backToArchive)
     }
 
     /// A translation raised over nothing has no archive to return to — the
     /// press closes the panel, as it does everywhere else.
     @Test func aTranslationRaisedOnItsOwnClosesThePanel() {
         #expect(PanelState.translate.escapeAction(
-            hasExpandedStack: false, translateCameFromArchive: false) == .hidePanel)
+            hasExpandedStack: false, isSelecting: false,
+            translateCameFromArchive: false) == .hidePanel)
     }
 
     /// A stack can only be expanded inside the archive, but the flag outlives
     /// the route by an instant while the archive morphs away — the press must
     /// close the panel then, not collapse something the user can no longer see.
+    /// The selection flag is cleared on the same close and outlives it the same
+    /// way, so it is read under the same guard.
     @Test(arguments: [PanelState.main, .showing, .countdown, .transitioning(to: .main)])
-    func onlyTheArchiveCollapsesInsteadOfClosing(state: PanelState) {
+    func onlyTheArchiveUnwindsInsteadOfClosing(state: PanelState) {
         #expect(state.escapeAction(
-            hasExpandedStack: true, translateCameFromArchive: false) == .hidePanel)
+            hasExpandedStack: true, isSelecting: false,
+            translateCameFromArchive: false) == .hidePanel)
+        #expect(state.escapeAction(
+            hasExpandedStack: false, isSelecting: true,
+            translateCameFromArchive: false) == .hidePanel)
     }
 
     @Test(arguments: [PanelState.showing, .main, .archive, .translate, .countdown, .translating])

@@ -906,6 +906,23 @@
         }
       }
     },
+    "Cancel selection" : {
+      "comment" : "Archive back button while selecting — the press leaves the mode rather than returning to the main panel",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cancel selection"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Отменить выделение"
+          }
+        }
+      }
+    },
     "Capture" : {
       "comment" : "Panel button that takes the screenshot",
       "localizations" : {
@@ -1045,24 +1062,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Выбрать…"
-          }
-        }
-      }
-    },
-    "Clear Archive" : {
-      "comment" : "Archive ⋯ menu command — empties the archive (files stay on disk)",
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Clear Archive"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Очистить архив"
           }
         }
       }
@@ -1317,24 +1316,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Копировать"
-          }
-        }
-      }
-    },
-    "Copy All" : {
-      "comment" : "Tray ⋯ menu command — copies every tray item at once",
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Copy All"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Копировать всё"
           }
         }
       }
@@ -1696,6 +1677,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Плотный"
+          }
+        }
+      }
+    },
+    "Deselect item" : {
+      "comment" : "VoiceOver label of an archive cell's checkbox while it is selected",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deselect item"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Снять выделение"
           }
         }
       }
@@ -4641,6 +4639,23 @@
         }
       }
     },
+    "Select All" : {
+      "comment" : "Archive ⋯ menu command while selecting — picks every entry",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Select All"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Выделить всё"
+          }
+        }
+      }
+    },
     "Select an annotation to edit its style" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -4658,6 +4673,40 @@
         }
       }
     },
+    "Select item" : {
+      "comment" : "VoiceOver label of an archive cell's checkbox while it is not selected",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Select item"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Выделить элемент"
+          }
+        }
+      }
+    },
+    "Select Items" : {
+      "comment" : "Archive menu command that turns multi-select on",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Select Items"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "\u0412\u044b\u0434\u0435\u043b\u0438\u0442\u044c"
+          }
+        }
+      }
+    },
     "Select the folder where screenshots will be saved" : {
       "comment" : "Message text in the NSOpenPanel for choosing screenshot save folder",
       "localizations" : {
@@ -4671,6 +4720,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Выберите папку для сохранения скриншотов"
+          }
+        }
+      }
+    },
+    "Selected items" : {
+      "comment" : "VoiceOver label of the archive button that shows how many entries are picked and opens their menu",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Selected items"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Выбранные элементы"
           }
         }
       }
@@ -4826,24 +4892,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Поделиться"
-          }
-        }
-      }
-    },
-    "Share All" : {
-      "comment" : "Tray ⋯ menu command — opens the share sheet on the whole tray",
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Share All"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Поделиться всем"
           }
         }
       }

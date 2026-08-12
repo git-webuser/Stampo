@@ -113,6 +113,12 @@ struct NotchMetrics {
         }
     }
 
+    /// What a count reads as on the selection button's badge. Past 99 the
+    /// number stops being information worth widening a badge for.
+    static func countLabel(for count: Int) -> String {
+        count > 99 ? "99+" : "\(count)"
+    }
+
     /// Total timer cell width for a given shortLabel.
     func timerCellWidth(for shortLabel: String?) -> CGFloat {
         guard shortLabel != nil else { return cellWidth }
