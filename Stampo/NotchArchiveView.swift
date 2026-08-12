@@ -224,7 +224,7 @@ struct NotchArchiveView: View {
             hoveredPreviewURLs = []
             hoveredText = nil
             updateSpaceHotkey()
-            updateSelectAllHotkey()
+            releaseSelectAllHotkey()
         }
     }
 
@@ -267,10 +267,7 @@ struct NotchArchiveView: View {
     /// than kept, like the Space owner, so the action always sees the archive
     /// as it is now.
     private func updateSelectAllHotkey() {
-        if let token = selectAllToken {
-            TransientHotkeyCenter.selectAll.remove(token)
-            selectAllToken = nil
-        }
+        releaseSelectAllHotkey()
         guard Self.wantsSelectAllHotkey(isContentVisible: isContentVisible,
                                         isSelecting: selection.isActive)
         else { return }
@@ -279,6 +276,25 @@ struct NotchArchiveView: View {
                 selection.selectAll(in: archiveModel.items)
             }
         }
+    }
+
+    /// Hands ⌘A back without asking whether it is still wanted.
+    ///
+    /// The teardown path cannot go through `updateSelectAllHotkey`, because
+    /// both of its inputs are still true at that moment: the mode lives on the
+    /// controller and outlives this view, and `routeContentVisible` is reset to
+    /// 1.0 while the panel is being torn down. The update would drop the token
+    /// and immediately push a fresh one — after the controller has already
+    /// called `releaseAll()` — leaving ⌘A claimed for every app on the machine
+    /// with the only token that could free it dying alongside the view.
+    ///
+    /// So a view on its way out lets go rather than re-deciding. The Space
+    /// owner reaches the same place from the other side, by emptying the
+    /// hovered files first so that its own `wants…` answers false.
+    private func releaseSelectAllHotkey() {
+        guard let token = selectAllToken else { return }
+        TransientHotkeyCenter.selectAll.remove(token)
+        selectAllToken = nil
     }
 
     /// Holds the Space hotkey exactly while a previewable cell is hovered.
@@ -1254,15 +1270,13 @@ private struct ArchiveColorCell: View {
             .overlay {
                 ArchiveDragShim(
                     payload: {
-                        archiveDragContents(isSelecting: selection.isActive,
-                                            isPicked: selection.contains(selectionKey),
+                        archiveDragContents(selection, from: selectionKey,
                                             fromSelection: selectionActions.dragPayload,
                                             fromCell: { ArchiveDragPayload.color(item.color,
                                                                                  formatted: scheme.convert(item.color)) })
                     },
                     dragImages: {
-                        archiveDragContents(isSelecting: selection.isActive,
-                                            isPicked: selection.contains(selectionKey),
+                        archiveDragContents(selection, from: selectionKey,
                                             fromSelection: selectionActions.dragImages,
                                             fromCell: { [dragPreview] })
                     },
@@ -1449,14 +1463,12 @@ private struct ArchiveTextCell: View {
         .overlay {
             ArchiveDragShim(
                 payload: {
-                    archiveDragContents(isSelecting: selection.isActive,
-                                        isPicked: selection.contains(selectionKey),
+                    archiveDragContents(selection, from: selectionKey,
                                         fromSelection: selectionActions.dragPayload,
                                         fromCell: { ArchiveDragPayload.text(item.text) })
                 },
                 dragImages: {
-                    archiveDragContents(isSelecting: selection.isActive,
-                                        isPicked: selection.contains(selectionKey),
+                    archiveDragContents(selection, from: selectionKey,
                                         fromSelection: selectionActions.dragImages,
                                         fromCell: { [dragPreview] })
                 },
@@ -1634,12 +1646,26 @@ private func archiveSelectionMenu(_ actions: ArchiveSelectionActions) -> some Vi
 /// nothing, and nothing is what stops `ArchiveDragShimView` from ever opening a
 /// session, so a slipped drag leaves the selection exactly as it was rather
 /// than replacing it with the one cell the pointer happened to be on.
-private func archiveDragContents<T>(isSelecting: Bool,
-                                    isPicked: Bool,
+///
+/// Whether a drag may start at all is `ArchiveSelectionState.allowsDrag`, asked
+/// rather than restated here. It used to be restated, and the copy that shipped
+/// was the one below while the copy under test was the one in the model — the
+/// same two-lists drift `[PanelMenuCommand]` exists to avoid.
+private func archiveDragContents<T>(_ selection: ArchiveSelectionState,
+                                    from key: ArchiveSelectionKey,
                                     fromSelection: () -> [T],
                                     fromCell: () -> [T]) -> [T] {
-    guard isSelecting else { return fromCell() }
-    return isPicked ? fromSelection() : []
+    guard selection.allowsDrag(from: key) else { return [] }
+    return selection.isActive ? fromSelection() : fromCell()
+}
+
+/// The same for a stack, which is draggable while any of its members is picked.
+private func archiveDragContents<T>(_ selection: ArchiveSelectionState,
+                                    fromMembers urls: [URL],
+                                    fromSelection: () -> [T],
+                                    fromCell: () -> [T]) -> [T] {
+    guard selection.allowsDrag(fromMembers: urls) else { return [] }
+    return selection.isActive ? fromSelection() : fromCell()
 }
 
 /// Finder-style copy: puts the given files on the general pasteboard so a paste
@@ -1755,14 +1781,12 @@ private struct ArchiveFileCell<Menu: View>: View {
         .overlay {
             ArchiveDragShim(
                 payload: {
-                    archiveDragContents(isSelecting: selection.isActive,
-                                        isPicked: selection.contains(selectionKey),
+                    archiveDragContents(selection, from: selectionKey,
                                         fromSelection: selectionActions.dragPayload,
                                         fromCell: dragPayload)
                 },
                 dragImages: {
-                    archiveDragContents(isSelecting: selection.isActive,
-                                        isPicked: selection.contains(selectionKey),
+                    archiveDragContents(selection, from: selectionKey,
                                         fromSelection: selectionActions.dragImages,
                                         fromCell: { [preview] })
                 },
@@ -2044,14 +2068,12 @@ private struct ArchiveStackCell: View {
         .overlay {
             ArchiveDragShim(
                 payload: {
-                    archiveDragContents(isSelecting: selection.isActive,
-                                        isPicked: isPicked,
+                    archiveDragContents(selection, fromMembers: stack.urls,
                                         fromSelection: selectionActions.dragPayload,
                                         fromCell: { ArchiveDragPayload.files(stack.urls) })
                 },
                 dragImages: {
-                    archiveDragContents(isSelecting: selection.isActive,
-                                        isPicked: isPicked,
+                    archiveDragContents(selection, fromMembers: stack.urls,
                                         fromSelection: selectionActions.dragImages,
                                         fromCell: { (0..<fanCount).map { previewImage(at: $0) } })
                 },
