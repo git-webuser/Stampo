@@ -3234,6 +3234,23 @@
         }
       }
     },
+    "Nothing selected" : {
+      "comment" : "VoiceOver value of an archive cell's checkbox — nothing picked",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nothing selected"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ничего не выбрано"
+          }
+        }
+      }
+    },
     "Nothing to share" : {
       "comment" : "Toast — the Share Last Item hotkey fired on an empty archive",
       "localizations" : {
@@ -3578,6 +3595,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Форма панели"
+          }
+        }
+      }
+    },
+    "Partly selected" : {
+      "comment" : "VoiceOver value of a stack's checkbox — some members picked",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Partly selected"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Выбрано частично"
           }
         }
       }
@@ -4720,6 +4754,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Выберите папку для сохранения скриншотов"
+          }
+        }
+      }
+    },
+    "Selected" : {
+      "comment" : "VoiceOver value of an archive cell's checkbox — picked, or a stack with every member picked",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Selected"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Выбрано"
           }
         }
       }

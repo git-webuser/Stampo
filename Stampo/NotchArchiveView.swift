@@ -1119,7 +1119,26 @@ struct ArchiveSelectionBadge: View {
                 DragGesture(minimumDistance: 0).onEnded { _ in action() }
             )
             .accessibilityAddTraits(.isButton)
-            .accessibilityLabel(state == .empty ? "Select item" : "Deselect item")
+            // Named for what the press does, not for what the glyph shows.
+            // Only a full box lets go; empty and mixed both fill, because a
+            // half-filled box is a promise that one more press completes it
+            // (`toggleMembers`). Labelling mixed "Deselect" read the glyph and
+            // promised the opposite of the action underneath it.
+            .accessibilityLabel(state == .full ? "Deselect item" : "Select item")
+            // Which of the three it is, for a listener who cannot see the
+            // glyph: "button, Select item" alone cannot tell a stack with two
+            // members picked from one with none.
+            .accessibilityValue(stateDescription)
+            .accessibilityAddTraits(state == .full ? .isSelected : [])
+    }
+
+    /// Spoken after the label — the box's own state, not the action on it.
+    private var stateDescription: LocalizedStringKey {
+        switch state {
+        case .empty: "Nothing selected"
+        case .mixed: "Partly selected"
+        case .full:  "Selected"
+        }
     }
 }
 
