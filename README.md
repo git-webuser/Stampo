@@ -77,11 +77,11 @@ Both are toggles, not keys to hold: press once to arm, again to disarm. They are
 
 ## Translate
 
-Recognized text can be translated on the spot, between English and Russian. The direction follows the text, so there is nothing to choose: Russian goes out to English, anything else comes in to Russian.
+Recognized text can be translated on the spot, into any language macOS offers a pack for. Stampo reads the source language off the text itself, so with two languages set up there is nothing to choose: whatever the text is in, the other one is the answer. Add a third and the destination stops following from the source, so Translate opens a list of your languages instead.
 
 Three ways in:
 
-- **Right-click a text entry in the archive → Translate.** The translation arrives as a new entry above it.
+- **Right-click a text entry in the archive → Translate.** The translation arrives as a new entry above it. Past two languages this is a submenu — every language is listed, including the one the text looks like, since detection is right most of the time rather than all of it.
 - **`⌃⌥⌘T`** translates whatever text is on the clipboard — select anywhere, press `⌘C`, then the hotkey. The archive opens with the result.
 - **`⌃` while framing a scan** (see above), for text that cannot be selected at all: a picture, a PDF without a text layer, a video, another machine over VNC.
 
@@ -89,9 +89,11 @@ The result is an ordinary archive entry: click to copy, drag out, share, remove.
 
 Translation runs entirely on your Mac, through the translator built into macOS. Nothing is uploaded — see [Privacy & Security](#privacy--security).
 
-### Language pack
+### Language packs
 
-macOS ships no translation packs installed, and downloads them itself the first time one is needed. Open **Settings → Archive → Translation**: the row reports whether the pack is present and offers to install it, macOS asks for confirmation, and after that translation works offline and never asks again. Asking to translate without the pack tells you which language is missing and opens that setting.
+macOS ships no translation packs installed, and downloads them itself the first time one is needed. Packs are per language, not per pair, so each language you add carries its own download and its own row.
+
+Open **Settings → Archive → Translation**: each row reports whether its pack is present and offers to install it, macOS asks for confirmation, and after that translation works offline and never asks again. **Add language…** picks a new one from everything macOS supports. Asking to translate with fewer than two languages installed opens a window that explains translation and sets it up on the spot, rather than sending you off to find the setting.
 
 ## Markup Editor
 
@@ -195,9 +197,9 @@ Stampo does not upload screenshots, sampled colors, or any other data. The full 
   between you and that app — Stampo itself sends nothing.
 - **Translation is on-device.** It uses the translator built into macOS, with
   a language pack downloaded once by the system. The text being translated
-  never leaves your Mac, and no translation service is contacted — which is
-  also why Stampo translates between English and Russian only, rather than
-  everything a cloud API would offer.
+  never leaves your Mac, and no translation service is contacted. The
+  languages on offer are therefore whichever ones macOS itself can translate
+  offline, rather than everything a cloud API would list.
 - No analytics or telemetry.
 - No crash reporting.
 - All captures stay on your Mac.
