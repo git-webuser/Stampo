@@ -64,7 +64,7 @@ Clicking the notch and global hotkeys work without any permission — they use s
 
 ## Scan (text & codes)
 
-Select an area of the screen and Stampo reads it in a single pass: every QR/barcode payload plus all readable text (English and Russian, detected automatically). Everything found is copied to the clipboard in visual order, and each finding is added to the archive as a text entry. Nothing is saved to disk, and code payloads are treated strictly as inert text — never opened, linkified, or fetched. Start it from the capture-mode menu in the panel or with `⌃⌥⌘S`.
+Select an area of the screen and Stampo reads it in a single pass: every QR/barcode payload plus all readable text. The language is detected for you — recognition is tuned toward English and Russian, and reads other languages macOS knows as well, just less surely. Everything found is copied to the clipboard in visual order, and each finding is added to the archive as a text entry. Nothing is saved to disk, and code payloads are treated strictly as inert text — never opened, linkified, or fetched. Start it from the capture-mode menu in the panel or with `⌃⌥⌘S`.
 
 The recognized text comes back as paragraphs, not as the lines the original layout happened to wrap it into: a hyphen at a wrap is kept (so `кто-то` survives), a soft hyphen is dropped, and a blank line or a change of type size starts a new paragraph. Barcode payloads always stay on a line of their own.
 
@@ -138,6 +138,14 @@ Click the post-capture thumbnail (or right-click a screenshot in the archive →
 
 Every hotkey is fully customizable in **Settings → Hotkeys** — record a new combination, restore the default, or clear it to disable the action.
 
+### `⇥` — step the list in front of you
+
+Wherever Stampo offers a list in a header, **`⇥`** moves to the next one and **`⇧⇥`** back. It is the same key on all four surfaces: the notation in the color picker and in the archive, the language in the translator and on the scan frame. `F` still steps the notation in the color picker, as it always did.
+
+It is one key rather than four because it is one idea, and it is `⇥` because there is nothing to memorize. Turn it off in **Settings → Hotkeys → Element Controls → Cycle Color or Language**.
+
+While the panel is open, `⇥` is only claimed with the pointer resting on the panel — a registered key is taken from every app on the machine, and a pinned panel must not eat `⇥` in whatever you are typing in.
+
 ## Where screenshots are saved
 
 By default, screenshots are saved to **~/Pictures/Stampo**. You can change the save folder in **Settings → Capture → Save Location**.
@@ -150,7 +158,7 @@ The archive shows recent screenshots, color swatches, and scanned or translated 
 
 ![The archive: screenshots, color swatches, and scanned text side by side](assets/screenshots/panel-archive.png)
 
-Entries stay in the order they were captured, newest first, and the row scrolls once it fills up. The header switches the notation color swatches are copied in — HEX, RGB, HSL, HSB, or CMYK.
+Entries stay in the order they were captured, newest first, and the row scrolls once it fills up. The header switches the notation color swatches are copied in — HEX, RGB, HSL, HSB, or CMYK — from the menu, or with `⇥` while the pointer is on the panel.
 
 - **Click** a screenshot to open it.
 - **Right-click** for options: Edit, Open, Pin to Screen, Show in Finder, Copy, Share, Select Items, Move to Trash.
