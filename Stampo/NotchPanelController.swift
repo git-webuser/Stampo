@@ -1058,6 +1058,12 @@ final class NotchPanelController: NSObject {
         isSharePickerOpen = false
         isQuickLookOpen = false
         interactionState.isEnabled = true
+        // The selection is ephemeral by design — the archive is supposed to
+        // reopen with nothing picked — but the view is what normally clears it,
+        // on its way to hidden, and this path never goes there. Left alone, a
+        // mode switched on before the machine slept comes back after the wake
+        // with checkboxes from a session the user has already left.
+        archiveSelection.clear()
         route = .main
         rootState.progress = 0.0
         rootState.countdownVisible = 0.0
