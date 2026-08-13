@@ -153,9 +153,21 @@ The archive shows recent screenshots, color swatches, and scanned or translated 
 Entries stay in the order they were captured, newest first, and the row scrolls once it fills up. The header switches the notation color swatches are copied in — HEX, RGB, HSL, HSB, or CMYK.
 
 - **Click** a screenshot to open it.
-- **Right-click** for options: Edit, Open, Pin to Screen, Show in Finder, Copy, Move to Trash.
+- **Right-click** for options: Edit, Open, Pin to Screen, Show in Finder, Copy, Share, Select Items, Move to Trash.
 - **X button** (on hover) removes the item from the archive — the file is not deleted. The same is on the right-click menu.
 - **Drag** a screenshot out of the archive to copy it anywhere.
+
+### Select several at once
+
+Hold **⌘** and click any cell to start picking. Checkboxes appear on every entry, the ones you pick wear a ring, and a button showing the count joins the header. You can also start from **Select Items** in a cell's right-click menu or in the panel's **⋯** menu.
+
+The count button opens what the selection can do: **Select All**, **Copy**, **Share**, and **Remove from archive**. The same four are on the right-click menu of any picked cell, so a pile of ten is reachable from whichever one the pointer is already over. Copy, Share and Remove each end the mode — they are what you turned it on for. Select All does not, and **⌘A** does the same thing from the keyboard while the mode is running.
+
+- **Stacks are picked member by member.** A stack's own checkbox is three-state: empty, partly filled, or full. Clicking it fills the whole stack unless it is already full, in which case it empties. The count is files, not entries, so a picked stack of twenty reads as twenty — the same number Copy, Share and a drag will actually carry.
+- **Drag any picked cell** and the whole selection goes with it. Dragging an *unpicked* cell in the mode does nothing at all, deliberately: a slipped drag must not cost you a selection you were halfway through building.
+- **Esc and the back chevron** step out one layer per press — collapse an open stack, leave the mode, leave the archive. They differ only on the last one, where Esc closes the panel and the chevron returns to the main panel.
+
+Nothing here is remembered. The archive always reopens in the plain grid with nothing picked.
 
 ### Collect files
 
