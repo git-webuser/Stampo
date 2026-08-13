@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # Usage: ./release.sh <version> [notes-file]
 #   e.g. ./release.sh 0.4.2 notes.md
-# notes-file (optional): markdown whose contents fill the "Что нового" section
-# of the GitHub release. Omit it to leave a placeholder dash.
+# notes-file (optional): markdown dropped into the GitHub release between the
+# install warning and the compatibility list. It carries its own headings, so
+# it is where both language versions of "what's new" live. Omit it to leave a
+# placeholder dash under each.
 set -euo pipefail
 
 VERSION="${1:-}"
@@ -154,13 +156,33 @@ CHECKSUM=$(shasum -a 256 "$DMG_PATH" | awk '{print $1}')
 
 echo "▸ Creating GitHub Release..."
 
+# The notes file carries its own headings, in both languages — see the release
+# page layout below. Without one the release still gets a well-formed page with
+# an empty "what's new".
 if [[ -n "$NOTES_FILE" ]]; then
   CHANGES="$(cat "$NOTES_FILE")"
 else
-  CHANGES="-"
+  CHANGES="### What's new
+-
+
+### Что нового
+-"
 fi
 
 NOTES="## Stampo $VERSION
+
+> ⚠️ This build is not notarized, so macOS blocks the first launch.
+>
+> Open Stampo and let macOS block it, then go to **System Settings → Privacy &
+> Security**, scroll to the message about Stampo being blocked, and click
+> **Open Anyway**. Once — after that it opens with an ordinary double-click.
+>
+> Right-click → Open does not help here: macOS 15 removed that shortcut, and
+> Stampo requires macOS 15.7 or later.
+>
+> If you are at home in a terminal, Homebrew skips the block outright:
+> \`brew tap git-webuser/stampo https://github.com/git-webuser/Stampo\` and
+> \`brew install --cask --no-quarantine stampo\`.
 
 > ⚠️ Этот билд не нотаризован, поэтому macOS заблокирует первый запуск.
 >
@@ -176,11 +198,11 @@ NOTES="## Stampo $VERSION
 > \`brew tap git-webuser/stampo https://github.com/git-webuser/Stampo\` и
 > \`brew install --cask --no-quarantine stampo\`.
 
-### Что нового
 $CHANGES
 
-### Совместимость
-- macOS 15.7 и новее
+### Compatibility · Совместимость
+- macOS 15.7 or later · macOS 15.7 и новее
+- MacBooks with a notch and ordinary displays alike, external monitors included
 - MacBook с вырезом и обычные дисплеи, включая внешние мониторы
 
 ### Checksum
