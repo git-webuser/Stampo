@@ -128,7 +128,7 @@ struct EditorView: View {
         Button { selectTool(t) } label: {
             Image(systemName: t.systemImage)
                 .font(.system(size: 13, weight: .medium))
-                .frame(width: 26, height: 22)
+                .frame(width: ToolButtonMetrics.width, height: ToolButtonMetrics.height)
         }
         .buttonStyle(.borderless)
         .activeToolChrome(tool == t)
@@ -1417,7 +1417,7 @@ struct EditorView: View {
             if tool == .crop { cancelCrop() } else { enterCropMode() }
         } label: {
             Image(systemName: "crop")
-                .frame(width: 24, height: 22)
+                .frame(width: ToolButtonMetrics.width, height: ToolButtonMetrics.height)
         }
         .buttonStyle(.borderless)
         .activeToolChrome(tool == .crop)
@@ -1438,7 +1438,7 @@ struct EditorView: View {
             if tool == .scan { tool = .select } else { selectTool(.scan) }
         } label: {
             Image(systemName: "doc.viewfinder")
-                .frame(width: 24, height: 22)
+                .frame(width: ToolButtonMetrics.width, height: ToolButtonMetrics.height)
         }
         .buttonStyle(.borderless)
         .activeToolChrome(tool == .scan)
@@ -1860,6 +1860,18 @@ struct EditorView: View {
 }
 
 // MARK: - Active tool chrome
+
+/// The footprint every tool button shares.
+///
+/// Crop and Scan were built at 24pt, the size of the image actions they stand
+/// among — rotate, fit, zoom. But standing among them is where they are, not
+/// what they are: they are tools, the only two outside the picker that can be
+/// on. So they take the picker's size, and it lives here beside the plate and
+/// the colour, because all three are the same fact about the same buttons.
+private enum ToolButtonMetrics {
+    static let width: CGFloat = 26
+    static let height: CGFloat = 22
+}
 
 /// How a tool button says its tool is on: a tinted plate behind it and the
 /// accent colour in front.
