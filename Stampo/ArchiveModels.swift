@@ -231,7 +231,7 @@ private struct PersistedArchiveItem: Codable {
         #endif
     }
 
-    deinit {
+    isolated deinit {
         fileWatchers.values.forEach { $0.cancel() }
         stackWatchers.values.forEach { $0.cancel() }
         if let obs = deferredRestoreObserver {

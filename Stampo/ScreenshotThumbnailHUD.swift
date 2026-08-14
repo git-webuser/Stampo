@@ -60,6 +60,7 @@ enum ThumbnailHUDGeometry {
 
 // MARK: - ScreenshotThumbnailHUD
 
+@MainActor
 final class ScreenshotThumbnailHUD {
     private var panel: NSPanel?
     private var dismissWorkItem: DispatchWorkItem?
@@ -90,8 +91,7 @@ final class ScreenshotThumbnailHUD {
 
     func show(imageURL: URL, on screen: NSScreen?) {
         guard AppSettings.showThumbnailHUD else { return }
-        DispatchQueue.main.async {
-            self.dismissWorkItem?.cancel()
+        self.dismissWorkItem?.cancel()
             self.dismissWorkItem = nil
 
             let screen = screen ?? NSScreen.main ?? NSScreen.screens.first
@@ -146,13 +146,14 @@ final class ScreenshotThumbnailHUD {
                 panel.animator().alphaValue = 1
             }
 
-            self.scheduleAutoHide()
-        }
+        self.scheduleAutoHide()
     }
 
     private func scheduleAutoHide() {
         dismissWorkItem?.cancel()
-        let work = DispatchWorkItem { [weak self] in self?.hide(animated: true) }
+        let work = DispatchWorkItem { [weak self] in
+            Task { @MainActor [weak self] in self?.hide(animated: true) }
+        }
         dismissWorkItem = work
         DispatchQueue.main.asyncAfter(deadline: .now() + AppSettings.thumbnailDismissDelay, execute: work)
     }
@@ -173,7 +174,7 @@ final class ScreenshotThumbnailHUD {
             ctx.timingFunction = CAMediaTimingFunction(name: .easeIn)
             panel.animator().alphaValue = 0
         } completionHandler: { [weak panel] in
-            panel?.orderOut(nil)
+            Task { @MainActor [weak panel] in panel?.orderOut(nil) }
         }
     }
 

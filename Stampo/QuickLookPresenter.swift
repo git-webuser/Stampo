@@ -1,5 +1,5 @@
 import AppKit
-import Quartz
+@preconcurrency import Quartz
 
 extension Notification.Name {
     /// Bracket the Quick Look panel's lifetime. Like the share sheet, it is a

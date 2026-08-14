@@ -3,6 +3,7 @@ import CoreGraphics
 import Carbon
 import OSLog
 
+@MainActor
 final class NotchHoverController: NSObject {
     private let panel: NotchPanelController
 
@@ -35,7 +36,7 @@ final class NotchHoverController: NSObject {
         super.init()
     }
 
-    deinit {
+    isolated deinit {
         stop()
     }
 
@@ -71,7 +72,10 @@ final class NotchHoverController: NSObject {
         NotificationCenter.default.addObserver(
             forName: .hotkeyRecordingChanged, object: nil, queue: .main
         ) { [weak self] note in
-            self?.isRecordingHotkey = (note.object as? Bool) ?? false
+            let isRecording = (note.object as? Bool) ?? false
+            Task { @MainActor [weak self] in
+                self?.isRecordingHotkey = isRecording
+            }
         }
         // NSEvent-мониторы не могут «умереть» от смены сигнатуры или отзыва
         // TCC (разрешений они не требуют), так что 4-секундный health-поллинг
@@ -109,6 +113,12 @@ final class NotchHoverController: NSObject {
             uninstallEventTap()
             installEventTap()
         }
+        // A conflicting Carbon shortcut may become available while the app is
+        // asleep (for example after the owning utility quits). Re-run the
+        // registration check even when the desired combinations themselves
+        // did not change, so the settings UI and live refs converge again.
+        uninstallHotKey()
+        installHotKey()
     }
 
     @objc private func onUserDefaultsChanged() {
@@ -262,26 +272,63 @@ final class NotchHoverController: NSObject {
             UnsafeMutableRawPointer(Unmanaged.passUnretained(self).toOpaque()),
             &hotKeyHandlerRef
         )
-        guard handlerStatus == noErr else { return }
+        guard handlerStatus == noErr else {
+            let statuses = HotkeyAction.allCases.reduce(into: [HotkeyAction: HotkeyRegistrationStatus]()) {
+                $0[$1] = $1.combo == nil ? .disabled : .handlerUnavailable
+            }
+            HotkeyRegistrationCenter.shared.update(statuses)
+            lastHotkeyState = emptyHotkeyState()
+            Log.input.error("hotkey handler unavailable, OSStatus=\(handlerStatus)")
+            return
+        }
 
         let sig = fourCharCode("STMP")
+        var actual = emptyHotkeyState()
+        var statuses: [HotkeyAction: HotkeyRegistrationStatus] = [:]
 
         for action in HotkeyAction.allCases {
-            guard let combo = action.combo else { continue }   // nil = disabled
+            guard let combo = action.combo else {
+                statuses[action] = .disabled
+                continue
+            }
             var ref: EventHotKeyRef?
-            registerHotKey(code: UInt32(combo.keyCode), mods: combo.carbonModifiers,
-                           id: action.rawValue, sig: sig, ref: &ref)
-            if let ref { hotKeyRefs[action] = ref }
+            let status = registerHotKey(action: action,
+                                        combo: combo,
+                                        id: action.rawValue,
+                                        sig: sig,
+                                        ref: &ref)
+            statuses[action] = status
+            if let ref, status == .registered {
+                hotKeyRefs[action] = ref
+                actual[action] = combo
+            }
         }
-        lastHotkeyState = HotkeyAction.allCases.reduce(into: [HotkeyAction: HotkeyCombo?]()) {
-            $0[$1] = $1.combo
+        lastHotkeyState = actual
+        HotkeyRegistrationCenter.shared.update(statuses)
+    }
+
+    private func emptyHotkeyState() -> [HotkeyAction: HotkeyCombo?] {
+        HotkeyAction.allCases.reduce(into: [HotkeyAction: HotkeyCombo?]()) {
+            $0[$1] = nil
         }
     }
 
-    private func registerHotKey(code: UInt32, mods: UInt32, id: UInt32, sig: OSType, ref: inout EventHotKeyRef?) {
+    @discardableResult
+    private func registerHotKey(action: HotkeyAction,
+                                combo: HotkeyCombo,
+                                id: UInt32,
+                                sig: OSType,
+                                ref: inout EventHotKeyRef?) -> HotkeyRegistrationStatus {
         let hotKeyID = EventHotKeyID(signature: sig, id: id)
-        let status = RegisterEventHotKey(code, mods, hotKeyID, GetApplicationEventTarget(), 0, &ref)
-        if status != noErr { ref = nil }
+        let status = RegisterEventHotKey(UInt32(combo.keyCode), combo.carbonModifiers,
+                                         hotKeyID, GetApplicationEventTarget(), 0, &ref)
+        guard status == noErr, ref != nil else {
+            ref = nil
+            Log.input.error("hotkey registration failed action=\(action.rawValue) combo=\(combo.displayString) OSStatus=\(status)")
+            return .conflict(status)
+        }
+        Log.input.debug("hotkey registered action=\(action.rawValue) combo=\(combo.displayString)")
+        return .registered
     }
 
     private func uninstallHotKey() {
@@ -294,6 +341,11 @@ final class NotchHoverController: NSObject {
             RemoveEventHandler(hotKeyHandlerRef)
             self.hotKeyHandlerRef = nil
         }
+        lastHotkeyState = emptyHotkeyState()
+        let statuses = HotkeyAction.allCases.reduce(into: [HotkeyAction: HotkeyRegistrationStatus]()) {
+            $0[$1] = .disabled
+        }
+        HotkeyRegistrationCenter.shared.update(statuses)
     }
 
     private func handleHotKey(_ hotKeyID: EventHotKeyID) {
@@ -387,7 +439,7 @@ final class NotchHoverController: NSObject {
         globalClickMonitor = NSEvent.addGlobalMonitorForEvents(
             matching: .leftMouseDown
         ) { [weak self] _ in
-            self?.handleGlobalLeftMouseDown()
+            Task { @MainActor [weak self] in self?.handleGlobalLeftMouseDown() }
         }
 
         // Local: клики по окнам самого Stampo (панель, настройки, редактор) —
@@ -397,7 +449,7 @@ final class NotchHoverController: NSObject {
         localClickMonitor = NSEvent.addLocalMonitorForEvents(
             matching: .leftMouseDown
         ) { [weak self] event in
-            self?.handleGlobalLeftMouseDown()
+            Task { @MainActor [weak self] in self?.handleGlobalLeftMouseDown() }
             return event
         }
 
@@ -523,6 +575,10 @@ extension Notification.Name {
     /// Posted by ShortcutRecorderView with `object: Bool` (true = recording).
     /// NotchHoverController suppresses hotkey actions while recording.
     static let hotkeyRecordingChanged  = Notification.Name("Stampo.hotkeyRecordingChanged")
+
+    /// Posted after Carbon registration is reconciled so Settings can show the
+    /// actually-live state, including a conflict OSStatus.
+    static let hotkeyRegistrationChanged = Notification.Name("Stampo.hotkeyRegistrationChanged")
 
     /// Постится из NotchPanelController и ColorPickingCoordinator при смене
     /// состояния приложения. NotchHoverController передаёт это MascotStatusView.

@@ -45,7 +45,9 @@ final class EditorWindowController: NSObject, NSWindowDelegate {
 
         // A dirty document is open: settle it before replacing.
         if let existing = document, existing.isDirty {
-            guard resolveUnsavedChanges(existing) else { return }
+            guard resolveUnsavedChanges(existing, afterSave: { [weak self] in
+                self?.open(url: url)
+            }) else { return }
         }
 
         guard let image = Self.loadFullResImage(at: url) else {
@@ -59,8 +61,14 @@ final class EditorWindowController: NSObject, NSWindowDelegate {
 
         let root = EditorView(
             document: document,
-            saveHandler: { [weak self] doc in self?.performSave(doc) ?? false },
-            saveAsHandler: { [weak self] doc in self?.presentSaveAs(doc) },
+            saveHandler: { [weak self] doc in
+                guard let self else { return false }
+                return await self.performSave(doc)
+            },
+            saveAsHandler: { [weak self] doc in
+                guard let self else { return }
+                await self.presentSaveAs(doc)
+            },
             deleteHandler: { [weak self] doc in self?.performDelete(doc) }
         )
         .managedLocale()
@@ -94,18 +102,19 @@ final class EditorWindowController: NSObject, NSWindowDelegate {
     /// Renders the annotated image and writes it to the save directory as a
     /// new file; marks the document clean and announces the file so the
     /// panel controller can add it to the archive.
-    private func performSave(_ document: EditorDocument) -> Bool {
-        guard let rep = AnnotationRenderer.renderBitmap(
-            base: document.baseImage,
-            blurSources: document.blurSources,
-            annotations: document.annotations
-        ) else {
+    private func performSave(_ document: EditorDocument) async -> Bool {
+        guard let artifact = await renderArtifact(for: document) else {
             Log.capture.error("editor: render for save failed")
             return false
         }
         do {
-            let url = try store.saveImage(rep)
-            document.markSaved()
+            let store = self.store
+            let url = try await Task.detached(priority: .utility) {
+                try store.saveEncodedImage(artifact.data, format: artifact.format)
+            }.value
+            // The artifact is still useful even if the user edited meanwhile,
+            // but the current document must remain dirty in that case.
+            if document.revision == artifact.revision { document.markSaved() }
             NotificationCenter.default.post(name: .editorDidSaveImage, object: url)
             return true
         } catch {
@@ -124,15 +133,7 @@ final class EditorWindowController: NSObject, NSWindowDelegate {
     /// format the user picks. Like Save it never touches the original file and
     /// announces the result, so the copy joins the archive too — the only
     /// difference is who chooses the destination.
-    private func presentSaveAs(_ document: EditorDocument) {
-        guard let rep = AnnotationRenderer.renderBitmap(
-            base: document.baseImage,
-            blurSources: document.blurSources,
-            annotations: document.annotations
-        ) else {
-            Log.capture.error("editor: render for save-as failed")
-            return
-        }
+    private func presentSaveAs(_ document: EditorDocument) async {
         let panel = EditorSaveAsPanel(defaultFormat: .fromSettings())
         saveAsPanel = panel
         // Open where the original lives: for a capture that is the save folder
@@ -149,21 +150,48 @@ final class EditorWindowController: NSObject, NSWindowDelegate {
         ) { [weak self] url, format in
             guard let self else { return }
             self.saveAsPanel = nil
-            do {
-                try self.store.writeImage(rep, to: url, format: format.rawValue)
-                document.markSaved()
-                NotificationCenter.default.post(name: .editorDidSaveImage, object: url)
-                self.captureHUD.show(.saved, on: self.screen)
-            } catch {
-                Log.capture.error("editor: save-as failed: \(error)")
-                let alert = NSAlert()
-                alert.alertStyle = .warning
-                alert.messageText = LocaleManager.shared.string("Could not save the edited image")
-                alert.informativeText = error.localizedDescription
-                alert.addButton(withTitle: LocaleManager.shared.string("OK"))
-                alert.runModal()
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                do {
+                    // The selected format must be part of the render snapshot.
+                    // Rendering in the Settings format and converting here would
+                    // decode/re-encode JPEG artifacts on every Save As.
+                    guard let artifact = await self.renderArtifact(
+                        for: document,
+                        format: format.rawValue
+                    ) else {
+                        throw ScreenshotFileStore.SaveError.encodingFailed
+                    }
+                    let store = self.store
+                    try await Task.detached(priority: .utility) {
+                        try store.writeEncodedData(artifact.data, to: url)
+                    }.value
+                    if document.revision == artifact.revision { document.markSaved() }
+                    NotificationCenter.default.post(name: .editorDidSaveImage, object: url)
+                    self.captureHUD.show(.saved, on: self.screen)
+                } catch {
+                    self.presentSaveError(error)
+                }
             }
         }
+    }
+
+    private func renderArtifact(for document: EditorDocument,
+                                format: String = AppSettings.fileFormat) async -> RenderedArtifact? {
+        let snapshot = document.makeRenderSnapshot(format: format)
+        return await Task.detached(priority: .userInitiated) {
+            AnnotationRenderer.renderEncoded(snapshot: snapshot)
+        }.value
+    }
+
+    private func presentSaveError(_ error: Error) {
+        Log.capture.error("editor: save failed: \(error)")
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = LocaleManager.shared.string("Could not save the edited image")
+        alert.informativeText = error.localizedDescription
+        alert.addButton(withTitle: LocaleManager.shared.string("OK"))
+        alert.runModal()
     }
 
     // MARK: Delete
@@ -199,8 +227,16 @@ final class EditorWindowController: NSObject, NSWindowDelegate {
 
     // MARK: Unsaved-changes guard
 
-    /// Returns true when it's OK to discard/replace the document.
-    private func resolveUnsavedChanges(_ document: EditorDocument) -> Bool {
+    /// Returns true when it's OK to discard/replace the document *right now*.
+    ///
+    /// Saving is asynchronous, so "Save" cannot answer true: the render has not
+    /// finished when the alert returns. It answers false — the same as Cancel —
+    /// and hands the caller's intent to `afterSave`, which runs once the save
+    /// lands and the document is clean. `afterSave` is therefore required, not
+    /// optional: a caller that has nothing to retry with would turn the user's
+    /// "Save" into a silent "Cancel".
+    private func resolveUnsavedChanges(_ document: EditorDocument,
+                                       afterSave: @escaping () -> Void) -> Bool {
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = LocaleManager.shared.string("Save changes before closing?")
@@ -212,7 +248,13 @@ final class EditorWindowController: NSObject, NSWindowDelegate {
         NSApp.activate(ignoringOtherApps: true)
         switch alert.runModal() {
         case .alertFirstButtonReturn:   // Save
-            return performSave(document)
+            Task { @MainActor [weak self] in
+                guard let self, await self.performSave(document) else { return }
+                afterSave()
+            }
+            // The caller must keep its current window/document alive while the
+            // worker renders. It will be retried by `afterSave` when clean.
+            return false
         case .alertSecondButtonReturn:  // Discard
             return true
         default:                        // Cancel
@@ -222,18 +264,24 @@ final class EditorWindowController: NSObject, NSWindowDelegate {
 
     /// Same guard as closing the window, for callers that tear the process
     /// down instead. `NSApp.terminate` never sends `windowShouldClose`, so a
-    /// dirty document would otherwise die silently. False means the user
-    /// cancelled and the caller must abort.
-    func confirmDiscardingUnsavedWork() -> Bool {
+    /// dirty document would otherwise die silently.
+    ///
+    /// False means "don't tear down yet" — the user cancelled, or chose Save
+    /// and the write is still in flight. `afterSave` runs on the MainActor once
+    /// the document is clean, so callers pass their own retry: teardown then
+    /// re-asks this guard, gets true, and proceeds.
+    func confirmDiscardingUnsavedWork(afterSave: @escaping () -> Void) -> Bool {
         guard let document, document.isDirty else { return true }
-        return resolveUnsavedChanges(document)
+        return resolveUnsavedChanges(document, afterSave: afterSave)
     }
 
     // MARK: NSWindowDelegate
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         guard let document, document.isDirty else { return true }
-        return resolveUnsavedChanges(document)
+        return resolveUnsavedChanges(document, afterSave: { [weak self] in
+            self?.window?.performClose(nil)
+        })
     }
 
     func windowWillClose(_ notification: Notification) {

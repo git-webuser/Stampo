@@ -1,0 +1,13 @@
+name: Strict concurrency
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  swift-strict-concurrency:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build with complete Swift concurrency checking
+        run: bash Scripts/check-strict-concurrency.sh

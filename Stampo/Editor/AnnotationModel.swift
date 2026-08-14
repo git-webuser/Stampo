@@ -3,7 +3,7 @@ import Observation
 
 // MARK: - Annotation primitives
 
-enum AnnotationKind: Equatable {
+nonisolated enum AnnotationKind: Equatable, Sendable {
     case line
     case arrow
     case rect
@@ -31,7 +31,7 @@ enum AnnotationKind: Equatable {
 }
 
 /// Which side of a `.bubble` speech balloon carries the tail.
-enum BubbleTailDirection: String, Equatable, CaseIterable {
+nonisolated enum BubbleTailDirection: String, Equatable, CaseIterable, Sendable {
     case left
     case right
 }
@@ -45,13 +45,13 @@ nonisolated enum ShapeCounts {
 }
 
 /// Visual variant of a straight `.line` annotation.
-enum LineStyle: String, Equatable, CaseIterable {
+nonisolated enum LineStyle: String, Equatable, CaseIterable, Sendable {
     case solid
     case dashed
 }
 
 /// Which endpoint of an `.arrow` receives a filled arrowhead.
-enum ArrowHeadPlacement: String, Equatable, CaseIterable {
+nonisolated enum ArrowHeadPlacement: String, Equatable, CaseIterable, Sendable {
     case start
     case end
     case both
@@ -60,7 +60,7 @@ enum ArrowHeadPlacement: String, Equatable, CaseIterable {
     var includesEnd: Bool { self == .end || self == .both }
 }
 
-enum BlurStyle: String, Equatable, CaseIterable {
+enum BlurStyle: String, Equatable, CaseIterable, Sendable {
     case gaussian
     case pixelate
 }
@@ -68,7 +68,7 @@ enum BlurStyle: String, Equatable, CaseIterable {
 /// Persisted visual style of a freehand annotation. New drawing instruments
 /// (pencil, brush, calligraphy pen) extend this enum without adding toolbar
 /// buttons or changing the gesture model.
-enum FreehandStyle: String, Equatable, CaseIterable {
+nonisolated enum FreehandStyle: String, Equatable, CaseIterable, Sendable {
     case pen
     case marker
 
@@ -82,14 +82,14 @@ enum FreehandStyle: String, Equatable, CaseIterable {
 
 /// Tip of the marker nib: round lays soft stroke caps, square flat ones —
 /// the classic chisel-highlighter look. The pen always draws round.
-enum MarkerTip: String, Equatable, CaseIterable {
+nonisolated enum MarkerTip: String, Equatable, CaseIterable, Sendable {
     case round
     case square
 }
 
 /// Active instrument of the shared Drawing tool. Destructive erasing is a
 /// separate top-level editor tool rather than a drawable annotation style.
-enum DrawingMode: String, Equatable, CaseIterable {
+nonisolated enum DrawingMode: String, Equatable, CaseIterable, Sendable {
     case pen
     case marker
 
@@ -109,14 +109,14 @@ enum DrawingMode: String, Equatable, CaseIterable {
 /// same open (chevron) arrowhead. `filled` is the default. (Weight is the
 /// thickness slider's job, so there's no separate "bold" style. The case name
 /// is historical — the head is a stroked chevron, not a filled triangle.)
-enum ArrowStyle: String, Equatable, CaseIterable {
+nonisolated enum ArrowStyle: String, Equatable, CaseIterable, Sendable {
     case filled   // solid shaft, open chevron head   (→)
     case dashed   // dashed shaft, open chevron head  (⇢)
 }
 
 /// How an `.arrow` gets from one end to the other — an axis independent of the
 /// stroke's appearance (`ArrowStyle`).
-enum ArrowRoute: String, Equatable, CaseIterable {
+nonisolated enum ArrowRoute: String, Equatable, CaseIterable, Sendable {
     /// A straight shaft, bendable into a quadratic curve via `curveControl`.
     case curved
     /// An axis-aligned ("elbowed") route with rounded corners, whose legs are
@@ -125,14 +125,14 @@ enum ArrowRoute: String, Equatable, CaseIterable {
 }
 
 /// Backing plate drawn behind `.text` for legibility over busy images.
-enum TextBackground: String, Equatable, CaseIterable {
+nonisolated enum TextBackground: String, Equatable, CaseIterable, Sendable {
     case none
     case dark
     case light
 }
 
 /// Paragraph alignment of a (multi-line) `.text` annotation.
-enum TextAlign: String, Equatable, CaseIterable {
+nonisolated enum TextAlign: String, Equatable, CaseIterable, Sendable {
     case left
     case center
     case right
@@ -148,7 +148,7 @@ enum TextAlign: String, Equatable, CaseIterable {
 
 /// Outline of a `.loupe`: an ellipse or a rounded rectangle. A circle is
 /// just the aspect-locked ellipse — hold shift while drawing or resizing.
-enum LoupeShape: String, Equatable, CaseIterable {
+nonisolated enum LoupeShape: String, Equatable, CaseIterable, Sendable {
     case oval
     case roundedRect
 }
@@ -159,7 +159,7 @@ enum LoupeShape: String, Equatable, CaseIterable {
 /// classic, monospaced, handwritten, decorative, and script styles. Every
 /// named family ships with macOS; all but Papyrus also include Cyrillic —
 /// missing scripts render through the system-font fallback.
-enum AnnotationFontPreset: String, Equatable, CaseIterable, Identifiable {
+nonisolated enum AnnotationFontPreset: String, Equatable, CaseIterable, Identifiable, Sendable {
     case system
     case rounded
     case typewriter
@@ -239,7 +239,7 @@ enum AnnotationFontPreset: String, Equatable, CaseIterable, Identifiable {
 /// Whole-annotation text traits supported by both the context bar and local
 /// editor keyboard shortcuts. Text annotations intentionally don't contain
 /// attributed ranges, so each trait applies to the complete label.
-enum TextStyleFlag: Equatable, CaseIterable {
+nonisolated enum TextStyleFlag: Equatable, CaseIterable, Sendable {
     case bold
     case italic
     case underline
@@ -288,13 +288,13 @@ nonisolated enum BlurIntensity {
 
 /// Cache key for one prefiltered full-size copy of the base image.
 /// nonisolated: hashed inside the renderer's background filtering closures.
-nonisolated struct BlurSource: Hashable {
+nonisolated struct BlurSource: Hashable, Sendable {
     var style: BlurStyle
     var level: Int
 }
 
 /// Color stored as sRGB components so Annotation stays Equatable/value-only.
-struct AnnotationColor: Equatable {
+nonisolated struct AnnotationColor: Equatable, Sendable {
     var red: Double
     var green: Double
     var blue: Double
@@ -336,7 +336,7 @@ struct AnnotationColor: Equatable {
 }
 
 /// How a bound arrow endpoint places itself on its target.
-enum AnchorSpec: Equatable {
+nonisolated enum AnchorSpec: Equatable, Sendable {
     /// A fixed point on the target's bounding rect, normalized 0…1 in each
     /// axis (0,0 top-left … 1,1 bottom-right). Every snapped anchor — an edge
     /// midpoint, a vertex, a point caught by the outline magnet, or the
@@ -350,7 +350,7 @@ enum AnchorSpec: Equatable {
 /// — edge, vertex, or the shape center); `point` is its current world position
 /// (for snapping and drawing). `isCenter` marks the central connector, which
 /// snaps within a small bullseye rather than by nearest-edge distance.
-struct ReferenceAnchor: Equatable {
+nonisolated struct ReferenceAnchor: Equatable, Sendable {
     var spec: AnchorSpec
     var point: CGPoint
     var isVisible: Bool
@@ -361,7 +361,7 @@ struct ReferenceAnchor: Equatable {
 /// endpoint follows the target as it moves or resizes. Value data on the
 /// annotation itself — undo/redo/duplicate/rotate ride the existing snapshot
 /// mechanism with zero synchronization. See `Docs/Stampo/ArrowBindingPlan.md`.
-struct EndpointBinding: Equatable {
+nonisolated struct EndpointBinding: Equatable, Sendable {
     /// Stable identity of the target shape.
     var targetID: UUID
     /// How the endpoint sits on the target's outline.
@@ -375,7 +375,7 @@ struct EndpointBinding: Equatable {
 /// with a top-left origin (y grows downward) — the view converts to and
 /// from screen points through one fitScale factor, and export at native
 /// pixel size needs no conversion at all.
-struct Annotation: Identifiable, Equatable {
+nonisolated struct Annotation: Identifiable, Equatable, Sendable {
     private(set) var id: UUID
     var kind: AnnotationKind
     /// Anchor point. For .line/.arrow this is the first endpoint; for shapes a drag corner;
@@ -1857,7 +1857,7 @@ struct Annotation: Identifiable, Equatable {
 /// annotations, the base image, and the rotation count. Carrying the image (by
 /// reference — cheap for annotation-only edits that don't change it) is what
 /// lets whole-image operations like crop and rotate be undone.
-struct DocumentSnapshot: Equatable {
+struct DocumentSnapshot: Equatable, Sendable {
     var annotations: [Annotation]
     var image: CGImage
     var rotationQuarters: Int
@@ -1869,13 +1869,38 @@ struct DocumentSnapshot: Equatable {
     }
 }
 
+/// Immutable value captured on the MainActor before a render/encode worker is
+/// launched. It deliberately contains no editor/controller references.
+nonisolated struct EditorRenderSnapshot: Sendable {
+    let baseImage: CGImage
+    let blurSources: [BlurSource: CGImage]
+    let annotations: [Annotation]
+    let revision: UInt64
+    let format: String
+}
+
+/// Encoded output of a render. The bytes are safe to pass back to the
+/// MainActor for pasteboard/share UI or to a background file writer.
+nonisolated struct RenderedArtifact: Sendable {
+    let data: Data
+    let format: String
+    let revision: UInt64
+}
+
 // MARK: - EditorDocument
 
 /// The open image plus its annotations, selection, and undo history.
 /// Same @Observable pattern as NotchArchiveModel.
 @Observable final class EditorDocument {
-    private(set) var baseImage: CGImage
+    private(set) var baseImage: CGImage {
+        didSet { revision &+= 1 }
+    }
     let sourceURL: URL
+
+    /// Revision of all user-visible render inputs. Selection changes are not
+    /// included; annotation/base-image edits are. Save completion compares it
+    /// with the captured artifact before marking the document clean.
+    private(set) var revision: UInt64 = 0
 
     /// Net 90° turns applied to the image since open (mod 4). Part of the
     /// snapshot so a rotation alone still counts as a change.
@@ -1887,8 +1912,12 @@ struct DocumentSnapshot: Equatable {
     /// no-ops (a fraction of a second in practice).
     private(set) var blurSources: [BlurSource: CGImage] = [:]
     private var blurSourcesInFlight: Set<BlurSource> = []
+    private var blurTasks: [BlurSource: Task<CGImage?, Never>] = [:]
+    private(set) var imageRevision: UInt64 = 0
 
-    var annotations: [Annotation] = []
+    var annotations: [Annotation] = [] {
+        didSet { revision &+= 1 }
+    }
     var selectedID: UUID?
 
     /// Document state at last save (or open) — dirty means "differs from it".
@@ -1903,6 +1932,16 @@ struct DocumentSnapshot: Equatable {
         self.sourceURL = sourceURL
         self.savedSnapshot = DocumentSnapshot(annotations: [], image: baseImage,
                                               rotationQuarters: 0)
+    }
+
+    func makeRenderSnapshot(format: String) -> EditorRenderSnapshot {
+        EditorRenderSnapshot(
+            baseImage: baseImage,
+            blurSources: blurSources,
+            annotations: annotations,
+            revision: revision,
+            format: format
+        )
     }
 
     /// Everything the history restores, captured from live state.
@@ -1924,22 +1963,39 @@ struct DocumentSnapshot: Equatable {
     // MARK: Blur sources
 
     /// Kicks off background filtering for one style+level if it's neither
-    /// cached nor already being computed. Same GCD pattern as the window
-    /// controller's original one-shot preparation.
+    /// cached nor already being computed. Every job carries the image revision
+    /// it was created for; a completion from an older image is ignored and is
+    /// not allowed to clear the in-flight state of a newer job.
     func prepareBlurSource(style: BlurStyle, level: Int) {
         let key = BlurSource(style: style, level: BlurIntensity.clamped(level))
-        guard blurSources[key] == nil, !blurSourcesInFlight.contains(key) else { return }
+        guard blurSources[key] == nil,
+              !blurSourcesInFlight.contains(key),
+              blurTasks[key] == nil
+        else { return }
+
         blurSourcesInFlight.insert(key)
+        let revision = imageRevision
         let base = baseImage
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let image = key.style == .pixelate
+
+        let task = Task.detached(priority: .userInitiated) { () -> CGImage? in
+            guard !Task.isCancelled else { return nil }
+            return key.style == .pixelate
                 ? AnnotationRenderer.makePixelated(base: base, level: key.level)
                 : AnnotationRenderer.makeBlurred(base: base, level: key.level)
-            DispatchQueue.main.async {
-                guard let self else { return }
-                self.blurSourcesInFlight.remove(key)
-                if let image { self.blurSources[key] = image }
-            }
+        }
+        blurTasks[key] = task
+
+        Task { @MainActor [weak self] in
+            let image = await task.value
+            guard let self else { return }
+
+            // Only the generation that created this task may touch its cache or
+            // release its in-flight marker. A stale completion must not affect a
+            // newer job for the same style/level.
+            guard self.imageRevision == revision else { return }
+            self.blurTasks[key] = nil
+            self.blurSourcesInFlight.remove(key)
+            if let image { self.blurSources[key] = image }
         }
     }
 
@@ -1963,6 +2019,9 @@ struct DocumentSnapshot: Equatable {
     /// replaces `baseImage` (rotate, crop, an undo/redo across one) must drop
     /// and re-warm them.
     private func rebuildBlurSources() {
+        imageRevision &+= 1
+        blurTasks.values.forEach { $0.cancel() }
+        blurTasks.removeAll()
         blurSources.removeAll()
         blurSourcesInFlight.removeAll()
         prepareBlurSource(style: .gaussian, level: BlurIntensity.defaultLevel)

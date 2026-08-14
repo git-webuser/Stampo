@@ -234,6 +234,7 @@ enum PinnedWindowGeometry {
 /// Pins are deliberately ephemeral (not persisted across launches): they are
 /// working-memory references while the user works, and the archive already
 /// provides durable recall of recent captures.
+@MainActor
 final class PinnedScreenshotController {
     static let shared = PinnedScreenshotController()
 
@@ -265,7 +266,7 @@ final class PinnedScreenshotController {
             workspaceObservers.append(center.addObserver(
                 forName: name, object: nil, queue: .main
             ) { [weak self] _ in
-                self?.reassertPins()
+                Task { @MainActor [weak self] in self?.reassertPins() }
             })
         }
     }

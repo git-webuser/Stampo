@@ -20,7 +20,7 @@ final class WindowPickerOverlay {
     /// against a double-pop if both dismiss() and resetCursorState() fire.
     private var cursorPushed = false
 
-    deinit {
+    isolated deinit {
         resetCursorState()
     }
 
@@ -86,7 +86,7 @@ final class WindowPickerOverlay {
         wpcCursor = nil
         CGSCursorBridge.setCursorInBackground(false)
         NSCursor.arrow.set()
-        DispatchQueue.main.async { NSCursor.arrow.set() }
+        Task { @MainActor in NSCursor.arrow.set() }
     }
 
     private func dismiss() {
@@ -103,7 +103,7 @@ final class WindowPickerOverlay {
         panel?.orderOut(nil)
         panel = nil
         NSCursor.arrow.set()
-        DispatchQueue.main.async { NSCursor.arrow.set() }
+        Task { @MainActor in NSCursor.arrow.set() }
     }
 
     // MARK: - Cursor observers
@@ -123,8 +123,8 @@ final class WindowPickerOverlay {
             object: nil,
             queue: .main
         ) { [weak self, weak panel] _ in
-            guard let self, let panel else { return }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self, weak panel] in
+            Task { @MainActor [weak self, weak panel] in
+                try? await Task.sleep(for: .milliseconds(150))
                 guard let self, let panel, self.cursorPushed else { return }
                 panel.orderFrontRegardless()
                 self.wpcCursor?.set()
@@ -137,8 +137,10 @@ final class WindowPickerOverlay {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            guard let self, self.cursorPushed else { return }
-            self.wpcCursor?.set()
+            Task { @MainActor [weak self] in
+                guard let self, self.cursorPushed else { return }
+                self.wpcCursor?.set()
+            }
         }
 
         cursorObservers = [spaceObs, activateObs]
@@ -149,8 +151,10 @@ final class WindowPickerOverlay {
         // The event observers above cover resets that coincide with movement;
         // this 30 fps timer covers the stationary case. Both run together.
         let t = Timer(timeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
-            guard let self, self.cursorPushed else { return }
-            self.wpcCursor?.set()
+            Task { @MainActor [weak self] in
+                guard let self, self.cursorPushed else { return }
+                self.wpcCursor?.set()
+            }
         }
         RunLoop.main.add(t, forMode: .common)
         cursorTimer = t

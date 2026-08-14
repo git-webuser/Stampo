@@ -6,7 +6,7 @@ import OSLog
 /// Usage:
 ///   Log.capture.error("screencapture exited with status \(status)")
 ///   Log.color.debug("SCShareableContent refreshed")
-enum Log {
+nonisolated enum Log {
     private static let subsystem = Bundle.main.bundleIdentifier ?? "com.hex000.Stampo"
 
     static let settings = Logger(subsystem: subsystem, category: "settings")

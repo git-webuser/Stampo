@@ -3,6 +3,19 @@ import Observation
 import Testing
 @testable import Stampo
 
+nonisolated private final class ObservationFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage = false
+
+    var value: Bool {
+        lock.withLock { storage }
+    }
+
+    func set() {
+        lock.withLock { storage = true }
+    }
+}
+
 /// `@Observable` tracks stored properties. `primary` was a computed property
 /// over `UserDefaults`, so setting it notified nobody: the picker in Settings
 /// went on showing the old language until something unrelated redrew the pane,
@@ -20,11 +33,11 @@ import Testing
             if saved == nil { defaults.removeObject(forKey: key) }
         }
 
-        var notified = false
+        let notified = ObservationFlag()
         withObservationTracking {
             _ = store.primary
         } onChange: {
-            notified = true
+            notified.set()
         }
 
         // Any language will do, and deliberately one that need not be in the
@@ -34,6 +47,6 @@ import Testing
         // vacuously on a machine that has none.
         store.primary = Locale.Language(identifier: "de")
 
-        #expect(notified, "a view reading `primary` must be told when it changes")
+        #expect(notified.value, "a view reading `primary` must be told when it changes")
     }
 }

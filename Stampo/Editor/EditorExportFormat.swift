@@ -5,7 +5,7 @@ import UniformTypeIdentifiers
 /// strings `AppSettings.fileFormat` and `ScreenshotFileStore` already speak —
 /// the encoding table stays in one place, this only adds the type and label a
 /// save panel needs.
-enum EditorExportFormat: String, CaseIterable {
+nonisolated enum EditorExportFormat: String, CaseIterable, Sendable {
     case png
     case jpg
     case tiff

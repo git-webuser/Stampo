@@ -1,6 +1,6 @@
 import AppKit
 import ImageIO
-import QuickLookThumbnailing
+@preconcurrency import QuickLookThumbnailing
 import UniformTypeIdentifiers
 
 // MARK: - ThumbnailLoader

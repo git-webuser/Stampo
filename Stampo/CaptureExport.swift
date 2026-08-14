@@ -12,11 +12,11 @@ import UniformTypeIdentifiers
 /// its own — the original on disk is still in the old format, and every
 /// receiver that prefers files to image data (mail, messengers, Finder) would
 /// take it straight back and undo the exercise.
-enum CaptureExport {
+nonisolated enum CaptureExport {
 
-    struct Payload {
+    nonisolated struct Payload: Sendable {
         let data: Data
-        let type: NSPasteboard.PasteboardType
+        let typeIdentifier: String
         /// The file to hand over: the capture itself, or the throwaway
         /// carrying the re-encode.
         let url: URL
@@ -41,6 +41,15 @@ enum CaptureExport {
         payload(for: url, as: format, to: .clipboard)
     }
 
+    /// Worker-friendly entry point. Only the persisted format string crosses
+    /// the detached task; AppKit pasteboard types are reconstructed on the
+    /// MainActor after the bytes are ready.
+    nonisolated static func payload(for url: URL, format: String) -> Payload? {
+        payload(for: url,
+                as: EditorExportFormat(rawValue: format) ?? .png,
+                to: .clipboard)
+    }
+
     private static func payload(for url: URL,
                                 as format: EditorExportFormat,
                                 to destination: Destination) -> Payload? {
@@ -51,7 +60,7 @@ enum CaptureExport {
             else { return nil }
 
             let wanted = format.contentType.identifier
-            let asIs = Payload(data: data, type: NSPasteboard.PasteboardType(uti), url: url)
+            let asIs = Payload(data: data, typeIdentifier: uti, url: url)
             guard uti != wanted else { return asIs }
 
             guard let cgImage = CGImageSourceCreateImageAtIndex(source, 0, nil) else { return asIs }
@@ -64,7 +73,7 @@ enum CaptureExport {
                                             to: destination)
             else { return asIs }
             return Payload(data: converted,
-                           type: NSPasteboard.PasteboardType(wanted),
+                           typeIdentifier: wanted,
                            url: exported)
         }
     }

@@ -267,6 +267,7 @@ private final class HUDBackgroundView: NSView {
 
 // MARK: - ColorPickerHUD
 
+@MainActor
 final class ColorPickerHUD {
 
     private var panel: NSPanel?
@@ -291,7 +292,7 @@ final class ColorPickerHUD {
         )
     }
 
-    deinit {
+    isolated deinit {
         // Cancel any pending auto-hide so it can't fire into a dangling instance,
         // and tear down the panel deterministically.
         hideWorkItem?.cancel()
@@ -374,7 +375,9 @@ final class ColorPickerHUD {
         // jumped from the old hudSize straight to the new one.
         refreshContent(animatedResize: true)
 
-        let work = DispatchWorkItem { [weak self] in self?.hide(animated: true) }
+        let work = DispatchWorkItem { [weak self] in
+            Task { @MainActor [weak self] in self?.hide(animated: true) }
+        }
         hideWorkItem = work
         DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
     }
@@ -392,7 +395,7 @@ final class ColorPickerHUD {
                 ctx.timingFunction = CAMediaTimingFunction(name: .easeIn)
                 panel.animator().alphaValue = 0
             } completionHandler: { [weak panel] in
-                panel?.orderOut(nil)
+                Task { @MainActor [weak panel] in panel?.orderOut(nil) }
             }
         } else {
             panel.orderOut(nil)

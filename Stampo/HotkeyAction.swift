@@ -1,6 +1,54 @@
 import Foundation
 import Carbon.HIToolbox
 
+nonisolated enum HotkeyRegistrationStatus: Equatable, Sendable {
+    case registered
+    case disabled
+    case conflict(OSStatus)
+    case handlerUnavailable
+
+    var message: String? {
+        switch self {
+        case .registered: return nil
+        case .disabled: return "Shortcut disabled"
+        case .conflict(let status): return "Shortcut unavailable (Carbon status \(status))"
+        case .handlerUnavailable: return "Shortcuts unavailable in this app session"
+        }
+    }
+
+    var isError: Bool {
+        switch self {
+        case .conflict, .handlerUnavailable: return true
+        case .registered, .disabled: return false
+        }
+    }
+}
+
+@MainActor
+final class HotkeyRegistrationCenter {
+    static let shared = HotkeyRegistrationCenter()
+
+    private(set) var statuses: [HotkeyAction: HotkeyRegistrationStatus] = [:]
+
+    func status(for action: HotkeyAction) -> HotkeyRegistrationStatus {
+        statuses[action] ?? .disabled
+    }
+
+    func snapshot() -> [HotkeyAction: HotkeyRegistrationStatus] {
+        statuses
+    }
+
+    func update(_ status: HotkeyRegistrationStatus, for action: HotkeyAction) {
+        statuses[action] = status
+        NotificationCenter.default.post(name: .hotkeyRegistrationChanged, object: nil)
+    }
+
+    func update(_ statuses: [HotkeyAction: HotkeyRegistrationStatus]) {
+        self.statuses = statuses
+        NotificationCenter.default.post(name: .hotkeyRegistrationChanged, object: nil)
+    }
+}
+
 /// Settings sections for the global shortcuts, in display order.
 enum HotkeyGroup: CaseIterable {
     case panel

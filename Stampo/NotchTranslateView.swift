@@ -507,7 +507,7 @@ private struct TranslateLanguageMenuButton: View {
         .frame(height: metrics.buttonHeight)
         .background(
             RoundedRectangle(cornerRadius: metrics.buttonRadius, style: .continuous)
-                .fill(PanelChrome.fill(isMenuOpen ? 0.28 : (isHovered ? 0.16 : 0.08), contrast))
+                .fill(background)
         )
         .overlay {
             PopUpLanguageButtonWrapper(
@@ -532,6 +532,17 @@ private struct TranslateLanguageMenuButton: View {
         )
         .animation(.easeInOut(duration: 0.12), value: isHovered)
         .animation(.easeInOut(duration: 0.12), value: isMenuOpen)
+    }
+
+    /// Same rule as the colour-format button in the archive header, and for the
+    /// same reason: a permanently filled pill reads as a control switched on.
+    /// This one carried a resting fill the other never had, so the two headers
+    /// disagreed about what a filled background means.
+    private var background: Color {
+        if isMenuOpen { return PanelChrome.fill(0.22, contrast) }
+        if isPressed  { return PanelChrome.fill(0.28, contrast) }
+        if isHovered  { return PanelChrome.fill(0.16, contrast) }
+        return .clear
     }
 }
 
@@ -594,6 +605,13 @@ private struct PopUpLanguageButtonWrapper: NSViewRepresentable {
 
     func updateNSView(_ button: NSPopUpButton, context: Context) {
         context.coordinator.parent = self
+        // Never while the menu is on screen. `onOpen` lights the button, which
+        // re-renders this representable, which landed right back here and
+        // rebuilt the items of the menu AppKit was tracking — after which the
+        // object the end-tracking notification carried no longer matched the
+        // one the button holds, the close was dropped, and the button stayed
+        // lit. Languages that change mid-menu are picked up on the next open.
+        guard !context.coordinator.isTrackingMenu else { return }
         rebuildItems(button)
     }
 
@@ -613,10 +631,21 @@ private struct PopUpLanguageButtonWrapper: NSViewRepresentable {
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
-    final class Coordinator: NSObject {
+    @MainActor final class Coordinator: NSObject {
         var parent: PopUpLanguageButtonWrapper
         weak var button: NSPopUpButton?
         private var observers: [NSObjectProtocol] = []
+
+        /// True between this button's menu opening and closing.
+        ///
+        /// The close is keyed on this rather than on the menu's identity. The
+        /// open still checks identity — it must, to ignore every other menu in
+        /// the app — but by closing time AppKit may hand the notification an
+        /// object the button no longer holds, and a dropped close leaves the
+        /// button lit with nothing able to turn it off. Menu tracking is modal
+        /// and this menu has no submenus, so between our open and our close
+        /// nothing else can begin or end tracking.
+        private(set) var isTrackingMenu = false
 
         init(_ parent: PopUpLanguageButtonWrapper) {
             self.parent = parent
@@ -625,18 +654,27 @@ private struct PopUpLanguageButtonWrapper: NSViewRepresentable {
             observers.append(center.addObserver(
                 forName: NSMenu.didBeginTrackingNotification, object: nil, queue: .main
             ) { [weak self] note in
-                guard let self, let menu = note.object as? NSMenu, menu === self.button?.menu else { return }
-                MainActor.assumeIsolated { self.parent.onOpen() }
+                guard let menu = note.object as? NSMenu else { return }
+                let menuID = ObjectIdentifier(menu)
+                MainActor.assumeIsolated { [weak self, menuID] in
+                    guard let self, let currentMenu = self.button?.menu,
+                          ObjectIdentifier(currentMenu) == menuID else { return }
+                    self.isTrackingMenu = true
+                    self.parent.onOpen()
+                }
             })
             observers.append(center.addObserver(
                 forName: NSMenu.didEndTrackingNotification, object: nil, queue: .main
-            ) { [weak self] note in
-                guard let self, let menu = note.object as? NSMenu, menu === self.button?.menu else { return }
-                MainActor.assumeIsolated { self.parent.onClose() }
+            ) { [weak self] _ in
+                MainActor.assumeIsolated { [weak self] in
+                    guard let self, self.isTrackingMenu else { return }
+                    self.isTrackingMenu = false
+                    self.parent.onClose()
+                }
             })
         }
 
-        deinit {
+        isolated deinit {
             observers.forEach(NotificationCenter.default.removeObserver)
         }
 

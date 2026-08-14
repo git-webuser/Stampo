@@ -4,6 +4,13 @@ import UniformTypeIdentifiers
 
 extension NSPasteboard {
 
+    /// Publishes already-encoded worker output without reconstructing an
+    /// `NSBitmapImageRep` on the MainActor.
+    func writeImage(_ data: Data, as format: EditorExportFormat) {
+        clearContents()
+        setData(data, forType: NSPasteboard.PasteboardType(format.contentType.identifier))
+    }
+
     /// Puts an already-rendered composite on the pasteboard, encoded in the
     /// format the user picked in Settings.
     ///
@@ -37,23 +44,26 @@ extension NSPasteboard {
     /// A decode into an `NSImage` — what this used to write — hands over a TIFF
     /// whatever the file is and whatever the setting says. Falls back to the
     /// URL alone when the file cannot be read or is not an image after all.
+    @MainActor
     func writeImage(at url: URL, as format: EditorExportFormat = .fromSettings()) {
-        // GCD rather than a detached Task: the pasteboard is not Sendable and
-        // the read is a plain blocking one, which is what this idiom is for.
-        DispatchQueue.global(qos: .userInitiated).async {
-            let payload = CaptureExport.payload(for: url, as: format)
-            DispatchQueue.main.async {
-                self.clearContents()
-                guard let payload else {
-                    self.writeObjects([url as NSURL])
-                    return
-                }
-                // Two items, image first, exactly as the NSImage version wrote
-                // them: apps take the picture, Finder takes the file.
-                let item = NSPasteboardItem()
-                item.setData(payload.data, forType: payload.type)
-                self.writeObjects([item, payload.url as NSURL])
+        let formatRawValue = format.rawValue
+        let worker = Task.detached(priority: .userInitiated) {
+            CaptureExport.payload(for: url, format: formatRawValue)
+        }
+        Task { @MainActor [weak self] in
+            let payload = await worker.value
+            guard let self else { return }
+            self.clearContents()
+            guard let payload else {
+                self.writeObjects([url as NSURL])
+                return
             }
+            // Two items, image first, exactly as the NSImage version wrote
+            // them: apps take the picture, Finder takes the file.
+            let item = NSPasteboardItem()
+            item.setData(payload.data,
+                         forType: NSPasteboard.PasteboardType(payload.typeIdentifier))
+            self.writeObjects([item, payload.url as NSURL])
         }
     }
 }

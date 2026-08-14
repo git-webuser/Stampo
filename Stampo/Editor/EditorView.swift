@@ -15,10 +15,10 @@ struct EditorView: View {
 
     var document: EditorDocument
     /// Wired by EditorWindowController in the save/copy commit; nil disables Save.
-    var saveHandler: ((EditorDocument) -> Bool)?
+    var saveHandler: ((EditorDocument) async -> Bool)?
     /// Save As: runs a save panel, so it reports back through its own sheet
     /// rather than a return value (the toast is shown by the controller).
-    var saveAsHandler: ((EditorDocument) -> Void)?
+    var saveAsHandler: ((EditorDocument) async -> Void)?
     /// Delete: the file this document was opened from goes to the Trash and the
     /// window closes. The controller owns both halves; anything the user wanted
     /// to keep out of it (the clipboard copy) happens here first.
@@ -33,6 +33,7 @@ struct EditorView: View {
     @State private var cropRect: CGRect?
     /// ⌥ held over the rotate button — flips its icon to preview direction.
     @State private var rotateOptionHeld = false
+    @State private var isPreparingArtifact = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -1470,10 +1471,10 @@ struct EditorView: View {
         HStack(spacing: 8) {
             // Share stays icon-only in both variants: it has no keyboard
             // shortcut to advertise and its glyph is unambiguous.
-            EditorShareButton(items: shareItems) {
+            EditorShareButton(prepareItems: shareItems) {
                 Image(systemName: "square.and.arrow.up")
             }
-            .disabled(textEditingActive)
+            .disabled(textEditingActive || isPreparingArtifact)
             .hoverTip("Share")
 
             Button {
@@ -1481,7 +1482,7 @@ struct EditorView: View {
             } label: {
                 actionLabel("Copy", systemImage: "doc.on.doc", labelled: labelled)
             }
-            .disabled(textEditingActive)
+            .disabled(textEditingActive || isPreparingArtifact)
             .hoverTip("Copy", shortcut: "⌘C")
 
             // Split control rather than a fourth button: clicking saves
@@ -1490,7 +1491,7 @@ struct EditorView: View {
             // lives one chevron away instead of widening the row.
             Menu {
                 Button("Save As…") { saveAs() }
-                    .disabled(saveAsHandler == nil)
+                    .disabled(saveAsHandler == nil || isPreparingArtifact)
                 Divider()
                 // The other way a capture can end: it was only ever wanted on
                 // the clipboard, and the file the app wrote on its own way out
@@ -1511,11 +1512,11 @@ struct EditorView: View {
                 } label: {
                     Text("Copy and Delete").foregroundStyle(.red)
                 }
-                .disabled(deleteHandler == nil)
+                    .disabled(deleteHandler == nil || isPreparingArtifact)
                 Button(role: .destructive) { delete() } label: {
                     Text("Delete").foregroundStyle(.red)
                 }
-                .disabled(deleteHandler == nil)
+                .disabled(deleteHandler == nil || isPreparingArtifact)
             } label: {
                 actionLabel("Save", systemImage: "square.and.arrow.down", labelled: labelled)
             } primaryAction: {
@@ -1529,7 +1530,7 @@ struct EditorView: View {
             // keeps the menu from growing into the toolbar's slack.
             .fixedSize(horizontal: true, vertical: false)
             .frame(maxHeight: .infinity)
-            .disabled(saveHandler == nil || textEditingActive)
+            .disabled(saveHandler == nil || textEditingActive || isPreparingArtifact)
             .hoverTip("Save", shortcut: "⌘S")
         }
         // .regular, not .small: a button-styled Menu draws a shorter bezel than
@@ -1558,13 +1559,13 @@ struct EditorView: View {
         Group {
             Button("") { copyToClipboard() }
                 .keyboardShortcut("c", modifiers: .command)
-                .disabled(textEditingActive)
+                .disabled(textEditingActive || isPreparingArtifact)
             Button("") { save() }
                 .keyboardShortcut("s", modifiers: .command)
-                .disabled(saveHandler == nil || textEditingActive)
+                .disabled(saveHandler == nil || textEditingActive || isPreparingArtifact)
             Button("") { saveAs() }
                 .keyboardShortcut("s", modifiers: [.command, .shift])
-                .disabled(saveAsHandler == nil || textEditingActive)
+                .disabled(saveAsHandler == nil || textEditingActive || isPreparingArtifact)
         }
         .frame(width: 0, height: 0)
         .opacity(0)
@@ -1572,12 +1573,22 @@ struct EditorView: View {
     }
 
     private func save() {
-        guard let saveHandler, saveHandler(document) else { return }
-        showCaptureHUD(.saved)
+        guard !isPreparingArtifact, let saveHandler else { return }
+        isPreparingArtifact = true
+        Task { @MainActor in
+            let didSave = await saveHandler(document)
+            isPreparingArtifact = false
+            if didSave { showCaptureHUD(.saved) }
+        }
     }
 
     private func saveAs() {
-        saveAsHandler?(document)
+        guard !isPreparingArtifact, let saveAsHandler else { return }
+        isPreparingArtifact = true
+        Task { @MainActor in
+            await saveAsHandler(document)
+            isPreparingArtifact = false
+        }
     }
 
     private func delete() {
@@ -1595,19 +1606,20 @@ struct EditorView: View {
     // MARK: Actions
 
     private func copyToClipboard() {
-        guard let rep = renderComposite() else { return }
-        // In the format the captures are saved in, not the TIFF an NSImage on
-        // the pasteboard turns into.
-        NSPasteboard.general.writeImage(rep, as: .fromSettings())
-        showCaptureHUD(.copied)
-    }
-
-    private func renderComposite() -> NSBitmapImageRep? {
-        AnnotationRenderer.renderBitmap(
-            base: document.baseImage,
-            blurSources: document.blurSources,
-            annotations: document.annotations
-        )
+        guard !isPreparingArtifact else { return }
+        isPreparingArtifact = true
+        let format = EditorExportFormat.fromSettings()
+        let snapshot = document.makeRenderSnapshot(format: format.rawValue)
+        Task { @MainActor in
+            defer { isPreparingArtifact = false }
+            guard let artifact = await Task.detached(priority: .userInitiated, operation: {
+                AnnotationRenderer.renderEncoded(snapshot: snapshot)
+            }).value else { return }
+            // In the format the captures are saved in, not the TIFF an NSImage
+            // on the pasteboard turns into.
+            NSPasteboard.general.writeImage(artifact.data, as: format)
+            showCaptureHUD(.copied)
+        }
     }
 
     /// Payload for the share sheet: the annotated image written to a temp file
@@ -1615,16 +1627,20 @@ struct EditorView: View {
     /// extension. Falls back to the in-memory image if the file can't be
     /// written — sharing still works, just unnamed. Sharing never saves: an
     /// unsaved document stays unsaved.
-    private func shareItems() -> [Any] {
-        guard let rep = renderComposite() else { return [] }
+    private func shareItems() async -> PreparedSharePayload? {
+        let snapshot = document.makeRenderSnapshot(format: AppSettings.fileFormat)
+        guard let artifact = await Task.detached(priority: .userInitiated, operation: {
+            AnnotationRenderer.renderEncoded(snapshot: snapshot)
+        }).value else { return nil }
         let name = document.sourceURL.deletingPathExtension().lastPathComponent
-        if let url = try? ScreenshotFileStore().writeTemporaryExport(rep, named: name) {
-            return [url]
+        let store = ScreenshotFileStore()
+        if let url = try? await Task.detached(priority: .utility, operation: {
+            try store.writeTemporaryExport(artifact.data, named: name, format: artifact.format)
+        }).value {
+            return PreparedSharePayload(fileURL: url, data: nil)
         }
         Log.capture.error("editor: share export failed, sharing in-memory image")
-        let image = NSImage(size: rep.size)
-        image.addRepresentation(rep)
-        return [image]
+        return PreparedSharePayload(fileURL: nil, data: artifact.data)
     }
 
     /// Unified scanner over the marquee region: the same one-pass barcode+text

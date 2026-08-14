@@ -9,7 +9,7 @@ import Vision
 enum ScanRecognition {
     /// One recognized finding with its normalized Vision bounding box
     /// (origin bottom-left).
-    struct Candidate {
+    nonisolated struct Candidate: Sendable {
         var string: String
         var box: CGRect
     }
@@ -20,12 +20,12 @@ enum ScanRecognition {
     /// prose, so the archive must not offer to translate it. Carrying a bare
     /// string here would drop that the moment the entry is filed, and no
     /// downstream code could tell a Wi-Fi config from a sentence.
-    struct ArchiveEntry: Equatable {
+    nonisolated struct ArchiveEntry: Equatable, Sendable {
         var string: String
         var isCode: Bool
     }
 
-    struct Result: Equatable {
+    nonisolated struct Result: Equatable, Sendable {
         /// Every barcode payload, in visual order (top-to-bottom, then
         /// left-to-right within a row).
         var codePayloads: [String]
@@ -45,17 +45,17 @@ enum ScanRecognition {
     /// No default for `joinsLines`: the product answer is "join" and the pure
     /// assembler's is "leave the text alone", so a call site that omitted it
     /// would silently pick the wrong one.
-    static func scan(in imageURL: URL, joinsLines: Bool) throws -> Result {
+    nonisolated static func scan(in imageURL: URL, joinsLines: Bool) throws -> Result {
         try scan(using: VNImageRequestHandler(url: imageURL), joinsLines: joinsLines)
     }
 
-    static func scan(in cgImage: CGImage, joinsLines: Bool) throws -> Result {
+    nonisolated static func scan(in cgImage: CGImage, joinsLines: Bool) throws -> Result {
         try scan(using: VNImageRequestHandler(cgImage: cgImage, options: [:]),
                  joinsLines: joinsLines)
     }
 
-    private static func scan(using handler: VNImageRequestHandler,
-                             joinsLines: Bool) throws -> Result {
+    nonisolated private static func scan(using handler: VNImageRequestHandler,
+                                         joinsLines: Bool) throws -> Result {
         // Leave `symbologies` at Vision's default so QR and the other barcode
         // formats supported by the running macOS release are all recognized.
         let barcodes = VNDetectBarcodesRequest()
@@ -90,8 +90,8 @@ enum ScanRecognition {
     /// `joinsLines` glues the recognized text into one paragraph. It only ever
     /// merges runs of text: a barcode payload is a value, not prose, so it
     /// always keeps a line of its own even between joined text.
-    static func assemble(codes: [Candidate], textLines: [Candidate],
-                         joinsLines: Bool = false) -> Result {
+    nonisolated static func assemble(codes: [Candidate], textLines: [Candidate],
+                                     joinsLines: Bool = false) -> Result {
         let keptText = textLines.filter { line in
             !codes.contains { code in
                 let overlap = line.box.intersection(code.box)
@@ -180,7 +180,7 @@ enum ScanRecognition {
     /// break, or a jump to a different type size — all of them reasons to
     /// break. Fewer than three lines gives no median worth the name, so a
     /// short block always joins straight through.
-    static func joinParagraphs(_ lines: [Candidate]) -> String {
+    nonisolated static func joinParagraphs(_ lines: [Candidate]) -> String {
         let kept = lines.filter { !$0.string.trimmingCharacters(in: .whitespaces).isEmpty }
         guard kept.count > 2 else { return joinWrappedLines(kept.map(\.string)) }
 
@@ -203,7 +203,7 @@ enum ScanRecognition {
     /// paragraph break. Ordinary leading varies by a few percent between lines
     /// of one block; a blank line roughly doubles the pitch, so the threshold
     /// sits between the two with room on both sides.
-    static let paragraphPitchRatio: CGFloat = 1.5
+    nonisolated static let paragraphPitchRatio: CGFloat = 1.5
 
     /// Glues lines wrapped by the layout back into one paragraph.
     ///
@@ -213,7 +213,7 @@ enum ScanRecognition {
     /// a reader can't fix, while dropping it would silently weld two words.
     /// A soft hyphen is unambiguous — it exists only to mark a wrap — so it
     /// goes. Everything else joins with a single space.
-    static func joinWrappedLines(_ lines: [String]) -> String {
+    nonisolated static func joinWrappedLines(_ lines: [String]) -> String {
         var result = ""
         for line in lines {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
@@ -230,7 +230,7 @@ enum ScanRecognition {
 
     /// Two boxes share a visual row when their vertical overlap exceeds half
     /// of the shorter box's height.
-    private static func sameRow(_ a: CGRect, _ b: CGRect) -> Bool {
+    nonisolated private static func sameRow(_ a: CGRect, _ b: CGRect) -> Bool {
         let overlap = min(a.maxY, b.maxY) - max(a.minY, b.minY)
         return overlap > 0.5 * min(a.height, b.height)
     }

@@ -14,7 +14,7 @@ import Foundation
 /// The screenshots are drawn from scratch into a temporary folder — nothing is
 /// read from the user's disk, and while demo mode is on the archive never
 /// persists, so a real archive on this machine survives untouched.
-enum DemoArchive {
+nonisolated enum DemoArchive {
     static let isEnabled: Bool =
         ProcessInfo.processInfo.arguments.contains("-StampoDemoArchive")
             || ProcessInfo.processInfo.environment["STAMPO_DEMO_ARCHIVE"] == "1"
@@ -28,6 +28,7 @@ enum DemoArchive {
 
     /// Entries are inserted at the front of the archive, so this list is walked
     /// back to front: the first element below ends up first in the panel.
+    @MainActor
     static func populate(_ model: NotchArchiveModel) {
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
 

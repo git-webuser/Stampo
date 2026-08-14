@@ -6,6 +6,7 @@ import SwiftUI
 /// Transient toast confirming the outcome of a capture or editor action.
 /// Deliberately separate from ColorPickerHUD — that one is a live
 /// cursor-following preview; this is a fire-and-forget confirmation.
+@MainActor
 final class TextCaptureHUD {
     enum Outcome {
         case copied
@@ -52,7 +53,7 @@ final class TextCaptureHUD {
         String(payload.split(whereSeparator: \.isWhitespace).joined(separator: " ").prefix(256))
     }
 
-    deinit {
+    isolated deinit {
         hideWorkItem?.cancel()
         panel?.orderOut(nil)
     }
@@ -98,7 +99,9 @@ final class TextCaptureHUD {
             panel.animator().alphaValue = 1
         }
 
-        let work = DispatchWorkItem { [weak self] in self?.hide() }
+        let work = DispatchWorkItem { [weak self] in
+            Task { @MainActor [weak self] in self?.hide() }
+        }
         hideWorkItem = work
         DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
     }
@@ -113,8 +116,10 @@ final class TextCaptureHUD {
                 ctx.timingFunction = CAMediaTimingFunction(name: .easeIn)
                 panel.animator().alphaValue = 0
             }, completionHandler: { [weak self] in
-                self?.panel?.orderOut(nil)
-                self?.panel = nil
+                Task { @MainActor [weak self] in
+                    self?.panel?.orderOut(nil)
+                    self?.panel = nil
+                }
             })
         } else {
             panel.orderOut(nil)

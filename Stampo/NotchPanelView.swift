@@ -4,7 +4,7 @@ import AppKit
 
 // MARK: - CaptureMode
 
-enum CaptureMode: CaseIterable, Equatable {
+enum CaptureMode: CaseIterable, Equatable, Sendable {
     case selection
     case window
     case screen

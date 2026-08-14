@@ -21,6 +21,7 @@ private struct Shake: GeometryEffect {
 struct ShortcutRecorderView: View {
     let action: HotkeyAction
     let combo: HotkeyCombo?
+    let registrationStatus: HotkeyRegistrationStatus
     /// Called with the accepted combo (nil = cleared/disabled).
     let onChange: (HotkeyCombo?) -> Void
 
@@ -75,6 +76,11 @@ struct ShortcutRecorderView: View {
                 Text(LocalizedStringKey(rejectionKey))
                     .font(.caption)
                     .foregroundStyle(.red)
+            }
+            if let registrationMessage = registrationStatus.message {
+                Text(registrationMessage)
+                    .font(.caption)
+                    .foregroundStyle(registrationStatus.isError ? .red : .secondary)
             }
         }
         .onDisappear(perform: stopRecording)

@@ -11,7 +11,7 @@ import Vision
 final class ScanCaptureCoordinator {
     private(set) var isInFlight: Bool = false
     private let hud = TextCaptureHUD()
-    private let capturer = ScreenshotCapturer()
+    private nonisolated let capturer = ScreenshotCapturer()
 
     /// Called once per finding on success — each barcode payload separately,
     /// then the recognized text — the owner stores them in the archive.
@@ -46,10 +46,15 @@ final class ScanCaptureCoordinator {
         // Carry only the value-type display ID across the background closure;
         // NSScreen itself is main-thread-bound and not Sendable.
         let displayID = screen?.displayID
+        let configuration = ScreenshotCaptureConfiguration.current
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self else { return }
-            let result = self.captureAndRecognize(rect, joinsLines: joinsLines)
+            let result = self.captureAndRecognize(
+                rect,
+                joinsLines: joinsLines,
+                configuration: configuration
+            )
             DispatchQueue.main.async { [weak self] in
                 guard let self, self.isInFlight else { return }
                 self.isInFlight = false
@@ -104,11 +109,18 @@ final class ScanCaptureCoordinator {
     /// Blocking: captures the selected rect to a temporary image and runs the
     /// combined barcode + text recognition. Returns nil on capture/Vision
     /// failure and an empty result when nothing readable was found.
-    private func captureAndRecognize(_ rect: CGRect,
-                                     joinsLines: Bool) -> ScanRecognition.Result? {
-        guard let tmpURL = capturer.captureRectToTemp(rect) else {
-            if !capturer.lastCaptureWasCancelled && !capturer.lastCaptureWasBusy {
-                Log.capture.error("scan capture failed: \(rect.debugDescription)")
+    private nonisolated func captureAndRecognize(
+        _ rect: CGRect,
+        joinsLines: Bool,
+        configuration: ScreenshotCaptureConfiguration
+    ) -> ScanRecognition.Result? {
+        let captureResult = capturer.captureRectToTemp(rect, configuration: configuration)
+        guard case .success(let tmpURL, _) = captureResult else {
+            switch captureResult {
+            case .failed(let failure):
+                Log.capture.error("scan capture failed: \(failure.localizedDescription, privacy: .public)")
+            case .cancelled, .busy, .success:
+                break
             }
             return nil
         }
@@ -143,8 +155,12 @@ extension NotchPanelController {
         let begin: () -> Void = { [weak self] in
             guard let self else { return }
             self.state = .preSelection(.selection)
+            let selectionToken = self.makePanelTransitionToken()
             self.selectionOverlay.onSelected = { [weak self] rect in
                 guard let self else { return }
+                guard self.animationGenerationMatches(selectionToken),
+                      case .preSelection(.selection) = self.state
+                else { return }
                 // Neither modifier is sampled here. Both are toggles the
                 // overlay tracks with its own event monitor, so the answer is
                 // simply whatever the frame was showing when the mouse came up
@@ -172,14 +188,19 @@ extension NotchPanelController {
                 self.state = .hidden
                 // Let WindowServer remove the overlay from the framebuffer
                 // before capturing the selected area.
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-                    self?.scanCapture.scan(in: rect, on: target,
-                                           joinsLines: joinsLines,
-                                           translates: translates, into: into)
+                self.schedulePanelAction(after: 0.1,
+                                         token: selectionToken,
+                                         requiresVisible: false) { [weak self] in
+                    guard let self, case .hidden = self.state else { return }
+                    self.scanCapture.scan(in: rect, on: target,
+                                         joinsLines: joinsLines,
+                                         translates: translates, into: into)
                 }
             }
             self.selectionOverlay.onCancelled = { [weak self] in
-                self?.state = .hidden
+                guard let self, self.animationGenerationMatches(selectionToken) else { return }
+                self.invalidatePanelTransitionActions()
+                self.state = .hidden
             }
             // Only the scanner has modes, so only the scanner's overlay
             // advertises them.

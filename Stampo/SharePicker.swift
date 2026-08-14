@@ -87,17 +87,25 @@ extension Notification.Name {
         // sheet or, if the anchor's view went away meanwhile, calling `finish`
         // — and letting the anchor die here would skip both, leaving the panel
         // held open by a bracket nothing will ever close.
-        DispatchQueue.global(qos: .userInitiated).async {
-            let result = ShareItemPreparer.prepare(boxed)
-            DispatchQueue.main.async {
-                self.cancelPreparationHint()
-                self.feedbackHUD.hide(animated: false)
-                self.show(result.items)
-                // An item that couldn't be staged is still handed over as the
-                // bare folder, which most services drop on the floor. Say so —
-                // silence here is the exact failure mode this whole step exists
-                // to remove.
-                if result.hasFailures { self.feedbackHUD.show(.shareNotPrepared, on: nil) }
+        let requests = ShareItemPreparer.directoryRequests(from: boxed)
+        let preparation = Task.detached(priority: .userInitiated) {
+            ShareItemPreparer.prepare(requests)
+        }
+        Task { @MainActor [self, boxed] in
+            let result = await preparation.value
+            var prepared = boxed
+            for (index, url) in result.replacements {
+                prepared[index] = url as NSURL
+            }
+            self.cancelPreparationHint()
+            self.feedbackHUD.hide(animated: false)
+            self.show(prepared)
+            // An item that couldn't be staged is still handed over as the
+            // bare folder, which most services drop on the floor. Say so —
+            // silence here is the exact failure mode this whole step exists
+            // to remove.
+            if !result.failedIndices.isEmpty {
+                self.feedbackHUD.show(.shareNotPrepared, on: nil)
             }
         }
     }
@@ -231,7 +239,19 @@ extension SharePickerAnchor: NSSharingServiceDelegate {
 /// silently. `NSFileCoordinator`'s `.forUploading` is the system's own answer:
 /// it hands back a zipped copy for directories and the original for everything
 /// else, which is exactly what Mail does with a package attachment.
-enum ShareItemPreparer {
+nonisolated enum ShareItemPreparer {
+
+    /// Value-only description sent to the worker. `[Any]` remains on the
+    /// MainActor because NSSharingService accepts arbitrary Cocoa objects.
+    nonisolated struct DirectoryRequest: Sendable {
+        let index: Int
+        let url: URL
+    }
+
+    nonisolated struct DirectoryPreparation: Sendable {
+        let replacements: [Int: URL]
+        let failedIndices: Set<Int>
+    }
 
     /// True for anything that needs staging. `.isDirectoryKey` describes the
     /// link itself, not its target, so a symlink pointing at a folder would
@@ -240,9 +260,38 @@ enum ShareItemPreparer {
         directoryURL(item) != nil
     }
 
+    static func directoryRequests(from items: [Any]) -> [DirectoryRequest] {
+        items.enumerated().compactMap { index, item in
+            guard let url = fileURL(item), let directory = directoryURL(for: url)
+            else { return nil }
+            return DirectoryRequest(index: index, url: directory)
+        }
+    }
+
+    /// Zips only the value-type directory requests. The caller merges the
+    /// resulting URLs back into its original Cocoa item array on MainActor.
+    static func prepare(_ requests: [DirectoryRequest]) -> DirectoryPreparation {
+        let scratch = freshScratchDirectory()
+        var replacements: [Int: URL] = [:]
+        var failedIndices = Set<Int>()
+        for request in requests {
+            guard let scratch, let zip = zipped(request.url, into: scratch) else {
+                failedIndices.insert(request.index)
+                continue
+            }
+            replacements[request.index] = zip
+        }
+        return DirectoryPreparation(replacements: replacements,
+                                     failedIndices: failedIndices)
+    }
+
     /// The directory this item ultimately refers to, or nil if it isn't one.
     private static func directoryURL(_ item: Any) -> URL? {
         guard let url = fileURL(item) else { return nil }
+        return directoryURL(for: url)
+    }
+
+    private static func directoryURL(for url: URL) -> URL? {
         let resolved = url.resolvingSymlinksInPath()
         guard (try? resolved.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
         else { return nil }

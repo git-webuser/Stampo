@@ -173,7 +173,9 @@ final class CursorOverlay {
                 token = nil
             }
 
-            makeScreenshotCrosshairCursor().set()
+            Task { @MainActor in
+                makeScreenshotCrosshairCursor().set()
+            }
         }
     }
 

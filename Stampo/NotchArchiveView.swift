@@ -446,20 +446,17 @@ struct NotchArchiveView: View {
     /// Swift-array writes race even at disjoint indices).
     private func loadURLs(from providers: [NSItemProvider], completion: @escaping ([URL]) -> Void) {
         let group = DispatchGroup()
-        let lock = NSLock()
-        var slots = [URL?](repeating: nil, count: providers.count)
+        let slots = LockedURLSlots(count: providers.count)
         for (index, provider) in providers.enumerated() {
             group.enter()
             _ = provider.loadObject(ofClass: URL.self) { url, _ in
                 if let url, url.isFileURL {
-                    lock.lock()
-                    slots[index] = url
-                    lock.unlock()
+                    slots.set(url, at: index)
                 }
                 group.leave()
             }
         }
-        group.notify(queue: .main) { completion(slots.compactMap { $0 }) }
+        group.notify(queue: .main) { completion(slots.compacted()) }
     }
 
     private var notchLayout: some View {
@@ -2837,6 +2834,26 @@ private struct ArchiveDropDelegate: DropDelegate {
     }
 }
 
+/// `NSItemProvider` callbacks may resolve concurrently. The holder keeps the
+/// ordering array behind one explicit lock so the callbacks never mutate a
+/// captured Swift array from multiple threads.
+private nonisolated final class LockedURLSlots: @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: [URL?]
+
+    init(count: Int) {
+        values = [URL?](repeating: nil, count: count)
+    }
+
+    func set(_ url: URL, at index: Int) {
+        lock.withLock { values[index] = url }
+    }
+
+    func compacted() -> [URL] {
+        lock.withLock { values.compactMap { $0 } }
+    }
+}
+
 private struct ArchiveDragShim: NSViewRepresentable {
     /// What the drag carries. Files are the common case, but a color or a
     /// snippet of text is just as draggable — see ArchiveDragPayload.
@@ -2941,7 +2958,7 @@ final class ArchiveDragShimView: NSView, NSDraggingSource {
         }
     }
 
-    deinit {
+    isolated deinit {
         if let m = eventMonitor { NSEvent.removeMonitor(m) }
     }
 

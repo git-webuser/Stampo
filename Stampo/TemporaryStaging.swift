@@ -13,7 +13,7 @@ import Foundation
 /// are cleared by age rather than by count. Deleting the previous one on the
 /// way in — which reads as tidy, and is what the share staging used to do —
 /// pulls the file out from under a transfer that is still running.
-enum TemporaryStaging {
+nonisolated enum TemporaryStaging {
 
     /// Long enough that no plausible transfer or unsent draft outlives it,
     /// short enough that a session of heavy use doesn't leave a temp directory

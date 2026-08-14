@@ -97,7 +97,7 @@ final class MascotStatusView: NSView {
 
     override init(frame: NSRect) { super.init(frame: frame); setup() }
     required init?(coder: NSCoder) { super.init(coder: coder); setup() }
-    deinit { blinkTimer?.invalidate() }
+    isolated deinit { blinkTimer?.invalidate() }
 
     // MARK: Setup
 
@@ -202,7 +202,9 @@ final class MascotStatusView: NSView {
             if !eyesOpen { applyOpenEyes(dir: dir, popAnim: true) }
             animateMoveEyes(to: .leftDown, duration: 0.2)
             blinkTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
-                self?.animateBlink()
+                Task { @MainActor [weak self] in
+                    self?.animateBlink()
+                }
             }
         }
     }
@@ -331,9 +333,11 @@ final class MascotStatusView: NSView {
         guard eyesOpen else { return }
         let delay = TimeInterval.random(in: 2.5...5.0)
         blinkTimer = Timer.scheduledTimer(withTimeInterval: delay, repeats: false) { [weak self] _ in
-            guard let self, self.eyesOpen else { return }
-            self.animateBlink()
-            self.scheduleNextBlink()
+            Task { @MainActor [weak self] in
+                guard let self, self.eyesOpen else { return }
+                self.animateBlink()
+                self.scheduleNextBlink()
+            }
         }
     }
 
@@ -348,7 +352,7 @@ final class MascotStatusView: NSView {
     }
 
     /// Squeeze both eyes to scale.y = 0, then call completion.
-    private func animateSqueeze(completion: @escaping () -> Void) {
+    private func animateSqueeze(completion: @escaping @MainActor () -> Void) {
         // Correct pattern: set model → animate from current presentation → model
         let fromY = (leftEyeLayer.presentation()?.value(forKeyPath: "transform.scale.y") as? CGFloat) ?? 1
 
@@ -366,7 +370,10 @@ final class MascotStatusView: NSView {
         leftEyeLayer.add(a,  forKey: "squeeze")
         rightEyeLayer.add(a, forKey: "squeeze")
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.13, execute: completion)
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(130))
+            completion()
+        }
     }
 
     // MARK: - Low-level animation helpers
@@ -473,8 +480,10 @@ final class MascotStatusView: NSView {
         return sequenceGen
     }
 
-    private func after(_ delay: TimeInterval, gen: Int, action: @escaping () -> Void) {
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+    private func after(_ delay: TimeInterval, gen: Int,
+                       action: @escaping @MainActor () -> Void) {
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(delay))
             guard let self, self.sequenceGen == gen else { return }
             action()
         }

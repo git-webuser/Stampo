@@ -9,8 +9,13 @@ import ServiceManagement
 /// SwiftUI views use @AppStorage(AppSettings.Keys.xxx) for two-way bindings.
 enum AppSettings {
 
+    /// UserDefaults reads/writes are individually thread-safe, but the
+    /// read-modify-write counter operation is not. Keep this lock local to
+    /// the counter so concurrent captures cannot reuse a number.
+    nonisolated private static let captureCounterLock = NSLock()
+
     // MARK: Keys
-    enum Keys {
+    nonisolated enum Keys {
         // General
         static let launchAtLogin         = "launchAtLogin"
         static let showThumbnailHUD      = "showThumbnailHUD"
@@ -185,7 +190,7 @@ enum AppSettings {
     /// iCloud), so this default needs no permission prompt — unlike the old
     /// Downloads default. Users with an explicitly chosen path/bookmark keep it;
     /// only never-configured (default) users migrate to Pictures.
-    private static func defaultSaveURL() -> URL {
+    nonisolated private static func defaultSaveURL() -> URL {
         let path = UserDefaults.standard.string(forKey: Keys.saveDirectory) ?? ""
         if !path.isEmpty { return URL(fileURLWithPath: path) }
         let pictures = FileManager.default.urls(for: .picturesDirectory, in: .userDomainMask).first
@@ -193,11 +198,27 @@ enum AppSettings {
         return pictures.appendingPathComponent("Stampo", isDirectory: true)
     }
 
-    static func withSaveDirectoryAccess<T>(_ block: (URL) throws -> T) throws -> T {
-        let url = saveDirectoryURL
+    /// Executes work while the configured security-scoped save directory is
+    /// accessible. The worker boundary deliberately uses a side-effect-free
+    /// resolver: presentation of a broken bookmark belongs to the MainActor
+    /// completion path, never to a background worker.
+    nonisolated static func withSaveDirectoryAccess<T>(_ block: (URL) throws -> T) throws -> T {
+        let url = resolvedSaveDirectoryURLForWorker()
         let didStart = url.startAccessingSecurityScopedResource()
         defer { if didStart { url.stopAccessingSecurityScopedResource() } }
         return try block(url)
+    }
+
+    nonisolated private static func resolvedSaveDirectoryURLForWorker() -> URL {
+        var isStale = false
+        guard let data = UserDefaults.standard.data(forKey: Keys.saveDirectoryBookmark),
+              let url = try? URL(resolvingBookmarkData: data,
+                                  options: [], relativeTo: nil,
+                                  bookmarkDataIsStale: &isStale)
+        else {
+            return defaultSaveURL()
+        }
+        return url
     }
 
     /// True until the welcome flow is completed once. System permission state
@@ -206,36 +227,38 @@ enum AppSettings {
     static var onboardingPending: Bool {
         !UserDefaults.standard.bool(forKey: Keys.hasCompletedOnboarding)
     }
-    static var filenamePreset: FilenamePreset {
+    nonisolated static var filenamePreset: FilenamePreset {
         let raw = UserDefaults.standard.string(forKey: Keys.filenamePreset) ?? "compact"
         return FilenamePreset(rawValue: raw) ?? .compact
     }
 
     /// Returns the current counter value without incrementing — for settings preview.
-    static var captureCounter: Int {
+    nonisolated static var captureCounter: Int {
         UserDefaults.standard.integer(forKey: Keys.captureCounter)
     }
 
     /// Atomically increments and returns the counter — call only on an actual capture.
-    static func nextCaptureCounter() -> Int {
-        let n = UserDefaults.standard.integer(forKey: Keys.captureCounter) + 1
-        UserDefaults.standard.set(n, forKey: Keys.captureCounter)
-        return n
+    nonisolated static func nextCaptureCounter() -> Int {
+        captureCounterLock.withLock {
+            let n = UserDefaults.standard.integer(forKey: Keys.captureCounter) + 1
+            UserDefaults.standard.set(n, forKey: Keys.captureCounter)
+            return n
+        }
     }
 
-    static var fileFormat: String {
+    nonisolated static var fileFormat: String {
         UserDefaults.standard.string(forKey: Keys.fileFormat) ?? "png"
     }
-    static var playSound: Bool {
+    nonisolated static var playSound: Bool {
         UserDefaults.standard.object(forKey: Keys.playSound) as? Bool ?? true
     }
-    static var copyToClipboard: Bool {
+    nonisolated static var copyToClipboard: Bool {
         UserDefaults.standard.object(forKey: Keys.copyToClipboard) as? Bool ?? true
     }
-    static var includeCursor: Bool {
+    nonisolated static var includeCursor: Bool {
         UserDefaults.standard.object(forKey: Keys.includeCursor) as? Bool ?? false
     }
-    static var includeWindowShadow: Bool {
+    nonisolated static var includeWindowShadow: Bool {
         UserDefaults.standard.object(forKey: Keys.includeWindowShadow) as? Bool ?? true
     }
     static var defaultCaptureMode: CaptureMode {
@@ -307,7 +330,7 @@ enum AppSettings {
 
     // MARK: Filename resolver
 
-    static func resolveFilename(preset: FilenamePreset, date: Date, counter: Int, format: String) -> String {
+    nonisolated static func resolveFilename(preset: FilenamePreset, date: Date, counter: Int, format: String) -> String {
         let cal = Calendar(identifier: .gregorian)
         let d   = cal.dateComponents(in: .current, from: date)
         let months = ["Jan","Feb","Mar","Apr","May","Jun",
@@ -458,7 +481,7 @@ extension ColorSchemeType: RawRepresentable {
 
 // MARK: - FilenamePreset
 
-enum FilenamePreset: String, CaseIterable {
+enum FilenamePreset: String, CaseIterable, Sendable {
     case compact  = "compact"   // Apr·12-14·30·05
     case iso      = "iso"       // 2024-04-12 14-30-05
     case numbered = "numbered"  // 2024-04-12 #98

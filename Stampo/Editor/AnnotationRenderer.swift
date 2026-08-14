@@ -11,14 +11,14 @@ import OSLog
 /// image pixel units (the same space the Annotation model uses). SwiftUI's
 /// `withCGContext` already provides top-left orientation; `renderBitmap`
 /// flips the bottom-left-native bitmap context before calling in.
-enum AnnotationRenderer {
+nonisolated enum AnnotationRenderer {
 
     // MARK: Blur source preparation (once per style+level per document)
 
     /// Filter-strength multiplier for an intensity detent. Level 3 keeps the
     /// original image-relative strength; the scale is roughly geometric so
     /// each detent is a visible step.
-    private static func intensityMultiplier(_ level: Int) -> CGFloat {
+    nonisolated private static func intensityMultiplier(_ level: Int) -> CGFloat {
         switch BlurIntensity.clamped(level) {
         case 1: return 0.35
         case 2: return 0.6
@@ -31,7 +31,7 @@ enum AnnotationRenderer {
     /// Full-size gaussian-blurred copy of the base. Blur annotations clip to
     /// their rect and draw this image — no per-region CI math, no CI
     /// coordinate flips, no edge bleed (clamp + crop handles the borders).
-    static func makeBlurred(base: CGImage, level: Int = BlurIntensity.defaultLevel) -> CGImage? {
+    nonisolated static func makeBlurred(base: CGImage, level: Int = BlurIntensity.defaultLevel) -> CGImage? {
         let input = CIImage(cgImage: base)
         let filter = CIFilter.gaussianBlur()
         filter.inputImage = input.clampedToExtent()
@@ -42,7 +42,7 @@ enum AnnotationRenderer {
     }
 
     /// Full-size pixelated copy of the base for the pixelate style.
-    static func makePixelated(base: CGImage, level: Int = BlurIntensity.defaultLevel) -> CGImage? {
+    nonisolated static func makePixelated(base: CGImage, level: Int = BlurIntensity.defaultLevel) -> CGImage? {
         let input = CIImage(cgImage: base)
         let filter = CIFilter.pixellate()
         filter.inputImage = input.clampedToExtent()
@@ -53,7 +53,7 @@ enum AnnotationRenderer {
         return ciContext.createCGImage(output, from: input.extent)
     }
 
-    private static let ciContext = CIContext(options: [.useSoftwareRenderer: false])
+    nonisolated private static let ciContext = CIContext(options: [.useSoftwareRenderer: false])
 
     // MARK: Whole-image rotation
 
@@ -628,7 +628,7 @@ enum AnnotationRenderer {
 
     /// Renders the document at the base image's native pixel size.
     /// The output rep's pixel dimensions always equal the source's.
-    static func renderBitmap(
+    nonisolated static func renderBitmap(
         base: CGImage,
         blurSources: [BlurSource: CGImage] = [:],
         annotations: [Annotation]
@@ -652,5 +652,21 @@ enum AnnotationRenderer {
              annotations: annotations)
         ctx.flush()
         return rep
+    }
+
+    /// Worker-facing export. The bitmap representation never crosses the
+    /// actor boundary; only encoded bytes do.
+    nonisolated static func renderEncoded(
+        snapshot: EditorRenderSnapshot
+    ) -> RenderedArtifact? {
+        guard let rep = renderBitmap(
+            base: snapshot.baseImage,
+            blurSources: snapshot.blurSources,
+            annotations: snapshot.annotations
+        ) else { return nil }
+        let (fileType, properties) = ScreenshotFileStore.encoding(for: snapshot.format)
+        guard let data = rep.representation(using: fileType, properties: properties)
+        else { return nil }
+        return RenderedArtifact(data: data, format: snapshot.format, revision: snapshot.revision)
     }
 }

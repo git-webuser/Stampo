@@ -1,7 +1,7 @@
 import Foundation
 import NaturalLanguage
 import SwiftUI
-import Translation
+@preconcurrency import Translation
 
 // MARK: - Pair
 

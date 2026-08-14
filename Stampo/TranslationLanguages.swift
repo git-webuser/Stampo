@@ -1,5 +1,5 @@
 import Foundation
-import Translation
+@preconcurrency import Translation
 
 // MARK: - Locale.Language
 

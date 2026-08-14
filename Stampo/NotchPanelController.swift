@@ -86,6 +86,15 @@ nonisolated enum NotchPanelRoute {
     case cdwn
 }
 
+/// Identity of work scheduled during a panel transition. The animation
+/// generation catches ordinary show/hide/morph races; the binding UUID also
+/// invalidates callbacks when WindowServer gives us a newly-created panel
+/// after sleep, display reconfiguration, or a Space rebind.
+nonisolated struct PanelTransitionToken: Equatable, Sendable {
+    let generation: Int
+    let bindingID: UUID
+}
+
 // MARK: - Panel state machine
 
 /// Drives the controller through every visible phase of the panel.
@@ -584,11 +593,60 @@ final class NotchPanelController: NSObject {
     /// Сохраняется как defensive guard: `PanelState` обеспечивает основные
     /// инварианты, но stale completion'ы NSAnimation могут выстрелить уже
     /// после перехода в новое состояние; generation matching ловит этот случай.
-    private var animationGeneration: Int = 0
+    private let transitionCoordinator = PanelTransitionCoordinator()
+    private var animationGeneration: Int { transitionCoordinator.generation }
+    private var panelBindingID: UUID { transitionCoordinator.bindingID }
     @discardableResult
     private func bumpGeneration() -> Int {
-        animationGeneration &+= 1
-        return animationGeneration
+        transitionCoordinator.bumpGeneration()
+    }
+
+    /// Captures the current panel lifecycle identity for delayed UI work.
+    /// Callers must take the token after the transition they want to wait for
+    /// has been started, because starting a morph intentionally advances the
+    /// generation.
+    @discardableResult
+    func makePanelTransitionToken() -> PanelTransitionToken {
+        transitionCoordinator.currentToken()
+    }
+
+    func animationGenerationMatches(_ token: PanelTransitionToken) -> Bool {
+        transitionCoordinator.matches(token)
+            && !needsSpaceRebind
+    }
+
+    /// Invalidates delayed panel actions without otherwise changing the route.
+    /// Overlay cancellation and environment changes use this before returning
+    /// to `.hidden`/`.stale` so an old selection cannot capture later.
+    func invalidatePanelTransitionActions() {
+        transitionCoordinator.invalidate()
+    }
+
+    /// Schedules a MainActor panel action guarded by both the transition token
+    /// and the current visible lifecycle. `requiresVisible == false` is only
+    /// for overlay work whose window has already been ordered out; its caller
+    /// still validates the expected state inside the action.
+    func schedulePanelAction(after delay: TimeInterval,
+                             token: PanelTransitionToken,
+                             requiresVisible: Bool = true,
+                             action: @escaping () -> Void) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            guard let self,
+                  self.transitionCoordinator.matches(token),
+                  !self.needsSpaceRebind
+            else { return }
+
+            if requiresVisible {
+                guard self.panel?.isVisible == true else { return }
+                switch self.state {
+                case .hidden, .hiding, .preSelection, .stale:
+                    return
+                default:
+                    break
+                }
+            }
+            action()
+        }
     }
 
     /// Caller completion for the hide currently in flight. Capture/OCR/color
@@ -748,9 +806,11 @@ final class NotchPanelController: NSObject {
                 self.switchToArchive()
             } else {
                 guard let screen = self.currentScreen ?? NSScreen.main else { return }
-                self.showAnimated(on: screen, forceRebind: self.needsSpaceRebind)
-                DispatchQueue.main.asyncAfter(deadline: .now() + PanelTiming.showBeforeArchive) {
-                    self.switchToArchive()
+                guard let token = self.showAnimated(on: screen, forceRebind: self.needsSpaceRebind)
+                else { return }
+                self.schedulePanelAction(after: PanelTiming.showBeforeArchive, token: token) {
+                    [weak self] in
+                    self?.switchToArchive()
                 }
             }
         }
@@ -762,14 +822,14 @@ final class NotchPanelController: NSObject {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.isMenuTracking = true
+            Task { @MainActor [weak self] in self?.isMenuTracking = true }
         }
         let t2 = NotificationCenter.default.addObserver(
             forName: NSMenu.didEndTrackingNotification,
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.isMenuTracking = false
+            Task { @MainActor [weak self] in self?.isMenuTracking = false }
         }
         // The panel now lives in a dedicated max-level CGS space (see create()),
         // so a Space switch no longer corrupts its binding — it stays correctly
@@ -782,21 +842,23 @@ final class NotchPanelController: NSObject {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            guard let self else { return }
-            self.trace("spaceDidChange.begin")
-            if case .hiding = self.state {
-                // A close is in progress: cut the hide animation short and tear
-                // the panel down immediately (the user is mid-Space-switch and
-                // won't see the truncated animation). markPanelSpaceBindingStale
-                // delivers the pending hide completion so capture flows that
-                // wait for the panel to disappear still start.
-                self.markPanelSpaceBindingStale()
-            } else if self.panel?.isVisible == true {
-                // Leave the visible panel untouched — the CGS space keeps it in
-                // place across the switch. (No recreate → no blink.)
-                self.trace("spaceDidChange.visible.noop")
-            } else {
-                self.markPanelSpaceBindingStale()
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.trace("spaceDidChange.begin")
+                if case .hiding = self.state {
+                    // A close is in progress: cut the hide animation short and tear
+                    // the panel down immediately (the user is mid-Space-switch and
+                    // won't see the truncated animation). markPanelSpaceBindingStale
+                    // delivers the pending hide completion so capture flows that
+                    // wait for the panel to disappear still start.
+                    self.markPanelSpaceBindingStale()
+                } else if self.panel?.isVisible == true {
+                    // Leave the visible panel untouched — the CGS space keeps it in
+                    // place across the switch. (No recreate → no blink.)
+                    self.trace("spaceDidChange.visible.noop")
+                } else {
+                    self.markPanelSpaceBindingStale()
+                }
             }
         }
 
@@ -804,11 +866,15 @@ final class NotchPanelController: NSObject {
         // сохранить у старого NSPanel устаревшую Space-привязку, которую AppKit
         // не исправляет самостоятельно. Самый надёжный способ — пересоздать
         // панель при следующем показе вместо того, чтобы «лечить» старую.
-        let onSleepWake: (Notification) -> Void = { [weak self] _ in
-            self?.invalidatePanelAfterEnvironmentChange(reason: .sleep)
+        let onSleepWake: @Sendable (Notification) -> Void = { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.invalidatePanelAfterEnvironmentChange(reason: .sleep)
+            }
         }
-        let onDisplayChange: (Notification) -> Void = { [weak self] _ in
-            self?.invalidatePanelAfterEnvironmentChange(reason: .displayChange)
+        let onDisplayChange: @Sendable (Notification) -> Void = { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.invalidatePanelAfterEnvironmentChange(reason: .displayChange)
+            }
         }
         let t4 = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.screensDidSleepNotification,
@@ -828,7 +894,9 @@ final class NotchPanelController: NSObject {
             object: nil, queue: .main
         ) { [weak self] note in
             guard let url = note.object as? URL else { return }
-            self?.archiveModel.add(screenshotURL: url)
+            Task { @MainActor [weak self] in
+                self?.archiveModel.add(screenshotURL: url)
+            }
         }
         // Only when the panel is down. Raised from the archive by right-click,
         // the archive is already on screen and worth more than a spinner —
@@ -912,7 +980,9 @@ final class NotchPanelController: NSObject {
             object: nil, queue: .main
         ) { [weak self] note in
             guard let entry = note.object as? ScanRecognition.ArchiveEntry else { return }
-            self?.archiveModel.add(text: entry.string, isCodePayload: entry.isCode)
+            Task { @MainActor [weak self] in
+                self?.archiveModel.add(text: entry.string, isCodePayload: entry.isCode)
+            }
         }
 
         // Share sheet opened from an archive context menu: hold the panel open
@@ -923,15 +993,19 @@ final class NotchPanelController: NSObject {
             forName: .sharePickerDidOpen,
             object: nil, queue: .main
         ) { [weak self] _ in
-            self?.isSharePickerOpen = true
-            self?.syncEscapeHotkey()
+            Task { @MainActor [weak self] in
+                self?.isSharePickerOpen = true
+                self?.syncEscapeHotkey()
+            }
         }
         let t11 = NotificationCenter.default.addObserver(
             forName: .sharePickerDidClose,
             object: nil, queue: .main
         ) { [weak self] _ in
-            self?.isSharePickerOpen = false
-            self?.syncEscapeHotkey()
+            Task { @MainActor [weak self] in
+                self?.isSharePickerOpen = false
+                self?.syncEscapeHotkey()
+            }
         }
 
         // Quick Look is a window of ours too: hold the panel open under it, and
@@ -940,20 +1014,20 @@ final class NotchPanelController: NSObject {
             forName: .quickLookDidOpen,
             object: nil, queue: .main
         ) { [weak self] _ in
-            self?.isQuickLookOpen = true
+            Task { @MainActor [weak self] in self?.isQuickLookOpen = true }
         }
         let t13 = NotificationCenter.default.addObserver(
             forName: .quickLookDidClose,
             object: nil, queue: .main
         ) { [weak self] _ in
-            self?.isQuickLookOpen = false
+            Task { @MainActor [weak self] in self?.isQuickLookOpen = false }
         }
 
         notificationObservers = [t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11, t12, t13,
                                  tTranslate, tTranslateStart, tTranslateEnd, tTranslatePreview]
     }
 
-    deinit {
+    isolated deinit {
         // Some observers are registered on NSWorkspace.notificationCenter,
         // others on NotificationCenter.default — remove from both.
         notificationObservers.forEach {
@@ -980,7 +1054,17 @@ final class NotchPanelController: NSObject {
     /// `.stationary` (восстановлен в `f02100f`) убирает «дыру» при анимации
     /// Mission Control.
     private func orderFrontOnActiveSpace(_ panel: NSPanel) {
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
+        if NotchSpaceManager.shared.adapter is StandardSpaceAdapter {
+            panel.collectionBehavior = [
+                .canJoinAllSpaces,
+                .fullScreenAuxiliary,
+                .moveToActiveSpace,
+                .stationary
+            ]
+        } else {
+            panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
+        }
+        NotchSpaceManager.shared.adapter.attach(panel)
         panel.orderFrontRegardless()
     }
 
@@ -993,7 +1077,7 @@ final class NotchPanelController: NSObject {
         bumpGeneration()
         // Убираем окно из CGS-спейса ДО close(): позже windowNumber станет
         // невалидным, и панель зависла бы в Set (strong ref) до следующего create().
-        NotchSpaceManager.shared.notchSpace.windows = []
+        if let panel { NotchSpaceManager.shared.adapter.detach(panel) }
         uninstallMouseRegionTracking()
         panel?.orderOut(nil)
         panel?.close()
@@ -1034,7 +1118,7 @@ final class NotchPanelController: NSObject {
         activeCountdown?.timer?.invalidate()
         activeCountdown = nil
         // См. markPanelSpaceBindingStale: чистим CGS-спейс до close().
-        NotchSpaceManager.shared.notchSpace.windows = []
+        if let panel { NotchSpaceManager.shared.adapter.detach(panel) }
         uninstallMouseRegionTracking()
         panel?.orderOut(nil)
         panel?.close()
@@ -1115,8 +1199,8 @@ final class NotchPanelController: NSObject {
             if route != .archive { switchToArchive() }
             rootState.isArchivePinned = true
         } else {
-            showAnimated(on: screen, forceRebind: needsSpaceRebind)
-            DispatchQueue.main.asyncAfter(deadline: .now() + PanelTiming.showBeforeArchive) { [weak self] in
+            guard let token = showAnimated(on: screen, forceRebind: needsSpaceRebind) else { return }
+            schedulePanelAction(after: PanelTiming.showBeforeArchive, token: token) { [weak self] in
                 guard let self else { return }
                 if self.route != .archive { self.switchToArchive() }
                 self.rootState.isArchivePinned = true
@@ -1156,10 +1240,11 @@ final class NotchPanelController: NSObject {
     /// reason every other body in this panel is: content never moves while the
     /// shape does.
     private func dissolveStrip(_ next: @escaping () -> Void) {
+        let token = makePanelTransitionToken()
         withAnimation(.easeOut(duration: PanelTiming.contentDissolve)) {
             rootState.translatingVisible = 0.0
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + PanelTiming.contentDissolve) { [weak self] in
+        schedulePanelAction(after: PanelTiming.contentDissolve, token: token) { [weak self] in
             guard let self else { return }
             self.rootState.translatingStripVisible = false
             next()
@@ -1184,8 +1269,8 @@ final class NotchPanelController: NSObject {
         if isVisible && !needsSpaceRebind {
             switchToTranslate(returningTo: destination)
         } else {
-            showAnimated(on: target, forceRebind: needsSpaceRebind)
-            DispatchQueue.main.asyncAfter(deadline: .now() + PanelTiming.showBeforeArchive) { [weak self] in
+            guard let token = showAnimated(on: target, forceRebind: needsSpaceRebind) else { return }
+            schedulePanelAction(after: PanelTiming.showBeforeArchive, token: token) { [weak self] in
                 self?.switchToTranslate(returningTo: destination)
             }
         }
@@ -1217,17 +1302,21 @@ final class NotchPanelController: NSObject {
 
         if isVisible && !needsSpaceRebind {
             if route == .archive {
-                DispatchQueue.main.asyncAfter(deadline: .now() + PanelTiming.oneFrameSettle) { present() }
+                let token = makePanelTransitionToken()
+                schedulePanelAction(after: PanelTiming.oneFrameSettle, token: token) { present() }
             } else {
                 switchToArchive()
-                DispatchQueue.main.asyncAfter(deadline: .now() + PanelTiming.archiveCloseMorph) { present() }
+                let token = makePanelTransitionToken()
+                schedulePanelAction(after: PanelTiming.archiveCloseMorph, token: token) { present() }
             }
         } else {
-            showAnimated(on: screen, forceRebind: needsSpaceRebind)
-            DispatchQueue.main.asyncAfter(deadline: .now() + PanelTiming.showBeforeArchive) { [weak self] in
+            guard let token = showAnimated(on: screen, forceRebind: needsSpaceRebind) else { return }
+            schedulePanelAction(after: PanelTiming.showBeforeArchive, token: token) { [weak self] in
                 guard let self else { return }
                 if self.route != .archive { self.switchToArchive() }
-                DispatchQueue.main.asyncAfter(deadline: .now() + PanelTiming.archiveCloseMorph) { present() }
+                let archiveToken = self.makePanelTransitionToken()
+                self.schedulePanelAction(after: PanelTiming.archiveCloseMorph,
+                                         token: archiveToken) { present() }
             }
         }
     }
@@ -1238,9 +1327,17 @@ final class NotchPanelController: NSObject {
         updateScreenMetrics(for: screen)
         if mode == .selection {
             guard !isInPreSelection else { return }
+            let selectionToken = PanelTransitionToken(
+                generation: bumpGeneration(),
+                bindingID: panelBindingID
+            )
             state = .preSelection(.selection)
             selectionOverlay.onSelected = { [weak self] rect in
                 guard let self else { return }
+                guard self.animationGeneration == selectionToken.generation,
+                      self.panelBindingID == selectionToken.bindingID,
+                      case .preSelection(.selection) = self.state
+                else { return }
                 self.state = .hidden
                 // The overlay panel was just orderOut(nil)'d, but WindowServer
                 // still has it in the framebuffer for a frame or two. Without a
@@ -1248,12 +1345,20 @@ final class NotchPanelController: NSObject {
                 // overlay is gone and the resulting image includes them.
                 // Panel-mode area capture doesn't hit this because the panel's
                 // hideAnimated completion provides a much longer buffer.
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-                    self?.screenshot.captureRect(rect, preferredScreen: screen)
+                self.schedulePanelAction(after: 0.1,
+                                         token: selectionToken,
+                                         requiresVisible: false) { [weak self] in
+                    guard let self, case .hidden = self.state else { return }
+                    self.screenshot.captureRect(rect, preferredScreen: screen)
                 }
             }
             selectionOverlay.onCancelled = { [weak self] in
-                self?.state = .hidden
+                guard let self,
+                      self.animationGeneration == selectionToken.generation,
+                      self.panelBindingID == selectionToken.bindingID
+                else { return }
+                self.invalidatePanelTransitionActions()
+                self.state = .hidden
             }
             selectionOverlay.start(on: screen)
         } else if mode == .window {
@@ -1274,7 +1379,8 @@ final class NotchPanelController: NSObject {
         pickColor()
     }
 
-    func showAnimated(on screen: NSScreen, forceRebind: Bool = false) {
+    @discardableResult
+    func showAnimated(on screen: NSScreen, forceRebind: Bool = false) -> PanelTransitionToken? {
         trace("showAnimated.begin forceRebind=\(forceRebind) targetScreen={\(PanelTrace.screenSummary(screen))}")
         currentScreen = screen
         updateScreenMetrics(for: screen)
@@ -1283,7 +1389,7 @@ final class NotchPanelController: NSObject {
         model.delay = AppSettings.defaultTimerDelay
 
         if panel == nil { create() }
-        guard let panel else { return }
+        guard let panel else { return nil }
 
         // Environment/Space invalidation normally destroys the old NSPanel, so
         // create() above gives WindowServer a fresh Space binding. Keep orderOut
@@ -1296,6 +1402,7 @@ final class NotchPanelController: NSObject {
 
         state = .showing
         let gen = bumpGeneration()
+        let transitionToken = PanelTransitionToken(generation: gen, bindingID: panelBindingID)
         // A show interrupting an in-flight hide aborts it: the panel never
         // finished disappearing, so the hide's caller completion must not fire.
         pendingHideCompletion = nil
@@ -1338,15 +1445,17 @@ final class NotchPanelController: NSObject {
                 }
                 panel.animator().setFrame(target, display: true)
             } completionHandler: { [weak self] in
-                guard let self, self.animationGeneration == gen else {
-                    self?.trace("showAnimated.completion.genMismatch gen=\(gen)")
-                    return
+                Task { @MainActor [weak self] in
+                    guard let self, self.animationGenerationMatches(transitionToken) else {
+                        self?.trace("showAnimated.completion.tokenMismatch")
+                        return
+                    }
+                    self.interactionState.isEnabled = true
+                    // Only finalise to .main if nothing reassigned state during
+                    // the animation (e.g. countdown overlay set .countdown).
+                    if case .showing = self.state { self.state = .main }
+                    self.trace("showAnimated.completion.done")
                 }
-                self.interactionState.isEnabled = true
-                // Only finalise to .main if nothing reassigned state during
-                // the animation (e.g. countdown overlay set .countdown).
-                if case .showing = self.state { self.state = .main }
-                self.trace("showAnimated.completion.done")
             }
         } else {
             let w = clampedWidth(currentWidthForCurrentRoute, on: screen)
@@ -1362,23 +1471,29 @@ final class NotchPanelController: NSObject {
                 }
                 panel.animator().setFrame(visible, display: true)
             } completionHandler: { [weak self] in
-                guard let self, self.animationGeneration == gen else {
-                    self?.trace("showAnimated.completion.genMismatch gen=\(gen)")
-                    return
+                Task { @MainActor [weak self] in
+                    guard let self, self.animationGenerationMatches(transitionToken) else {
+                        self?.trace("showAnimated.completion.tokenMismatch")
+                        return
+                    }
+                    self.interactionState.isEnabled = true
+                    // Only finalise to .main if nothing reassigned state during
+                    // the animation (e.g. countdown overlay set .countdown).
+                    if case .showing = self.state { self.state = .main }
+                    self.trace("showAnimated.completion.done")
                 }
-                self.interactionState.isEnabled = true
-                // Only finalise to .main if nothing reassigned state during
-                // the animation (e.g. countdown overlay set .countdown).
-                if case .showing = self.state { self.state = .main }
-                self.trace("showAnimated.completion.done")
             }
         }
+        return transitionToken
     }
 
     func hideAnimated(reason: PanelHideReason = .unknown, completion: (() -> Void)? = nil) {
         trace("hideAnimated.begin reason=\(reason.rawValue)")
         guard let panel, panel.isVisible else {
             trace("hideAnimated.skip reason=\(reason.rawValue)")
+            // Even when AppKit says there is nothing visible to hide, a delayed
+            // action may still be waiting for that old panel. Invalidate it.
+            bumpGeneration()
             completion?()
             return
         }
@@ -1438,14 +1553,20 @@ final class NotchPanelController: NSObject {
     /// starts either way: it is laid out at the panel's width, so any of it
     /// still visible while the window narrows re-wraps on the way down.
     private func hideExpandedThenMain(panel: NSPanel, screen: NSScreen) {
-        let gen = animationGeneration
+        let token = makePanelTransitionToken()
+        let dissolveDelay = PanelTiming.contentDissolve
+        let hideDelay = PanelTiming.hideAnimation
         interactionState.contentVisibility = 0.0
         withAnimation(.easeOut(duration: PanelTiming.contentDissolve)) {
             rootState.routeContentVisible = 0.0
         }
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + PanelTiming.contentDissolve) { [weak self, weak panel] in
-            guard let self, let panel, self.animationGeneration == gen else { return }
+        Task { @MainActor [weak self, weak panel] in
+            try? await Task.sleep(for: .seconds(dissolveDelay))
+            guard let self, let panel,
+                  self.animationGenerationMatches(token)
+            else { return }
+            guard case .hiding = self.state else { return }
 
             // Phase 2: morph shape archive → main (Y axis via progress, width unchanged).
             self.route = .main
@@ -1454,8 +1575,12 @@ final class NotchPanelController: NSObject {
             }
 
             // Phase 3: kick off the standard main-panel close.
-            DispatchQueue.main.asyncAfter(deadline: .now() + PanelTiming.hideAnimation) { [weak self, weak panel] in
-                guard let self, let panel, self.animationGeneration == gen else { return }
+            Task { @MainActor [weak self, weak panel] in
+                try? await Task.sleep(for: .seconds(hideDelay))
+                guard let self, let panel,
+                      self.animationGenerationMatches(token)
+                else { return }
+                guard case .hiding = self.state else { return }
                 self.rootState.routeContentVisible = 1.0  // reset for next open
                 self.hideMainPanel(panel: panel, screen: screen)
             }
@@ -1463,7 +1588,7 @@ final class NotchPanelController: NSObject {
     }
 
     private func hideMainPanel(panel: NSPanel, screen: NSScreen) {
-        let gen = animationGeneration
+        let token = makePanelTransitionToken()
         if metrics.hasNotch {
             let target = frameForWidth(collapsedWidth, on: screen, height: panelWindowHeight)
 
@@ -1476,22 +1601,24 @@ final class NotchPanelController: NSObject {
                 }
                 panel.animator().setFrame(target, display: true)
             } completionHandler: { [weak self, weak panel] in
-                self?.uninstallMouseRegionTracking()
-                panel?.orderOut(nil)
-                guard let self, self.animationGeneration == gen else {
-                    self?.trace("hideMainPanel.completion.genMismatch gen=\(gen)")
-                    return
+                Task { @MainActor [weak self, weak panel] in
+                    self?.uninstallMouseRegionTracking()
+                    panel?.orderOut(nil)
+                    guard let self, self.animationGenerationMatches(token) else {
+                        self?.trace("hideMainPanel.completion.genMismatch")
+                        return
+                    }
+                    self.state = .hidden
+                    self.interactionState.isEnabled = true
+                    self.route = .main
+                    self.rootState.progress = 0.0
+                    self.rootState.isArchivePinned = false
+                    self.rootState.countdownVisible = 0.0
+                    self.rootState.countdownSeconds = 0
+                    self.rootState.countdownTotal = 0
+                    self.trace("hideMainPanel.completion.orderOut")
+                    self.firePendingHideCompletion()
                 }
-                self.state = .hidden
-                self.interactionState.isEnabled = true
-                self.route = .main
-                self.rootState.progress = 0.0
-                self.rootState.isArchivePinned = false
-                self.rootState.countdownVisible = 0.0
-                self.rootState.countdownSeconds = 0
-                self.rootState.countdownTotal = 0
-                self.trace("hideMainPanel.completion.orderOut")
-                self.firePendingHideCompletion()
             }
         } else {
             let w = clampedWidth(currentWidthForCurrentRoute, on: screen)
@@ -1511,22 +1638,24 @@ final class NotchPanelController: NSObject {
                 }
                 panel.animator().setFrame(hidden, display: true)
             } completionHandler: { [weak self, weak panel] in
-                self?.uninstallMouseRegionTracking()
-                panel?.orderOut(nil)
-                guard let self, self.animationGeneration == gen else {
-                    self?.trace("hideMainPanel.completion.genMismatch gen=\(gen)")
-                    return
+                Task { @MainActor [weak self, weak panel] in
+                    self?.uninstallMouseRegionTracking()
+                    panel?.orderOut(nil)
+                    guard let self, self.animationGenerationMatches(token) else {
+                        self?.trace("hideMainPanel.completion.genMismatch")
+                        return
+                    }
+                    self.state = .hidden
+                    self.interactionState.isEnabled = true
+                    self.route = .main
+                    self.rootState.progress = 0.0
+                    self.rootState.isArchivePinned = false
+                    self.rootState.countdownVisible = 0.0
+                    self.rootState.countdownSeconds = 0
+                    self.rootState.countdownTotal = 0
+                    self.trace("hideMainPanel.completion.orderOut")
+                    self.firePendingHideCompletion()
                 }
-                self.state = .hidden
-                self.interactionState.isEnabled = true
-                self.route = .main
-                self.rootState.progress = 0.0
-                self.rootState.isArchivePinned = false
-                self.rootState.countdownVisible = 0.0
-                self.rootState.countdownSeconds = 0
-                self.rootState.countdownTotal = 0
-                self.trace("hideMainPanel.completion.orderOut")
-                self.firePendingHideCompletion()
             }
         }
     }
@@ -1633,13 +1762,15 @@ final class NotchPanelController: NSObject {
 
         panel.contentView = NSHostingView(rootView: makeRootView().managedLocale())
         self.panel = panel
+        // A new NSPanel is a new lifecycle even when the route and generation
+        // happen to be unchanged from the caller's point of view.
+        transitionCoordinator.rebind()
 
-        // Place the panel in a dedicated max-level CGS space so it's decoupled
-        // from normal Spaces/Mission Control compositing: it no longer slides
-        // during a Space swipe, and the inter-Space band no longer crosses it in
-        // Mission Control. Assigning replaces any previous membership, so only
-        // the current window is ever a member.
-        NotchSpaceManager.shared.notchSpace.windows = [panel]
+        // Place the panel in the dedicated CGS space when the private symbols
+        // are available; otherwise the adapter keeps standard AppKit Space
+        // behavior. Assigning replaces any previous membership, so only the
+        // current window is ever attached.
+        NotchSpaceManager.shared.adapter.attach(panel)
     }
 
     /// Держит Esc-хоткей зарегистрированным ровно пока панель на экране.
@@ -1720,13 +1851,25 @@ final class NotchPanelController: NSObject {
                             // hideAnimated set state to .hidden; promote to
                             // .preSelection now that the overlay is taking over.
                             self.state = .preSelection(.selection)
+                            let selectionToken = self.makePanelTransitionToken()
                             self.selectionOverlay.onSelected = { [weak self] rect in
                                 guard let self else { return }
+                                guard self.animationGenerationMatches(selectionToken),
+                                      case .preSelection(.selection) = self.state
+                                else { return }
                                 self.state = .hidden
-                                self.screenshot.captureRect(rect, preferredScreen: screen)
+                                self.schedulePanelAction(after: 0.1,
+                                                         token: selectionToken,
+                                                         requiresVisible: false) { [weak self] in
+                                    guard let self, case .hidden = self.state else { return }
+                                    self.screenshot.captureRect(rect, preferredScreen: screen)
+                                }
                             }
                             self.selectionOverlay.onCancelled = { [weak self] in
-                                self?.state = .hidden
+                                guard let self,
+                                      self.animationGenerationMatches(selectionToken) else { return }
+                                self.invalidatePanelTransitionActions()
+                                self.state = .hidden
                             }
                             self.selectionOverlay.start(on: screen ?? NSScreen.main ?? NSScreen.screens[0])
                         }
@@ -1887,7 +2030,8 @@ final class NotchPanelController: NSObject {
         // outside-click) are not routed through here, so they can still interrupt.
         if case .transitioning = state { return }
 
-        let gen = bumpGeneration()
+        bumpGeneration()
+        let transitionToken = makePanelTransitionToken()
         let target: TransitionTarget
         switch targetRoute {
         case .archive:   target = .archive
@@ -1904,6 +2048,10 @@ final class NotchPanelController: NSObject {
         // the Translator's is whatever its text asked for.
         let leavingHeight = routeHeight(for: route)
         let closeStretch = min(1.5, max(1, leavingHeight / archivePanelHeight))
+        let contentDissolveDelay = PanelTiming.contentDissolve
+        let routeSwapDelay = PanelTiming.routeSwapMorph
+        let contentRevealDuration = PanelTiming.contentReveal
+        let morphTailDelay = PanelTiming.morphTail
 
         // Archive ⇄ Translator is neither an open nor a close: both are already
         // expanded and at full progress, so the only travel is the shape's
@@ -1919,17 +2067,19 @@ final class NotchPanelController: NSObject {
             withAnimation(.easeOut(duration: PanelTiming.contentDissolve)) {
                 rootState.routeContentVisible = 0.0
             }
-            DispatchQueue.main.asyncAfter(deadline: .now() + PanelTiming.contentDissolve) { [weak self] in
-                guard let self, self.animationGeneration == gen else { return }
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .seconds(contentDissolveDelay))
+                guard let self, self.animationGenerationMatches(transitionToken) else { return }
                 // Height only: progress is already 1 and the width is the
                 // same, so the shape's own `extraHeight` spring does the work.
                 self.route = targetRoute
 
-                DispatchQueue.main.asyncAfter(deadline: .now() + PanelTiming.routeSwapMorph) { [weak self] in
-                    guard let self, self.animationGeneration == gen else { return }
+                Task { @MainActor [weak self] in
+                    try? await Task.sleep(for: .seconds(routeSwapDelay))
+                    guard let self, self.animationGenerationMatches(transitionToken) else { return }
                     self.state = targetRoute == .translate ? .translate : .archive
                     self.interactionState.isEnabled = true
-                    withAnimation(.easeOut(duration: PanelTiming.contentReveal)) {
+                    withAnimation(.easeOut(duration: contentRevealDuration)) {
                         self.rootState.routeContentVisible = 1.0
                     }
                 }
@@ -1952,8 +2102,10 @@ final class NotchPanelController: NSObject {
             }
 
             // Step 2: let the dissolve finish before the shape starts moving.
-            DispatchQueue.main.asyncAfter(deadline: .now() + PanelTiming.contentDissolve) { [weak self, weak panel] in
-                guard let self, let panel, self.animationGeneration == gen else { return }
+            Task { @MainActor [weak self, weak panel] in
+                try? await Task.sleep(for: .seconds(contentDissolveDelay))
+                guard let self, let panel,
+                      self.animationGenerationMatches(transitionToken) else { return }
 
                 self.route = .main
                 let targetFrame = self.frameForWidth(
@@ -1969,10 +2121,12 @@ final class NotchPanelController: NSObject {
                     ctx.timingFunction = PanelTiming.settle
                     panel.animator().setFrame(targetFrame, display: true)
                 } completionHandler: { [weak self] in
-                    guard let self, self.animationGeneration == gen else { return }
-                    self.state = .main
-                    self.interactionState.isEnabled = true
-                    self.rootState.routeContentVisible = 1.0  // reset for next open
+                    Task { @MainActor [weak self] in
+                        guard let self, self.animationGenerationMatches(transitionToken) else { return }
+                        self.state = .main
+                        self.interactionState.isEnabled = true
+                        self.rootState.routeContentVisible = 1.0  // reset for next open
+                    }
                 }
 
                 // Y axis: shape morph — spring settle, no abrupt stop at the seam
@@ -2001,24 +2155,29 @@ final class NotchPanelController: NSObject {
                 ctx.timingFunction = PanelTiming.decelerate
                 panel.animator().setFrame(targetFrame, display: true)
             } completionHandler: { [weak self] in
-                guard let self, self.animationGeneration == gen else { return }
-                self.state = targetRoute == .translate ? .translate : .archive
-                self.interactionState.isEnabled = true
-                guard targetRoute == .translate else { return }
-                // Not here, a moment later. This closure fires when the window
-                // frame animation is done, and the shape is not the frame: its
-                // height rides a SwiftUI spring, which is still easing out well
-                // after `NSAnimationContext` calls itself finished. Revealing
-                // on this signal put the text on screen while the panel was
-                // still growing under it.
-                DispatchQueue.main.asyncAfter(deadline: .now() + PanelTiming.morphTail) { [weak self] in
-                    guard let self, self.animationGeneration == gen else { return }
-                    withAnimation(.easeOut(duration: PanelTiming.contentReveal)) {
-                        self.rootState.routeContentVisible = 1.0
+                Task { @MainActor [weak self] in
+                    guard let self, self.animationGenerationMatches(transitionToken) else { return }
+                    self.state = targetRoute == .translate ? .translate : .archive
+                    self.interactionState.isEnabled = true
+                    guard targetRoute == .translate else { return }
+                    // Not here, a moment later. This closure fires when the window
+                    // frame animation is done, and the shape is not the frame: its
+                    // height rides a SwiftUI spring, which is still easing out well
+                    // after `NSAnimationContext` calls itself finished. Revealing
+                    // on this signal put the text on screen while the panel was
+                    // still growing under it.
+                    Task { @MainActor [weak self] in
+                        try? await Task.sleep(for: .seconds(morphTailDelay))
+                        guard let self,
+                              self.animationGenerationMatches(transitionToken) else { return }
+                        withAnimation(.easeOut(duration: contentRevealDuration)) {
+                            self.rootState.routeContentVisible = 1.0
+                        }
                     }
                 }
             }
-            DispatchQueue.main.async {
+            Task { @MainActor [weak self] in
+                guard let self, self.animationGenerationMatches(transitionToken) else { return }
                 withAnimation(.spring(response: 0.38, dampingFraction: 0.88)) {
                     self.rootState.progress = 1.0
                 }

@@ -1,9 +1,22 @@
 import AppKit
 
+/// Serializes the complete final-destination transaction. Checking a
+/// candidate and moving/writing it must be one critical section; locking only
+/// the counter still lets two captures choose the same collision-free path.
+nonisolated final class ScreenshotSaveCoordinator: @unchecked Sendable {
+    static let shared = ScreenshotSaveCoordinator()
+
+    private let lock = NSLock()
+
+    func withDestinationSection<T>(_ operation: () throws -> T) rethrows -> T {
+        try lock.withLock(operation)
+    }
+}
+
 // MARK: - ScreenshotFileStore
 
 /// Generates filenames and moves temp captures to the final save directory.
-final class ScreenshotFileStore {
+nonisolated final class ScreenshotFileStore: @unchecked Sendable {
     private let fm = FileManager.default
 
     /// Parent of the staging directories the throwaway exports live under.
@@ -11,9 +24,14 @@ final class ScreenshotFileStore {
     /// below are about deleting other people's files, and two tests sharing the
     /// app's real temp directory would be deleting each other's.
     private let stagingRoot: URL
+    /// Optional destination injection keeps save/concurrency tests away from
+    /// the user's configured folder while the production path continues to use
+    /// the security-scoped bookmark in `AppSettings`.
+    private let destinationDirectory: URL?
 
-    init(stagingRoot: URL? = nil) {
+    init(stagingRoot: URL? = nil, destinationDirectory: URL? = nil) {
         self.stagingRoot = stagingRoot ?? FileManager.default.temporaryDirectory
+        self.destinationDirectory = destinationDirectory
     }
 
     enum SaveError: Error {
@@ -23,11 +41,14 @@ final class ScreenshotFileStore {
     /// Moves `tmpURL` to the user's configured save directory.
     /// Returns the final URL on success; throws on failure.
     func moveToFinalDestination(from tmpURL: URL) throws -> URL {
-        try AppSettings.withSaveDirectoryAccess { outputDir in
-            try fm.createDirectory(at: outputDir, withIntermediateDirectories: true)
-            let dest = uniqueDestURL(in: outputDir, filename: makeFilename())
-            try fm.moveItem(at: tmpURL, to: dest)
-            return dest
+        try ScreenshotSaveCoordinator.shared.withDestinationSection {
+            try withDestinationAccess { outputDir in
+                try fm.createDirectory(at: outputDir, withIntermediateDirectories: true)
+                let dest = uniqueDestURL(in: outputDir,
+                                         filename: makeFilename(fileFormat: AppSettings.fileFormat))
+                try fm.moveItem(at: tmpURL, to: dest)
+                return dest
+            }
         }
     }
 
@@ -35,27 +56,41 @@ final class ScreenshotFileStore {
     /// directory as a NEW file with a standard uniqued name, honoring the
     /// configured file format. Returns the written URL.
     func saveImage(_ rep: NSBitmapImageRep) throws -> URL {
-        let (fileType, properties) = Self.encoding(for: AppSettings.fileFormat)
-        guard let data = rep.representation(using: fileType, properties: properties) else {
-            throw SaveError.encodingFailed
-        }
-        return try AppSettings.withSaveDirectoryAccess { outputDir in
-            try fm.createDirectory(at: outputDir, withIntermediateDirectories: true)
-            let dest = uniqueDestURL(in: outputDir, filename: makeFilename())
-            try data.write(to: dest)
-            return dest
-        }
-    }
-
-    /// Writes a bitmap to a caller-chosen destination in a caller-chosen
-    /// format — the Save As path. No uniquing and no save-directory scope: the
-    /// save panel already picked the exact URL and granted access to it, and
-    /// overwriting is the user's explicit choice there.
-    func writeImage(_ rep: NSBitmapImageRep, to url: URL, format: String) throws {
+        let format = AppSettings.fileFormat
         let (fileType, properties) = Self.encoding(for: format)
         guard let data = rep.representation(using: fileType, properties: properties) else {
             throw SaveError.encodingFailed
         }
+        return try ScreenshotSaveCoordinator.shared.withDestinationSection {
+            try withDestinationAccess { outputDir in
+                try fm.createDirectory(at: outputDir, withIntermediateDirectories: true)
+                let dest = uniqueDestURL(in: outputDir,
+                                         filename: makeFilename(fileFormat: format))
+                try data.write(to: dest)
+                return dest
+            }
+        }
+    }
+
+    /// Saves already-encoded render bytes without constructing an AppKit image
+    /// on the MainActor. Destination allocation and write remain one locked
+    /// transaction, just like `saveImage(_:)`.
+    func saveEncodedImage(_ data: Data, format: String) throws -> URL {
+        try ScreenshotSaveCoordinator.shared.withDestinationSection {
+            try withDestinationAccess { outputDir in
+                try fm.createDirectory(at: outputDir, withIntermediateDirectories: true)
+                let dest = uniqueDestURL(in: outputDir,
+                                         filename: makeFilename(fileFormat: format))
+                try data.write(to: dest)
+                return dest
+            }
+        }
+    }
+
+    /// Writes already-encoded render bytes to the exact destination selected
+    /// by Save As. Encoding belongs to the render worker; this method must not
+    /// decode/re-encode the bytes, because doing so would compound JPEG loss.
+    func writeEncodedData(_ data: Data, to url: URL) throws {
         try data.write(to: url)
     }
 
@@ -124,7 +159,7 @@ final class ScreenshotFileStore {
 
     /// Maps the user-facing format string (png/jpg/tiff) onto bitmap encoding
     /// parameters. Pure — unit-testable.
-    static func encoding(for format: String)
+    nonisolated static func encoding(for format: String)
         -> (NSBitmapImageRep.FileType, [NSBitmapImageRep.PropertyKey: Any])
     {
         switch format {
@@ -136,7 +171,7 @@ final class ScreenshotFileStore {
 
     /// Filename extension for a format string, falling back to png in step
     /// with `encoding(for:)`.
-    static func fileExtension(for format: String) -> String {
+    nonisolated static func fileExtension(for format: String) -> String {
         switch format {
         case "jpg", "tiff": return format
         default:            return "png"
@@ -145,12 +180,19 @@ final class ScreenshotFileStore {
 
     // MARK: - Private
 
-    private func makeFilename() -> String {
+    private func withDestinationAccess<T>(_ block: (URL) throws -> T) throws -> T {
+        if let destinationDirectory {
+            return try block(destinationDirectory)
+        }
+        return try AppSettings.withSaveDirectoryAccess(block)
+    }
+
+    private func makeFilename(fileFormat: String) -> String {
         AppSettings.resolveFilename(
             preset:  AppSettings.filenamePreset,
             date:    Date(),
             counter: AppSettings.nextCaptureCounter(),
-            format:  AppSettings.fileFormat
+            format:  fileFormat
         )
     }
 

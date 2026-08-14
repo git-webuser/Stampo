@@ -4,7 +4,7 @@ import Vision
 /// shared by the panel's unified Scan action (`ScanRecognition`) and the
 /// editor's region-recognize tool (`EditorView`). Keeping the recognition level
 /// and language hints here means adding a UI language only touches one place.
-enum TextRecognition {
+nonisolated enum TextRecognition {
     /// Language hints biasing toward the app's shipped UI languages.
     /// `automaticallyDetectsLanguage` still allows others to be recognized.
     static let languages = ["en-US", "ru-RU"]
@@ -12,7 +12,7 @@ enum TextRecognition {
     /// A recognize-text request configured consistently across the app. Returns
     /// a fresh request per call (a `VNRecognizeTextRequest` is single-use with
     /// `VNImageRequestHandler.perform`).
-    static func makeRequest() -> VNRecognizeTextRequest {
+    nonisolated static func makeRequest() -> VNRecognizeTextRequest {
         let request = VNRecognizeTextRequest()
         request.recognitionLevel = .accurate
         request.usesLanguageCorrection = true

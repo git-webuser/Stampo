@@ -38,9 +38,9 @@ import UniformTypeIdentifiers
         #expect(EditorExportFormat.tiff.encoding.0 == .tiff)
     }
 
-    /// Round-trip through the writer: the bytes on disk must actually be the
-    /// chosen format, not PNG with a renamed extension.
-    @Test func writeImageProducesTheChosenFormat() throws {
+    /// Round-trip through the encoded-data writer: the bytes on disk must
+    /// actually be the chosen format, not PNG with a renamed extension.
+    @Test func writeEncodedDataProducesTheChosenFormat() throws {
         let rep = try #require(NSBitmapImageRep(
             bitmapDataPlanes: nil, pixelsWide: 8, pixelsHigh: 8,
             bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
@@ -53,7 +53,10 @@ import UniformTypeIdentifiers
                 .appendingPathExtension(format.fileExtension)
             defer { try? FileManager.default.removeItem(at: url) }
 
-            try store.writeImage(rep, to: url, format: format.rawValue)
+            let (fileType, properties) = ScreenshotFileStore.encoding(for: format.rawValue)
+            let data = try #require(rep.representation(using: fileType, properties: properties))
+            try store.writeEncodedData(data, to: url)
+            #expect(try Data(contentsOf: url) == data)
             let written = try #require(url.resourceValues(forKeys: [.contentTypeKey]).contentType)
             #expect(written.conforms(to: format.contentType))
         }

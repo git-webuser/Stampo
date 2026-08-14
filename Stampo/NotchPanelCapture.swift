@@ -62,24 +62,45 @@ extension NotchPanelController {
             // that the overlay is taking over the visible UI.
             let kind: OverlayKind = (mode == .selection) ? .selection : .window
             self.state = .preSelection(kind)
+            let selectionToken = self.makePanelTransitionToken()
             if mode == .selection {
                 self.selectionOverlay.onSelected = { [weak self] rect in
                     guard let self else { return }
+                    guard self.animationGenerationMatches(selectionToken),
+                          case .preSelection(.selection) = self.state
+                    else { return }
                     // beginCountdownAfterPreSelection sets state = .countdown.
-                    self.beginCountdownAfterPreSelection(target: .rect(rect), seconds: seconds, screen: screen)
+                    self.state = .hidden
+                    self.schedulePanelAction(after: 0.1,
+                                             token: selectionToken,
+                                             requiresVisible: false) { [weak self] in
+                        guard let self, case .hidden = self.state else { return }
+                        self.beginCountdownAfterPreSelection(target: .rect(rect),
+                                                             seconds: seconds,
+                                                             screen: screen)
+                    }
                 }
                 self.selectionOverlay.onCancelled = { [weak self] in
-                    self?.state = .hidden
+                    guard let self,
+                          self.animationGenerationMatches(selectionToken) else { return }
+                    self.invalidatePanelTransitionActions()
+                    self.state = .hidden
                 }
                 self.selectionOverlay.start(on: screen)
             } else {
                 // .window
                 self.windowPickerOverlay.onSelected = { [weak self] windowID in
                     guard let self else { return }
+                    guard self.animationGenerationMatches(selectionToken),
+                          case .preSelection(.window) = self.state
+                    else { return }
                     self.beginCountdownAfterPreSelection(target: .windowID(windowID), seconds: seconds, screen: screen)
                 }
                 self.windowPickerOverlay.onCancelled = { [weak self] in
-                    self?.state = .hidden
+                    guard let self,
+                          self.animationGenerationMatches(selectionToken) else { return }
+                    self.invalidatePanelTransitionActions()
+                    self.state = .hidden
                 }
                 self.windowPickerOverlay.start(on: screen)
             }
@@ -109,17 +130,22 @@ extension NotchPanelController {
     func startCountdownTimer() {
         cancelCountdownTimer()
         let timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
-            guard let self else { return }
-            guard var session = self.activeCountdown else { return }
-            if session.secondsRemaining > 1 {
-                session.secondsRemaining -= 1
-                self.activeCountdown = session
-                self.syncCountdownToRootState()
-            } else {
-                self.finishCountdown()
+            Task { @MainActor [weak self] in
+                self?.handleCountdownTick()
             }
         }
         activeCountdown?.timer = timer
+    }
+
+    private func handleCountdownTick() {
+        guard var session = activeCountdown else { return }
+        if session.secondsRemaining > 1 {
+            session.secondsRemaining -= 1
+            activeCountdown = session
+            syncCountdownToRootState()
+        } else {
+            finishCountdown()
+        }
     }
 
     /// Single authoritative place to kill the countdown Timer.
@@ -135,12 +161,13 @@ extension NotchPanelController {
         activeCountdown = nil
         state = .main
         route = .main
+        let token = makePanelTransitionToken()
         withAnimation(.easeOut(duration: 0.16)) {
             rootState.countdownVisible = 0.0
         }
         // Reset arc values only after the fade-out completes,
         // otherwise the arc would jump backwards while still visible.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) { [weak self] in
+        schedulePanelAction(after: 0.18, token: token) { [weak self] in
             self?.rootState.countdownSeconds = 0
             self?.rootState.countdownTotal = 0
         }

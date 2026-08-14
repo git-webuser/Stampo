@@ -11,6 +11,8 @@ struct HotkeySettingsView: View {
     /// Live mirror of each action's stored combo, so recorder edits redraw the row.
     @State private var combos: [HotkeyAction: HotkeyCombo?] = HotkeyAction.allCases
         .reduce(into: [:]) { $0[$1] = $1.combo }
+    @State private var registrationStatuses: [HotkeyAction: HotkeyRegistrationStatus] =
+        HotkeyRegistrationCenter.shared.snapshot()
 
     var body: some View {
         Form {
@@ -18,7 +20,11 @@ struct HotkeySettingsView: View {
             ForEach(HotkeyGroup.allCases, id: \.self) { group in
                 Section(LocalizedStringKey(group.titleKey)) {
                     ForEach(group.actions, id: \.self) { action in
-                        EditableHotkeyRow(action: action, combo: combos[action] ?? nil) { newCombo in
+                        EditableHotkeyRow(
+                            action: action,
+                            combo: combos[action] ?? nil,
+                            registrationStatus: registrationStatuses[action] ?? .disabled
+                        ) { newCombo in
                             action.setCombo(newCombo)    // persists → controller reinstalls
                             combos[action] = newCombo
                         }
@@ -66,6 +72,9 @@ struct HotkeySettingsView: View {
             }
         }
         .formStyle(.grouped)
+        .onReceive(NotificationCenter.default.publisher(for: .hotkeyRegistrationChanged)) { _ in
+            registrationStatuses = HotkeyRegistrationCenter.shared.snapshot()
+        }
     }
 
     private func restoreDefaults() {
@@ -194,6 +203,7 @@ private struct ArrowClusterView: View {
 private struct EditableHotkeyRow: View {
     let action: HotkeyAction
     let combo: HotkeyCombo?
+    let registrationStatus: HotkeyRegistrationStatus
     let onChange: (HotkeyCombo?) -> Void
 
     var body: some View {
@@ -204,7 +214,12 @@ private struct EditableHotkeyRow: View {
             // say — otherwise it lives only in the release notes.
             description: action.hintKey.map { LocalizedStringKey($0) }
         ) {
-            ShortcutRecorderView(action: action, combo: combo, onChange: onChange)
+            ShortcutRecorderView(
+                action: action,
+                combo: combo,
+                registrationStatus: registrationStatus,
+                onChange: onChange
+            )
         }
     }
 }

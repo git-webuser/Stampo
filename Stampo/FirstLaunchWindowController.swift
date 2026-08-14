@@ -142,8 +142,13 @@ final class FirstLaunchWindowController: NSObject, NSWindowDelegate {
     static func relaunch() -> Bool {
         // Terminating bypasses windowShouldClose, so the editor's own guard
         // would never fire and pending annotations would be lost without a
-        // word. Ask first; a cancel calls the whole relaunch off.
-        guard EditorWindowController.shared.confirmDiscardingUnsavedWork() else {
+        // word. Ask first; a cancel calls the whole relaunch off. "Save" also
+        // answers false — the write is asynchronous — so it hands us back the
+        // relaunch to re-run once the document is clean, and that second pass
+        // sails through the guard.
+        guard EditorWindowController.shared.confirmDiscardingUnsavedWork(afterSave: {
+            relaunch()
+        }) else {
             return false
         }
 
