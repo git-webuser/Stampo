@@ -89,10 +89,22 @@ func cgPrimaryDisplayHeight(fallback screen: NSScreen) -> CGFloat {
 
 /// View/overlay rect (AppKit, y=0 at screen bottom) → global CG rect (y=0 at top of primary display).
 func viewRectToCGRect(_ rect: CGRect, screen: NSScreen) -> CGRect {
+    viewRectToCGRect(rect, panelOrigin: screen.frame.origin, screen: screen)
+}
+
+/// View-local rect → global CG rect for an overlay whose panel does **not**
+/// cover a whole display — the editor's scanner, which sits over the rect its
+/// image occupies so the window's own controls stay live.
+///
+/// `panelOrigin` is that panel's origin in AppKit screen coordinates. The
+/// full-screen form above is this one with the display's own origin: what the
+/// view's coordinates are relative to is the panel, and only for a panel
+/// filling the display are the two the same.
+func viewRectToCGRect(_ rect: CGRect, panelOrigin: CGPoint, screen: NSScreen) -> CGRect {
     let h = cgPrimaryDisplayHeight(fallback: screen)
     return CGRect(
-        x: rect.minX + screen.frame.minX,
-        y: h - (rect.maxY + screen.frame.minY),
+        x: rect.minX + panelOrigin.x,
+        y: h - (rect.maxY + panelOrigin.y),
         width: rect.width,
         height: rect.height
     )

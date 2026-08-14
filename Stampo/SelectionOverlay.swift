@@ -97,8 +97,20 @@ final class SelectionOverlay {
     }
 
     func start(on screen: NSScreen) {
+        start(over: screen.frame, on: screen)
+    }
+
+    /// Presents the same overlay over an arbitrary rect in AppKit screen
+    /// coordinates instead of a whole display.
+    ///
+    /// The editor scans inside the rect its image occupies: the window's own
+    /// controls stay live because the overlay never reaches them, and a
+    /// selection cannot leave the image because the panel is the image. The
+    /// display stays an explicit argument — the flip into CG coordinates is
+    /// measured against the primary display, not against this rect.
+    func start(over rect: NSRect, on screen: NSScreen) {
         targetScreen = screen
-        let frame = screen.frame
+        let frame = rect
 
         let panel = makeOverlayPanel(frame: frame)
         let cursor = makeScreenshotCrosshairCursor()
@@ -110,7 +122,7 @@ final class SelectionOverlay {
         translationTarget = nil
         view.onCompleted = { [weak self] nsRect in
             guard let self else { return }
-            let cgRect = viewRectToCGRect(nsRect, screen: screen)
+            let cgRect = viewRectToCGRect(nsRect, panelOrigin: frame.origin, screen: screen)
             self.dismiss()
             self.onSelected?(cgRect)
         }
