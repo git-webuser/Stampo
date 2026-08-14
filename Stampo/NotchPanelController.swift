@@ -1077,7 +1077,15 @@ final class NotchPanelController: NSObject {
         } else {
             panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         }
-        NotchSpaceManager.shared.adapter.attach(panel)
+        // No attach here. The panel joins the space once, when it is created,
+        // and leaves it only on the way to `close()` — both detaches sit in
+        // teardown paths, so a live panel is never outside it and re-attaching
+        // on every show is asking the Spaces server to redo settled work.
+        //
+        // It is not free. This runs between `setFrame` on the hidden start
+        // position and the animation that brings the panel down, and a space
+        // operation landing in that gap cost the no-notch panel its entire
+        // reveal: it appeared at its final position with no travel at all.
         panel.orderFrontRegardless()
     }
 
