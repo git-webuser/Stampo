@@ -300,6 +300,15 @@ private struct NotchPanelRootView: View {
     /// which is the common case for a sentence.
     private var extraH: CGFloat { routeH - archiveH }
 
+    /// Carries the panel between two routes that are both fully open.
+    ///
+    /// Named rather than written twice: the notch shape animates `extraH` and
+    /// the notch-less ones animate `routeH`, but it is one movement and the
+    /// two must not drift apart. They already had — only the notch branch ever
+    /// had a spring, so on a notch-less screen archive ⇄ Translator snapped.
+    private static let routeHeightSpring = Animation.spring(response: 0.38,
+                                                            dampingFraction: 0.88)
+
     /// The panel is showing the wait rather than any route.
     private var isTranslating: Bool { rootState.translatingStripVisible }
 
@@ -361,7 +370,7 @@ private struct NotchPanelRootView: View {
                     // between them there is no progress left to animate — and a
                     // translation that resizes to fit its text has to travel
                     // too. The corners ride along, they never stretch.
-                    .animation(.spring(response: 0.38, dampingFraction: 0.88), value: extraH)
+                    .animation(Self.routeHeightSpring, value: extraH)
             } else {
                 Group {
                     if m.pinnedToTopEdge {
@@ -375,6 +384,11 @@ private struct NotchPanelRootView: View {
                 }
                 .frame(height: revealH)
                 .frame(height: routeH, alignment: .top)
+                // Same movement the notch shape gets from its own spring: at
+                // progress 1 there is no progress left to animate, so archive ⇄
+                // Translator is a pure change of height and nothing else would
+                // carry it.
+                .animation(Self.routeHeightSpring, value: routeH)
             }
 
             // Main — visible only in the last ~60% of the morph; hidden during countdown
