@@ -34,6 +34,16 @@ struct EditorView: View {
     /// ⌥ held over the rotate button — flips its icon to preview direction.
     @State private var rotateOptionHeld = false
     @State private var isPreparingArtifact = false
+    /// Where the image sits on screen, reported by the canvas. The scanner
+    /// needs it both to place its overlay and to read the selection back.
+    @State private var imageScreenGeometry: ImageScreenGeometry?
+    /// The very overlay the scan hotkey opens, bounded to the image.
+    @State private var scanOverlay = SelectionOverlay()
+    /// Whether that overlay is on screen. The completion path dismisses itself,
+    /// so this keeps `tool` changing back to `.select` from dismissing it twice.
+    @State private var scanOverlayActive = false
+    /// The overlay's armed mode, mirrored here so the context bar can follow it.
+    @State private var scanMode: ScanSelectionMode = .plain
 
     var body: some View {
         VStack(spacing: 0) {
@@ -48,12 +58,22 @@ struct EditorView: View {
                 editingTextID: $editingTextID,
                 zoomFactor: $zoomFactor,
                 panOffset: $panOffset,
-                onScanRegion: { scanRegion($0) },
                 cropRect: $cropRect,
                 onCropApply: applyCrop,
-                onCropCancel: cancelCrop
+                onCropCancel: cancelCrop,
+                imageScreenGeometry: $imageScreenGeometry
             )
             .background(Color(nsColor: .underPageBackgroundColor))
+        }
+        .onChange(of: tool) { _, newTool in
+            if newTool == .scan {
+                beginScanSelection()
+            } else if scanOverlayActive {
+                // Left the tool while the overlay was up — the toolbar stays
+                // reachable behind it on purpose, so this is a real path.
+                scanOverlayActive = false
+                scanOverlay.cancel()
+            }
         }
         .frame(minWidth: Self.minimumContentSize.width,
                minHeight: Self.minimumContentSize.height)
@@ -450,10 +470,16 @@ struct EditorView: View {
     /// break inside one. (`text.alignleft` reads as the same shape as justify
     /// but already means left alignment one row over, in the text controls.)
     ///
-    /// No modifier override here, unlike the hotkey scanner: this row is on
-    /// screen while the user drags, so the setting is one click away and a
-    /// held key could only duplicate it — at the cost of a control whose
-    /// selection moves on its own.
+    /// This row used to be the only way to choose, and said so: the editor drew
+    /// its own marquee, so ⌥ would have duplicated a control already on screen.
+    /// The editor now opens the same overlay the scan hotkey does, and ⌥ comes
+    /// with it whether this row wants it or not. So the two are one setting
+    /// seen twice — the overlay opens on what the picker holds, and the picker
+    /// follows what ⌥ does. Its selection moving on its own is the point, not
+    /// the cost: it is showing what the badge over the pointer already says.
+    ///
+    /// Disabled while translating, because translation rejoins the lines this
+    /// picks regardless. Leaving it live would offer a choice with no outcome.
     private var lineBreaksPicker: some View {
         Picker("Line Breaks", selection: $style.scanJoinsLines) {
             Image(systemName: "text.justify").tag(true)
@@ -462,6 +488,7 @@ struct EditorView: View {
         .pickerStyle(.segmented)
         .labelsHidden()
         .frame(width: 76)
+        .disabled(scanOverlayActive && scanMode == .translate)
         .hoverTip("Line Breaks")
     }
 
@@ -1649,8 +1676,67 @@ struct EditorView: View {
     /// capture HUD reports the outcome. Runs off the main thread so a large
     /// crop doesn't stall the UI. Leaving scan mode after a scan matches the
     /// "select once, then copy" flow.
-    private func scanRegion(_ pixelRect: CGRect) {
-        let joinsLines = style.scanJoinsLines
+    /// Opens the same overlay the scan hotkey does — same crosshair, same mode
+    /// badge, same ⌥/⌃/⇥ — bounded to the rect the image occupies rather than
+    /// to a whole display. The editor's own controls stay reachable because the
+    /// overlay never reaches them, and a selection cannot leave the image
+    /// because the panel is the image.
+    private func beginScanSelection() {
+        guard let geometry = imageScreenGeometry,
+              let screen = NSScreen.screens.first(where: {
+                  $0.frame.intersects(geometry.screenRect)
+              }) ?? NSScreen.main
+        else {
+            tool = .select
+            return
+        }
+
+        let bounds = CGRect(origin: .zero, size: document.pixelSize)
+        scanOverlay.showsScanModes = true
+        // The picker and ⌥ are two ways of saying the same thing: the overlay
+        // opens on whatever the picker holds, and ⌥ writes back so the picker
+        // follows the badge. Translation is deliberately not written back —
+        // it outranks line breaks rather than choosing between them, so it has
+        // nothing to say about the picker's value.
+        scanMode = style.scanJoinsLines ? .plain : .keepLineBreaks
+        scanOverlay.initialScanMode = scanMode
+        scanOverlay.onScanModeChanged = { mode in
+            scanMode = mode
+            switch mode {
+            case .plain:          style.scanJoinsLines = true
+            case .keepLineBreaks: style.scanJoinsLines = false
+            case .translate:      break
+            }
+        }
+        scanOverlay.onSelected = { cgRect in
+            scanOverlayActive = false
+            // Clamped: the overlay works in points and the document in pixels,
+            // so a selection flush against an edge can round a hair outside it.
+            let pixels = geometry.imagePixelRect(from: cgRect, screen: screen)
+                .intersection(bounds)
+            guard !pixels.isNull, pixels.width >= 1, pixels.height >= 1 else {
+                tool = .select
+                return
+            }
+            scanRegion(pixels, mode: scanOverlay.selectionMode,
+                       language: scanOverlay.translationTarget)
+        }
+        scanOverlay.onCancelled = {
+            scanOverlayActive = false
+            tool = .select
+        }
+        scanOverlayActive = true
+        scanOverlay.start(over: geometry.screenRect, on: screen)
+    }
+
+    private func scanRegion(_ pixelRect: CGRect,
+                            mode: ScanSelectionMode,
+                            language: Locale.Language?) {
+        // Translation outranks line breaks rather than choosing between them:
+        // it rejoins the lines ⌥ exists to preserve, so a translating scan
+        // always reads prose. Same precedence as the panel's scan.
+        let translates = mode == .translate
+        let joinsLines = translates ? true : style.scanJoinsLines
         tool = .select
         guard let cropped = croppedBaseImage(pixelRect) else { showCaptureHUD(.nothingRecognized); return }
         DispatchQueue.global(qos: .userInitiated).async {
@@ -1665,7 +1751,17 @@ struct EditorView: View {
                 for entry in result.archiveEntries.reversed() {
                     NotificationCenter.default.post(name: .editorDidScan, object: entry)
                 }
-                showCaptureHUD(ScanCaptureCoordinator.outcome(for: result))
+                // The scan toast is skipped when translating: the translation
+                // has its own outcome, and two toasts for one gesture read as
+                // something having gone wrong. Same rule as the panel's scan.
+                if translates, !result.text.isEmpty {
+                    NotificationCenter.default.post(
+                        name: .editorDidScanForTranslation,
+                        object: EditorScanTranslation(text: result.text, language: language)
+                    )
+                } else {
+                    showCaptureHUD(ScanCaptureCoordinator.outcome(for: result))
+                }
             }
         }
     }

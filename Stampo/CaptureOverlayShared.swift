@@ -92,6 +92,13 @@ func viewRectToCGRect(_ rect: CGRect, screen: NSScreen) -> CGRect {
     viewRectToCGRect(rect, panelOrigin: screen.frame.origin, screen: screen)
 }
 
+/// AppKit screen rect (bottom-left origin) → global CG rect (top-left origin).
+/// The same flip as above with nothing to offset by, since the rect is already
+/// in screen coordinates.
+func screenRectToCGRect(_ rect: CGRect, screen: NSScreen) -> CGRect {
+    viewRectToCGRect(rect, panelOrigin: .zero, screen: screen)
+}
+
 /// View-local rect → global CG rect for an overlay whose panel does **not**
 /// cover a whole display — the editor's scanner, which sits over the rect its
 /// image occupies so the window's own controls stay live.

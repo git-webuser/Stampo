@@ -213,17 +213,15 @@ struct EditorCanvasView: View {
     @Binding var editingTextID: UUID?
     @Binding var zoomFactor: CGFloat
     @Binding var panOffset: CGSize
-    /// Called with the marquee's image-pixel rect when a recognition tool's
-    /// drag ends, so the owner can process just that region.
-    /// Unified scanner marquee: the region is handed to one callback that
-    /// decides what the pixels contain (code vs text) on the EditorView side.
-    var onScanRegion: (CGRect) -> Void = { _ in }
     /// The crop rectangle (image-pixel space) while the `.crop` tool is active;
     /// nil otherwise. The canvas draws it and adjusts it via drag.
     @Binding var cropRect: CGRect?
     /// Commit / cancel the pending crop (also invoked from Return / Esc).
     var onCropApply: () -> Void = {}
     var onCropCancel: () -> Void = {}
+    /// Where the fitted image currently sits on screen. The scanner opens its
+    /// overlay over exactly this rect, so it follows zoom and pan for free.
+    @Binding var imageScreenGeometry: ImageScreenGeometry?
 
     @FocusState private var textFieldFocused: Bool
     @State private var magnificationStart: CGFloat?
@@ -251,7 +249,6 @@ struct EditorCanvasView: View {
         /// would shift under it and the leg would oscillate.
         case routeSegment(UUID, index: Int, baseline: [CGPoint])
         case panning(last: CGPoint)
-        case recognitionSelecting(start: CGPoint, current: CGPoint)
         case cropCreating(start: CGPoint)
         case cropMoving(last: CGPoint)
         case cropResizing(CropHandle)
@@ -303,6 +300,17 @@ struct EditorCanvasView: View {
                    CGRect(origin: offset, size: drawSize).contains(location) {
                     drawingCursor(at: location, diameter: diameter * fitScale)
                 }
+
+                // Sits exactly over the drawn image and only measures it.
+                ImageScreenFrameReporter { rect in
+                    imageScreenGeometry = rect.map {
+                        ImageScreenGeometry(screenRect: $0, fitScale: fitScale)
+                    }
+                }
+                .frame(width: drawSize.width, height: drawSize.height)
+                .position(x: offset.x + drawSize.width / 2,
+                          y: offset.y + drawSize.height / 2)
+                .allowsHitTesting(false)
             }
             .gesture(dragGesture(fitScale: fitScale, offset: offset, pixel: pixel,
                                  viewport: geo.size, baseDrawSize: baseDrawSize))
@@ -406,12 +414,6 @@ struct EditorCanvasView: View {
                                       fitScale: fitScale, offset: offset)
             }
 
-            // Marquee for the unified scanner tool.
-            if case let .recognitionSelecting(start, current) = dragMode {
-                drawRecognitionMarquee(from: start, to: current, context: context,
-                                       fitScale: fitScale, offset: offset)
-            }
-
             // Crop overlay: dim everything outside the crop rect, frame it, and
             // draw its handles.
             if tool == .crop, let cropRect {
@@ -488,24 +490,6 @@ struct EditorCanvasView: View {
         }
         context.stroke(path, with: .color(Color(nsColor: a.color.nsColor)),
                        lineWidth: max(1, a.lineWidth * fitScale))
-    }
-
-    private func drawRecognitionMarquee(from start: CGPoint, to current: CGPoint,
-                                        context: GraphicsContext,
-                                        fitScale: CGFloat, offset: CGPoint) {
-        func toView(_ p: CGPoint) -> CGPoint {
-            CGPoint(x: p.x * fitScale + offset.x, y: p.y * fitScale + offset.y)
-        }
-        let a = toView(start), b = toView(current)
-        let rect = CGRect(x: min(a.x, b.x), y: min(a.y, b.y),
-                          width: abs(b.x - a.x), height: abs(b.y - a.y))
-        var path = Path()
-        path.addRect(rect)
-        context.fill(path, with: .color(Color.accentColor.opacity(0.15)))
-        context.stroke(path, with: .color(.white.opacity(0.9)),
-                       style: StrokeStyle(lineWidth: 1, dash: [5, 3]))
-        context.stroke(path, with: .color(.black.opacity(0.5)),
-                       style: StrokeStyle(lineWidth: 1, dash: [5, 3], dashPhase: 4))
     }
 
     // MARK: Crop geometry (image-pixel space)
@@ -961,9 +945,6 @@ struct EditorCanvasView: View {
                         baseline, index: index, to: p, grid: activeGrid)
                     update(id) { $0.elbowWaypoints = waypoints }
 
-                case .recognitionSelecting(let start, _):
-                    dragMode = .recognitionSelecting(start: start, current: p)
-
                 case .cropCreating(let start) where style.snapsToGrid:
                     let moved = hypot(value.translation.width, value.translation.height)
                     if moved >= 3 {
@@ -1109,11 +1090,6 @@ struct EditorCanvasView: View {
                                           magnet: bindMagnetPt / fitScale)
                     document.refreshBindingFallbacks()
                     document.commitChange()
-                case .recognitionSelecting(let start, _):
-                    let rect = CGRect(x: min(start.x, p.x), y: min(start.y, p.y),
-                                      width: abs(p.x - start.x), height: abs(p.y - start.y))
-                    guard rect.width >= 4, rect.height >= 4 else { break }
-                    onScanRegion(rect)
                 case .duplicatePending, .cropCreating, .cropMoving, .cropResizing,
                      .panning, .ignore, nil:
                     break
@@ -1156,9 +1132,9 @@ struct EditorCanvasView: View {
 
         switch tool {
         case .scan:
-            // The scanner never touches annotations: any drag is a marquee
-            // over the region to recognize (code or text — decided later).
-            return .recognitionSelecting(start: p, current: p)
+            // The selection overlay covers the image while this tool is
+            // active, so a drag never reaches the canvas.
+            return .ignore
         case .crop:
             // Crop drags are routed through beginCropDrag before reaching here.
             return .ignore

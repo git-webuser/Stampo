@@ -984,6 +984,19 @@ final class NotchPanelController: NSObject {
                 self?.archiveModel.add(text: entry.string, isCodePayload: entry.isCode)
             }
         }
+        // The editor's ⌃-armed scan, routed through the same translation the
+        // panel's own scan uses — the archive lives here, not in the editor.
+        let t9b = NotificationCenter.default.addObserver(
+            forName: .editorDidScanForTranslation,
+            object: nil, queue: .main
+        ) { [weak self] note in
+            guard let payload = note.object as? EditorScanTranslation else { return }
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                ArchiveTranslate.run(payload.text, to: payload.language,
+                                     archiveModel: self.archiveModel, on: self.currentScreen)
+            }
+        }
 
         // Share sheet opened from an archive context menu: hold the panel open
         // for as long as the sheet is up (the picker is not an NSMenu, so t1/t2
@@ -1023,7 +1036,7 @@ final class NotchPanelController: NSObject {
             Task { @MainActor [weak self] in self?.isQuickLookOpen = false }
         }
 
-        notificationObservers = [t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11, t12, t13,
+        notificationObservers = [t1, t2, t3, t4, t5, t6, t7, t8, t9, t9b, t10, t11, t12, t13,
                                  tTranslate, tTranslateStart, tTranslateEnd, tTranslatePreview]
     }
 

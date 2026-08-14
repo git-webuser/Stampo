@@ -10,6 +10,19 @@ extension Notification.Name {
     /// payload separately, then the recognized text. Object is the inert
     /// string that should be added to the archive as a text entity.
     static let editorDidScan = Notification.Name("editorDidScan")
+    /// Posted instead of the scan's own toast when the editor's scan was armed
+    /// with ⌃. Object is an `EditorScanTranslation`. The archive belongs to the
+    /// panel controller, so the editor announces the prose and the controller
+    /// runs the same translation the panel's own scan does.
+    static let editorDidScanForTranslation = Notification.Name("editorDidScanForTranslation")
+}
+
+/// Recognized prose from an editor scan that asked to be translated, and the
+/// language ⇥ named for it — nil means nobody chose, which is what selects the
+/// ordinary automatic route.
+struct EditorScanTranslation {
+    let text: String
+    let language: Locale.Language?
 }
 
 /// One shared editor window, one document at a time. Pattern:

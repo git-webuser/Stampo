@@ -58,6 +58,17 @@ final class SelectionOverlay {
     /// nothing to hint at.
     var showsScanModes = false
 
+    /// Mode the next `start` opens in. The hotkey scanner always begins plain —
+    /// a fresh scan should not silently inherit a modifier from the last one.
+    /// The editor seeds it from its own Line Breaks control instead, so the
+    /// picker and ⌥ are two ways of saying the same thing rather than two
+    /// settings that disagree.
+    var initialScanMode: ScanSelectionMode = .plain
+
+    /// Fires whenever ⌥ or ⌃ changes the mode, so an owner that shows the same
+    /// state elsewhere can follow the badge.
+    var onScanModeChanged: ((ScanSelectionMode) -> Void)?
+
     /// The mode in force when the selection was completed. Read by the scanner
     /// immediately after `onSelected` — passing it through the callback would
     /// change a signature three capture paths use and none of them cares
@@ -118,7 +129,8 @@ final class SelectionOverlay {
 
         let view = SelectionView(frame: NSRect(origin: .zero, size: frame.size))
         view.selectionCursor = cursor
-        selectionMode = .plain
+        selectionMode = showsScanModes ? initialScanMode : .plain
+        view.mode = selectionMode
         translationTarget = nil
         view.onCompleted = { [weak self] nsRect in
             guard let self else { return }
@@ -251,6 +263,7 @@ final class SelectionOverlay {
                 return event
             }
             view?.mode = self.selectionMode
+            self.onScanModeChanged?(self.selectionMode)
             return event
         }
     }
