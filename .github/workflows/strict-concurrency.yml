@@ -6,8 +6,22 @@ on:
 
 jobs:
   swift-strict-concurrency:
-    runs-on: macos-15
+    # The project needs Swift 6.2 (Xcode 26) to compile at all — `isolated
+    # deinit` is a hard error before it. macos-15 ships Xcode 16 as its default
+    # and the job failed on the language, never reaching the check it is for.
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
+      - name: Select the newest installed Xcode
+        # The image's default is not always its newest, and which versions it
+        # carries changes without notice. Pick the highest by version rather
+        # than naming one, and print the list so a future failure says what was
+        # actually there to choose from.
+        run: |
+          ls -d /Applications/Xcode*.app
+          newest="$(ls -d /Applications/Xcode_*.app 2>/dev/null | sort -V | tail -1)"
+          newest="${newest:-/Applications/Xcode.app}"
+          sudo xcode-select -s "$newest"
+          xcodebuild -version
       - name: Build with complete Swift concurrency checking
         run: bash Scripts/check-strict-concurrency.sh

@@ -13,6 +13,31 @@ set -euo pipefail
 # not ours to fix.
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# The project is built with Swift 6.2 features that an older toolchain cannot
+# parse at all: `isolated deinit`, and the SWIFT_APPROACHABLE_CONCURRENCY /
+# SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor pair that decides where the
+# isolation of an undecorated declaration comes from. On an older Xcode the
+# first is a hard error and the second is silently ignored, so the job reports
+# hundreds of diagnostics about isolation the project never asked for. Say that
+# in one line instead, because the alternative is a wall of output that looks
+# like the code broke.
+required_swift="6.2"
+swift_version="$(xcrun swift -version 2>/dev/null \
+  | sed -n 's/.*[Ss]wift version \([0-9][0-9.]*\).*/\1/p' | head -1)"
+if [ -z "$swift_version" ]; then
+  echo "Error: no Swift toolchain found. Is Xcode installed and selected?"
+  exit 1
+fi
+if [ "$(printf '%s\n%s\n' "$required_swift" "$swift_version" | sort -V | head -1)" \
+     != "$required_swift" ]; then
+  echo "Error: Swift $swift_version is too old — this project needs $required_swift or newer"
+  echo "  (Xcode 26+). Selected toolchain: $(xcode-select -p)"
+  echo "  Select a newer one with: sudo xcode-select -s /Applications/Xcode_26.app"
+  exit 1
+fi
+echo "Swift $swift_version · $(xcode-select -p)"
+
 log="$(mktemp -t stampo-strict-concurrency)"
 # A private, always-cold derived data directory. Incremental builds do not
 # re-emit warnings for files they skip, so a warm cache would report a clean
