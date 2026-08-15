@@ -52,29 +52,10 @@ nonisolated final class ScreenshotFileStore: @unchecked Sendable {
         }
     }
 
-    /// Encodes an in-memory bitmap (e.g. an edited screenshot) into the save
-    /// directory as a NEW file with a standard uniqued name, honoring the
-    /// configured file format. Returns the written URL.
-    func saveImage(_ rep: NSBitmapImageRep) throws -> URL {
-        let format = AppSettings.fileFormat
-        let (fileType, properties) = Self.encoding(for: format)
-        guard let data = rep.representation(using: fileType, properties: properties) else {
-            throw SaveError.encodingFailed
-        }
-        return try ScreenshotSaveCoordinator.shared.withDestinationSection {
-            try withDestinationAccess { outputDir in
-                try fm.createDirectory(at: outputDir, withIntermediateDirectories: true)
-                let dest = uniqueDestURL(in: outputDir,
-                                         filename: makeFilename(fileFormat: format))
-                try data.write(to: dest)
-                return dest
-            }
-        }
-    }
-
     /// Saves already-encoded render bytes without constructing an AppKit image
     /// on the MainActor. Destination allocation and write remain one locked
-    /// transaction, just like `saveImage(_:)`.
+    /// transaction: choosing a free name and taking it is one step, or two
+    /// captures pick the same one.
     func saveEncodedImage(_ data: Data, format: String) throws -> URL {
         try ScreenshotSaveCoordinator.shared.withDestinationSection {
             try withDestinationAccess { outputDir in

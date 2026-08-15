@@ -41,15 +41,6 @@ nonisolated enum CaptureExport {
         payload(for: url, as: format, to: .clipboard)
     }
 
-    /// Worker-friendly entry point. Only the persisted format string crosses
-    /// the detached task; AppKit pasteboard types are reconstructed on the
-    /// MainActor after the bytes are ready.
-    nonisolated static func payload(for url: URL, format: String) -> Payload? {
-        payload(for: url,
-                as: EditorExportFormat(rawValue: format) ?? .png,
-                to: .clipboard)
-    }
-
     private static func payload(for url: URL,
                                 as format: EditorExportFormat,
                                 to destination: Destination) -> Payload? {

@@ -15,9 +15,23 @@ import AppKit
 /// the badge's rect when the pointer moves, and needs the frame before it has
 /// anything to draw.
 struct ScanModeBadge {
-    var mode: ScanSelectionMode
+    let mode: ScanSelectionMode
     /// The language a translating scan is headed into, when ⇥ has picked one.
-    var translationTarget: Locale.Language?
+    let translationTarget: Locale.Language?
+
+    /// Resolved once, when the badge is made.
+    ///
+    /// It used to be computed, and `glyphSize`, `size` and `draw(in:)` each
+    /// reached for it — so one frame built the same configured `NSImage`
+    /// several times, on a path the overlay runs for every pointer move while
+    /// it measures the badge's dirty rect.
+    private let symbol: NSImage?
+
+    init(mode: ScanSelectionMode, translationTarget: Locale.Language? = nil) {
+        self.mode = mode
+        self.translationTarget = translationTarget
+        self.symbol = Self.makeSymbol(for: mode)
+    }
 
     /// Verbs, because nothing has happened yet — a mode is armed over a region
     /// the user has not committed to.
@@ -39,7 +53,7 @@ struct ScanModeBadge {
 
     private var padding: NSSize { NSSize(width: 9, height: 5) }
 
-    private var symbol: NSImage? {
+    private static func makeSymbol(for mode: ScanSelectionMode) -> NSImage? {
         guard let name = mode.symbolName else { return nil }
         // Palette colour, not a template tint: drawn straight into the context
         // an untinted symbol comes out black on a black pill.
@@ -122,7 +136,6 @@ struct ScanModeBadge {
         path.lineWidth = 1
         path.stroke()
 
-        let symbol = symbol
         let glyphSize = glyphSize
         let gap: CGFloat = glyphSize.width > 0 ? 5 : 0
 

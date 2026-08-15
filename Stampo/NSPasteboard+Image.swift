@@ -46,9 +46,12 @@ extension NSPasteboard {
     /// URL alone when the file cannot be read or is not an image after all.
     @MainActor
     func writeImage(at url: URL, as format: EditorExportFormat = .fromSettings()) {
-        let formatRawValue = format.rawValue
+        // The format travels as itself: the enum is Sendable, so there is no
+        // reason to send its raw string and parse it back — a round trip that
+        // could only ever lose, since an unparseable string would quietly
+        // become PNG.
         let worker = Task.detached(priority: .userInitiated) {
-            CaptureExport.payload(for: url, format: formatRawValue)
+            CaptureExport.payload(for: url, as: format)
         }
         Task { @MainActor [weak self] in
             let payload = await worker.value

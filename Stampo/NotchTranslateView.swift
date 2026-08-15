@@ -600,6 +600,7 @@ private struct PopUpLanguageButtonWrapper: NSViewRepresentable {
         button.target = context.coordinator
         button.action = #selector(Coordinator.languageChanged(_:))
         context.coordinator.button = button
+        context.coordinator.observeReopen(of: button)
         return button
     }
 
@@ -646,6 +647,21 @@ private struct PopUpLanguageButtonWrapper: NSViewRepresentable {
         /// and this menu has no submenus, so between our open and our close
         /// nothing else can begin or end tracking.
         private(set) var isTrackingMenu = false
+
+        /// A second way for `isTrackingMenu` to become false.
+        ///
+        /// End-of-tracking is its only other exit, and the flag now gates
+        /// `rebuildItems` as well as the button's highlight — so a notification
+        /// that never arrived would leave the popup showing a stale list of
+        /// languages for the rest of the session, not merely lit. A menu about
+        /// to open is proof the last one closed.
+        func observeReopen(of button: NSPopUpButton) {
+            observers.append(NotificationCenter.default.addObserver(
+                forName: NSPopUpButton.willPopUpNotification, object: button, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated { self?.isTrackingMenu = false }
+            })
+        }
 
         init(_ parent: PopUpLanguageButtonWrapper) {
             self.parent = parent
