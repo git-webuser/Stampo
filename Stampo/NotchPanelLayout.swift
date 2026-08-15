@@ -133,7 +133,7 @@ extension NotchPanelController {
         x = max(sf.minX + margin, min(x, sf.maxX - margin - w))
         x = snapToPixel(x, scale: metrics.scale)
 
-        let topInsetNoNotch = snapToPixel(metrics.outerSideInset * s, scale: metrics.scale)
+        let topInsetNoNotch = snapToPixel(metrics.noNotchTopInset * s, scale: metrics.scale)
 
         let y: CGFloat
         if metrics.pinnedToTopEdge {

@@ -109,7 +109,6 @@ enum PanelTiming {
     /// the morph reads as one motion with the window frame.
     static func accelerateSwift(_ d: TimeInterval) -> Animation { .timingCurve(0.4, 0.0, 0.9, 0.6, duration: d) }
 
-
     /// Content fade-in during panel open. Delayed so the buttons appear once
     /// the GeometryReader shoulders are near final width — fading them in
     /// earlier shows the squeezed mid-expansion layout ("chewed" look).

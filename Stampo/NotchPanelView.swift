@@ -126,6 +126,14 @@ struct NotchPanelView: View {
         .animation(nil, value: interaction.isEnabled)
         .onChange(of: model.delay) { _, newDelay in stageDelayChange(to: newDelay) }
         .onChange(of: model.mode)  { _, newMode in stageModeChange(to: newMode) }
+        // Both sequences sleep in the middle. The panel is torn down and rebuilt
+        // for a Space switch, a sleep or a display change, and a task left
+        // running wakes to write into `@State` that no longer belongs to
+        // anything on screen.
+        .onDisappear {
+            delayStaging?.cancel()
+            modeStaging?.cancel()
+        }
     }
 
     /// The button is never smaller than what it holds — so it grows before it
@@ -147,16 +155,22 @@ struct NotchPanelView: View {
     private func stageDelayChange(to newDelay: CaptureDelay) {
         delayStaging?.cancel()
 
-        // Nothing on screen settles outright: the panel is then already correct
-        // the next time it opens, where the alternative is a value that changes
-        // during the reveal — a glitch in the opening rather than an answer to
-        // a menu chosen minutes ago.
         // The plate leaves before anything moves — see `delayHighlightRelease`.
         withAnimation(.easeInOut(duration: PanelTiming.delayHighlightRelease)) {
             timerHighlightSuppressed = true
         }
 
-        guard contentOpacity > 0 else {
+        // Not up and settled: settle outright, so the panel is already correct
+        // the next time it opens rather than changing during the reveal — a
+        // glitch in the opening rather than an answer to a menu chosen minutes
+        // ago.
+        //
+        // `isEnabled` rather than `contentOpacity`: the latter is a value that
+        // animates, so it is non-zero through most of both the reveal and the
+        // hide and would answer "yes" for a panel on its way out. The controller
+        // clears `isEnabled` for the whole of every transition and restores it
+        // only once the panel has arrived.
+        guard interaction.isEnabled else {
             contentDelay = newDelay
             widthDelay = newDelay
             delayGlyphOpacity = 1
@@ -230,7 +244,8 @@ struct NotchPanelView: View {
             modeHighlightSuppressed = true
         }
 
-        guard contentOpacity > 0 else {
+        // See `stageDelayChange` on why this asks `isEnabled`.
+        guard interaction.isEnabled else {
             shownMode = newMode
             modeGlyphOpacity = 1
             onModeDelayChanged()
@@ -374,7 +389,6 @@ struct NotchPanelView: View {
             model: model,
             metrics: metrics,
             digitsWidth: metrics.timerDigitsWidth(for: contentLabel),
-            hasValue: contentLabel != nil,
             cellWidth: metrics.timerCellWidth(for: widthLabel),
             valueLabel: contentLabel,
             glyphOpacity: delayGlyphOpacity,
@@ -769,7 +783,6 @@ private struct PanelTimerMenuButton: View {
     var model: NotchPanelModel
     let metrics: NotchMetrics
     let digitsWidth: CGFloat
-    let hasValue: Bool
     let cellWidth: CGFloat
     /// Handed in rather than read from the model: it lags by one fade while the
     /// value is being replaced. See `NotchPanelView.stageDelayChange`.
@@ -782,6 +795,10 @@ private struct PanelTimerMenuButton: View {
     /// Set by the parent once a chosen value has settled; cleared here on the
     /// next interaction, so hovering away and back lights the cell as usual.
     @Binding var highlightSuppressed: Bool
+
+    /// Derived rather than passed beside `valueLabel`: two parameters carrying
+    /// one optional can only ever disagree by mistake.
+    private var hasValue: Bool { valueLabel != nil }
 
     @Environment(\.colorSchemeContrast) private var contrast
 
@@ -960,7 +977,7 @@ struct CountdownView: View {
             captureNowCell
         }
         // `edgeSafe`, the same inset the capture row uses, and not
-        // `outerSideInset`: that one is a flat 5 whatever the style, which is
+        // `noNotchTopInset`: that one is a flat 5 whatever the style, which is
         // the right number only for the floating rounded panel. Pinned styles
         // need 18–20 to clear the shape's tapered shoulders, and at 5 the ✕ and
         // Capture buttons were sliced by the panel's own edge.

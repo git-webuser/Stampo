@@ -41,7 +41,13 @@ struct NotchMetrics {
     let panelRadius: CGFloat
 
     /// Inset from the outer edge of the screen to the panel (no-notch).
-    let outerSideInset: CGFloat
+    /// Inset from the top of the screen for a notch-less panel that is not
+    /// pinned to the edge. It was `outerSideInset` and did once inset the
+    /// sides, until the countdown row moved onto `edgeSafe` — which is the
+    /// style-dependent number the side insets actually need. Left under the old
+    /// name it was a trap: change it to adjust the sides and the panel moves
+    /// down instead.
+    let noNotchTopInset: CGFloat
 
     // MARK: Layout constants
 
@@ -158,7 +164,7 @@ struct NotchMetrics {
             notchGap: notchGap,
             panelHeight: 34,
             panelRadius: 10,
-            outerSideInset: 5,
+            noNotchTopInset: 5,
             // The real notch and the notch tab both taper inward at the bottom
             // shoulders, so their content needs a wider side inset to clear the
             // skews (and the padding then visually follows the taper). The plain
@@ -194,7 +200,7 @@ struct NotchMetrics {
             notchGap: 184,
             panelHeight: 34,
             panelRadius: 10,
-            outerSideInset: 5,
+            noNotchTopInset: 5,
             edgeSafe: 20,
             leftMinToNotch: 36,
             rightMinFromNotch: 12,
