@@ -96,6 +96,15 @@ enum EditorViewportGeometry {
         return CGSize(width: offset.width * ratio, height: offset.height * ratio)
     }
 
+    /// The zoom range, in one place.
+    ///
+    /// The pinch gesture, the toolbar's ±, and the scan overlay's forwarded
+    /// pinch all have to agree about how far the canvas may zoom, and the
+    /// bounds were written out twice before this existed.
+    static func clampedZoom(_ value: CGFloat) -> CGFloat {
+        min(8, max(0.25, value))
+    }
+
     static func clampedPanOffset(_ offset: CGSize, baseDrawSize: CGSize,
                                  zoom: CGFloat, viewport: CGSize) -> CGSize {
         let maxX = max(0, (baseDrawSize.width * zoom - viewport.width) / 2)
@@ -303,9 +312,23 @@ struct EditorCanvasView: View {
 
                 // Sits exactly over the drawn image and only measures it.
                 ImageScreenFrameReporter { rect in
-                    imageScreenGeometry = rect.map {
-                        ImageScreenGeometry(screenRect: $0, fitScale: fitScale)
+                    let next = rect.map {
+                        ImageScreenGeometry(
+                            screenRect: $0,
+                            fitScale: fitScale,
+                            baseDrawSize: baseDrawSize,
+                            viewport: geo.size,
+                            visibleScreenRect: ImageScreenGeometry.visibleScreenRect(
+                                image: $0,
+                                imageViewRect: CGRect(origin: offset, size: drawSize),
+                                viewport: geo.size
+                            )
+                        )
                     }
+                    // `@State` publishes on assignment, not on change, so an
+                    // identical value would schedule the render that computes
+                    // it again.
+                    if next != imageScreenGeometry { imageScreenGeometry = next }
                 }
                 .frame(width: drawSize.width, height: drawSize.height)
                 .position(x: offset.x + drawSize.width / 2,
@@ -1319,7 +1342,7 @@ struct EditorCanvasView: View {
                     magnificationStartPan = panOffset
                 }
                 let startZoom = magnificationStart ?? zoomFactor
-                let newZoom = clampedZoom(startZoom * magnification)
+                let newZoom = EditorViewportGeometry.clampedZoom(startZoom * magnification)
                 let scaled = EditorViewportGeometry.scaledPanOffset(
                     magnificationStartPan ?? panOffset,
                     from: startZoom, to: newZoom
@@ -1334,10 +1357,6 @@ struct EditorCanvasView: View {
                 magnificationStart = nil
                 magnificationStartPan = nil
             }
-    }
-
-    private func clampedZoom(_ value: CGFloat) -> CGFloat {
-        min(8, max(0.25, value))
     }
 
     // MARK: Keyboard input

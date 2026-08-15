@@ -14,4 +14,9 @@ enum KeyCode {
     /// "the next one", and nothing is typed on a selection overlay for it to
     /// take away.
     static let tab:         UInt16 = 48   // kVK_Tab
+    /// Held to pan instead of select. The editor's canvas already reads Space
+    /// this way, and its scan overlay covers that canvas while armed — so the
+    /// overlay has to answer the same key or the gesture would disappear
+    /// exactly while a region is being lined up.
+    static let space:       UInt16 = 49   // kVK_Space
 }

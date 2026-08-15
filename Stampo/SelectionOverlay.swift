@@ -69,6 +69,16 @@ final class SelectionOverlay {
     /// state elsewhere can follow the badge.
     var onScanModeChanged: ((ScanSelectionMode) -> Void)?
 
+    /// Pinch and Space-drag, handed to whatever the overlay is covering.
+    ///
+    /// A full-screen overlay leaves these nil: there is nothing underneath it
+    /// to zoom or pan, and the gestures belong to whichever app is down there.
+    /// The editor sets them, because its overlay sits on a canvas whose own
+    /// zoom and pan are how you reach a region too small to select at fit size
+    /// — and the overlay would otherwise swallow both.
+    var onMagnify: ((CGFloat) -> Void)?
+    var onPan: ((CGSize) -> Void)?
+
     /// The mode in force when the selection was completed. Read by the scanner
     /// immediately after `onSelected` — passing it through the callback would
     /// change a signature three capture paths use and none of them cares
@@ -88,13 +98,19 @@ final class SelectionOverlay {
     private(set) var translationTarget: Locale.Language?
 
     private var modifierMonitor: Any?
-    private var keyMonitor: Any?
+    private var tabToken: UUID?
+    private var shiftTabToken: UUID?
+    private var viewportMonitor: Any?
+    private var modifierPollTimer: Timer?
     /// Modifier state at the last flags event, so a press can be told from a
     /// release.
     private var wasControlDown = false
     private var wasOptionDown = false
 
     private var panel: NSPanel?
+    /// Set only for a window-bound overlay; the child relationship is undone in
+    /// `dismiss` so the parent never outlives it holding a dead child.
+    private weak var parentWindow: NSWindow?
     private var targetScreen: NSScreen?
     private var escObservation: EscObservation?
 
@@ -103,7 +119,15 @@ final class SelectionOverlay {
     private var cursorTimer: Timer?
     private var cursorObservers: [NSObjectProtocol] = []
 
+    /// Full teardown, not just the cursor.
+    ///
+    /// The panel, the Esc observation and both event monitors are released by
+    /// `dismiss`, and an owner that simply lets go of an armed overlay used to
+    /// skip all three — leaving a borderless panel on screen with nothing left
+    /// alive to close it. The panel scanner never hit that because its overlay
+    /// lives as long as the controller; the editor's is owned by a view.
     isolated deinit {
+        dismiss()
         resetCursorState()
     }
 
@@ -119,11 +143,23 @@ final class SelectionOverlay {
     /// selection cannot leave the image because the panel is the image. The
     /// display stays an explicit argument — the flip into CG coordinates is
     /// measured against the primary display, not against this rect.
-    func start(over rect: NSRect, on screen: NSScreen) {
+    ///
+    /// `parent` binds the overlay to a window. The screen-saver level and
+    /// `.canJoinAllSpaces` that the hotkey scanner wants are exactly wrong for
+    /// a mode that stays armed: a panel above every app, following the user to
+    /// other Spaces, over a window they may have switched away from. As a child
+    /// window it orders, moves and hides with its parent instead. Passing nil
+    /// keeps the full-screen behaviour untouched.
+    func start(over rect: NSRect, on screen: NSScreen, parent: NSWindow? = nil) {
         targetScreen = screen
         let frame = rect
 
         let panel = makeOverlayPanel(frame: frame)
+        if let parent {
+            panel.level = .normal
+            panel.collectionBehavior = [.fullScreenAuxiliary]
+            parentWindow = parent
+        }
         let cursor = makeScreenshotCrosshairCursor()
         selectionCursor = cursor
 
@@ -134,7 +170,12 @@ final class SelectionOverlay {
         translationTarget = nil
         view.onCompleted = { [weak self] nsRect in
             guard let self else { return }
-            let cgRect = viewRectToCGRect(nsRect, panelOrigin: frame.origin, screen: screen)
+            // The panel's *current* origin, not the one it opened at: a
+            // window-bound overlay is re-framed as the image zooms, pans or
+            // rides a moving window, and the selection belongs to where it
+            // ended up.
+            let origin = self.panel?.frame.origin ?? frame.origin
+            let cgRect = viewRectToCGRect(nsRect, panelOrigin: origin, screen: screen)
             self.dismiss()
             self.onSelected?(cgRect)
         }
@@ -142,13 +183,21 @@ final class SelectionOverlay {
             self?.dismiss()
             self?.onCancelled?()
         }
+        // Only wired when an owner asked for it, so a drag over the full-screen
+        // overlay still always means "select".
+        if onPan != nil {
+            view.onPan = { [weak self] delta in self?.onPan?(delta) }
+        }
         panel.contentView = view
         self.panel = panel
 
         escObservation = EscObservation { [weak self] in self?.cancel() }
         if showsScanModes {
             installModifierMonitor(view: view)
-            installTranslationKeyMonitor(view: view)
+            syncTranslationKeys(view: view)
+        }
+        if onMagnify != nil || onPan != nil {
+            installViewportMonitor(view: view)
         }
 
         cursor.push()
@@ -160,6 +209,7 @@ final class SelectionOverlay {
         CGSCursorBridge.setCursorInBackground(true)
 
         NSApp.activate(ignoringOtherApps: true)
+        parentWindow?.addChildWindow(panel, ordered: .above)
         panel.orderFrontRegardless()
         panel.makeKeyAndOrderFront(nil)
         panel.makeFirstResponder(view)
@@ -168,6 +218,19 @@ final class SelectionOverlay {
         cursor.set()
 
         installCursorMaintenance(panel: panel)
+    }
+
+    /// Moves the armed overlay to a new rect, in AppKit screen coordinates.
+    ///
+    /// The editor's image is not a fixed target: it grows and shifts with zoom
+    /// and pan, and the overlay has to stay exactly over it or a selection
+    /// would mean something other than what it enclosed. A no-op when nothing
+    /// is armed.
+    func updateBounds(_ rect: NSRect) {
+        guard let panel, panel.frame != rect else { return }
+        panel.setFrame(rect, display: true)
+        panel.contentView?.frame = NSRect(origin: .zero, size: rect.size)
+        panel.contentView?.needsDisplay = true
     }
 
     func cancel() {
@@ -202,16 +265,23 @@ final class SelectionOverlay {
         escObservation?.cancel()
         escObservation = nil
 
-        if let keyMonitor {
-            NSEvent.removeMonitor(keyMonitor)
-            self.keyMonitor = nil
-        }
+        releaseTranslationKeys()
 
         if let modifierMonitor {
             NSEvent.removeMonitor(modifierMonitor)
             self.modifierMonitor = nil
         }
 
+        if let viewportMonitor {
+            NSEvent.removeMonitor(viewportMonitor)
+            self.viewportMonitor = nil
+        }
+
+        modifierPollTimer?.invalidate()
+        modifierPollTimer = nil
+
+        if let panel { parentWindow?.removeChildWindow(panel) }
+        parentWindow = nil
         panel?.orderOut(nil)
         panel = nil
 
@@ -244,27 +314,88 @@ final class SelectionOverlay {
 
         modifierMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) {
             [weak self, weak view] event in
-            guard let self else { return event }
-            let control = event.modifierFlags.contains(.control)
-            let option = event.modifierFlags.contains(.option)
-            let controlPressed = control && !self.wasControlDown
-            let optionPressed = option && !self.wasOptionDown
-            self.wasControlDown = control
-            self.wasOptionDown = option
+            self?.applyModifiers(event.modifierFlags, to: view)
+            return event
+        }
 
-            // Each key owns its own mode and turning one on turns the other
-            // off: they are alternatives, not layers, since translating
-            // rejoins the lines that ⌥ exists to preserve.
-            if controlPressed {
-                self.selectionMode = self.selectionMode == .translate ? .plain : .translate
-            } else if optionPressed {
-                self.selectionMode = self.selectionMode == .keepLineBreaks ? .plain : .keepLineBreaks
-            } else {
+        // A local monitor only hears from an active app, and this one is
+        // `LSUIElement`: ⌘-Tab away and the app cannot be ⌘-Tabbed back to, so
+        // it stays inactive with the overlay still on screen above everything.
+        // The monitor is then permanently deaf and the badge never answers ⌃
+        // again — while Esc keeps working, because it goes through a global
+        // hotkey rather than a monitor.
+        //
+        // `NSEvent.modifierFlags` is a plain read of the current state that
+        // needs neither activation nor an Accessibility grant, so the armed
+        // overlay polls it. Same 30 fps and the same reasoning as the cursor
+        // maintenance above: the state can change without an event ever being
+        // delivered to us. Both paths run one function, so they cannot drift.
+        let poll = Timer(timeInterval: 1.0 / 30.0, repeats: true) { [weak self, weak view] _ in
+            Task { @MainActor [weak self, weak view] in
+                self?.applyModifiers(NSEvent.modifierFlags, to: view)
+            }
+        }
+        RunLoop.main.add(poll, forMode: .common)
+        modifierPollTimer = poll
+    }
+
+    /// Edge-detects ⌃ and ⌥ against the last state seen, whichever path saw it.
+    private func applyModifiers(_ flags: NSEvent.ModifierFlags, to view: SelectionView?) {
+        let control = flags.contains(.control)
+        let option = flags.contains(.option)
+        let controlPressed = control && !wasControlDown
+        let optionPressed = option && !wasOptionDown
+        wasControlDown = control
+        wasOptionDown = option
+
+        // Each key owns its own mode and turning one on turns the other
+        // off: they are alternatives, not layers, since translating
+        // rejoins the lines that ⌥ exists to preserve.
+        if controlPressed {
+            selectionMode = selectionMode == .translate ? .plain : .translate
+        } else if optionPressed {
+            selectionMode = selectionMode == .keepLineBreaks ? .plain : .keepLineBreaks
+        } else {
+            return
+        }
+        view?.mode = selectionMode
+        syncTranslationKeys(view: view)
+        onScanModeChanged?(selectionMode)
+    }
+
+    /// Space for panning and pinch for zooming, forwarded to whatever the
+    /// overlay covers.
+    ///
+    /// A monitor rather than `keyDown`/`magnify` on the view, for the same
+    /// reason the modifiers need one: this panel is
+    /// `[.borderless, .nonactivatingPanel]` and never becomes key, so none of
+    /// those ever reach the responder chain. Only the mouse does, which is why
+    /// selection worked while every keyboard-driven gesture silently did not.
+    ///
+    /// Space gates panning and nothing else. A drag is the one gesture that
+    /// would otherwise be ambiguous — it already means "select" — so it is the
+    /// one that needs a modifier to mean something different. Pinch has no such
+    /// conflict and stays free.
+    private func installViewportMonitor(view: SelectionView) {
+        viewportMonitor = NSEvent.addLocalMonitorForEvents(
+            matching: [.keyDown, .keyUp, .magnify]
+        ) { [weak self, weak view] event in
+            guard let self else { return event }
+            switch event.type {
+            case .keyDown where event.keyCode == KeyCode.space && self.onPan != nil:
+                view?.isSpaceHeld = true
+                // Swallowed: nothing here types, and an unhandled Space beeps.
+                return nil
+            case .keyUp where event.keyCode == KeyCode.space && self.onPan != nil:
+                view?.isSpaceHeld = false
+                view?.endPan()
+                return nil
+            case .magnify where self.onMagnify != nil:
+                self.onMagnify?(event.magnification)
+                return nil
+            default:
                 return event
             }
-            view?.mode = self.selectionMode
-            self.onScanModeChanged?(self.selectionMode)
-            return event
         }
     }
 
@@ -284,32 +415,60 @@ final class SelectionOverlay {
     /// Only while the translate mode is armed: the key belongs to whoever is
     /// underneath the rest of the time, and swallowing it there would be a
     /// keystroke going missing in another app.
-    private func installTranslationKeyMonitor(view: SelectionView) {
-        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) {
-            [weak self, weak view] event in
-            let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-            let languages = TranslationLanguages.shared
-            guard let self, self.selectionMode == .translate,
-                  AppSettings.hotkeyHUDFormatEnabled,
-                  // The same test the badge applies. Without it the key
-                  // cycled on two languages while the badge stayed silent, so
-                  // the destination changed with nothing on screen saying so —
-                  // and the scan then refused as "already in that language".
-                  languages.offersChoice,
-                  event.keyCode == KeyCode.tab,
-                  flags.isDisjoint(with: [.command, .option, .control])
-            else { return event }
+    /// Claims ⇥ system-wide while — and only while — a translating scan is
+    /// armed, through the same centre the panel's header cycling uses.
+    ///
+    /// A local monitor cannot do this job. It hears nothing while the app is
+    /// inactive, and this app is `LSUIElement`, so an overlay left on screen
+    /// over another app got no ⇥ at all — worse, the key went *through* to that
+    /// app, moving its focus ring while the badge sat unchanged. A Carbon
+    /// hotkey is heard whatever is frontmost and consumes the key, which is
+    /// both halves of the problem.
+    ///
+    /// Pushed and popped with the mode rather than held for the overlay's whole
+    /// life, exactly as `TransientHotkeyCenter.tab` documents: a claimed key is
+    /// claimed for every app on the machine, and ⇥ means something everywhere.
+    private func syncTranslationKeys(view: SelectionView?) {
+        let languages = TranslationLanguages.shared
+        // The same test the badge applies. Without it the key cycled on two
+        // languages while the badge stayed silent, so the destination changed
+        // with nothing on screen saying so — and the scan then refused as
+        // "already in that language".
+        let wanted = selectionMode == .translate
+            && AppSettings.hotkeyHUDFormatEnabled
+            && languages.offersChoice
 
-            self.translationTarget = TranslationLanguages.language(
-                after: self.translationTarget ?? languages.destination,
-                in: languages.favourites,
-                backwards: flags.contains(.shift))
-            // The badge names the target, so its width changes with the name —
-            // the whole view redraws rather than the badge's old frame.
-            view?.translationTarget = self.translationTarget
-            view?.needsDisplay = true
-            return nil
+        guard wanted != (tabToken != nil) else { return }
+
+        guard wanted else {
+            releaseTranslationKeys()
+            return
         }
+        tabToken = TransientHotkeyCenter.tab.push { [weak self, weak view] in
+            self?.cycleTranslationTarget(backwards: false, view: view)
+        }
+        shiftTabToken = TransientHotkeyCenter.shiftTab.push { [weak self, weak view] in
+            self?.cycleTranslationTarget(backwards: true, view: view)
+        }
+    }
+
+    private func releaseTranslationKeys() {
+        if let tabToken { TransientHotkeyCenter.tab.remove(tabToken) }
+        if let shiftTabToken { TransientHotkeyCenter.shiftTab.remove(shiftTabToken) }
+        tabToken = nil
+        shiftTabToken = nil
+    }
+
+    private func cycleTranslationTarget(backwards: Bool, view: SelectionView?) {
+        let languages = TranslationLanguages.shared
+        translationTarget = TranslationLanguages.language(
+            after: translationTarget ?? languages.destination,
+            in: languages.favourites,
+            backwards: backwards)
+        // The badge names the target, so its width changes with the name —
+        // the whole view redraws rather than the badge's old frame.
+        view?.translationTarget = translationTarget
+        view?.needsDisplay = true
     }
 
     // MARK: - Cursor maintenance
@@ -372,6 +531,18 @@ private final class SelectionView: NSView {
     var selectionCursor: NSCursor = .crosshair  // set by SelectionOverlay before display
     var onCompleted: ((NSRect) -> Void)?
     var onCancelled: (() -> Void)?
+
+    /// Set by the overlay only when an owner can act on it. The panel scanner
+    /// leaves it nil, and then a drag always selects — there is nothing under a
+    /// full-screen overlay to pan.
+    var onPan: ((CGSize) -> Void)?
+
+    /// Driven by the overlay's key monitor rather than by `keyDown`: this panel
+    /// never becomes key, so nothing arrives through the responder chain. Same
+    /// reason the modifier and Esc handling live in monitors.
+    var isSpaceHeld = false
+
+    private var panLast: NSPoint?
 
     private var startPoint: NSPoint?
     private var currentPoint: NSPoint?
@@ -439,17 +610,31 @@ private final class SelectionView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        if isSpaceHeld {
+            panLast = convert(event.locationInWindow, from: nil)
+            return
+        }
         startPoint = convert(event.locationInWindow, from: nil)
         currentPoint = startPoint
         needsDisplay = true
     }
 
     override func mouseDragged(with event: NSEvent) {
+        if let last = panLast {
+            let point = convert(event.locationInWindow, from: nil)
+            onPan?(CGSize(width: point.x - last.x, height: point.y - last.y))
+            panLast = point
+            return
+        }
         currentPoint = convert(event.locationInWindow, from: nil)
         needsDisplay = true
     }
 
     override func mouseUp(with event: NSEvent) {
+        if panLast != nil {
+            panLast = nil
+            return
+        }
         guard let start = startPoint, let current = currentPoint else { onCancelled?(); return }
         let rect = makeRect(from: start, to: current)
         startPoint = nil; currentPoint = nil; needsDisplay = true
@@ -460,6 +645,9 @@ private final class SelectionView: NSView {
     override func keyDown(with event: NSEvent) {
         if event.keyCode == KeyCode.escape { onCancelled?() } else { super.keyDown(with: event) }
     }
+
+    /// Ends a pan that Space let go of mid-drag.
+    func endPan() { panLast = nil }
 
     private func makeRect(from a: NSPoint, to b: NSPoint) -> NSRect {
         NSRect(x: min(a.x, b.x), y: min(a.y, b.y),

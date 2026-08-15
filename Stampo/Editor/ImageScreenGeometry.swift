@@ -15,6 +15,39 @@ import SwiftUI
 struct ImageScreenGeometry: Equatable {
     var screenRect: NSRect
     var fitScale: CGFloat
+    /// The image's drawn size at zoom 1, and the size of the area it is drawn
+    /// in. Both are already computed by the canvas every layout pass, and the
+    /// scanner needs them to hand a forwarded pinch or Space-drag back to the
+    /// same clamping the canvas's own gestures use.
+    var baseDrawSize: CGSize
+    var viewport: CGSize
+    /// The part of the image that is actually on screen.
+    ///
+    /// Zoomed in, the image is larger than the area it is drawn in and hangs
+    /// off every side — including up, over the toolbar and the context bar. An
+    /// overlay sized to the whole image would cover those, so it is sized to
+    /// this instead. Mapping a selection still uses `screenRect`: where the
+    /// image *is* does not change because part of it is out of view.
+    var visibleScreenRect: NSRect
+
+    /// Clips the image's screen rect to the area it is drawn in.
+    ///
+    /// The two spaces disagree about which way is up — the canvas measures down
+    /// from its top left, the screen up from its bottom left — so the clip is
+    /// computed in view space and the resulting inset applied from the screen
+    /// rect's *top* edge.
+    static func visibleScreenRect(image screenRect: NSRect,
+                                  imageViewRect: CGRect,
+                                  viewport: CGSize) -> NSRect {
+        let visible = imageViewRect.intersection(CGRect(origin: .zero, size: viewport))
+        guard !visible.isNull, visible.width > 0, visible.height > 0 else { return .zero }
+        let insetLeft = visible.minX - imageViewRect.minX
+        let insetTop = visible.minY - imageViewRect.minY
+        return NSRect(x: screenRect.minX + insetLeft,
+                      y: screenRect.maxY - insetTop - visible.height,
+                      width: visible.width,
+                      height: visible.height)
+    }
 
     /// A selection the overlay reported in global CG coordinates → the image's
     /// own pixels, which is what the scanner crops with.
@@ -64,6 +97,18 @@ struct ImageScreenFrameReporter: NSViewRepresentable {
     final class ReporterView: NSView {
         var onChange: ((NSRect?) -> Void)?
 
+        /// What was last handed to `onChange`, so an unchanged rect is not
+        /// reported again.
+        ///
+        /// `updateNSView` calls `report()` on every render of the canvas, and
+        /// the owner writes the result into `@State`, which publishes on
+        /// assignment rather than on change — so reporting an identical rect
+        /// schedules the render that reports it again. The `Bool` distinguishes
+        /// "never reported" from "reported nil".
+        private var lastReported: (rect: NSRect?, sent: Bool) = (nil, false)
+
+        private var windowObservers: [NSObjectProtocol] = []
+
         override var isOpaque: Bool { false }
 
         /// Purely a measuring device: it must never take a click away from the
@@ -72,6 +117,7 @@ struct ImageScreenFrameReporter: NSViewRepresentable {
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
+            observeWindow()
             report()
         }
 
@@ -85,12 +131,43 @@ struct ImageScreenFrameReporter: NSViewRepresentable {
             report()
         }
 
-        func report() {
-            guard let window, bounds.width > 0, bounds.height > 0 else {
-                onChange?(nil)
-                return
+        isolated deinit {
+            windowObservers.forEach(NotificationCenter.default.removeObserver)
+        }
+
+        /// A window moving changes where the image is without changing this
+        /// view's frame inside it, so none of the overrides above fire and the
+        /// last reported rect silently describes the old position. Dragging the
+        /// window and then scanning would land the region offset by exactly how
+        /// far it travelled.
+        private func observeWindow() {
+            windowObservers.forEach(NotificationCenter.default.removeObserver)
+            windowObservers.removeAll()
+            guard let window else { return }
+
+            let center = NotificationCenter.default
+            for name in [NSWindow.didMoveNotification,
+                         NSWindow.didResizeNotification,
+                         NSWindow.didChangeScreenNotification] {
+                windowObservers.append(
+                    center.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
+                        MainActor.assumeIsolated { self?.report() }
+                    }
+                )
             }
-            onChange?(window.convertToScreen(convert(bounds, to: nil)))
+        }
+
+        func report() {
+            let rect: NSRect?
+            if let window, bounds.width > 0, bounds.height > 0 {
+                rect = window.convertToScreen(convert(bounds, to: nil))
+            } else {
+                rect = nil
+            }
+
+            guard !lastReported.sent || lastReported.rect != rect else { return }
+            lastReported = (rect, true)
+            onChange?(rect)
         }
     }
 }

@@ -45,6 +45,10 @@ final class EditorWindowController: NSObject, NSWindowDelegate {
     var isKeyWindow: Bool { window?.isKeyWindow == true }
     /// Screen hosting the editor window; the HUD is centered on it.
     var screen: NSScreen? { window?.screen }
+    /// Parent for a window-bound child panel — the scanner's overlay. As narrow
+    /// as `screen` above and for the same reason: callers get the one thing
+    /// they need, and the window stays private.
+    var overlayParentWindow: NSWindow? { window }
 
     // MARK: Open
 

@@ -75,6 +75,26 @@ struct EditorView: View {
                 scanOverlay.cancel()
             }
         }
+        .onChange(of: imageScreenGeometry) { _, geometry in
+            guard let geometry else { return }
+            if scanOverlayActive {
+                // Follows the image through zoom, pan and a resized window;
+                // as a child window it already follows a moved one.
+                scanOverlay.updateBounds(geometry.visibleScreenRect)
+            } else if tool == .scan {
+                // Armed before the canvas had been measured — open it now.
+                beginScanSelection()
+            }
+        }
+        .onDisappear {
+            // The window can close with the tool still armed. `@State` teardown
+            // eventually deallocates the overlay, which now dismisses itself,
+            // but "eventually" is not when the window goes away.
+            if scanOverlayActive {
+                scanOverlayActive = false
+                scanOverlay.cancel()
+            }
+        }
         .frame(minWidth: Self.minimumContentSize.width,
                minHeight: Self.minimumContentSize.height)
     }
@@ -1678,14 +1698,16 @@ struct EditorView: View {
     /// overlay never reaches them, and a selection cannot leave the image
     /// because the panel is the image.
     private func beginScanSelection() {
+        guard !scanOverlayActive else { return }
+        // No geometry yet means the canvas has not been laid out in a window.
+        // The tool stays armed rather than snapping back: `.onChange` below
+        // opens the overlay the moment the first measurement lands, so hitting
+        // Scan the instant the editor opens is a wait, not a dead click.
         guard let geometry = imageScreenGeometry,
               let screen = NSScreen.screens.first(where: {
                   $0.frame.intersects(geometry.screenRect)
               }) ?? NSScreen.main
-        else {
-            tool = .select
-            return
-        }
+        else { return }
 
         let bounds = CGRect(origin: .zero, size: document.pixelSize)
         scanOverlay.showsScanModes = true
@@ -1704,11 +1726,42 @@ struct EditorView: View {
             case .translate:      break
             }
         }
+        // Pinch and Space-drag reach the canvas underneath rather than dying
+        // on the overlay, and the canvas's own clamping does the arithmetic —
+        // zooming in is how you select something too small to hit at fit size.
+        scanOverlay.onMagnify = { magnification in
+            guard let live = imageScreenGeometry else { return }
+            let newZoom = EditorViewportGeometry.clampedZoom(zoomFactor * (1 + magnification))
+            let scaled = EditorViewportGeometry.scaledPanOffset(panOffset,
+                                                                from: zoomFactor, to: newZoom)
+            zoomFactor = newZoom
+            panOffset = EditorViewportGeometry.clampedPanOffset(
+                scaled, baseDrawSize: live.baseDrawSize,
+                zoom: newZoom, viewport: live.viewport
+            )
+        }
+        scanOverlay.onPan = { delta in
+            guard let live = imageScreenGeometry else { return }
+            // The overlay's view counts y upward, the canvas's offset downward.
+            let moved = CGSize(width: panOffset.width + delta.width,
+                               height: panOffset.height - delta.height)
+            panOffset = EditorViewportGeometry.clampedPanOffset(
+                moved, baseDrawSize: live.baseDrawSize,
+                zoom: zoomFactor, viewport: live.viewport
+            )
+        }
         scanOverlay.onSelected = { cgRect in
             scanOverlayActive = false
+            // The geometry as it is *now*, not as it was when the tool was
+            // armed: zoom, pan and a dragged window all move the image while
+            // the overlay is up, and the overlay moved with it.
+            guard let live = imageScreenGeometry else {
+                tool = .select
+                return
+            }
             // Clamped: the overlay works in points and the document in pixels,
             // so a selection flush against an edge can round a hair outside it.
-            let pixels = geometry.imagePixelRect(from: cgRect, screen: screen)
+            let pixels = live.imagePixelRect(from: cgRect, screen: screen)
                 .intersection(bounds)
             guard !pixels.isNull, pixels.width >= 1, pixels.height >= 1 else {
                 tool = .select
@@ -1722,7 +1775,9 @@ struct EditorView: View {
             tool = .select
         }
         scanOverlayActive = true
-        scanOverlay.start(over: geometry.screenRect, on: screen)
+        scanOverlay.start(over: geometry.visibleScreenRect,
+                          on: screen,
+                          parent: EditorWindowController.shared.overlayParentWindow)
     }
 
     private func scanRegion(_ pixelRect: CGRect,
@@ -1850,7 +1905,7 @@ struct EditorView: View {
     }
 
     private func adjustZoom(by amount: CGFloat) {
-        zoomFactor = min(8, max(0.25, zoomFactor + amount))
+        zoomFactor = EditorViewportGeometry.clampedZoom(zoomFactor + amount)
     }
 
     private func fitZoom() {
