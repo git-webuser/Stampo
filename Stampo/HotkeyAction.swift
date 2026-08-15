@@ -7,11 +7,22 @@ nonisolated enum HotkeyRegistrationStatus: Equatable, Sendable {
     case conflict(OSStatus)
     case handlerUnavailable
 
-    var message: String? {
+    /// Localization key for the row's status line, or nil when the shortcut is
+    /// working and there is nothing to say.
+    ///
+    /// A key rather than a sentence: `Text(String)` does not localize, so text
+    /// returned from here would have shown up in English inside a Russian UI.
+    /// The caller looks it up through `LocaleManager` like everything else.
+    ///
+    /// The Carbon `OSStatus` is deliberately absent. It is already in the log
+    /// line that records the refusal, and a number from a 1990s API is not a
+    /// sentence to put in a settings pane — what the user can act on is that
+    /// something else holds the combination.
+    var messageKey: String? {
         switch self {
         case .registered: return nil
         case .disabled: return "Shortcut disabled"
-        case .conflict(let status): return "Shortcut unavailable (Carbon status \(status))"
+        case .conflict: return "Shortcut already taken by another app"
         case .handlerUnavailable: return "Shortcuts unavailable in this app session"
         }
     }

@@ -77,8 +77,11 @@ struct ShortcutRecorderView: View {
                     .font(.caption)
                     .foregroundStyle(.red)
             }
-            if let registrationMessage = registrationStatus.message {
-                Text(registrationMessage)
+            if let messageKey = registrationStatus.messageKey {
+                // Through LocalizedStringKey, exactly like the rejection line
+                // above it: a plain String reaches Text as a literal and is
+                // shown untranslated.
+                Text(LocalizedStringKey(messageKey))
                     .font(.caption)
                     .foregroundStyle(registrationStatus.isError ? .red : .secondary)
             }

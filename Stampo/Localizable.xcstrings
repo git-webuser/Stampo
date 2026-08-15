@@ -4982,6 +4982,40 @@
         }
       }
     },
+    "Shortcut already taken by another app" : {
+      "comment" : "Shortcut row status — Carbon refused the registration",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Shortcut already taken by another app"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сочетание занято другим приложением"
+          }
+        }
+      }
+    },
+    "Shortcut disabled" : {
+      "comment" : "Shortcut row status — the user cleared this shortcut",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Shortcut disabled"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сочетание отключено"
+          }
+        }
+      }
+    },
     "Shortcuts" : {
       "comment" : "Hotkeys section header — editable global shortcuts",
       "extractionState" : "stale",
@@ -4996,6 +5030,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Сочетания"
+          }
+        }
+      }
+    },
+    "Shortcuts unavailable in this app session" : {
+      "comment" : "Shortcut row status — the Carbon event handler never installed",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Shortcuts unavailable in this app session"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сочетания недоступны в этом сеансе"
           }
         }
       }
