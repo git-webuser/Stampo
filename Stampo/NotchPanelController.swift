@@ -6,6 +6,24 @@ import SwiftUI
 /// Animation durations and dispatch delays used throughout NotchPanelController.
 /// Centralised here so every phase of the open/close/morph choreography is
 /// documented and easy to tune without hunting for magic numbers.
+/// Runs `body` on the main actor, synchronously when it is already there.
+///
+/// `MainActor.assumeIsolated` on its own is a precondition: it traps instead of
+/// hopping, and AppKit does not promise which thread an animation completion
+/// arrives on. Running *synchronously* is what these completions need — a
+/// deferred one opened the gap that swallowed delayed captures — so take that
+/// when it is available and hop rather than crash when it is not.
+/// `nonisolated` because its callers are AppKit completion handlers, which are
+/// not: the project defaults to MainActor isolation, and inheriting it here
+/// would make the very hop this exists to perform a warning at every call site.
+nonisolated private func onMainActorNow(_ body: @escaping @MainActor () -> Void) {
+    if Thread.isMainThread {
+        MainActor.assumeIsolated { body() }
+    } else {
+        Task { @MainActor in body() }
+    }
+}
+
 enum PanelTiming {
     /// Panel reveal (frame descent + content fade-in, decelerate curve).
     static let openAnimation:       TimeInterval = 0.30
@@ -1678,14 +1696,14 @@ final class NotchPanelController: NSObject {
                 }
                 panel.animator().setFrame(target, display: true)
             } completionHandler: { [weak self, weak panel] in
-                // Synchronously, not through a `Task`: this handler already
-                // runs on the main thread, and hopping to the next runloop turn
-                // opened a gap between the animation ending and the completion
-                // below. A show landing in that gap clears `pendingHideCompletion`
-                // by design — "a show interrupting a hide aborts it" — so a
-                // capture waiting on this hide was dropped roughly once in
-                // three delayed shots, with nothing to say why.
-                MainActor.assumeIsolated {
+                // Synchronously where possible, never through a bare `Task`:
+                // hopping to the next runloop turn opened a gap between the
+                // animation ending and the completion below. A show landing in
+                // that gap clears `pendingHideCompletion` by design — "a show
+                // interrupting a hide aborts it" — so a capture waiting on this
+                // hide was dropped roughly once in three delayed shots, with
+                // nothing to say why.
+                onMainActorNow {
                     self?.uninstallMouseRegionTracking()
                     panel?.orderOut(nil)
                     guard let self else { return }
@@ -1726,14 +1744,14 @@ final class NotchPanelController: NSObject {
                 }
                 panel.animator().setFrame(hidden, display: true)
             } completionHandler: { [weak self, weak panel] in
-                // Synchronously, not through a `Task`: this handler already
-                // runs on the main thread, and hopping to the next runloop turn
-                // opened a gap between the animation ending and the completion
-                // below. A show landing in that gap clears `pendingHideCompletion`
-                // by design — "a show interrupting a hide aborts it" — so a
-                // capture waiting on this hide was dropped roughly once in
-                // three delayed shots, with nothing to say why.
-                MainActor.assumeIsolated {
+                // Synchronously where possible, never through a bare `Task`:
+                // hopping to the next runloop turn opened a gap between the
+                // animation ending and the completion below. A show landing in
+                // that gap clears `pendingHideCompletion` by design — "a show
+                // interrupting a hide aborts it" — so a capture waiting on this
+                // hide was dropped roughly once in three delayed shots, with
+                // nothing to say why.
+                onMainActorNow {
                     self?.uninstallMouseRegionTracking()
                     panel?.orderOut(nil)
                     guard let self else { return }
@@ -2297,6 +2315,13 @@ final class NotchPanelController: NSObject {
     func updateWidthForNoNotchIfNeeded() {
         guard !metrics.hasNotch else { return }
         guard let panel else { return }
+        // `route` is not enough. It stays `.main` for the whole of a hide — it
+        // is reset in the hide's completion — so a delay change landing mid-hide
+        // used to animate the frame back to `frameForWidth`, the panel's *shown*
+        // position, and `animator().setFrame` replaces the hide already in
+        // flight rather than losing to it. The panel travelled back down instead
+        // of leaving.
+        guard case .main = state, panel.isVisible else { return }
         guard route == .main else { return }
         guard let screen = currentScreen ?? NSScreen.main ?? NSScreen.screens.first else { return }
 
