@@ -247,7 +247,14 @@ final class SelectionOverlay {
         selectionCursor = nil
         CGSCursorBridge.setCursorInBackground(false)
         NSCursor.arrow.set()
-        Task { @MainActor in NSCursor.arrow.set() }
+        // One more on the next turn of the main queue, to beat AppKit's own
+        // restoration after the window orders out. `DispatchQueue.main.async`
+        // rather than a `Task`: a task hops through the cooperative pool and
+        // lands later than the queue does, which is late enough for a scanner
+        // armed in the same breath to have its crosshair overwritten — the
+        // cursor visibly dropped to the arrow until the 30 fps maintenance
+        // timer put it back.
+        DispatchQueue.main.async { MainActor.assumeIsolated { NSCursor.arrow.set() } }
     }
 
     private func dismiss() {
@@ -286,7 +293,14 @@ final class SelectionOverlay {
         panel = nil
 
         NSCursor.arrow.set()
-        Task { @MainActor in NSCursor.arrow.set() }
+        // One more on the next turn of the main queue, to beat AppKit's own
+        // restoration after the window orders out. `DispatchQueue.main.async`
+        // rather than a `Task`: a task hops through the cooperative pool and
+        // lands later than the queue does, which is late enough for a scanner
+        // armed in the same breath to have its crosshair overwritten — the
+        // cursor visibly dropped to the arrow until the 30 fps maintenance
+        // timer put it back.
+        DispatchQueue.main.async { MainActor.assumeIsolated { NSCursor.arrow.set() } }
     }
 
     // MARK: - Translate mode

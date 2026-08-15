@@ -1636,22 +1636,33 @@ final class NotchPanelController: NSObject {
                 }
                 panel.animator().setFrame(target, display: true)
             } completionHandler: { [weak self, weak panel] in
-                Task { @MainActor [weak self, weak panel] in
+                // Synchronously, not through a `Task`: this handler already
+                // runs on the main thread, and hopping to the next runloop turn
+                // opened a gap between the animation ending and the completion
+                // below. A show landing in that gap clears `pendingHideCompletion`
+                // by design — "a show interrupting a hide aborts it" — so a
+                // capture waiting on this hide was dropped roughly once in
+                // three delayed shots, with nothing to say why.
+                MainActor.assumeIsolated {
                     self?.uninstallMouseRegionTracking()
                     panel?.orderOut(nil)
-                    guard let self, self.animationGenerationMatches(token) else {
-                        self?.trace("hideMainPanel.completion.genMismatch")
-                        return
+                    guard let self else { return }
+                    if self.animationGenerationMatches(token) {
+                        self.state = .hidden
+                        self.interactionState.isEnabled = true
+                        self.route = .main
+                        self.rootState.progress = 0.0
+                        self.rootState.isArchivePinned = false
+                        self.rootState.countdownVisible = 0.0
+                        self.rootState.countdownSeconds = 0
+                        self.rootState.countdownTotal = 0
+                        self.trace("hideMainPanel.completion.orderOut")
+                    } else {
+                        self.trace("hideMainPanel.completion.genMismatch")
                     }
-                    self.state = .hidden
-                    self.interactionState.isEnabled = true
-                    self.route = .main
-                    self.rootState.progress = 0.0
-                    self.rootState.isArchivePinned = false
-                    self.rootState.countdownVisible = 0.0
-                    self.rootState.countdownSeconds = 0
-                    self.rootState.countdownTotal = 0
-                    self.trace("hideMainPanel.completion.orderOut")
+                    // Fires either way. A stale token means a newer transition
+                    // owns how the panel looks — not that the capture this hide
+                    // was started for should be thrown away.
                     self.firePendingHideCompletion()
                 }
             }
@@ -1673,22 +1684,33 @@ final class NotchPanelController: NSObject {
                 }
                 panel.animator().setFrame(hidden, display: true)
             } completionHandler: { [weak self, weak panel] in
-                Task { @MainActor [weak self, weak panel] in
+                // Synchronously, not through a `Task`: this handler already
+                // runs on the main thread, and hopping to the next runloop turn
+                // opened a gap between the animation ending and the completion
+                // below. A show landing in that gap clears `pendingHideCompletion`
+                // by design — "a show interrupting a hide aborts it" — so a
+                // capture waiting on this hide was dropped roughly once in
+                // three delayed shots, with nothing to say why.
+                MainActor.assumeIsolated {
                     self?.uninstallMouseRegionTracking()
                     panel?.orderOut(nil)
-                    guard let self, self.animationGenerationMatches(token) else {
-                        self?.trace("hideMainPanel.completion.genMismatch")
-                        return
+                    guard let self else { return }
+                    if self.animationGenerationMatches(token) {
+                        self.state = .hidden
+                        self.interactionState.isEnabled = true
+                        self.route = .main
+                        self.rootState.progress = 0.0
+                        self.rootState.isArchivePinned = false
+                        self.rootState.countdownVisible = 0.0
+                        self.rootState.countdownSeconds = 0
+                        self.rootState.countdownTotal = 0
+                        self.trace("hideMainPanel.completion.orderOut")
+                    } else {
+                        self.trace("hideMainPanel.completion.genMismatch")
                     }
-                    self.state = .hidden
-                    self.interactionState.isEnabled = true
-                    self.route = .main
-                    self.rootState.progress = 0.0
-                    self.rootState.isArchivePinned = false
-                    self.rootState.countdownVisible = 0.0
-                    self.rootState.countdownSeconds = 0
-                    self.rootState.countdownTotal = 0
-                    self.trace("hideMainPanel.completion.orderOut")
+                    // Fires either way. A stale token means a newer transition
+                    // owns how the panel looks — not that the capture this hide
+                    // was started for should be thrown away.
                     self.firePendingHideCompletion()
                 }
             }
