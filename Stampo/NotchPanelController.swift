@@ -39,6 +39,22 @@ enum PanelTiming {
     /// Delay between showAnimated() and switchToArchive() so the open
     /// animation has a head-start before archive content appears.
     static let showBeforeArchive:      TimeInterval = 0.25
+    /// The panel widening or narrowing because the delay label changed length.
+    /// Short: it answers a click on a menu item, and anything slower reads as
+    /// the panel thinking about it. Used by the timer cell and the window frame
+    /// alike — they are two halves of one motion and must share a duration.
+    ///
+    /// Driven linearly at both ends, which is the one curve the two animation
+    /// systems agree on. SwiftUI and Core Animation sample an eased curve
+    /// differently enough that the content and the window drift apart in the
+    /// middle of the travel even when their control points match — visible
+    /// here as the background lagging the buttons and catching up.
+    static let delayWidthMorph:        TimeInterval = 0.16
+    /// The delay's value leaving and arriving around that travel. The panel
+    /// changing width while the digits are still on screen made them slide
+    /// sideways with the button; taking them off first lets the button resize
+    /// around a symbol alone, which is the only part that should move.
+    static let delayValueFade:         TimeInterval = 0.08
 
     // MARK: Shared easing curves
 
@@ -2290,10 +2306,17 @@ final class NotchPanelController: NSObject {
         // archivePanelHeight but this used the default panelHeight).
         let target = frameForWidth(w, on: screen, height: panelWindowHeight)
 
-        // Resize instantly: the content (timer cell) reflows with no animation
-        // (`.animation(nil, value: model.delay)`), so a 0.12s window animation
-        // lagged behind the snapped content and looked like an abrupt collapse.
-        // Snapping the window in sync keeps the background flush with the buttons.
-        panel.setFrame(target, display: true)
+        // Both halves on one duration and one curve — see `delayWidthMorph`
+        // for why that curve is linear.
+        //
+        // This used to snap, and the comment here blamed the window animation:
+        // it lagged behind content that reflowed instantly. But the content
+        // only snapped because the timer cell asked it to, so snapping the
+        // window too was treating the symptom.
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = PanelTiming.delayWidthMorph
+            ctx.timingFunction = CAMediaTimingFunction(name: .linear)
+            panel.animator().setFrame(target, display: true)
+        }
     }
 }

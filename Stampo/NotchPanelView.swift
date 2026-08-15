@@ -93,6 +93,14 @@ struct NotchPanelView: View {
     let onScan: () -> Void
     let onModeDelayChanged: () -> Void
 
+    /// What the timer cell is drawn from. Lags `model.delay` by one fade so the
+    /// value can leave before the button resizes — see `stageDelayChange`.
+    /// Nil until the first change, when the model's own value is the truth.
+    @State private var shownDelay: CaptureDelay?
+    /// Fades the timer cell's symbol and digits together while it resizes.
+    @State private var delayGlyphOpacity: Double = 1
+    @State private var delayStaging: Task<Void, Never>?
+
     var body: some View {
         Group {
             if metrics.hasNotch {
@@ -104,8 +112,54 @@ struct NotchPanelView: View {
         .frame(height: metrics.panelHeight)
         .allowsHitTesting(interaction.isEnabled)
         .animation(nil, value: interaction.isEnabled)
-        .onChange(of: model.delay) { _, _ in onModeDelayChanged() }
+        .onChange(of: model.delay) { _, newDelay in stageDelayChange(to: newDelay) }
+        // The mode does not change the panel's width (see `expandedWidth`), so
+        // it has nothing to stage — it just tells the controller to re-measure.
         .onChange(of: model.mode)  { _, _ in onModeDelayChanged() }
+    }
+
+    /// Two beats: the cell empties while it travels, then fills again once it
+    /// has arrived.
+    ///
+    /// The glyphs — both of them, symbol and digits — dissolve at the same
+    /// moment the panel and the button start resizing, so what travels is an
+    /// empty button rather than one dragging its contents sideways. They come
+    /// back only after the width has settled, which is what keeps the new value
+    /// from appearing to slide in from the edge: by then there is no motion
+    /// left for it to inherit.
+    ///
+    /// `shownDelay` is what the cell is drawn from. It leads the fade rather
+    /// than lagging it, because the resize is the thing being covered up.
+    private func stageDelayChange(to newDelay: CaptureDelay) {
+        delayStaging?.cancel()
+
+        // Nothing on screen to animate. Settling now means the panel is already
+        // correct by the time it is next opened — the alternative is a value
+        // that changes during the reveal, which reads as a glitch in the
+        // opening rather than as an answer to a menu chosen minutes ago.
+        guard contentOpacity > 0 else {
+            shownDelay = newDelay
+            delayGlyphOpacity = 1
+            onModeDelayChanged()
+            return
+        }
+
+        delayStaging = Task { @MainActor in
+            withAnimation(.linear(duration: PanelTiming.delayValueFade)) {
+                delayGlyphOpacity = 0
+            }
+            // Same instant: the cell's width and the window's frame, both
+            // linear over `delayWidthMorph`.
+            shownDelay = newDelay
+            onModeDelayChanged()
+
+            try? await Task.sleep(for: .seconds(PanelTiming.delayWidthMorph))
+            guard !Task.isCancelled else { return }
+
+            withAnimation(.linear(duration: PanelTiming.delayValueFade)) {
+                delayGlyphOpacity = 1
+            }
+        }
     }
 
     // MARK: - Notch layout
@@ -171,6 +225,15 @@ struct NotchPanelView: View {
             // Controller-owned animation (see notchLayout).
             .opacity(contentOpacity)
         }
+        // Both stay pinned at the row. The delay's own travel is declared on
+        // the timer cell, which is deeper and therefore wins for that cell —
+        // this only keeps the *rest* of the row still while it moves.
+        //
+        // Removing it is not the same as letting the row animate the delay: it
+        // also insulated the row from whatever transaction happens to be in
+        // flight, and the panel's reveal is one of those. Without it the row
+        // rode the show animation and the panel appeared to slide in from the
+        // side. Same reason `notchLayout` states for `contentVisibility`.
         .animation(nil, value: model.delay)
         .animation(nil, value: model.mode)
     }
@@ -206,15 +269,20 @@ struct NotchPanelView: View {
     }
 
     private var timerMenuCell: some View {
-        let shortLabel = model.delay.shortLabel
+        let shortLabel = (shownDelay ?? model.delay).shortLabel
         return PanelTimerMenuButton(
             model: model,
             metrics: metrics,
             digitsWidth: metrics.timerDigitsWidth(for: shortLabel),
             hasValue: shortLabel != nil,
-            cellWidth: metrics.timerCellWidth(for: shortLabel)
+            cellWidth: metrics.timerCellWidth(for: shortLabel),
+            valueLabel: shortLabel,
+            glyphOpacity: delayGlyphOpacity
         )
-        .animation(nil, value: model.delay)
+        // Travels rather than snapping: the panel's own width follows this
+        // cell's, and the window frame is animated on the matching curve. A
+        // snapped cell was what made an animated window look like it lagged.
+        .animation(.linear(duration: PanelTiming.delayWidthMorph), value: shownDelay)
         .help("Capture delay")
         // Labelled from AppKit, like the mode cell above.
     }
@@ -559,6 +627,12 @@ private struct PanelTimerMenuButton: View {
     let digitsWidth: CGFloat
     let hasValue: Bool
     let cellWidth: CGFloat
+    /// Handed in rather than read from the model: it lags by one fade while the
+    /// value is being replaced. See `NotchPanelView.stageDelayChange`.
+    let valueLabel: String?
+    /// Applied to the symbol and the digits, never to the button behind them:
+    /// the button is what is resizing, and it has to stay visible doing it.
+    let glyphOpacity: Double
 
     @Environment(\.colorSchemeContrast) private var contrast
 
@@ -581,13 +655,15 @@ private struct PanelTimerMenuButton: View {
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(timerForeground)
                     .frame(width: metrics.iconSize, height: metrics.iconSize)
+                    .opacity(glyphOpacity)
 
                 if hasValue {
-                    Text(model.delay.shortLabel ?? "")
+                    Text(valueLabel ?? "")
                         .font(.system(size: 12, weight: .medium))
                         .monospacedDigit()
                         .foregroundStyle(PanelChrome.foreground(0.9, contrast))
                         .frame(width: digitsWidth, height: 12, alignment: .leading)
+                        .opacity(glyphOpacity)
                 }
             }
             .padding(.leading,  hasValue ? metrics.timerLeadingInsetWithValue  : 0)
