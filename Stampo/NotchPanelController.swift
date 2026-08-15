@@ -58,6 +58,9 @@ enum PanelTiming {
     /// animation has a head-start before archive content appears.
     static let showBeforeArchive:      TimeInterval = 0.25
     /// The panel widening or narrowing because the delay label changed length.
+    /// The symbol and digits leave and return around it on `crossfade`, the
+    /// same easeOut the countdown arrives on — one way of appearing inside this
+    /// panel rather than a second one invented for the timer cell.
     /// Short: it answers a click on a menu item, and anything slower reads as
     /// the panel thinking about it. Used by the timer cell and the window frame
     /// alike — they are two halves of one motion and must share a duration.
@@ -68,11 +71,28 @@ enum PanelTiming {
     /// middle of the travel even when their control points match — visible
     /// here as the background lagging the buttons and catching up.
     static let delayWidthMorph:        TimeInterval = 0.16
-    /// The delay's value leaving and arriving around that travel. The panel
-    /// changing width while the digits are still on screen made them slide
-    /// sideways with the button; taking them off first lets the button resize
-    /// around a symbol alone, which is the only part that should move.
-    static let delayValueFade:         TimeInterval = 0.08
+    /// The timer cell's glyphs dissolving and returning around a value change.
+    ///
+    /// Its own number rather than `crossfade`, which it started out sharing:
+    /// that one also times the countdown's own arrival, and tuning the feel of
+    /// the timer cell should not quietly retime a different animation.
+    ///
+    /// Between the panel's 0.16 crossfade and the 0.35 the countdown's digits
+    /// blur-replace each other on — the effect this is imitating. Slow enough
+    /// to read as a dissolve, short enough that a widening change (travel, out,
+    /// in) still lands well under a second.
+    static let delayGlyphFade:         TimeInterval = 0.24
+    /// The timer cell's highlight leaving, before anything else moves.
+    ///
+    /// It goes first rather than last. Held through the resize it is a lit
+    /// plate being stretched — and it is drawn by SwiftUI inside a window whose
+    /// frame Core Animation is moving at the same time, so it visibly trails
+    /// the edge it is supposed to fill. Gone before the travel starts, there is
+    /// nothing to trail: the button widens unlit and the glyphs arrive into it.
+    ///
+    /// Shared with the hover fade on the cell itself, which is the same plate
+    /// appearing and disappearing for the same reason.
+    static let delayHighlightRelease:  TimeInterval = 0.12
 
     // MARK: Shared easing curves
 

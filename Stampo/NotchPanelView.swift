@@ -93,13 +93,25 @@ struct NotchPanelView: View {
     let onScan: () -> Void
     let onModeDelayChanged: () -> Void
 
-    /// What the timer cell is drawn from. Lags `model.delay` by one fade so the
-    /// value can leave before the button resizes — see `stageDelayChange`.
-    /// Nil until the first change, when the model's own value is the truth.
-    @State private var shownDelay: CaptureDelay?
+    /// The timer cell is drawn from two values, not one, because its size and
+    /// its contents change at different moments — see `stageDelayChange`.
+    /// `contentDelay` is what the glyphs show; `widthDelay` is what the button
+    /// and the panel are sized to. Nil until the first change, when the model's
+    /// own value is the truth for both.
+    @State private var contentDelay: CaptureDelay?
+    @State private var widthDelay: CaptureDelay?
     /// Fades the timer cell's symbol and digits together while it resizes.
     @State private var delayGlyphOpacity: Double = 1
     @State private var delayStaging: Task<Void, Never>?
+    /// Drops the timer cell's hover highlight once the value it was chosen for
+    /// has settled. Cleared by the cell itself on the next interaction.
+    @State private var timerHighlightSuppressed = false
+    /// The mode cell's icon lags its model the same way, for the same reason —
+    /// it is swapped behind a fade rather than replaced under the pointer.
+    @State private var shownMode: CaptureMode?
+    @State private var modeGlyphOpacity: Double = 1
+    @State private var modeHighlightSuppressed = false
+    @State private var modeStaging: Task<Void, Never>?
 
     var body: some View {
         Group {
@@ -113,51 +125,133 @@ struct NotchPanelView: View {
         .allowsHitTesting(interaction.isEnabled)
         .animation(nil, value: interaction.isEnabled)
         .onChange(of: model.delay) { _, newDelay in stageDelayChange(to: newDelay) }
-        // The mode does not change the panel's width (see `expandedWidth`), so
-        // it has nothing to stage — it just tells the controller to re-measure.
-        .onChange(of: model.mode)  { _, _ in onModeDelayChanged() }
+        .onChange(of: model.mode)  { _, newMode in stageModeChange(to: newMode) }
     }
 
-    /// Two beats: the cell empties while it travels, then fills again once it
-    /// has arrived.
+    /// The button is never smaller than what it holds — so it grows before it
+    /// is filled, and empties before it shrinks.
     ///
-    /// The glyphs — both of them, symbol and digits — dissolve at the same
-    /// moment the panel and the button start resizing, so what travels is an
-    /// empty button rather than one dragging its contents sideways. They come
-    /// back only after the width has settled, which is what keeps the new value
-    /// from appearing to slide in from the edge: by then there is no motion
-    /// left for it to inherit.
+    /// Widening, the size goes first: the button and the panel travel with the
+    /// old glyphs still in place and the symbol still centred, and only once
+    /// they have arrived does the group cross-fade to the new contents, the
+    /// symbol taking its place beside a value that was not there before.
     ///
-    /// `shownDelay` is what the cell is drawn from. It leads the fade rather
-    /// than lagging it, because the resize is the thing being covered up.
+    /// Narrowing, the order reverses: the group fades out first, the value is
+    /// replaced and re-centred behind the fade, and the button closes down onto
+    /// it before the group returns. Shrinking first would clip the glyphs
+    /// against an edge arriving faster than they could leave.
+    ///
+    /// That is why the cell is drawn from two values. `contentDelay` follows
+    /// the fade, `widthDelay` follows the travel, and which of them moves first
+    /// is the only difference between the two directions.
     private func stageDelayChange(to newDelay: CaptureDelay) {
         delayStaging?.cancel()
 
-        // Nothing on screen to animate. Settling now means the panel is already
-        // correct by the time it is next opened — the alternative is a value
-        // that changes during the reveal, which reads as a glitch in the
-        // opening rather than as an answer to a menu chosen minutes ago.
+        // Nothing on screen settles outright: the panel is then already correct
+        // the next time it opens, where the alternative is a value that changes
+        // during the reveal — a glitch in the opening rather than an answer to
+        // a menu chosen minutes ago.
+        // The plate leaves before anything moves — see `delayHighlightRelease`.
+        withAnimation(.easeInOut(duration: PanelTiming.delayHighlightRelease)) {
+            timerHighlightSuppressed = true
+        }
+
         guard contentOpacity > 0 else {
-            shownDelay = newDelay
+            contentDelay = newDelay
+            widthDelay = newDelay
             delayGlyphOpacity = 1
             onModeDelayChanged()
             return
         }
 
+        // Nil against a notch: the panel's width does not follow the delay
+        // there, so there is no travel to order the fade around. The beats are
+        // the same, the middle one is simply missing.
+        let widening: Bool? = metrics.hasNotch ? nil
+            : metrics.timerCellWidth(for: newDelay.shortLabel)
+            > metrics.timerCellWidth(for: (widthDelay ?? model.delay).shortLabel)
+
         delayStaging = Task { @MainActor in
-            withAnimation(.linear(duration: PanelTiming.delayValueFade)) {
+            if widening == true {
+                // The one case that has to wait: the plate must be gone before
+                // the button starts growing, or it is a lit rectangle being
+                // stretched behind the glyphs.
+                try? await Task.sleep(for: .seconds(PanelTiming.delayHighlightRelease))
+                guard !Task.isCancelled else { return }
+
+                widthDelay = newDelay
+                onModeDelayChanged()
+                try? await Task.sleep(for: .seconds(PanelTiming.delayWidthMorph))
+                guard !Task.isCancelled else { return }
+            }
+
+            // Same easeOut the countdown's digits change on, at its own
+            // duration — see `delayGlyphFade`.
+            //
+            // Everywhere else the plate is still on its way out as this starts:
+            // both are leaving, so they leave together rather than in a queue.
+            // The wait covers whichever of the two is slower.
+            withAnimation(.easeOut(duration: PanelTiming.delayGlyphFade)) {
                 delayGlyphOpacity = 0
             }
-            // Same instant: the cell's width and the window's frame, both
-            // linear over `delayWidthMorph`.
-            shownDelay = newDelay
-            onModeDelayChanged()
-
-            try? await Task.sleep(for: .seconds(PanelTiming.delayWidthMorph))
+            try? await Task.sleep(for: .seconds(max(PanelTiming.delayGlyphFade,
+                                                    PanelTiming.delayHighlightRelease)))
             guard !Task.isCancelled else { return }
 
-            withAnimation(.linear(duration: PanelTiming.delayValueFade)) {
+            // Behind the fade: the new value, and the symbol back in the place
+            // the new layout gives it.
+            contentDelay = newDelay
+
+            if widening != true {
+                widthDelay = newDelay
+                onModeDelayChanged()
+                // Only a real narrowing has something to wait for.
+                if widening == false {
+                    try? await Task.sleep(for: .seconds(PanelTiming.delayWidthMorph))
+                    guard !Task.isCancelled else { return }
+                }
+            }
+
+            withAnimation(.easeOut(duration: PanelTiming.delayGlyphFade)) {
                 delayGlyphOpacity = 1
+            }
+        }
+    }
+
+    /// The mode cell, on the same beats minus the travel.
+    ///
+    /// Its width never changes — `expandedWidth` does not consult the mode — so
+    /// there is nothing for the fade to cover. It runs anyway, because a panel
+    /// where one menu cell dissolves and the one beside it snaps is a panel
+    /// with two opinions about what changing a value looks like.
+    private func stageModeChange(to newMode: CaptureMode) {
+        modeStaging?.cancel()
+        withAnimation(.easeInOut(duration: PanelTiming.delayHighlightRelease)) {
+            modeHighlightSuppressed = true
+        }
+
+        guard contentOpacity > 0 else {
+            shownMode = newMode
+            modeGlyphOpacity = 1
+            onModeDelayChanged()
+            return
+        }
+
+        modeStaging = Task { @MainActor in
+            // Plate and glyphs leave together — nothing here grows first, so
+            // there is nothing for the plate to get out of the way of.
+            withAnimation(.easeOut(duration: PanelTiming.delayGlyphFade)) {
+                modeGlyphOpacity = 0
+            }
+            try? await Task.sleep(for: .seconds(max(PanelTiming.delayGlyphFade,
+                                                    PanelTiming.delayHighlightRelease)))
+            guard !Task.isCancelled else { return }
+
+            shownMode = newMode
+            onModeDelayChanged()
+
+            withAnimation(.easeOut(duration: PanelTiming.delayGlyphFade)) {
+                modeGlyphOpacity = 1
             }
         }
     }
@@ -257,7 +351,10 @@ struct NotchPanelView: View {
             model: model,
             metrics: metrics,
             onPickColor: onPickColor,
-            onScan: onScan
+            onScan: onScan,
+            iconName: (shownMode ?? model.mode).icon,
+            glyphOpacity: modeGlyphOpacity,
+            highlightSuppressed: $modeHighlightSuppressed
         )
         .animation(nil, value: model.mode)
         .help("Capture mode")
@@ -269,20 +366,30 @@ struct NotchPanelView: View {
     }
 
     private var timerMenuCell: some View {
-        let shortLabel = (shownDelay ?? model.delay).shortLabel
+        // Contents from one value, size from the other. While they disagree the
+        // button is deliberately larger than what it holds — never smaller.
+        let contentLabel = (contentDelay ?? model.delay).shortLabel
+        let widthLabel = (widthDelay ?? model.delay).shortLabel
         return PanelTimerMenuButton(
             model: model,
             metrics: metrics,
-            digitsWidth: metrics.timerDigitsWidth(for: shortLabel),
-            hasValue: shortLabel != nil,
-            cellWidth: metrics.timerCellWidth(for: shortLabel),
-            valueLabel: shortLabel,
-            glyphOpacity: delayGlyphOpacity
+            digitsWidth: metrics.timerDigitsWidth(for: contentLabel),
+            hasValue: contentLabel != nil,
+            cellWidth: metrics.timerCellWidth(for: widthLabel),
+            valueLabel: contentLabel,
+            glyphOpacity: delayGlyphOpacity,
+            highlightSuppressed: $timerHighlightSuppressed
         )
         // Travels rather than snapping: the panel's own width follows this
         // cell's, and the window frame is animated on the matching curve. A
         // snapped cell was what made an animated window look like it lagged.
-        .animation(.linear(duration: PanelTiming.delayWidthMorph), value: shownDelay)
+        //
+        // Only where the panel actually resizes. Against a notch its width is
+        // fixed, so an animated cell would be the sole thing moving — which is
+        // the instant reflow this had before, and what it goes back to.
+        .animation(metrics.hasNotch ? nil
+                                    : .linear(duration: PanelTiming.delayWidthMorph),
+                   value: widthDelay)
         .help("Capture delay")
         // Labelled from AppKit, like the mode cell above.
     }
@@ -552,6 +659,31 @@ private struct PopUpButtonWrapper: NSViewRepresentable {
     }
 }
 
+// MARK: - CellGlyphFade
+
+/// How a menu cell's glyphs leave and return: dissolving into blur rather than
+/// merely dimming.
+///
+/// The character is the countdown's, whose digits replace each other through
+/// `.blurReplace`. A transition cannot be held open, though, and these fades
+/// have to stay down while the cell's contents — and sometimes its width —
+/// change behind them, so the blur rides the same value the opacity does.
+private struct CellGlyphFade: ViewModifier {
+    let opacity: Double
+
+    func body(content: Content) -> some View {
+        content
+            .opacity(opacity)
+            .blur(radius: (1 - opacity) * 3)
+    }
+}
+
+private extension View {
+    func cellGlyphFade(_ opacity: Double) -> some View {
+        modifier(CellGlyphFade(opacity: opacity))
+    }
+}
+
 // MARK: - PanelModeMenuButton
 
 private struct PanelModeMenuButton: View {
@@ -559,6 +691,11 @@ private struct PanelModeMenuButton: View {
     let metrics: NotchMetrics
     let onPickColor: () -> Void
     let onScan: () -> Void
+    /// Handed in rather than read from the model: it lags while the icon is
+    /// being replaced. See `NotchPanelView.stageModeChange`.
+    let iconName: String
+    let glyphOpacity: Double
+    @Binding var highlightSuppressed: Bool
 
     @Environment(\.colorSchemeContrast) private var contrast
 
@@ -573,14 +710,15 @@ private struct PanelModeMenuButton: View {
                 selection: $model.mode,
                 onPickColor: onPickColor,
                 onScan: onScan,
-                onOpen:  { isMenuOpen = true  },
+                onOpen:  { isMenuOpen = true; highlightSuppressed = false },
                 onClose: { isMenuOpen = false }
             )
             .frame(width: metrics.cellWidth, height: metrics.iconSize)
 
-            Image(systemName: model.mode.icon)
+            Image(systemName: iconName)
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(foregroundColor)
+                .cellGlyphFade(glyphOpacity)
                 .frame(width: 24, height: 24)
                 .frame(width: metrics.cellWidth, height: metrics.iconSize)
                 .background(
@@ -594,13 +732,17 @@ private struct PanelModeMenuButton: View {
         .frame(width: metrics.cellWidth, height: metrics.iconSize)
         .contentShape(Rectangle())
         .clipped()
-        .onHover { isHovered = $0 }
+        // Leaving re-arms the highlight: the release applies to the interaction
+        // that just ended, not to the cell forever.
+        .onHover { isHovered = $0; if !$0 { highlightSuppressed = false } }
         .simultaneousGesture(
             DragGesture(minimumDistance: 0)
                 .onChanged { _ in isPressed = true  }
                 .onEnded   { _ in isPressed = false }
         )
         .animation(.easeInOut(duration: 0.12), value: isHovered)
+        .animation(.easeInOut(duration: PanelTiming.delayHighlightRelease),
+                   value: highlightSuppressed)
         .animation(.easeInOut(duration: 0.12), value: isMenuOpen)
     }
 
@@ -612,9 +754,11 @@ private struct PanelModeMenuButton: View {
     }
 
     private var backgroundColor: Color {
+        // Opening and pressing still win: those are happening now, and only the
+        // leftover hover is what gets released. Same rule as the timer cell.
         if isMenuOpen { return PanelChrome.fill(0.22, contrast) }
         if isPressed  { return PanelChrome.fill(0.28, contrast) }
-        if isHovered  { return PanelChrome.fill(0.16, contrast) }
+        if isHovered, !highlightSuppressed { return PanelChrome.fill(0.16, contrast) }
         return .clear
     }
 }
@@ -634,6 +778,11 @@ private struct PanelTimerMenuButton: View {
     /// the button is what is resizing, and it has to stay visible doing it.
     let glyphOpacity: Double
 
+
+    /// Set by the parent once a chosen value has settled; cleared here on the
+    /// next interaction, so hovering away and back lights the cell as usual.
+    @Binding var highlightSuppressed: Bool
+
     @Environment(\.colorSchemeContrast) private var contrast
 
     @State private var isHovered  = false
@@ -645,7 +794,7 @@ private struct PanelTimerMenuButton: View {
         return ZStack {
             PopUpButtonWrapper(
                 selection: $model.delay,
-                onOpen:  { isMenuOpen = true  },
+                onOpen:  { isMenuOpen = true; highlightSuppressed = false },
                 onClose: { isMenuOpen = false }
             )
             .frame(width: cellWidth, height: metrics.iconSize)
@@ -655,7 +804,7 @@ private struct PanelTimerMenuButton: View {
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(timerForeground)
                     .frame(width: metrics.iconSize, height: metrics.iconSize)
-                    .opacity(glyphOpacity)
+                    .cellGlyphFade(glyphOpacity)
 
                 if hasValue {
                     Text(valueLabel ?? "")
@@ -663,7 +812,7 @@ private struct PanelTimerMenuButton: View {
                         .monospacedDigit()
                         .foregroundStyle(PanelChrome.foreground(0.9, contrast))
                         .frame(width: digitsWidth, height: 12, alignment: .leading)
-                        .opacity(glyphOpacity)
+                        .cellGlyphFade(glyphOpacity)
                 }
             }
             .padding(.leading,  hasValue ? metrics.timerLeadingInsetWithValue  : 0)
@@ -680,13 +829,17 @@ private struct PanelTimerMenuButton: View {
         .frame(width: cellWidth, height: metrics.iconSize)
         .contentShape(Rectangle())
         .clipped()
-        .onHover { isHovered = $0 }
+        // Leaving re-arms the highlight: the release applies to the interaction
+        // that just ended, not to the cell forever.
+        .onHover { isHovered = $0; if !$0 { highlightSuppressed = false } }
         .simultaneousGesture(
             DragGesture(minimumDistance: 0)
                 .onChanged { _ in isPressed = true  }
                 .onEnded   { _ in isPressed = false }
         )
         .animation(.easeInOut(duration: 0.12), value: isHovered)
+        .animation(.easeInOut(duration: PanelTiming.delayHighlightRelease),
+                    value: highlightSuppressed)
         .animation(.easeInOut(duration: 0.12), value: isMenuOpen)
     }
 
@@ -698,9 +851,11 @@ private struct PanelTimerMenuButton: View {
     }
 
     private var timerBackground: Color {
+        // Opening and pressing still win: those are interactions happening now,
+        // and only the leftover hover is what gets released.
         if isMenuOpen { return PanelChrome.fill(0.22, contrast) }
         if isPressed  { return PanelChrome.fill(0.28, contrast) }
-        if isHovered  { return PanelChrome.fill(0.16, contrast) }
+        if isHovered, !highlightSuppressed { return PanelChrome.fill(0.16, contrast) }
         return .clear
     }
 }
