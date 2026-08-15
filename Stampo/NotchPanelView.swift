@@ -728,7 +728,12 @@ struct CountdownView: View {
             Spacer()
             captureNowCell
         }
-        .padding(.horizontal, metrics.outerSideInset)
+        // `edgeSafe`, the same inset the capture row uses, and not
+        // `outerSideInset`: that one is a flat 5 whatever the style, which is
+        // the right number only for the floating rounded panel. Pinned styles
+        // need 18–20 to clear the shape's tapered shoulders, and at 5 the ✕ and
+        // Capture buttons were sliced by the panel's own edge.
+        .padding(.horizontal, metrics.edgeSafe)
         .frame(height: metrics.panelHeight)
         // Controller-owned animation (see NotchPanelView.notchLayout).
         .opacity(contentOpacity)

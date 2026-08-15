@@ -55,6 +55,7 @@ enum PanelTiming {
     /// the morph reads as one motion with the window frame.
     static func accelerateSwift(_ d: TimeInterval) -> Animation { .timingCurve(0.4, 0.0, 0.9, 0.6, duration: d) }
 
+
     /// Content fade-in during panel open. Delayed so the buttons appear once
     /// the GeometryReader shoulders are near final width — fading them in
     /// earlier shows the squeezed mid-expansion layout ("chewed" look).
@@ -356,10 +357,22 @@ private struct NotchPanelRootView: View {
                 // keyframes are an X-scaled 536-wide viewBox, and at the
                 // strip's width their corners come out half as wide as they
                 // are tall — the same distortion the no-notch styles avoid.
-                NotchTabShape()
-                    .fill(Color.black)
-                    .frame(height: m.panelHeight)
-                    .frame(height: windowH, alignment: .top)
+                //
+                // Which shape, though, is the same question the resting panel
+                // answers below: a tab where the panel meets the screen edge, a
+                // rounded rectangle where it floats. Drawing the tab either way
+                // put tapered shoulders on a pill for as long as a translation
+                // was loading, so the panel changed shape and changed back.
+                Group {
+                    if m.pinnedToTopEdge {
+                        NotchTabShape().fill(Color.black)
+                    } else {
+                        RoundedRectangle(cornerRadius: m.panelRadius, style: .continuous)
+                            .fill(Color.black)
+                    }
+                }
+                .frame(height: m.panelHeight)
+                .frame(height: windowH, alignment: .top)
             } else if m.hasNotch {
                 PanelMorphShape(progress: p, pixel: m.pixel, extraHeight: extraH)
                     .fill(Color.black)
@@ -1462,6 +1475,19 @@ final class NotchPanelController: NSObject {
             panel.setFrame(start, display: false)
         }
 
+        // Lay the content out at the width it is about to be shown at, before
+        // anything animates.
+        //
+        // `NSHostingView` sizes itself lazily — more so since the macOS 15 SDK
+        // — and `create()` makes the window at `collapsedWidth`, so a panel
+        // built moments ago is still laid out for that narrower frame. Left to
+        // catch up on its own it did so mid-descent: the panel arrived from the
+        // side with its content cut off. Only after an idle spell, because only
+        // then has the panel been torn down and rebuilt (a Space switch while
+        // hidden, sleep, a display change) rather than reused.
+        panel.updateConstraintsIfNeeded()
+        panel.contentView?.layoutSubtreeIfNeeded()
+
         // .moveToActiveSpace перед orderFront гарантирует привязку к текущему
         // Space; .canJoinAllSpaces после — расширяет присутствие на все Desktop.
         // Подробнее — в orderFrontOnActiveSpace.
@@ -1818,6 +1844,10 @@ final class NotchPanelController: NSObject {
         panel.appearance = NSAppearance(named: .darkAqua)
 
         panel.contentView = NSHostingView(rootView: makeRootView().managedLocale())
+        // A first pass here so the view has a size at all; `showAnimated` runs
+        // another one once it knows the width the panel is opening at.
+        panel.updateConstraintsIfNeeded()
+        panel.contentView?.layoutSubtreeIfNeeded()
         self.panel = panel
         // A new NSPanel is a new lifecycle even when the route and generation
         // happen to be unchanged from the caller's point of view.
