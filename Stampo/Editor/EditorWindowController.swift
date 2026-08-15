@@ -50,6 +50,9 @@ final class EditorWindowController: NSObject, NSWindowDelegate {
     /// they need, and the window stays private.
     var overlayParentWindow: NSWindow? { window }
 
+    /// True while a render-and-write is in flight. See `performSave`.
+    private var isSaving = false
+
     // MARK: Open
 
     func open(url: URL) {
@@ -119,7 +122,19 @@ final class EditorWindowController: NSObject, NSWindowDelegate {
     /// Renders the annotated image and writes it to the save directory as a
     /// new file; marks the document clean and announces the file so the
     /// panel controller can add it to the archive.
+    ///
+    /// The interlock lives here rather than in the view because there are two
+    /// ways in: the toolbar's Save, which the view disables while a render is
+    /// running, and the unsaved-changes alert, which calls straight through and
+    /// never saw that flag. Both saves would have rendered, both would have
+    /// been given a collision-free name — one document, two files, two archive
+    /// entries. A refused second save answers false, so a close or relaunch
+    /// waiting on it stays put rather than proceeding on someone else's write.
     private func performSave(_ document: EditorDocument) async -> Bool {
+        guard !isSaving else { return false }
+        isSaving = true
+        defer { isSaving = false }
+
         guard let artifact = await renderArtifact(for: document) else {
             Log.capture.error("editor: render for save failed")
             return false
