@@ -64,7 +64,7 @@ Clicking the notch and global hotkeys work without any permission — they use s
 
 ## Scan (text & codes)
 
-Select an area of the screen and Stampo reads it in a single pass: every QR/barcode payload plus all readable text. The language is detected for you — recognition is tuned toward English and Russian, and reads other languages macOS knows as well, just less surely. Everything found is copied to the clipboard in visual order, and each finding is added to the archive as a text entry. Nothing is saved to disk, and code payloads are treated strictly as inert text — never opened, linkified, or fetched. Start it from the capture-mode menu in the panel or with `⌃⌥⌘S`.
+Select an area of the screen and Stampo reads it in a single pass: every QR/barcode payload plus all readable text. The language is detected for you — recognition is tuned toward English and Russian, and reads other languages macOS knows as well, just less surely. Everything found is copied to the clipboard in visual order, and each finding is added to the archive as a text entry. Nothing is saved to disk, and code payloads are treated strictly as inert text — never opened, linkified, or fetched. Start it from the capture-mode menu in the panel, with `⌃⌥⌘S`, or from the **Scan** button in the editor — where the same overlay opens over the image itself.
 
 The recognized text comes back as paragraphs, not as the lines the original layout happened to wrap it into: a hyphen at a wrap is kept (so `кто-то` survives), a soft hyphen is dropped, and a blank line or a change of type size starts a new paragraph. Barcode payloads always stay on a line of their own.
 
@@ -83,7 +83,7 @@ Three ways in:
 
 - **Right-click a text entry in the archive → Translate.** The translation arrives as a new entry above it. Past two languages this is a submenu — every language is listed, including the one the text looks like, since detection is right most of the time rather than all of it.
 - **`⌃⌥⌘T`** translates whatever text is on the clipboard — select anywhere, press `⌘C`, then the hotkey. The archive opens with the result.
-- **`⌃` while framing a scan** (see above), for text that cannot be selected at all: a picture, a PDF without a text layer, a video, another machine over VNC.
+- **`⌃` while framing a scan** (see above), for text that cannot be selected at all: a picture, a PDF without a text layer, a video, another machine over VNC. The editor's **Scan** answers `⌃` the same way, for text inside a screenshot you already have open.
 
 The result is an ordinary archive entry: click to copy, drag out, share, remove. Text that is already in the target language is reported rather than filed, so the archive does not fill up with copies of itself.
 
@@ -106,7 +106,7 @@ Click the post-capture thumbnail (or right-click a screenshot in the archive →
 - Rotate the whole image in 90° steps with the toolbar buttons.
 - **Crop** the image: drag a frame with corner/edge handles (or type an exact **W × H** in the toolbar), then **Apply** (**Return**) or **Cancel** (**Esc**). The frame shows a rule-of-thirds grid, nudges with the arrow keys (`⇧` 10 px, `⌥⇧` 50 px), rotates with the image, and stays within the picture; cropping is undoable.
 - **Share** hands the marked-up image to the system share sheet — Mail, Messages, AirDrop, or anything else you have installed. It exports a real file named after the document in your configured format, and never saves: an unsaved edit stays unsaved.
-- **Scan** a region: click the Scan button (next to Crop), drag over an area, and every QR/barcode payload and all readable text is copied to the clipboard and added to the archive. The **Line Breaks** control in the second toolbar row switches between paragraphs (the default) and the raw line-by-line text.
+- **Scan** a region: click the Scan button (next to Crop), drag over an area, and every QR/barcode payload and all readable text is copied to the clipboard and added to the archive. It is the same scanner the `⌃⌥⌘S` hotkey opens — same crosshair, same mode badge, the same **⌥** (keep line breaks), **⌃** (translate), **⇥** (language) and **Esc** — with one difference: it works inside the image rather than across the screen, so the toolbar stays live and a selection cannot leave the picture. The **Line Breaks** control in the second toolbar row and **⌥** are one setting seen twice: the overlay opens on what the control holds, and the control follows what **⌥** does.
 - Hover any toolbar control for a tooltip describing it.
 - Double-click a text label or step marker to edit it; inside a text label, **Return** commits and **⇧Return** starts a new line. New step markers auto-number from the highest numeric label (labels can be any text, e.g. `1.1` or `4.12`).
 - Blur/pixelate always sits beneath the other annotations, so arrows, text, and shapes stay crisp on top of a redacted region.
@@ -136,7 +136,7 @@ Click the post-capture thumbnail (or right-click a screenshot in the archive →
 | Pin panel (collect files) | `⌃⌥⌘P` |
 | Share last item | `⌃⌥⌘D` |
 
-Every hotkey is fully customizable in **Settings → Hotkeys** — record a new combination, restore the default, or clear it to disable the action.
+Every hotkey is fully customizable in **Settings → Hotkeys** — record a new combination, restore the default, or clear it to disable the action. Each row says where it stands: disabled, or held by another app — macOS gives a combination to whoever registered it first, so a shortcut that never fires is reported rather than silently doing nothing.
 
 ### `⇥` — step the list in front of you
 
