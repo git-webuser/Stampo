@@ -647,13 +647,18 @@ struct PresentationInspector: View {
     /// below keep working on it.
     private var sampledPreset: BackgroundPreset {
         let colors = sampledBackgroundColors()
-        let sorted = colors.sorted { $0.red + $0.green + $0.blue < $1.red + $1.green + $1.blue }
-        let dark = sorted.first ?? Self.fallbackColor
-        let light = sorted.last ?? dark
+        // The four quarters of a screenshot are usually near-identical window
+        // chrome, so a gradient drawn between the lightest and the darkest of
+        // them came out looking like a flat fill. A tint and a shade of the
+        // shot's most characteristic colour keep its hue and actually read as
+        // a gradient.
+        let base = Self.characteristicColor(of: colors)
+        let light = Self.mix(base, .white, amount: 0.30)
+        let dark = Self.mix(base, .black, amount: 0.35)
         let background: Presentation.Background
         switch (backgroundKind, gradientShape) {
         case (.solid, _):
-            background = .solid(light)
+            background = .solid(base)
         case (.gradient, .radial):
             background = .radialGradient(stops: [light, dark])
         case (.gradient, .mesh):
@@ -662,6 +667,26 @@ struct PresentationInspector: View {
             background = .linearGradient(stops: [light, dark], angle: .pi / 2)
         }
         return BackgroundPreset(id: "fromImage", background: background)
+    }
+
+    /// The colour that says most about a picture: the one furthest from grey.
+    /// Averaging instead pulls everything towards mud, and the lightest is
+    /// usually just the window's background.
+    private static func characteristicColor(of colors: [Presentation.Color]) -> Presentation.Color {
+        func saturation(_ c: Presentation.Color) -> CGFloat {
+            let high = max(c.red, max(c.green, c.blue))
+            let low = min(c.red, min(c.green, c.blue))
+            return high > 0 ? (high - low) / high : 0
+        }
+        guard let best = colors.max(by: { saturation($0) < saturation($1) }) else {
+            return fallbackColor
+        }
+        guard saturation(best) > 0.08 else {
+            // A grey shot: keep its lightness rather than inventing a hue.
+            return colors.max { $0.red + $0.green + $0.blue < $1.red + $1.green + $1.blue }
+                ?? fallbackColor
+        }
+        return best
     }
 
     private var gradientShapePicker: some View {
@@ -682,11 +707,16 @@ struct PresentationInspector: View {
         // pick the kind twice — once in the tiles, once again by eye.
         // Two filters, one above the other: the kind, and — for gradients —
         // the shape, whose switch now sits over the gallery it narrows.
-        let presets = [sampledPreset] + Self.backgroundPresets.filter { preset in
+        // A transparent page has nothing to offer a gallery.
+        let curated = backgroundKind == .none ? [] : Self.backgroundPresets.filter { preset in
             guard preset.kind == backgroundKind else { return false }
             guard backgroundKind == .gradient else { return true }
             return preset.shape == gradientShape
         }
+        // The picture's own colours take the first slot rather than a ninth:
+        // two rows of four is the shape of the row, and a lone tile on a third
+        // line is not.
+        let presets = curated.isEmpty ? [] : [sampledPreset] + curated.dropLast()
         if !presets.isEmpty {
             VStack(alignment: .leading, spacing: 6) {
                 Text("Presets")
