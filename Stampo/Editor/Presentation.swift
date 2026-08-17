@@ -55,8 +55,7 @@ nonisolated struct Presentation: Equatable, Sendable {
         static let black = Color(red: 0, green: 0, blue: 0, alpha: 1)
     }
 
-    /// Background recipes are values, not live SwiftUI gradients. The sampled
-    /// case carries the colors extracted from the screenshot, not the image.
+    /// Background recipes are values, not live SwiftUI gradients.
     ///
     /// Both gradients carry a *list* of stops rather than a start/end pair:
     /// two stops is the ordinary gradient and three or more is the layered one,
@@ -69,8 +68,10 @@ nonisolated struct Presentation: Equatable, Sendable {
         case solid(Color)
         case linearGradient(stops: [Color], angle: CGFloat)
         case radialGradient(stops: [Color])
+        /// Four corner colours. Where they came from — a preset, the picture,
+        /// the user — is not the model's business; a separate "sampled" case
+        /// only meant the same drawing twice.
         case mesh(colors: [Color])
-        case sampledMesh(colors: [Color])
 
         /// The colors a user-facing stop editor works with. Empty for the
         /// cases that have no editable stop list.
@@ -79,8 +80,7 @@ nonisolated struct Presentation: Equatable, Sendable {
             case .none, .solid:                  return []
             case .linearGradient(let stops, _):  return stops
             case .radialGradient(let stops):     return stops
-            case .mesh(let colors),
-                 .sampledMesh(let colors):       return colors
+            case .mesh(let colors):                return colors
             }
         }
     }

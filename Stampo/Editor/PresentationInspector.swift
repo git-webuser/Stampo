@@ -106,7 +106,7 @@ struct PresentationInspector: View {
     /// are identical, and giving them separate tiles made the panel reflow for
     /// what is really one choice.
     private enum BackgroundKind: String, CaseIterable, Hashable, Identifiable {
-        case solid, none, gradient, sampled
+        case solid, none, gradient
 
         var id: String { rawValue }
 
@@ -115,7 +115,6 @@ struct PresentationInspector: View {
             case .solid:    return "Solid"
             case .none:     return "No Background"
             case .gradient: return "Gradient"
-            case .sampled:  return "From Image"
             }
         }
     }
@@ -355,7 +354,6 @@ struct PresentationInspector: View {
             case .solid:                           return .solid
             case .linearGradient, .radialGradient,
                  .mesh:                            return .gradient
-            case .sampledMesh:                     return .sampled
             }
         }
     }
@@ -618,7 +616,6 @@ struct PresentationInspector: View {
             case .gradient:
                 if gradientShape == .mesh {
                     meshCornerEditor
-                    imageColorsButton("Use Image Colors", systemImage: "eyedropper")
                 } else {
                     stopEditor
                 }
@@ -633,9 +630,6 @@ struct PresentationInspector: View {
                 )
                 .disabled(gradientShape != .linear)
                 .opacity(gradientShape != .linear ? 0.4 : 1)
-            case .sampled:
-                sampledColorStrip
-                imageColorsButton("Refresh from Image", systemImage: "arrow.clockwise")
             }
         }
     }
@@ -643,6 +637,33 @@ struct PresentationInspector: View {
     /// The ready-made pages, four to a row. Same painter as the tiles above and
     /// as the export, so nothing here promises a background the file would draw
     /// differently.
+    /// The picture's own colours, shaped for whichever drawer is open: one
+    /// colour for a solid page, two for a line or a ring, four for a mesh.
+    ///
+    /// It used to be a background kind of its own, which put the same four
+    /// colours in a drawer where nothing else lived and left every other kind
+    /// without them. As a preset it is simply the first thing in the row you
+    /// are already looking at — and it stays an ordinary value, so the controls
+    /// below keep working on it.
+    private var sampledPreset: BackgroundPreset {
+        let colors = sampledBackgroundColors()
+        let sorted = colors.sorted { $0.red + $0.green + $0.blue < $1.red + $1.green + $1.blue }
+        let dark = sorted.first ?? Self.fallbackColor
+        let light = sorted.last ?? dark
+        let background: Presentation.Background
+        switch (backgroundKind, gradientShape) {
+        case (.solid, _):
+            background = .solid(light)
+        case (.gradient, .radial):
+            background = .radialGradient(stops: [light, dark])
+        case (.gradient, .mesh):
+            background = .mesh(colors: colors)
+        default:
+            background = .linearGradient(stops: [light, dark], angle: .pi / 2)
+        }
+        return BackgroundPreset(id: "fromImage", background: background)
+    }
+
     private var gradientShapePicker: some View {
         Picker("", selection: gradientShapeBinding) {
             ForEach(GradientShape.allCases) { shape in
@@ -661,7 +682,7 @@ struct PresentationInspector: View {
         // pick the kind twice — once in the tiles, once again by eye.
         // Two filters, one above the other: the kind, and — for gradients —
         // the shape, whose switch now sits over the gallery it narrows.
-        let presets = Self.backgroundPresets.filter { preset in
+        let presets = [sampledPreset] + Self.backgroundPresets.filter { preset in
             guard preset.kind == backgroundKind else { return false }
             guard backgroundKind == .gradient else { return true }
             return preset.shape == gradientShape
@@ -680,6 +701,15 @@ struct PresentationInspector: View {
                             updateImmediately { $0.background = preset.background }
                         } label: {
                             backgroundSwatch(preset.background)
+                                .overlay(alignment: .bottomTrailing) {
+                                    if preset.id == "fromImage" {
+                                        Image(systemName: "eyedropper")
+                                            .font(.system(size: 9, weight: .semibold))
+                                            .foregroundStyle(.white)
+                                            .shadow(radius: 1)
+                                            .padding(3)
+                                    }
+                                }
                                 .overlay {
                                     RoundedRectangle(cornerRadius: 5)
                                         .strokeBorder(draft.background == preset.background
@@ -689,7 +719,8 @@ struct PresentationInspector: View {
                                 }
                         }
                         .buttonStyle(.plain)
-                        .accessibilityLabel(Text("Presets"))
+                        .help(preset.id == "fromImage" ? "From Image" : "Presets")
+                        .accessibilityLabel(Text(preset.id == "fromImage" ? "From Image" : "Presets"))
                     }
                 }
             }
@@ -786,11 +817,6 @@ struct PresentationInspector: View {
                 }
             }
             return .linearGradient(stops: previewStops(for: .gradient), angle: .pi / 2)
-        case .sampled:
-            if case .sampledMesh(let colors) = draft.background {
-                return .sampledMesh(colors: colors)
-            }
-            return .sampledMesh(colors: sampledBackgroundColors())
         }
     }
 
@@ -944,41 +970,6 @@ struct PresentationInspector: View {
         .font(.system(size: 11))
     }
 
-    private func imageColorsButton(_ title: LocalizedStringKey,
-                                   systemImage: String) -> some View {
-        Button {
-            setSampledMesh()
-        } label: {
-            Label(title, systemImage: systemImage)
-                .frame(maxWidth: .infinity)
-        }
-        .buttonStyle(.bordered)
-        .controlSize(.large)
-    }
-
-    /// The four colours the sampler pulled out of the screenshot — one per
-    /// quarter, in mesh-corner order. They are wells, not read-outs: sampling
-    /// is a starting point, and the whole point of showing them is that a muddy
-    /// one can be replaced without abandoning the other three.
-    private var sampledColorStrip: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Image Colors")
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-            HStack(spacing: Self.swatchGap) {
-                ForEach(0..<4, id: \.self) { index in
-                    ColorChip(color: sampledColors[index], diameter: Self.swatchSize,
-                              supportsOpacity: false) { picked in
-                        var colors = sampledColors
-                        colors[index] = picked
-                        updateImmediately { $0.background = .sampledMesh(colors: colors) }
-                    }
-                    .accessibilityLabel(Text("Image Colors"))
-                }
-                Spacer(minLength: 0)
-            }
-        }
-    }
 
     /// A mesh is four corner colours, and now the panel says so. It used to
     /// offer a single seed that the app spread into four by mixing with white
@@ -1018,29 +1009,7 @@ struct PresentationInspector: View {
         return [first, middle, middle, last]
     }
 
-    private var sampledColors: [Presentation.Color] {
-        let colors: [Presentation.Color] = {
-            if case .sampledMesh(let colors) = draft.background { return colors }
-            return sampledBackgroundColors()
-        }()
-        guard let last = colors.last else {
-            return Array(repeating: Self.fallbackColor, count: 4)
-        }
-        return (0..<4).map { colors.indices.contains($0) ? colors[$0] : last }
-    }
 
-    private func sampledColorBinding(at index: Int) -> Binding<SwiftUI.Color> {
-        Binding(
-            get: { swiftUIColor(sampledColors[index]) },
-            set: { value in
-                var colors = sampledColors
-                colors[index] = presentationColor(value)
-                updateImmediately { $0.background = .sampledMesh(colors: colors) }
-            }
-        )
-    }
-
-    // MARK: Image and effects
 
     /// Position is edited on the object, not on a slider: the four fields are
     /// the *measured* gaps between picture and canvas, and the buttons snap it
@@ -1661,7 +1630,6 @@ struct PresentationInspector: View {
         case .linearGradient,
              .radialGradient,
              .mesh:           return .gradient
-        case .sampledMesh:    return .sampled
         }
     }
 
@@ -1682,8 +1650,6 @@ struct PresentationInspector: View {
             default:
                 next = .linearGradient(stops: stops, angle: .pi / 2)
             }
-        case .sampled:
-            next = .sampledMesh(colors: sampledBackgroundColors())
         }
         updateImmediately { $0.background = next }
     }
@@ -1804,11 +1770,6 @@ struct PresentationInspector: View {
 
     private func setMeshColor(_ color: Presentation.Color) {
         updateImmediately { $0.background = .mesh(colors: Self.meshColors(from: color)) }
-    }
-
-    private func setSampledMesh() {
-        let colors = sampledBackgroundColors()
-        updateImmediately { $0.background = .sampledMesh(colors: colors) }
     }
 
     private static func meshColors(from color: Presentation.Color) -> [Presentation.Color] {

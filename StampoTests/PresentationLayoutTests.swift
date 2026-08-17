@@ -613,7 +613,6 @@ import Testing
             case .solid: return "solid"
             case .linearGradient, .radialGradient: return "gradient"
             case .mesh: return "mesh"
-            case .sampledMesh: return "sampled"
             case .none: return "none"
             }
         }

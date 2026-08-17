@@ -153,7 +153,7 @@ nonisolated enum PresentationRenderer {
             drawLinearGradient(stops: stops, angle: angle, in: rect, ctx: ctx)
         case .radialGradient(let stops):
             drawRadialGradient(stops: stops, in: rect, ctx: ctx)
-        case .mesh(let colors), .sampledMesh(let colors):
+        case .mesh(let colors):
             drawMesh(colors: colors, in: rect, ctx: ctx)
         }
     }
