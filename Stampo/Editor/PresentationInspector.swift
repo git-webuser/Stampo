@@ -1224,7 +1224,11 @@ struct PresentationInspector: View {
     /// The panel's rhythm, in one place: between sections, and between the
     /// controls inside one.
     private static let sectionSpacing: CGFloat = 16
-    private static let controlSpacing: CGFloat = 12
+    private static let controlSpacing: CGFloat = 14
+    /// Breathing room inside a section's box, on top of what `GroupBox` gives.
+    /// Its own inset is about half of what the app's settings cards use, and
+    /// beside them the panel looked cramped rather than compact.
+    private static let groupPadding: CGFloat = 8
 
     /// A slider **and** a typed field for the same number.
     ///
