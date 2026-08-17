@@ -38,6 +38,9 @@ struct PresentationInspector: View {
     /// Session-scoped on purpose: nothing about the decoration is
     /// persisted yet, and a palette is not the place to start.
     @State private var userColors: [Presentation.Color] = []
+    /// The shadow put aside by the hide button, so showing it again brings back
+    /// the one you had rather than a stock one.
+    @State private var hiddenShadow: Presentation.Shadow?
 
     private enum Section: Hashable, CaseIterable {
         case canvas, background, image, shadow
@@ -106,7 +109,9 @@ struct PresentationInspector: View {
     /// are identical, and giving them separate tiles made the panel reflow for
     /// what is really one choice.
     private enum BackgroundKind: String, CaseIterable, Hashable, Identifiable {
-        case solid, none, gradient
+        // Order is the order of the tiles: the two backgrounds you pick from
+        // first, then the way out of having one at all.
+        case solid, gradient, none
 
         var id: String { rawValue }
 
@@ -189,18 +194,40 @@ struct PresentationInspector: View {
             var onCommit: (Double) -> Void = { _ in }
             var current: Double = 0
 
-            /// An empty field means "unchanged": the placeholder is still the
-            /// value, and leaving without typing must not rewrite it.
+            /// An empty field means "unchanged": clicking in clears the number,
+            /// and leaving without typing must not rewrite it.
             private func commit(_ field: NSTextField) {
-                defer { (field as? Field)?.show(current) }
-                let typed = field.stringValue.trimmingCharacters(in: .whitespaces)
-                guard !typed.isEmpty, let value = Double(typed) else { return }
-                onCommit(value)
+                let typed = field.stringValue
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                if !typed.isEmpty, let value = Double(typed) { onCommit(value) }
+                repaint(field)
             }
 
-            @objc func changed(_ sender: NSTextField) { commit(sender) }
+            /// The field goes back to showing the model — one runloop hop later.
+            ///
+            /// `current` is written by `updateNSView`, which runs *after* the
+            /// commit has travelled through the document and back. Drawing it
+            /// inline therefore drew the number from before the edit: that is
+            /// what made Return look like it threw the typed value away, even
+            /// though the model had taken it.
+            private func repaint(_ field: NSTextField) {
+                DispatchQueue.main.async { [weak self, weak field] in
+                    guard let self, let field = field as? Field else { return }
+                    // Not if the keyboard came back in the meantime — the field
+                    // is then showing something the user is in the middle of.
+                    guard field.currentEditor() == nil,
+                          field.window?.firstResponder !== field else { return }
+                    field.show(self.current)
+                }
+            }
 
-
+            /// Return.
+            @objc func changed(_ sender: NSTextField) {
+                commit(sender)
+                // Give the keyboard back, so the value on screen is the model's
+                // again and the next click starts a fresh number.
+                sender.window?.makeFirstResponder(nil)
+            }
 
             func controlTextDidEndEditing(_ notification: Notification) {
                 guard let field = notification.object as? NSTextField else { return }
@@ -490,15 +517,18 @@ struct PresentationInspector: View {
             // The size fields show the page the document actually has, and
             // typing in them sets it.
             HStack(spacing: 8) {
+                // The fields give width back when the panel is narrow; the ×
+                // between them never does. Fixed-width fields squeezed it out
+                // of the row entirely at the panel's minimum width.
                 NumberField(value: .constant(Double(canvasSize.width.rounded()))) { typed in
                     setCustomDimension(.width, to: Int(typed))
                 }
-                .frame(width: Self.numberFieldWidth)
-                Text(verbatim: "×").foregroundStyle(.secondary)
+                .frame(minWidth: 56, maxWidth: Self.numberFieldWidth)
+                Text(verbatim: "×").foregroundStyle(.secondary).fixedSize()
                 NumberField(value: .constant(Double(canvasSize.height.rounded()))) { typed in
                     setCustomDimension(.height, to: Int(typed))
                 }
-                .frame(width: Self.numberFieldWidth)
+                .frame(minWidth: 56, maxWidth: Self.numberFieldWidth)
                 Spacer(minLength: 0)
                 Button {
                     rotateCanvas()
@@ -662,11 +692,29 @@ struct PresentationInspector: View {
         case (.gradient, .radial):
             background = .radialGradient(stops: [light, dark])
         case (.gradient, .mesh):
-            background = .mesh(colors: colors)
+            // Four near-identical quarters make a mesh that looks like a fill.
+            // When the shot has no spread of its own, the corners are built
+            // from its characteristic colour instead.
+            background = .mesh(colors: Self.spread(colors) > 0.12
+                               ? colors
+                               : Self.meshColors(from: base))
         default:
             background = .linearGradient(stops: [light, dark], angle: .pi / 2)
         }
         return BackgroundPreset(id: "fromImage", background: background)
+    }
+
+    /// How far apart the sampled colours are — the largest gap between any two
+    /// of them, on the same 0…1 scale as a channel.
+    private static func spread(_ colors: [Presentation.Color]) -> CGFloat {
+        var widest: CGFloat = 0
+        for (index, a) in colors.enumerated() {
+            for b in colors.dropFirst(index + 1) {
+                widest = max(widest, abs(a.red - b.red)
+                             + abs(a.green - b.green) + abs(a.blue - b.blue))
+            }
+        }
+        return widest
     }
 
     /// The colour that says most about a picture: the one furthest from grey.
@@ -1306,6 +1354,19 @@ struct PresentationInspector: View {
                     updateImmediately { $0.shadow.color = color }
                 }
                 Spacer(minLength: 0)
+                // Same corner and same weight as the canvas rotate button: the
+                // section's one whole-block action. It hides rather than
+                // resets — the radius and the offset survive the round trip,
+                // so turning the shadow back on returns the one you had.
+                Button {
+                    toggleShadow()
+                } label: {
+                    Image(systemName: shadowIsVisible ? "eye" : "eye.slash")
+                }
+                .controlSize(.large)
+                .font(.system(size: 13))
+                .help(shadowIsVisible ? "Hide Shadow" : "Show Shadow")
+                .accessibilityLabel(shadowIsVisible ? Text("Hide Shadow") : Text("Show Shadow"))
             }
             .font(.system(size: 11))
         }
@@ -1546,6 +1607,50 @@ struct PresentationInspector: View {
             guard let preset = $0.pixelSize else { return false }
             return preset == pixelSize || preset == turned
         }
+    }
+
+    /// A transparent shadow is a shadow that is not there — the section needs no
+    /// separate switch to say so.
+    var shadowIsVisible: Bool { draft.shadow.opacity > 0 }
+
+    /// What the hide button turns *on* when there is nothing to bring back: a
+    /// soft drop sitting slightly below the picture. Restoring only the opacity
+    /// of an all-zero shadow would leave the button looking broken.
+    static let defaultVisibleShadow = Presentation.Shadow(
+        radius: 0.05, offset: CGPoint(x: 0, y: 0.02), opacity: 0.35)
+
+    /// Hides the shadow without forgetting it, or brings it back.
+    func toggleShadow() {
+        let (shadow, remembered) = Self.shadowToggled(draft.shadow, remembered: hiddenShadow)
+        hiddenShadow = remembered
+        updateImmediately { $0.shadow = shadow }
+    }
+
+    /// The whole hide/show step as one value: the shadow to apply, and what to
+    /// put aside for the next press.
+    ///
+    /// The colour never takes part in the round trip — it is the one shadow
+    /// setting still worth changing while the shadow is hidden, so bringing the
+    /// shadow back keeps whatever colour is current rather than the old one.
+    static func shadowToggled(_ shadow: Presentation.Shadow,
+                              remembered: Presentation.Shadow?)
+    -> (shadow: Presentation.Shadow, remembered: Presentation.Shadow?) {
+        if shadow.opacity > 0 {
+            var hidden = shadow
+            hidden.opacity = 0
+            return (hidden, shadow)
+        }
+        var shown = shadow
+        if let remembered {
+            shown.radius = remembered.radius
+            shown.offset = remembered.offset
+            shown.opacity = remembered.opacity
+        }
+        // A shadow that is transparent or has no blur is still invisible, which
+        // would make the button look broken on a document that never had one.
+        if shown.opacity <= 0 { shown.opacity = defaultVisibleShadow.opacity }
+        if shown.radius <= 0 { shown.radius = defaultVisibleShadow.radius }
+        return (shown, nil)
     }
 
     /// Turns the canvas a quarter, keeping the same format selected.

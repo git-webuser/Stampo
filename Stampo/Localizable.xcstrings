@@ -2845,6 +2845,23 @@
         }
       }
     },
+    "Hide Shadow" : {
+      "comment" : "Turns the shadow off without losing its settings",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hide Shadow"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Скрыть тень"
+          }
+        }
+      }
+    },
     "History" : {
       "comment" : "Tray settings section header for history/item-limit options",
       "localizations" : {
@@ -3667,6 +3684,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Смещение тени по вертикали"
+          }
+        }
+      }
+    },
+    "Show Shadow" : {
+      "comment" : "Brings the hidden shadow back",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show Shadow"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Показать тень"
           }
         }
       }

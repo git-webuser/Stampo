@@ -170,4 +170,103 @@ import Testing
 
         window.orderOut(nil)
     }
+
+    /// Return has to leave the number you typed on screen. It did reach the
+    /// document, but the field repainted itself from the coordinator's copy of
+    /// the value — a copy `updateNSView` only refreshes on the *next* pass — so
+    /// the old number came straight back and the edit looked rejected.
+    @Test func returnKeepsTheTypedNumber() async {
+        let ctx = CGContext(data: nil, width: 400, height: 300, bitsPerComponent: 8,
+                            bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        ctx.setFillColor(CGColor(gray: 0.85, alpha: 1))
+        ctx.fill(CGRect(x: 0, y: 0, width: 400, height: 300))
+        let document = EditorDocument(baseImage: ctx.makeImage()!,
+                                      sourceURL: URL(fileURLWithPath: "/tmp/return.png"))
+        document.presentation = Presentation(canvas: .auto(margins: .init(all: 20), scale: 1),
+                                             background: .solid(.white))
+        let hosting = NSHostingView(rootView: PresentationInspector(document: document))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 340, height: 1200),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = hosting
+        window.makeKeyAndOrderFront(nil)
+        try? await Task.sleep(for: .milliseconds(700))
+
+        var fields: [NSTextField] = []
+        func walk(_ view: NSView) {
+            if let field = view as? NSTextField, field.isEditable { fields.append(field) }
+            view.subviews.forEach(walk)
+        }
+        walk(hosting)
+        // The first field showing a margin: the canvas size fields carry the
+        // page, 440×340, and every margin is 20.
+        guard let field = fields.first(where: { $0.stringValue == "20" }) else {
+            Issue.record("the inspector should have a margin field showing 20")
+            return
+        }
+
+        window.makeFirstResponder(field)
+        try? await Task.sleep(for: .milliseconds(200))
+        guard let editor = field.currentEditor() as? NSTextView else {
+            Issue.record("the field should have taken the keyboard")
+            return
+        }
+        // Typed through the field editor, the way a person types: setting
+        // `stringValue` behind its back leaves the cell out of step.
+        editor.selectAll(nil)
+        editor.insertText("70", replacementRange: editor.selectedRange())
+        try? await Task.sleep(for: .milliseconds(100))
+        editor.insertNewline(nil)
+        try? await Task.sleep(for: .milliseconds(400))
+
+        let gaps = PresentationLayout.gaps(
+            PresentationLayout.resolve(imagePixelSize: document.pixelSize, document.presentation))
+        #expect(abs(gaps.top - 70) < 0.5)
+        #expect(field.stringValue == "70")
+
+        window.orderOut(nil)
+    }
+
+    /// Hiding the shadow is not resetting it: the blur and the offset have to
+    /// survive, so the button is a way to look at the picture without a shadow
+    /// rather than a way to lose one.
+    @Test func hidingTheShadowKeepsItForLater() {
+        let shadow = Presentation.Shadow(radius: 0.08,
+                                         offset: CGPoint(x: 0.01, y: 0.03),
+                                         opacity: 0.5)
+
+        let hidden = PresentationInspector.shadowToggled(shadow, remembered: nil)
+        #expect(hidden.shadow.opacity == 0)
+        #expect(hidden.remembered == shadow)
+
+        let shown = PresentationInspector.shadowToggled(hidden.shadow,
+                                                        remembered: hidden.remembered)
+        #expect(shown.shadow == shadow)
+        #expect(shown.remembered == nil)
+    }
+
+    /// A document that never had a shadow has nothing to bring back, and
+    /// restoring only the opacity of an all-zero shadow would leave the button
+    /// looking dead — zero blur is invisible at any opacity.
+    @Test func showingAShadowThatNeverExistedGivesAVisibleOne() {
+        let shown = PresentationInspector.shadowToggled(.none, remembered: nil).shadow
+
+        #expect(shown.opacity > 0)
+        #expect(shown.radius > 0)
+    }
+
+    /// The colour stays out of the round trip: it is the one shadow setting
+    /// still worth changing while the shadow is hidden.
+    @Test func showingTheShadowKeepsTheColorPickedWhileItWasHidden() {
+        let hidden = PresentationInspector.shadowToggled(
+            Presentation.Shadow(radius: 0.08, offset: .zero, opacity: 0.4), remembered: nil)
+        var recolored = hidden.shadow
+        recolored.color = Presentation.Color(red: 0.1, green: 0.2, blue: 0.9, alpha: 1)
+
+        let shown = PresentationInspector.shadowToggled(recolored, remembered: hidden.remembered)
+
+        #expect(shown.shadow.color == recolored.color)
+        #expect(shown.shadow.opacity == 0.4)
+        #expect(shown.shadow.radius == 0.08)
+    }
 }

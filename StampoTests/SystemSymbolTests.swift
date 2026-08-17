@@ -43,6 +43,12 @@ import Testing
         assertSymbols(["link.badge.plus"])
     }
 
+    /// The two whole-section buttons: the canvas rotate and the shadow's
+    /// hide/show, in both of its states.
+    @Test func sectionActionSymbolsExist() {
+        assertSymbols(["rotate.right", "eye", "eye.slash"])
+    }
+
     private func assertSymbols(_ names: [String]) {
         for name in names {
             #expect(
