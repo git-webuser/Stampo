@@ -1226,6 +1226,27 @@ import Testing
         #expect(arrow.resolvedEnd(in: [target, arrow]) == CGPoint(x: 150, y: 100))
     }
 
+    // MARK: arrow keys
+
+    /// The arrow keys used to ask for a selected *annotation* before they did
+    /// anything, so a selected picture — which has no annotation id — could be
+    /// dragged with the mouse but never nudged with the keyboard.
+    @Test func arrowKeysMoveASelectedPicture() {
+        #expect(EditorCanvasView.nudgeTarget(selectedID: nil, imageSelected: true,
+                                             isDecorated: true) == .image)
+    }
+
+    /// An annotation still wins, and an undecorated picture has no canvas to
+    /// move within, so the keys stay with whatever else wants them.
+    @Test func arrowKeysPreferTheAnnotationAndSkipAnUndecoratedPicture() {
+        #expect(EditorCanvasView.nudgeTarget(selectedID: UUID(), imageSelected: true,
+                                             isDecorated: true) == .annotation)
+        #expect(EditorCanvasView.nudgeTarget(selectedID: nil, imageSelected: true,
+                                             isDecorated: false) == .nothing)
+        #expect(EditorCanvasView.nudgeTarget(selectedID: nil, imageSelected: false,
+                                             isDecorated: true) == .nothing)
+    }
+
     // MARK: degenerate
 
     @Test func degenerateDetection() {

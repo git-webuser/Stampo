@@ -1777,16 +1777,25 @@ struct EditorCanvasView: View {
                     self.tool = .select
                 } else if self.document.selectedID != nil {
                     self.document.selectedID = nil
+                } else if self.imageSelected {
+                    // The picture is a selection like any other, frame and all,
+                    // so Escape has to be able to drop it too.
+                    self.imageSelected = false
                 }
                 return nil
             }
 
-            guard event.type == .keyDown, self.document.selectedID != nil else { return event }
+            let nudges = Self.nudgeTarget(selectedID: self.document.selectedID,
+                                          imageSelected: self.imageSelected,
+                                          isDecorated: self.document.presentation != nil)
+            guard event.type == .keyDown, nudges != .nothing else { return event }
 
             // Delete / Backspace removes the selection. SwiftUI's
             // onDeleteCommand never fires because the Canvas isn't first
-            // responder, so the monitor owns this.
+            // responder, so the monitor owns this. The picture cannot be
+            // deleted — it is the document.
             if event.keyCode == 51 || event.keyCode == 117,
+               nudges == .annotation,
                event.modifierFlags.intersection([.command, .control, .option]).isEmpty {
                 self.document.deleteSelected()
                 return nil
@@ -1794,17 +1803,37 @@ struct EditorCanvasView: View {
 
             // Arrow-key nudge, of whatever is selected — the picture included.
             guard let delta = Self.nudgeDelta(for: event) else { return event }
-            if self.imageSelected, self.document.presentation != nil {
+            switch nudges {
+            case .image:
                 let canvas = PresentationLayout.resolve(
                     imagePixelSize: self.document.pixelSize,
                     self.document.presentation
                 ).canvasSize
                 self.document.moveImage(by: delta, canvasSize: canvas)
-                return nil
+            case .annotation:
+                self.document.nudgeSelected(by: delta)
+            case .nothing:
+                break
             }
-            self.document.nudgeSelected(by: delta)
             return nil
         }
+    }
+
+    /// What the arrow keys (and Delete) act on.
+    enum NudgeTarget: Equatable { case annotation, image, nothing }
+
+    /// The picture is not an annotation and therefore has no `selectedID`.
+    /// Asking for one before letting an arrow key through is what left a
+    /// selected picture sitting still: the keys never reached the nudge.
+    static func nudgeTarget(selectedID: UUID?,
+                            imageSelected: Bool,
+                            isDecorated: Bool) -> NudgeTarget {
+        // A selected annotation wins: selecting one drops the picture's
+        // selection anyway, so the two are never both live.
+        if selectedID != nil { return .annotation }
+        // Nothing to move a picture within until there is a canvas around it.
+        if imageSelected, isDecorated { return .image }
+        return .nothing
     }
 
     /// Arrow-key nudge delta in native image pixels: 1, ⇧ 10, ⌥⇧ 50. Returns
