@@ -618,7 +618,16 @@ import Testing
             }
         }
         #expect(kinds.filter { $0 == "solid" }.count >= 4)
-        #expect(kinds.filter { $0 == "gradient" }.count >= 4)
+        // Gradients are filtered twice — by kind and by shape — so each shape
+        // needs its own stock, not four between them.
+        let linear = PresentationInspector.backgroundPresetsForTesting.filter {
+            if case .linearGradient = $0 { return true } else { return false }
+        }
+        let radial = PresentationInspector.backgroundPresetsForTesting.filter {
+            if case .radialGradient = $0 { return true } else { return false }
+        }
+        #expect(linear.count >= 8)
+        #expect(radial.count >= 8)
         #expect(kinds.filter { $0 == "mesh" }.count >= 4)
     }
 
@@ -640,6 +649,6 @@ import Testing
             #expect(corner != nil)
             #expect((corner?.alphaComponent ?? 0) > 0.99)   // opaque, never a hole
         }
-        #expect(PresentationInspector.backgroundPresetsForTesting.count == 21)
+        #expect(PresentationInspector.backgroundPresetsForTesting.count == 28)
     }
 }

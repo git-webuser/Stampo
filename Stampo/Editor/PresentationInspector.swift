@@ -375,10 +375,23 @@ struct PresentationInspector: View {
             linear("peach", rgb(0.99, 0.83, 0.72), rgb(0.97, 0.62, 0.60)),
             linear("mint", rgb(0.62, 0.93, 0.79), rgb(0.20, 0.63, 0.63)),
             linear("lemon", rgb(0.99, 0.90, 0.55), rgb(0.96, 0.70, 0.25)),
+            linear("lavender", rgb(0.86, 0.83, 0.99), rgb(0.55, 0.50, 0.85)),
             BackgroundPreset(id: "rose", background: .radialGradient(
                 stops: [rgb(0.98, 0.78, 0.83), rgb(0.85, 0.36, 0.53)])),
             BackgroundPreset(id: "deep", background: .radialGradient(
                 stops: [rgb(0.31, 0.36, 0.62), rgb(0.06, 0.07, 0.14)])),
+            BackgroundPreset(id: "amberGlow", background: .radialGradient(
+                stops: [rgb(0.99, 0.85, 0.55), rgb(0.85, 0.45, 0.15)])),
+            BackgroundPreset(id: "mintGlow", background: .radialGradient(
+                stops: [rgb(0.80, 0.98, 0.90), rgb(0.15, 0.50, 0.45)])),
+            BackgroundPreset(id: "violetGlow", background: .radialGradient(
+                stops: [rgb(0.80, 0.70, 0.99), rgb(0.30, 0.15, 0.55)])),
+            BackgroundPreset(id: "steel", background: .radialGradient(
+                stops: [rgb(0.85, 0.88, 0.92), rgb(0.35, 0.40, 0.48)])),
+            BackgroundPreset(id: "ember", background: .radialGradient(
+                stops: [rgb(0.99, 0.72, 0.55), rgb(0.55, 0.12, 0.15)])),
+            BackgroundPreset(id: "ink", background: .radialGradient(
+                stops: [rgb(0.45, 0.50, 0.60), rgb(0.05, 0.05, 0.09)])),
             BackgroundPreset(id: "warmMesh", background: .mesh(colors: [
                 rgb(0.99, 0.80, 0.55), rgb(0.97, 0.55, 0.44),
                 rgb(0.85, 0.36, 0.53), rgb(0.99, 0.88, 0.72)])),
@@ -564,6 +577,8 @@ struct PresentationInspector: View {
                 setBackgroundKind(kind)
             }
 
+            if backgroundKind == .gradient { gradientShapePicker }
+
             presetGallery
 
             switch backgroundKind {
@@ -576,14 +591,6 @@ struct PresentationInspector: View {
                 swatchRow(selected: solidColor) { setSolidColor($0) }
                 customColorRow(binding: solidColorBinding)
             case .gradient:
-                Picker("", selection: gradientShapeBinding) {
-                    ForEach(GradientShape.allCases) { shape in
-                        Text(shape.titleKey).tag(shape)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .controlSize(.large)
                 stopEditor
                 // Always present, disabled for radial: linear and radial are two
                 // modes of one thing, and the panel must not reflow when the
@@ -610,12 +617,30 @@ struct PresentationInspector: View {
     /// The ready-made pages, four to a row. Same painter as the tiles above and
     /// as the export, so nothing here promises a background the file would draw
     /// differently.
+    private var gradientShapePicker: some View {
+        Picker("", selection: gradientShapeBinding) {
+            ForEach(GradientShape.allCases) { shape in
+                Text(shape.titleKey).tag(shape)
+            }
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .controlSize(.large)
+    }
+
     @ViewBuilder
     private var presetGallery: some View {
         // The kind above *is* the filter: a solid page offers solids, a
         // gradient offers gradients. Sorting them into one heap made the user
         // pick the kind twice — once in the tiles, once again by eye.
-        let presets = Self.backgroundPresets.filter { $0.kind == backgroundKind }
+        // Two filters, one above the other: the kind, and — for gradients —
+        // the shape, whose switch now sits over the gallery it narrows.
+        let presets = Self.backgroundPresets.filter { preset in
+            guard preset.kind == backgroundKind else { return false }
+            guard backgroundKind == .gradient else { return true }
+            if case .radialGradient = preset.background { return gradientShape == .radial }
+            return gradientShape == .linear
+        }
         if !presets.isEmpty {
             VStack(alignment: .leading, spacing: 6) {
                 Text("Presets")
