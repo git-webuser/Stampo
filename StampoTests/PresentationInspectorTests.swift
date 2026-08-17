@@ -227,6 +227,118 @@ import Testing
         window.orderOut(nil)
     }
 
+    /// A click anywhere else has to end the edit — nothing else in a SwiftUI
+    /// panel takes the keyboard when clicked, so the field kept it and the
+    /// typed number never reached the document.
+    @Test func clickingOutsideTheFieldCommitsAndLetsGo() async {
+        let (document, hosting, window) = await inspectorWithMargins()
+        guard let field = marginField(in: hosting) else { return }
+
+        window.makeFirstResponder(field)
+        try? await Task.sleep(for: .milliseconds(200))
+        guard let editor = field.currentEditor() as? NSTextView else {
+            Issue.record("the field should have taken the keyboard")
+            return
+        }
+        editor.selectAll(nil)
+        editor.insertText("70", replacementRange: editor.selectedRange())
+        try? await Task.sleep(for: .milliseconds(100))
+
+        // A click in the panel well away from the field. It goes through the
+        // application, not straight to the window: the field watches the app's
+        // event stream, which is where a local monitor sees clicks. The mouse-up
+        // is queued first so nothing sits in a tracking loop waiting for it.
+        let elsewhere = field.convert(CGPoint(x: field.bounds.midX,
+                                              y: field.bounds.midY + 220), to: nil)
+        let stamp = ProcessInfo.processInfo.systemUptime
+        let down = NSEvent.mouseEvent(with: .leftMouseDown, location: elsewhere,
+                                      modifierFlags: [], timestamp: stamp,
+                                      windowNumber: window.windowNumber, context: nil,
+                                      eventNumber: 0, clickCount: 1, pressure: 1)!
+        let up = NSEvent.mouseEvent(with: .leftMouseUp, location: elsewhere,
+                                    modifierFlags: [], timestamp: stamp,
+                                    windowNumber: window.windowNumber, context: nil,
+                                    eventNumber: 1, clickCount: 1, pressure: 0)!
+        NSApp.postEvent(up, atStart: false)
+        NSApp.postEvent(down, atStart: true)
+        try? await Task.sleep(for: .milliseconds(600))
+
+        let gaps = PresentationLayout.gaps(
+            PresentationLayout.resolve(imagePixelSize: document.pixelSize, document.presentation))
+        #expect(abs(gaps.top - 70) < 0.5)
+        #expect(field.currentEditor() == nil)
+        #expect(field.stringValue == "70")
+
+        window.orderOut(nil)
+    }
+
+    /// Escape is the way out that changes nothing: the document keeps its
+    /// number and the field goes back to showing it.
+    @Test func escapeLeavesTheNumberAlone() async {
+        let (document, hosting, window) = await inspectorWithMargins()
+        guard let field = marginField(in: hosting) else { return }
+
+        window.makeFirstResponder(field)
+        try? await Task.sleep(for: .milliseconds(200))
+        guard let editor = field.currentEditor() as? NSTextView else {
+            Issue.record("the field should have taken the keyboard")
+            return
+        }
+        editor.selectAll(nil)
+        editor.insertText("70", replacementRange: editor.selectedRange())
+        try? await Task.sleep(for: .milliseconds(100))
+        // Escape, as the key-binding machinery delivers it: the field editor
+        // asks its delegate to handle `cancelOperation:` (the text view itself
+        // does not implement it).
+        editor.doCommand(by: #selector(NSResponder.cancelOperation(_:)))
+        try? await Task.sleep(for: .milliseconds(600))
+
+        let gaps = PresentationLayout.gaps(
+            PresentationLayout.resolve(imagePixelSize: document.pixelSize, document.presentation))
+        #expect(abs(gaps.top - 20) < 0.5)
+        #expect(field.currentEditor() == nil)
+        #expect(field.stringValue == "20")
+
+        window.orderOut(nil)
+    }
+
+    /// A 400×300 picture with 20 pt margins, shown in a real window: the
+    /// keyboard tests all need one.
+    private func inspectorWithMargins() async -> (EditorDocument, NSHostingView<PresentationInspector>, NSWindow) {
+        let ctx = CGContext(data: nil, width: 400, height: 300, bitsPerComponent: 8,
+                            bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        ctx.setFillColor(CGColor(gray: 0.85, alpha: 1))
+        ctx.fill(CGRect(x: 0, y: 0, width: 400, height: 300))
+        let document = EditorDocument(baseImage: ctx.makeImage()!,
+                                      sourceURL: URL(fileURLWithPath: "/tmp/keyboard.png"))
+        document.presentation = Presentation(canvas: .auto(margins: .init(all: 20), scale: 1),
+                                             background: .solid(.white))
+        let hosting = NSHostingView(rootView: PresentationInspector(document: document))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 340, height: 1200),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = hosting
+        window.makeKeyAndOrderFront(nil)
+        try? await Task.sleep(for: .milliseconds(700))
+        return (document, hosting, window)
+    }
+
+    /// The first field showing a margin: the canvas size fields carry the page,
+    /// 440×340, and every margin is 20.
+    private func marginField(in hosting: NSView) -> NSTextField? {
+        var fields: [NSTextField] = []
+        func walk(_ view: NSView) {
+            if let field = view as? NSTextField, field.isEditable { fields.append(field) }
+            view.subviews.forEach(walk)
+        }
+        walk(hosting)
+        guard let field = fields.first(where: { $0.stringValue == "20" }) else {
+            Issue.record("the inspector should have a margin field showing 20")
+            return nil
+        }
+        return field
+    }
+
     /// Hiding the shadow is not resetting it: the blur and the offset have to
     /// survive, so the button is a way to look at the picture without a shadow
     /// rather than a way to lose one.

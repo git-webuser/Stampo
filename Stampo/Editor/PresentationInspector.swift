@@ -172,8 +172,46 @@ struct PresentationInspector: View {
             /// looks like text you could edit, and it is not.
             override func becomeFirstResponder() -> Bool {
                 let accepted = super.becomeFirstResponder()
-                if accepted { stringValue = "" }
+                if accepted {
+                    stringValue = ""
+                    watchForClicksOutside()
+                }
                 return accepted
+            }
+
+            /// Editing is over however it ended — Return, Escape, a click
+            /// elsewhere — so this is where the watch stops.
+            override func textDidEndEditing(_ notification: Notification) {
+                super.textDidEndEditing(notification)
+                stopWatchingForClicksOutside()
+            }
+
+            private var clicksOutside: Any?
+
+            /// A click beside the field used to leave it editing: almost
+            /// nothing in a SwiftUI panel takes the keyboard when clicked, so
+            /// nobody took it away from the field and the number stayed
+            /// uncommitted with the field still empty. Watching the window's
+            /// own clicks is the only place that sees all of them — sliders,
+            /// tiles, plain labels and the panel's background alike.
+            private func watchForClicksOutside() {
+                guard clicksOutside == nil else { return }
+                clicksOutside = NSEvent.addLocalMonitorForEvents(
+                    matching: [.leftMouseDown, .rightMouseDown]
+                ) { [weak self] event in
+                    // The event is returned untouched: this ends the editing
+                    // session, it does not swallow the click that ended it.
+                    guard let self, let window = self.window, event.window === window
+                    else { return event }
+                    let point = self.convert(event.locationInWindow, from: nil)
+                    if !self.bounds.contains(point) { window.makeFirstResponder(nil) }
+                    return event
+                }
+            }
+
+            private func stopWatchingForClicksOutside() {
+                if let clicksOutside { NSEvent.removeMonitor(clicksOutside) }
+                clicksOutside = nil
             }
 
             func show(_ number: Double) {
@@ -232,6 +270,28 @@ struct PresentationInspector: View {
             func controlTextDidEndEditing(_ notification: Notification) {
                 guard let field = notification.object as? NSTextField else { return }
                 commit(field)
+            }
+
+            /// Escape: leave without changing anything.
+            ///
+            /// The field is empty from the moment it takes the keyboard, so
+            /// AppKit's own abort has nothing to put back — the number is
+            /// redrawn from the model here instead. Nothing is committed on
+            /// this path, which is the whole point of Escape.
+            func control(_ control: NSControl, textView: NSTextView,
+                         doCommandBy selector: Selector) -> Bool {
+                guard selector == #selector(NSResponder.cancelOperation(_:)) else { return false }
+                let value = current
+                // Not inside the command: tearing the field editor down while
+                // it is dispatching its own command is how AppKit ends up
+                // waiting on itself.
+                DispatchQueue.main.async { [weak control] in
+                    guard let field = control as? Field else { return }
+                    field.abortEditing()
+                    field.show(value)
+                    field.window?.makeFirstResponder(nil)
+                }
+                return true
             }
         }
 
@@ -469,6 +529,8 @@ struct PresentationInspector: View {
     /// One row of eight, never two. Sized together with `contentMinimumWidth`.
     private static let swatchSize: CGFloat = 22
     private static let swatchGap: CGFloat = 6
+    /// The square inside a section's action button.
+    private static let sectionActionSize: CGFloat = 22
 
     init(document: EditorDocument) {
         self.document = document
@@ -530,16 +592,10 @@ struct PresentationInspector: View {
                 }
                 .frame(minWidth: 56, maxWidth: Self.numberFieldWidth)
                 Spacer(minLength: 0)
-                Button {
+                sectionActionButton("rotate.right", label: "Rotate Canvas") {
                     rotateCanvas()
-                } label: {
-                    Image(systemName: "rotate.right")
                 }
-                .controlSize(.large)
-                .help("Rotate Canvas")
-                .accessibilityLabel(Text("Rotate Canvas"))
                 .disabled(marginsAreFree)
-
             }
             .controlSize(.large)
             .font(.system(size: 13))
@@ -1354,19 +1410,14 @@ struct PresentationInspector: View {
                     updateImmediately { $0.shadow.color = color }
                 }
                 Spacer(minLength: 0)
-                // Same corner and same weight as the canvas rotate button: the
-                // section's one whole-block action. It hides rather than
-                // resets — the radius and the offset survive the round trip,
-                // so turning the shadow back on returns the one you had.
-                Button {
+                // Same corner, same button as the canvas rotate: the section's
+                // one whole-block action. It hides rather than resets — the
+                // radius and the offset survive the round trip, so turning the
+                // shadow back on returns the one you had.
+                sectionActionButton(shadowIsVisible ? "eye" : "eye.slash",
+                                    label: shadowIsVisible ? "Hide Shadow" : "Show Shadow") {
                     toggleShadow()
-                } label: {
-                    Image(systemName: shadowIsVisible ? "eye" : "eye.slash")
                 }
-                .controlSize(.large)
-                .font(.system(size: 13))
-                .help(shadowIsVisible ? "Hide Shadow" : "Show Shadow")
-                .accessibilityLabel(shadowIsVisible ? Text("Hide Shadow") : Text("Show Shadow"))
             }
             .font(.system(size: 11))
         }
@@ -1393,6 +1444,27 @@ struct PresentationInspector: View {
     }
 
     // MARK: Building blocks
+
+    /// A section's one whole-block action, in the trailing corner of its last
+    /// row: rotate for the canvas, hide/show for the shadow. One builder, so
+    /// the two are the same button rather than two buttons that happen to look
+    /// alike — they sit in rows with different fonts, and inheriting those made
+    /// them different sizes.
+    private func sectionActionButton(
+        _ systemImage: String,
+        label: LocalizedStringKey,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 13))
+                .frame(width: Self.sectionActionSize, height: Self.sectionActionSize)
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.large)
+        .help(label)
+        .accessibilityLabel(Text(label))
+    }
 
     /// The group's own title is the only title: the controls inside carry no
     /// repeated label, so "Canvas / Canvas" and "Background / Background" are
