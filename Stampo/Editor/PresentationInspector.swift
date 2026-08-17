@@ -106,7 +106,7 @@ struct PresentationInspector: View {
     /// are identical, and giving them separate tiles made the panel reflow for
     /// what is really one choice.
     private enum BackgroundKind: String, CaseIterable, Hashable, Identifiable {
-        case solid, none, gradient, mesh, sampled
+        case solid, none, gradient, sampled
 
         var id: String { rawValue }
 
@@ -115,14 +115,16 @@ struct PresentationInspector: View {
             case .solid:    return "Solid"
             case .none:     return "No Background"
             case .gradient: return "Gradient"
-            case .mesh:     return "Mesh"
             case .sampled:  return "From Image"
             }
         }
     }
 
+    /// A mesh is a gradient too — four colours instead of two, spread over the
+    /// corners rather than along a line — so it belongs beside the other two
+    /// rather than in the list of background kinds.
     private enum GradientShape: String, CaseIterable, Hashable, Identifiable {
-        case linear, radial
+        case linear, radial, mesh
 
         var id: String { rawValue }
 
@@ -130,6 +132,7 @@ struct PresentationInspector: View {
             switch self {
             case .linear: return "Linear"
             case .radial: return "Radial"
+            case .mesh:   return "Mesh"
             }
         }
     }
@@ -336,13 +339,23 @@ struct PresentationInspector: View {
         /// Which list this belongs to. Derived from the value rather than
         /// stated beside it: a preset that claimed one kind and carried another
         /// would put a gradient in the solid drawer.
+        /// Which drawer inside `Gradient` — the three shapes are filtered the
+        /// same way the kinds are, from the value itself.
+        var shape: GradientShape {
+            switch background {
+            case .radialGradient: return .radial
+            case .mesh:           return .mesh
+            default:              return .linear
+            }
+        }
+
         var kind: BackgroundKind {
             switch background {
-            case .none:                          return .none
-            case .solid:                         return .solid
-            case .linearGradient, .radialGradient: return .gradient
-            case .mesh:                          return .mesh
-            case .sampledMesh:                   return .sampled
+            case .none:                            return .none
+            case .solid:                           return .solid
+            case .linearGradient, .radialGradient,
+                 .mesh:                            return .gradient
+            case .sampledMesh:                     return .sampled
             }
         }
     }
@@ -403,7 +416,19 @@ struct PresentationInspector: View {
                 rgb(0.16, 0.35, 0.28), rgb(0.88, 0.95, 0.80)])),
             BackgroundPreset(id: "duskMesh", background: .mesh(colors: [
                 rgb(0.42, 0.33, 0.62), rgb(0.85, 0.45, 0.60),
-                rgb(0.24, 0.20, 0.36), rgb(0.98, 0.75, 0.66)]))
+                rgb(0.24, 0.20, 0.36), rgb(0.98, 0.75, 0.66)])),
+            BackgroundPreset(id: "sunsetMesh", background: .mesh(colors: [
+                rgb(0.99, 0.75, 0.45), rgb(0.95, 0.45, 0.35),
+                rgb(0.60, 0.25, 0.55), rgb(0.99, 0.88, 0.70)])),
+            BackgroundPreset(id: "auroraMesh", background: .mesh(colors: [
+                rgb(0.55, 0.95, 0.85), rgb(0.35, 0.60, 0.95),
+                rgb(0.65, 0.40, 0.95), rgb(0.85, 0.98, 0.95)])),
+            BackgroundPreset(id: "sandMesh", background: .mesh(colors: [
+                rgb(0.96, 0.92, 0.84), rgb(0.88, 0.80, 0.66),
+                rgb(0.72, 0.62, 0.50), rgb(0.99, 0.97, 0.92)])),
+            BackgroundPreset(id: "berryMesh", background: .mesh(colors: [
+                rgb(0.95, 0.60, 0.75), rgb(0.70, 0.25, 0.55),
+                rgb(0.35, 0.15, 0.45), rgb(0.99, 0.82, 0.88)]))
         ]
     }()
 
@@ -591,7 +616,12 @@ struct PresentationInspector: View {
                 swatchRow(selected: solidColor) { setSolidColor($0) }
                 customColorRow(binding: solidColorBinding)
             case .gradient:
-                stopEditor
+                if gradientShape == .mesh {
+                    meshCornerEditor
+                    imageColorsButton("Use Image Colors", systemImage: "eyedropper")
+                } else {
+                    stopEditor
+                }
                 // Always present, disabled for radial: linear and radial are two
                 // modes of one thing, and the panel must not reflow when the
                 // user flips between them.
@@ -601,12 +631,8 @@ struct PresentationInspector: View {
                     range: -180...180, step: 5,
                     unit: .degrees
                 )
-                .disabled(gradientShape == .radial)
-                .opacity(gradientShape == .radial ? 0.4 : 1)
-            case .mesh:
-                swatchRow(selected: nil) { setMeshColor($0) }
-                customColorRow(binding: meshSeedBinding)
-                imageColorsButton("Use Image Colors", systemImage: "eyedropper")
+                .disabled(gradientShape != .linear)
+                .opacity(gradientShape != .linear ? 0.4 : 1)
             case .sampled:
                 sampledColorStrip
                 imageColorsButton("Refresh from Image", systemImage: "arrow.clockwise")
@@ -638,8 +664,7 @@ struct PresentationInspector: View {
         let presets = Self.backgroundPresets.filter { preset in
             guard preset.kind == backgroundKind else { return false }
             guard backgroundKind == .gradient else { return true }
-            if case .radialGradient = preset.background { return gradientShape == .radial }
-            return gradientShape == .linear
+            return preset.shape == gradientShape
         }
         if !presets.isEmpty {
             VStack(alignment: .leading, spacing: 6) {
@@ -753,13 +778,14 @@ struct PresentationInspector: View {
         case .solid:
             return .solid(backgroundKind == .solid ? solidColor : .white)
         case .gradient:
-            let stops = previewStops(for: .gradient)
-            return gradientShape == .radial && backgroundKind == .gradient
-                ? .radialGradient(stops: stops)
-                : .linearGradient(stops: stops, angle: .pi / 2)
-        case .mesh:
-            if case .mesh(let colors) = draft.background { return .mesh(colors: colors) }
-            return .mesh(colors: Self.meshColors(from: Self.fallbackColor))
+            if backgroundKind == .gradient {
+                switch draft.background {
+                case .mesh(let colors):          return .mesh(colors: colors)
+                case .radialGradient(let stops): return .radialGradient(stops: stops)
+                default: break
+                }
+            }
+            return .linearGradient(stops: previewStops(for: .gradient), angle: .pi / 2)
         case .sampled:
             if case .sampledMesh(let colors) = draft.background {
                 return .sampledMesh(colors: colors)
@@ -952,6 +978,44 @@ struct PresentationInspector: View {
                 Spacer(minLength: 0)
             }
         }
+    }
+
+    /// A mesh is four corner colours, and now the panel says so. It used to
+    /// offer a single seed that the app spread into four by mixing with white
+    /// and black — which is why choosing one felt like guessing what would come
+    /// out the other end.
+    private var meshCornerEditor: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Corners")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+            HStack(spacing: Self.swatchGap) {
+                ForEach(0..<4, id: \.self) { index in
+                    ColorChip(color: meshCorners[index], diameter: Self.swatchSize) { picked in
+                        var colors = meshCorners
+                        colors[index] = picked
+                        updateImmediately { $0.background = .mesh(colors: colors) }
+                    }
+                    .accessibilityLabel(Text("Corners"))
+                }
+                Spacer(minLength: 0)
+            }
+        }
+    }
+
+    private var meshCorners: [Presentation.Color] {
+        if case .mesh(let colors) = draft.background, colors.count >= 4 { return colors }
+        return Self.meshCorners(from: draft.background.stops)
+    }
+
+    /// Two stops spread over four corners: the ends keep their colours and the
+    /// other two are the blend, so switching from a line to a mesh keeps what
+    /// the user had rather than starting over.
+    static func meshCorners(from stops: [Presentation.Color]) -> [Presentation.Color] {
+        guard let first = stops.first else { return meshColors(from: fallbackColor) }
+        let last = stops.last ?? first
+        let middle = mix(first, last, amount: 0.5)
+        return [first, middle, middle, last]
     }
 
     private var sampledColors: [Presentation.Color] {
@@ -1595,8 +1659,8 @@ struct PresentationInspector: View {
         case .none:           return .none
         case .solid:          return .solid
         case .linearGradient,
-             .radialGradient: return .gradient
-        case .mesh:           return .mesh
+             .radialGradient,
+             .mesh:           return .gradient
         case .sampledMesh:    return .sampled
         }
     }
@@ -1613,14 +1677,11 @@ struct PresentationInspector: View {
             else { next = .solid(carried.first ?? .white) }
         case .gradient:
             switch draft.background {
-            case .linearGradient, .radialGradient:
+            case .linearGradient, .radialGradient, .mesh:
                 next = draft.background
             default:
                 next = .linearGradient(stops: stops, angle: .pi / 2)
             }
-        case .mesh:
-            if case .mesh(let colors) = draft.background { next = .mesh(colors: colors) }
-            else { next = .mesh(colors: Self.meshColors(from: carried.first ?? Self.fallbackColor)) }
         case .sampled:
             next = .sampledMesh(colors: sampledBackgroundColors())
         }
@@ -1647,8 +1708,11 @@ struct PresentationInspector: View {
     }
 
     private var gradientShape: GradientShape {
-        if case .radialGradient = draft.background { return .radial }
-        return .linear
+        switch draft.background {
+        case .radialGradient: return .radial
+        case .mesh:           return .mesh
+        default:              return .linear
+        }
     }
 
     /// Flipping the shape keeps the stops and the angle: it is the same
@@ -1663,6 +1727,10 @@ struct PresentationInspector: View {
                     presentation.background = .linearGradient(stops: stops, angle: angle)
                 case .radial:
                     presentation.background = .radialGradient(stops: stops)
+                case .mesh:
+                    // The colours carry across: two stops become the two ends
+                    // of a four-corner spread rather than being thrown away.
+                    presentation.background = .mesh(colors: Self.meshCorners(from: stops))
                 }
             }
         })

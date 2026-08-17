@@ -1692,6 +1692,23 @@
         }
       }
     },
+    "Corners" : {
+      "comment" : "The four corner colours of a mesh gradient",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Corners"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Углы"
+          }
+        }
+      }
+    },
     "Could not delete the file" : {
       "extractionState" : "manual",
       "localizations" : {

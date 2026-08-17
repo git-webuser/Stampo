@@ -628,7 +628,7 @@ import Testing
         }
         #expect(linear.count >= 8)
         #expect(radial.count >= 8)
-        #expect(kinds.filter { $0 == "mesh" }.count >= 4)
+        #expect(kinds.filter { $0 == "mesh" }.count >= 8)
     }
 
     /// A preset is an ordinary background value, so every control below the
@@ -649,6 +649,6 @@ import Testing
             #expect(corner != nil)
             #expect((corner?.alphaComponent ?? 0) > 0.99)   // opaque, never a hole
         }
-        #expect(PresentationInspector.backgroundPresetsForTesting.count == 28)
+        #expect(PresentationInspector.backgroundPresetsForTesting.count == 32)
     }
 }
