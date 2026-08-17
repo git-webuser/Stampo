@@ -89,7 +89,15 @@ final class EditorWindowController: NSObject, NSWindowDelegate {
                 guard let self else { return }
                 await self.presentSaveAs(doc)
             },
-            deleteHandler: { [weak self] doc in self?.performDelete(doc) }
+            deleteHandler: { [weak self] doc in self?.performDelete(doc) },
+            presentationInspectorChanged: { [weak self] isPresented in
+                // AppKit owns the window minimum; the view only reports the
+                // native inspector's state so the main editor never gets
+                // squeezed below the toolbar's existing floor.
+                DispatchQueue.main.async {
+                    self?.updateEditorMinimumSize(inspectorPresented: isPresented)
+                }
+            }
         )
         .managedLocale()
 
@@ -115,6 +123,29 @@ final class EditorWindowController: NSObject, NSWindowDelegate {
         // Mandatory for an LSUIElement app: without activation the window
         // never becomes key and the text tool can't take keyboard focus.
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    /// Keeps the window wide enough for the editor and the inspector's
+    /// smallest usable column. Collapsing releases the extra minimum but does
+    /// not forcibly shrink a window the user has already enlarged.
+    private func updateEditorMinimumSize(inspectorPresented: Bool) {
+        guard let window else { return }
+        let base = EditorView.minimumContentSize
+        let minimum = CGSize(
+            width: base.width + (inspectorPresented
+                                 ? EditorView.presentationInspectorMinimumWidth
+                                 : 0),
+            height: base.height
+        )
+        window.contentMinSize = minimum
+
+        guard inspectorPresented else { return }
+        let current = window.contentView?.bounds.size ?? window.frame.size
+        let expanded = CGSize(width: max(current.width, minimum.width),
+                              height: max(current.height, minimum.height))
+        if expanded != current {
+            window.setContentSize(expanded)
+        }
     }
 
     // MARK: Save

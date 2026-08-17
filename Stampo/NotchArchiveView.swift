@@ -343,15 +343,19 @@ struct NotchArchiveView: View {
     /// Drop frame (user-designed mock, "Frame 1000001163"): not a contour ring
     /// but filled plates marking the drop band — top edge exactly at the header
     /// boundary (panelHeight), 5pt off the bottom, dashed system-blue outline.
-    /// Two of them since the band is split: a narrow AirDrop plate leading, the
-    /// archive plate taking the rest. Both are drawn for the whole drag so the
-    /// choice is visible before the user commits to a half; only the one under
-    /// the pointer lights up.
+    /// Three of them since the band is split into AirDrop, archive and editor.
+    /// The layout table is also what decides their widths and hit-test order.
+    /// All are drawn for the whole drag so the choice is visible before the user
+    /// commits to a target; only the one under the pointer lights up.
     private var dropHighlight: some View {
-        HStack(spacing: dropLayout(totalWidth: panelWidth).gap) {
-            plate(for: .airDrop, icon: "airplayaudio", label: "AirDrop")
-                .frame(width: dropLayout(totalWidth: panelWidth).airDropWidth)
-            plate(for: .archive, icon: "arrow.down.document.fill", label: "Drop Files Here")
+        let layout = dropLayout(totalWidth: panelWidth)
+        return HStack(spacing: layout.gap) {
+            ForEach(Array(layout.plates.enumerated()), id: \.offset) { index, item in
+                plate(for: item.zone,
+                      icon: item.zone.icon,
+                      label: dropLabel(for: item.zone))
+                    .frame(width: layout.plateWidths[index])
+            }
         }
         // One backing in the panel's own colour spanning both plates: without
         // it a cell shows through the gap between them, which reads as the
@@ -374,6 +378,14 @@ struct NotchArchiveView: View {
         .opacity((targetedZone != nil && !isInternalDragging) ? 1 : 0)
         .allowsHitTesting(false)
         .animation(.easeInOut(duration: 0.15), value: targetedZone == nil)
+    }
+
+    private func dropLabel(for zone: ArchiveDropZone) -> LocalizedStringKey {
+        switch zone {
+        case .airDrop: return "AirDrop"
+        case .archive: return "Drop into Archive"
+        case .editor: return "Edit in Editor"
+        }
     }
 
     /// One half of the drop band. The inactive half stays visible but muted, so
@@ -421,6 +433,13 @@ struct NotchArchiveView: View {
                 // drop — the files fall back into the archive, where the user
                 // can retry from the context menu.
                 if !AirDropSender.send(urls) { keep(urls) }
+            case .editor:
+                // Archive first: opening can fail for a non-image, or ask about
+                // an unsaved document, but neither outcome should lose the drop.
+                keep(urls)
+                if let url = urls.first {
+                    EditorWindowController.shared.open(url: url)
+                }
             }
         }
         return true

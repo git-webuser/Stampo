@@ -15,10 +15,11 @@ import SwiftUI
 struct ImageScreenGeometry: Equatable {
     var screenRect: NSRect
     var fitScale: CGFloat
-    /// The image's drawn size at zoom 1, and the size of the area it is drawn
-    /// in. Both are already computed by the canvas every layout pass, and the
-    /// scanner needs them to hand a forwarded pinch or Space-drag back to the
-    /// same clamping the canvas's own gestures use.
+    /// The canvas's drawn size at zoom 1, and the size of the area available
+    /// for it. Both are already computed by the canvas every layout pass, and
+    /// the scanner needs them to hand a forwarded pinch or Space-drag back to
+    /// the same clamping the canvas's own gestures use. The image may occupy a
+    /// smaller or offset rect inside that canvas when presentation is active.
     var baseDrawSize: CGSize
     var viewport: CGSize
     /// The part of the image that is actually on screen.

@@ -93,6 +93,23 @@ nonisolated enum AnnotationRenderer {
         annotations: [Annotation],
         skipping skippedID: UUID? = nil
     ) {
+        drawBaseLayer(in: ctx, base: base, blurSources: blurSources,
+                      annotations: annotations, skipping: skippedID)
+        drawAnnotationLayer(in: ctx, base: base, blurSources: blurSources,
+                            annotations: annotations, skipping: skippedID)
+    }
+
+    /// The image plus its redactions — everything that is meaningless outside
+    /// the picture's own bounds. Split from the annotation layer so a decorated
+    /// canvas can clip this half to the rounded image rect while letting the
+    /// other half reach the background.
+    static func drawBaseLayer(
+        in ctx: CGContext,
+        base: CGImage,
+        blurSources: [BlurSource: CGImage],
+        annotations: [Annotation],
+        skipping skippedID: UUID? = nil
+    ) {
         let W = CGFloat(base.width), H = CGFloat(base.height)
         let fullRect = CGRect(x: 0, y: 0, width: W, height: H)
 
@@ -110,7 +127,20 @@ nonisolated enum AnnotationRenderer {
             drawImageInFlippedSpace(source, in: fullRect, ctx: ctx)
             ctx.restoreGState()
         }
+    }
 
+    /// Everything the user draws on top: arrows, shapes, text, steps, loupes.
+    /// These may legitimately sit on the decorated background, so they are
+    /// never clipped to the image.
+    static func drawAnnotationLayer(
+        in ctx: CGContext,
+        base: CGImage,
+        blurSources: [BlurSource: CGImage],
+        annotations: [Annotation],
+        skipping skippedID: UUID? = nil,
+        where include: (Annotation) -> Bool = { _ in true }
+    ) {
+        let annotations = annotations.filter(include)
         for annotation in annotations
             where annotation.id != skippedID && annotation.kind != .blur {
             switch annotation.kind {
@@ -626,20 +656,29 @@ nonisolated enum AnnotationRenderer {
 
     // MARK: Export
 
-    /// Renders the document at the base image's native pixel size.
-    /// The output rep's pixel dimensions always equal the source's.
+    /// Renders the document at the presentation's output canvas size. With no
+    /// presentation, the identity value resolves to the image's native size,
+    /// so existing callers retain their old dimensions and coordinate space.
     nonisolated static func renderBitmap(
         base: CGImage,
         blurSources: [BlurSource: CGImage] = [:],
-        annotations: [Annotation]
+        annotations: [Annotation],
+        presentation: Presentation? = nil
     ) -> NSBitmapImageRep? {
-        let W = base.width, H = base.height
+        let resolvedPresentation = presentation ?? .identity
+        let layout = PresentationLayout.resolve(
+            imagePixelSize: CGSize(width: base.width, height: base.height),
+            resolvedPresentation
+        )
+        let W = max(1, Int(layout.canvasSize.width.rounded()))
+        let H = max(1, Int(layout.canvasSize.height.rounded()))
         guard let rep = NSBitmapImageRep(
             bitmapDataPlanes: nil, pixelsWide: W, pixelsHigh: H,
             bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
             colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0
         ) else { return nil }
-        // 1pt == 1px so annotation pixel coordinates need no scaling.
+        // 1pt == 1px in the output canvas; PresentationRenderer installs the
+        // imageRect transform before handing the image space to AnnotationRenderer.
         rep.size = NSSize(width: W, height: H)
 
         guard let gc = NSGraphicsContext(bitmapImageRep: rep) else { return nil }
@@ -648,8 +687,12 @@ nonisolated enum AnnotationRenderer {
         // top-left pixel-space contract.
         ctx.translateBy(x: 0, y: CGFloat(H))
         ctx.scaleBy(x: 1, y: -1)
-        draw(in: ctx, base: base, blurSources: blurSources,
-             annotations: annotations)
+        PresentationRenderer.draw(in: ctx,
+                                  base: base,
+                                  blurSources: blurSources,
+                                  annotations: annotations,
+                                  presentation: resolvedPresentation,
+                                  layout: layout)
         ctx.flush()
         return rep
     }
@@ -662,7 +705,8 @@ nonisolated enum AnnotationRenderer {
         guard let rep = renderBitmap(
             base: snapshot.baseImage,
             blurSources: snapshot.blurSources,
-            annotations: snapshot.annotations
+            annotations: snapshot.annotations,
+            presentation: snapshot.presentation
         ) else { return nil }
         let (fileType, properties) = ScreenshotFileStore.encoding(for: snapshot.format)
         guard let data = rep.representation(using: fileType, properties: properties)

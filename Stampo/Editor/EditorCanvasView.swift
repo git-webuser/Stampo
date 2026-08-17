@@ -112,6 +112,46 @@ enum EditorViewportGeometry {
         return CGSize(width: min(maxX, max(-maxX, offset.width)),
                       height: min(maxY, max(-maxY, offset.height)))
     }
+
+    /// Zoom and pan that bring `content` fully into view, where zoom 1 means
+    /// "the canvas exactly fits".
+    ///
+    /// Fit is how a user finds something they have lost. If it only ever framed
+    /// the canvas, an annotation dragged outside would stay off screen and the
+    /// one command meant to reveal everything would be the one that hides it.
+    static func fitAll(canvasSize: CGSize, content: CGRect,
+                       canvasBaseDrawSize: CGSize) -> (zoom: CGFloat, pan: CGSize) {
+        guard canvasSize.width > 0, canvasSize.height > 0,
+              content.width > 0, content.height > 0,
+              canvasBaseDrawSize.width > 0
+        else { return (1, .zero) }
+        let zoom = clampedZoom(min(1, min(canvasSize.width / content.width,
+                                          canvasSize.height / content.height)))
+        let baseScale = canvasBaseDrawSize.width / canvasSize.width
+        let dx = content.midX - canvasSize.width / 2
+        let dy = content.midY - canvasSize.height / 2
+        return (zoom, CGSize(width: -dx * baseScale * zoom,
+                             height: -dy * baseScale * zoom))
+    }
+}
+
+/// The pointer, expressed in both spaces the editor works in.
+///
+/// Blur and loupe are measured in image pixels; every other annotation in
+/// canvas pixels. Which one a gesture needs depends on what it is touching, and
+/// what it is touching is only known after the hit test — so both are carried
+/// and each annotation is asked for its own. Without a presentation the two are
+/// the same point and the same scale.
+struct SpacedPoint {
+    let image: CGPoint
+    let canvas: CGPoint
+    let imageScale: CGFloat
+    let canvasScale: CGFloat
+
+    func point(imageSpace: Bool) -> CGPoint { imageSpace ? image : canvas }
+    func scale(imageSpace: Bool) -> CGFloat { imageSpace ? imageScale : canvasScale }
+    func point(for a: Annotation) -> CGPoint { point(imageSpace: a.livesInImageSpace) }
+    func scale(for a: Annotation) -> CGFloat { scale(imageSpace: a.livesInImageSpace) }
 }
 
 /// The eight draggable handles of the crop rectangle (corners resize two
@@ -261,9 +301,16 @@ struct EditorCanvasView: View {
         case cropCreating(start: CGPoint)
         case cropMoving(last: CGPoint)
         case cropResizing(CropHandle)
+        /// The picture is an object too: it drags and resizes like everything
+        /// else on the canvas, in canvas pixels.
+        case movingImage(last: CGPoint)
+        case resizingImage(ImageCorner)
         case ignore
     }
     @State private var dragMode: DragMode?
+    /// The picture is selected. Kept apart from `document.selectedID`, which
+    /// names an annotation — the picture is not one, it is what they sit on.
+    @State private var imageSelected = false
 
     /// Handle grab radius in view points (converted to pixels per gesture).
     private let handleGrabPt: CGFloat = 8
@@ -276,31 +323,42 @@ struct EditorCanvasView: View {
     var body: some View {
         GeometryReader { geo in
             let pixel = document.pixelSize
-            // Reserve a margin around the fitted image so its edges (and a
-            // crop frame snapped to them) never sit flush against the window,
-            // where a drag would resize the window instead of the frame.
-            let edgeInset: CGFloat = 24
-            let availWidth = max(1, geo.size.width - edgeInset * 2)
-            let availHeight = max(1, geo.size.height - edgeInset * 2)
-            let baseFitScale = min(min(availWidth / pixel.width,
-                                       availHeight / pixel.height), 1.0)
-            let fitScale = baseFitScale * zoomFactor
-            let baseDrawSize = CGSize(width: pixel.width * baseFitScale,
-                                      height: pixel.height * baseFitScale)
-            let drawSize = CGSize(width: baseDrawSize.width * zoomFactor,
-                                  height: baseDrawSize.height * zoomFactor)
-            let offset = CGPoint(x: (geo.size.width - drawSize.width) / 2 + panOffset.width,
-                                 y: (geo.size.height - drawSize.height) / 2 + panOffset.height)
+            // Crop stays in image-pixel space while it is active. Hiding the
+            // presentation there keeps the existing crop interaction safe;
+            // the styled canvas returns as soon as the crop is committed.
+            let renderPresentation = tool == .crop ? nil : document.presentation
+            let geometry = EditorCanvasGeometry.resolve(
+                viewport: geo.size,
+                imagePixelSize: pixel,
+                presentation: renderPresentation,
+                zoom: zoomFactor,
+                pan: panOffset
+            )
+            let fitScale = geometry.imageFitScale
+            let baseDrawSize = geometry.canvasBaseDrawSize
+            let drawSize = geometry.imageDrawSize
+            let offset = geometry.imageOffset
 
             ZStack(alignment: .topLeading) {
-                canvas(fitScale: fitScale, offset: offset)
+                canvas(
+                    presentation: renderPresentation,
+                    layout: geometry.presentationLayout,
+                    canvasScale: geometry.canvasScale,
+                    canvasOffset: geometry.canvasOffset,
+                    fitScale: fitScale,
+                    offset: offset
+                )
 
                 if let editingID = editingTextID,
                    let annotation = document.annotations.first(where: { $0.id == editingID }) {
                     if annotation.kind == .step {
-                        stepOverlay(for: annotation, fitScale: fitScale, offset: offset)
+                        stepOverlay(for: annotation,
+                                    fitScale: geometry.canvasScale,
+                                    offset: geometry.canvasOffset)
                     } else {
-                        textOverlay(for: annotation, fitScale: fitScale, offset: offset)
+                        textOverlay(for: annotation,
+                                    fitScale: geometry.canvasScale,
+                                    offset: geometry.canvasOffset)
                     }
                 }
 
@@ -336,6 +394,18 @@ struct EditorCanvasView: View {
                 .allowsHitTesting(false)
             }
             .gesture(dragGesture(fitScale: fitScale, offset: offset, pixel: pixel,
+                                 annotationBounds: reachableAnnotationBounds(
+                                    pixel: pixel,
+                                    layout: geometry.presentationLayout,
+                                    hasPresentation: renderPresentation != nil
+                                 ),
+                                 canvasScale: geometry.canvasScale,
+                                 canvasOffset: geometry.canvasOffset,
+                                 canvasBounds: reachableCanvasBounds(
+                                    layout: geometry.presentationLayout,
+                                    hasPresentation: renderPresentation != nil
+                                 ),
+                                 canvasSize: geometry.presentationLayout.canvasSize,
                                  viewport: geo.size, baseDrawSize: baseDrawSize))
             .simultaneousGesture(magnificationGesture(baseDrawSize: baseDrawSize,
                                                        viewport: geo.size))
@@ -358,6 +428,18 @@ struct EditorCanvasView: View {
                 )
             }
             .onChange(of: pixel) { _, _ in
+                panOffset = EditorViewportGeometry.clampedPanOffset(
+                    panOffset, baseDrawSize: baseDrawSize,
+                    zoom: zoomFactor, viewport: geo.size
+                )
+            }
+            .onChange(of: document.presentation) { _, _ in
+                panOffset = EditorViewportGeometry.clampedPanOffset(
+                    panOffset, baseDrawSize: baseDrawSize,
+                    zoom: zoomFactor, viewport: geo.size
+                )
+            }
+            .onChange(of: tool) { _, _ in
                 panOffset = EditorViewportGeometry.clampedPanOffset(
                     panOffset, baseDrawSize: baseDrawSize,
                     zoom: zoomFactor, viewport: geo.size
@@ -393,26 +475,62 @@ struct EditorCanvasView: View {
 
     // MARK: Canvas
 
-    private func canvas(fitScale: CGFloat, offset: CGPoint) -> some View {
+    private func canvas(presentation: Presentation?,
+                        layout: PresentationLayout.Resolved,
+                        canvasScale: CGFloat,
+                        canvasOffset: CGPoint,
+                        fitScale: CGFloat,
+                        offset: CGPoint) -> some View {
         Canvas { context, _ in
             let markerPreviewID = calloutMarkerPreviewID
             context.withCGContext { cg in
                 cg.saveGState()
-                cg.translateBy(x: offset.x, y: offset.y)
-                cg.scaleBy(x: fitScale, y: fitScale)
+                cg.translateBy(x: canvasOffset.x, y: canvasOffset.y)
+                cg.scaleBy(x: canvasScale, y: canvasScale)
                 // Skip the magnifier for: a text annotation being edited (its
                 // TextField overlays it) and a callout loupe still being drawn
                 // — the marker region is defined without magnification, which
                 // only appears once the drag ends.
                 let skipID = editingAnnotation?.kind == .text ? editingTextID
                     : markerPreviewID
-                AnnotationRenderer.draw(
-                    in: cg,
-                    base: document.baseImage,
-                    blurSources: document.blurSources,
-                    annotations: document.annotations,
-                    skipping: skipID
-                )
+                if let presentation {
+                    PresentationRenderer.draw(
+                        in: cg,
+                        base: document.baseImage,
+                        blurSources: document.blurSources,
+                        annotations: document.annotations,
+                        presentation: presentation,
+                        layout: layout,
+                        skipping: skipID
+                    )
+                    // Editor only: show what the canvas cropped away, so it can
+                    // still be selected and moved back in.
+                    PresentationRenderer.drawGhostOutsideCanvas(
+                        in: cg,
+                        base: document.baseImage,
+                        blurSources: document.blurSources,
+                        annotations: document.annotations,
+                        layout: layout,
+                        skipping: skipID
+                    )
+                } else {
+                    // Match the export contract: without presentation the
+                    // bitmap is exactly the image bounds, so annotation ink
+                    // beyond those bounds must be clipped in the live preview
+                    // as well. Selection chrome is drawn below in view space
+                    // and intentionally remains outside this clip.
+                    cg.saveGState()
+                    cg.addRect(layout.imageRect)
+                    cg.clip()
+                    AnnotationRenderer.draw(
+                        in: cg,
+                        base: document.baseImage,
+                        blurSources: document.blurSources,
+                        annotations: document.annotations,
+                        skipping: skipID
+                    )
+                    cg.restoreGState()
+                }
                 cg.restoreGState()
             }
 
@@ -425,7 +543,18 @@ struct EditorCanvasView: View {
 
             // Selection chrome in view space (crisp at any zoom).
             if let selected = document.selectedAnnotation, selected.id != editingTextID {
-                drawSelection(for: selected, context: context, fitScale: fitScale, offset: offset)
+                // Chrome follows the space of what it decorates: a blur's
+                // handles ride the image, an arrow's ride the canvas.
+                drawSelection(for: selected, context: context,
+                              fitScale: selected.livesInImageSpace ? fitScale : canvasScale,
+                              offset: selected.livesInImageSpace ? offset : canvasOffset)
+            }
+
+            // The picture's own selection frame, in canvas space.
+            if imageSelected, presentation != nil {
+                drawImageSelection(layout.imageRect, context: context,
+                                   fitScale: canvasScale, offset: canvasOffset,
+                                   showsHandles: true)
             }
 
             // While dragging an arrow/line endpoint — either resizing an
@@ -433,8 +562,9 @@ struct EditorCanvasView: View {
             // anchors and highlight the one the drop will snap to (none
             // highlighted = releasing here leaves the endpoint free).
             if let (id, tip) = bindingDragEndpoint {
+                // Arrows and the shapes they bind to are canvas-space.
                 drawBindingCandidates(near: tip, excluding: id, context: context,
-                                      fitScale: fitScale, offset: offset)
+                                      fitScale: canvasScale, offset: canvasOffset)
             }
 
             // Crop overlay: dim everything outside the crop rect, frame it, and
@@ -450,6 +580,28 @@ struct EditorCanvasView: View {
     private func drawSize(fitScale: CGFloat) -> CGSize {
         CGSize(width: document.pixelSize.width * fitScale,
                height: document.pixelSize.height * fitScale)
+    }
+
+    /// The picture's frame and corner grips — the same vocabulary an annotation
+    /// uses, so it reads as the object it now is.
+    private func drawImageSelection(_ rect: CGRect, context: GraphicsContext,
+                                    fitScale: CGFloat, offset: CGPoint,
+                                    showsHandles: Bool) {
+        func view(_ p: CGPoint) -> CGPoint {
+            CGPoint(x: offset.x + p.x * fitScale, y: offset.y + p.y * fitScale)
+        }
+        let frame = CGRect(origin: view(rect.origin),
+                           size: CGSize(width: rect.width * fitScale,
+                                        height: rect.height * fitScale))
+        context.stroke(Path(frame), with: .color(.accentColor), lineWidth: 1.5)
+        guard showsHandles else { return }
+        for corner in ImageCorner.allCases {
+            let c = view(corner.point(in: rect))
+            let box = CGRect(x: c.x - 4, y: c.y - 4, width: 8, height: 8)
+            context.fill(Path(roundedRect: box, cornerRadius: 2), with: .color(.white))
+            context.stroke(Path(roundedRect: box, cornerRadius: 2),
+                           with: .color(.accentColor), lineWidth: 1.5)
+        }
     }
 
     private func drawCropOverlay(_ rect: CGRect, context: GraphicsContext,
@@ -777,6 +929,9 @@ struct EditorCanvasView: View {
     // MARK: Gesture
 
     private func dragGesture(fitScale: CGFloat, offset: CGPoint, pixel: CGSize,
+                             annotationBounds: CGRect,
+                             canvasScale: CGFloat, canvasOffset: CGPoint,
+                             canvasBounds: CGRect, canvasSize: CGSize,
                              viewport: CGSize, baseDrawSize: CGSize) -> some Gesture {
         DragGesture(minimumDistance: 0)
             .onChanged { value in
@@ -786,7 +941,25 @@ struct EditorCanvasView: View {
                 if tool == .drawing || tool == .eraser {
                     drawingCursorLocation = value.location
                 }
-                let p = pixelPoint(value.location, fitScale: fitScale, offset: offset, pixel: pixel)
+                let sp = SpacedPoint(
+                    image: pixelPoint(value.location, fitScale: fitScale,
+                                      offset: offset, bounds: annotationBounds),
+                    canvas: pixelPoint(value.location, fitScale: canvasScale,
+                                       offset: canvasOffset, bounds: canvasBounds),
+                    imageScale: fitScale, canvasScale: canvasScale
+                )
+                // Most gestures act on one known annotation, so the point is
+                // resolved in *its* space; the ones that create act in the
+                // space their kind will live in.
+                let point = { (id: UUID) -> CGPoint in
+                    document.annotations.first { $0.id == id }
+                        .map(sp.point(for:)) ?? sp.canvas
+                }
+                let scaleOf = { (id: UUID) -> CGFloat in
+                    document.annotations.first { $0.id == id }
+                        .map(sp.scale(for:)) ?? sp.canvasScale
+                }
+                let p = sp.canvas
 
                 if dragMode == nil {
                     // First event of the gesture: a click anywhere commits an
@@ -800,17 +973,17 @@ struct EditorCanvasView: View {
                         // Interacting with the frame takes focus off the size
                         // fields, so arrow keys move the frame (not the caret).
                         NSApp.keyWindow?.makeFirstResponder(nil)
-                        dragMode = beginCropDrag(at: p, fitScale: fitScale)
+                        dragMode = beginCropDrag(at: sp.image, fitScale: fitScale)
                     } else if isSpaceHeld {
                         dragMode = .panning(last: value.location)
                     } else if tool != .scan,
-                              beginEditingIfDoubleClick(at: p, fitScale: fitScale) {
+                              beginEditingIfDoubleClick(at: sp) {
                         // A double-click on text/step opens its inline editor
                         // instead of starting a move — detected at mouse-down
                         // so it works even on an already-selected annotation.
                         dragMode = .ignore
                     } else {
-                        dragMode = beginDrag(at: p, fitScale: fitScale)
+                        dragMode = beginDrag(at: sp)
                     }
                 }
 
@@ -819,7 +992,8 @@ struct EditorCanvasView: View {
                     let viewDistance = hypot(value.translation.width, value.translation.height)
                     guard viewDistance >= 3 else { break }
                     document.beginChange()
-                    let offset = CGPoint(x: p.x - start.x, y: p.y - start.y)
+                    let here = point(sourceID)
+                    let offset = CGPoint(x: here.x - start.x, y: here.y - start.y)
                     guard let duplicateID = document.appendDuplicate(
                         of: sourceID, offset: offset
                     ) else {
@@ -827,19 +1001,23 @@ struct EditorCanvasView: View {
                         dragMode = .ignore
                         break
                     }
-                    dragMode = .moving(duplicateID, last: snapped(p))
+                    dragMode = .moving(duplicateID, last: snapped(point(duplicateID)))
 
                 case .drawing(let id):
-                    let sampleDistance = max(0.5, 1 / fitScale)
+                    // Resolved before `update`: that call takes exclusive access
+                    // to the annotation array, and reading it from inside the
+                    // mutation is an overlapping-access trap.
+                    let sampleDistance = max(0.5, 1 / scaleOf(id))
+                    let here = point(id)
                     update(id) {
-                        $0.appendFreehandPoint(p, minimumDistance: sampleDistance)
+                        $0.appendFreehandPoint(here, minimumDistance: sampleDistance)
                     }
 
                 case .erasing(let last):
                     document.eraseFreehand(
-                        from: last, to: p, diameter: style.eraserDiameter
+                        from: last, to: sp.canvas, diameter: style.eraserDiameter
                     )
-                    dragMode = .erasing(last: p)
+                    dragMode = .erasing(last: sp.canvas)
 
                 case .undecided(let startPixel):
                     let viewDistance = hypot(value.translation.width, value.translation.height)
@@ -850,6 +1028,9 @@ struct EditorCanvasView: View {
                         if tool == .select { dragMode = .panning(last: value.location) }
                         break
                     }
+                    // A blur or loupe is born in image pixels; everything else
+                    // on the canvas.
+                    let p = sp.point(imageSpace: Annotation.kindLivesInImageSpace(kind))
                     document.beginChange()
                     var annotation = Annotation(kind: kind, start: snapped(startPixel),
                                                 end: snapped(p),
@@ -876,13 +1057,14 @@ struct EditorCanvasView: View {
                     dragMode = .creating(annotation.id)
 
                 case .creating(let id):
-                    let target = snapped(p)
+                    let target = snapped(point(id))
                     update(id) {
                         $0.end = constrainedEndpoint(target, from: $0.start, kind: $0.kind)
                         $0.updateCreationOrientation()
                     }
 
                 case .moving(let id, let last):
+                    let p = point(id)
                     // Snapping the pointer (not the raw delta) keeps a move in
                     // whole grid steps, so an object created on the lattice
                     // stays on it.
@@ -893,7 +1075,7 @@ struct EditorCanvasView: View {
                     dragMode = .moving(id, last: target)
 
                 case .movingLoupePart(let id, let part, let last):
-                    let target = snapped(p)
+                    let target = snapped(point(id))
                     let delta = CGPoint(x: target.x - last.x, y: target.y - last.y)
                     guard delta != .zero else { break }
                     update(id) { $0.moveLoupePart(part, by: delta) }
@@ -907,12 +1089,13 @@ struct EditorCanvasView: View {
                     // chord the user sees, then store the control in the raw
                     // chord frame so a bound arrow's bend follows its endpoints
                     // (an identity map when unbound).
+                    let p = point(id)
                     if handle == .control,
                        let arrow = document.annotations.first(where: { $0.id == id }),
                        arrow.kind == .arrow {
                         let rs = arrow.resolvedStart(in: document.annotations)
                         let re = arrow.resolvedEnd(in: document.annotations)
-                        let snapDistance = 9 / fitScale
+                        let snapDistance = 9 / scaleOf(id)
                         update(id) { annotation in
                             if let bent = Annotation.bentControl(
                                 forDrag: p, start: rs, end: re,
@@ -965,20 +1148,20 @@ struct EditorCanvasView: View {
                     // result is a pure function of the pointer; legs that
                     // collapse to zero length drop out.
                     let waypoints = Annotation.movingRouteSegment(
-                        baseline, index: index, to: p, grid: activeGrid)
+                        baseline, index: index, to: point(id), grid: activeGrid)
                     update(id) { $0.elbowWaypoints = waypoints }
 
                 case .cropCreating(let start) where style.snapsToGrid:
                     let moved = hypot(value.translation.width, value.translation.height)
                     if moved >= 3 {
-                        let a = snapped(start), b = snapped(p)
+                        let a = snapped(start), b = snapped(sp.image)
                         let raw = CGRect(x: min(a.x, b.x), y: min(a.y, b.y),
                                          width: abs(b.x - a.x), height: abs(b.y - a.y))
                         cropRect = raw.intersection(CGRect(origin: .zero, size: pixel))
                     }
 
                 case .cropMoving(let last) where style.snapsToGrid:
-                    let target = snapped(p)
+                    let target = snapped(sp.image)
                     if let rect = cropRect, target != last {
                         cropRect = movedCrop(rect, by: CGPoint(x: target.x - last.x,
                                                                y: target.y - last.y))
@@ -987,7 +1170,7 @@ struct EditorCanvasView: View {
 
                 case .cropResizing(let handle) where style.snapsToGrid:
                     if let rect = cropRect {
-                        cropRect = resizedCrop(rect, handle: handle, to: snapped(p))
+                        cropRect = resizedCrop(rect, handle: handle, to: snapped(sp.image))
                     }
 
                 case .cropCreating(let start):
@@ -996,21 +1179,39 @@ struct EditorCanvasView: View {
                     // starts a fresh rect.
                     let moved = hypot(value.translation.width, value.translation.height)
                     if moved >= 3 {
-                        let raw = CGRect(x: min(start.x, p.x), y: min(start.y, p.y),
-                                         width: abs(p.x - start.x), height: abs(p.y - start.y))
+                        let ip = sp.image
+                        let raw = CGRect(x: min(start.x, ip.x), y: min(start.y, ip.y),
+                                         width: abs(ip.x - start.x), height: abs(ip.y - start.y))
                         cropRect = raw.intersection(CGRect(origin: .zero, size: pixel))
                     }
 
                 case .cropMoving(let last):
                     if let rect = cropRect {
-                        cropRect = movedCrop(rect, by: CGPoint(x: p.x - last.x, y: p.y - last.y))
+                        cropRect = movedCrop(rect, by: CGPoint(x: sp.image.x - last.x,
+                                                               y: sp.image.y - last.y))
                     }
-                    dragMode = .cropMoving(last: p)
+                    dragMode = .cropMoving(last: sp.image)
 
                 case .cropResizing(let handle):
                     if let rect = cropRect {
-                        cropRect = resizedCrop(rect, handle: handle, to: p)
+                        cropRect = resizedCrop(rect, handle: handle, to: sp.image)
                     }
+
+                case .movingImage(let last):
+                    let target = sp.canvas
+                    let delta = CGPoint(x: target.x - last.x, y: target.y - last.y)
+                    guard delta != .zero else { break }
+                    document.moveImage(by: delta, canvasSize: canvasSize)
+                    dragMode = .movingImage(last: target)
+
+                case .resizingImage(let corner):
+                    // The page keeps its size through a resize, so its mapping
+                    // to the view is stable and the live point is exact.
+                    document.resizeImage(
+                        corner: corner, to: sp.canvas,
+                        canvasSize: canvasSize,
+                        imagePixelSize: pixel
+                    )
 
                 case .panning(let last):
                     // Clamp so the image can't be dragged past its overflow
@@ -1034,11 +1235,25 @@ struct EditorCanvasView: View {
                 if tool == .drawing || tool == .eraser {
                     drawingCursorLocation = value.location
                 }
-                let p = pixelPoint(value.location, fitScale: fitScale, offset: offset, pixel: pixel)
+                let sp = SpacedPoint(
+                    image: pixelPoint(value.location, fitScale: fitScale,
+                                      offset: offset, bounds: annotationBounds),
+                    canvas: pixelPoint(value.location, fitScale: canvasScale,
+                                       offset: canvasOffset, bounds: canvasBounds),
+                    imageScale: fitScale, canvasScale: canvasScale
+                )
+                let point = { (id: UUID) -> CGPoint in
+                    document.annotations.first { $0.id == id }
+                        .map(sp.point(for:)) ?? sp.canvas
+                }
+                let scaleOf = { (id: UUID) -> CGFloat in
+                    document.annotations.first { $0.id == id }
+                        .map(sp.scale(for:)) ?? sp.canvasScale
+                }
 
                 switch dragMode {
                 case .undecided:
-                    handleClick(at: p, fitScale: fitScale)
+                    handleClick(at: sp)
                 case .creating(let id):
                     if let a = document.annotations.first(where: { $0.id == id }), a.isDegenerate {
                         document.annotations.removeAll { $0.id == id }
@@ -1063,14 +1278,15 @@ struct EditorCanvasView: View {
                         }
                         // A freshly drawn elbow arrow squares up onto its axis
                         // when it was drawn nearly straight.
-                        update(id) { $0.alignForElbow(tolerance: 12 / fitScale) }
+                        let elbowTolerance = 12 / scaleOf(id)
+                        update(id) { $0.alignForElbow(tolerance: elbowTolerance) }
                         // A freshly drawn arrow/line binds whichever endpoints
                         // landed on (or near) a shape, so drawing one straight
                         // onto a shape connects it — same undo step.
                         if let a = document.annotations.first(where: { $0.id == id }),
                            a.kind == .arrow || a.kind == .line {
-                            let tolerancePx = hitTolerancePt / fitScale
-                            let magnetPx = bindMagnetPt / fitScale
+                            let tolerancePx = hitTolerancePt / scaleOf(id)
+                            let magnetPx = bindMagnetPt / scaleOf(id)
                             document.bindEndpoint(.start, of: id, releasedAt: a.start,
                                                   tolerance: tolerancePx, magnet: magnetPx)
                             document.bindEndpoint(.end, of: id, releasedAt: a.end,
@@ -1080,7 +1296,8 @@ struct EditorCanvasView: View {
                         document.commitChange()
                     }
                 case .drawing(let id):
-                    update(id) { $0.appendFreehandPoint(p, minimumDistance: 0.01) }
+                    let here = point(id)
+                    update(id) { $0.appendFreehandPoint(here, minimumDistance: 0.01) }
                     if let annotation = document.annotations.first(where: { $0.id == id }),
                        annotation.isDegenerate {
                         document.annotations.removeAll { $0.id == id }
@@ -1108,13 +1325,15 @@ struct EditorCanvasView: View {
                     // Dropping an arrow/line endpoint over (or near) a shape
                     // binds it; empty space clears any prior binding. Part of
                     // the same undo step as the drag.
-                    document.bindEndpoint(handle, of: id, releasedAt: p,
-                                          tolerance: hitTolerancePt / fitScale,
-                                          magnet: bindMagnetPt / fitScale)
+                    document.bindEndpoint(handle, of: id, releasedAt: point(id),
+                                          tolerance: hitTolerancePt / scaleOf(id),
+                                          magnet: bindMagnetPt / scaleOf(id))
                     document.refreshBindingFallbacks()
                     document.commitChange()
+                case .resizingImage:
+                    document.commitChange()
                 case .duplicatePending, .cropCreating, .cropMoving, .cropResizing,
-                     .panning, .ignore, nil:
+                     .movingImage, .panning, .ignore, nil:
                     break
                 }
             }
@@ -1122,9 +1341,13 @@ struct EditorCanvasView: View {
 
     /// Decides what a fresh mouse-down does, before we know if it's a click
     /// or a drag.
-    private func beginDrag(at p: CGPoint, fitScale: CGFloat) -> DragMode {
-        let grabPx = handleGrabPt / fitScale
-        let tolerancePx = hitTolerancePt / fitScale
+    private func beginDrag(at sp: SpacedPoint) -> DragMode {
+        // Tolerances are in pixels of whichever space the object being tested
+        // is measured in, so a grab feels the same distance on screen either way.
+        let selectedScale = document.selectedAnnotation.map(sp.scale(for:)) ?? sp.canvasScale
+        let grabPx = handleGrabPt / selectedScale
+        let tolerancePx = hitTolerancePt / selectedScale
+        let p = document.selectedAnnotation.map(sp.point(for:)) ?? sp.canvas
 
         // Resize handles of the current selection win over everything. Bound
         // arrow endpoints are grabbed at their resolved (drawn) positions.
@@ -1148,7 +1371,10 @@ struct EditorCanvasView: View {
         // exclusive ownership of their gestures. Creation is deferred until
         // movement crosses the standard 3 pt drag threshold, so Option-click only selects.
         if tool != .scan, tool != .crop, isOptionHeld,
-           let hit = document.annotation(at: p, tolerance: tolerancePx) {
+           let hit = document.annotation(imagePoint: sp.image, canvasPoint: sp.canvas,
+                                         imageTolerance: hitTolerancePt / sp.imageScale,
+                                         canvasTolerance: hitTolerancePt / sp.canvasScale) {
+            let p = sp.point(for: hit)
             document.selectedID = hit.id
             return .duplicatePending(sourceID: hit.id, start: p)
         }
@@ -1172,6 +1398,9 @@ struct EditorCanvasView: View {
                 }
                 return .moving(hit.id, last: snapped(p))
             }
+            // The picture is the last thing under the pointer: annotations sit
+            // on top of it, empty background below.
+            if let mode = beginImageDrag(at: sp) { return mode }
             // Empty space: a click deselects (in handleClick), a drag pans.
             return .undecided(pixelPoint: p)
         case .text:
@@ -1216,12 +1445,43 @@ struct EditorCanvasView: View {
         }
     }
 
+    /// Grabbing the picture: a corner of the selection frame resizes it, its
+    /// body moves it. Only with a presentation — without one the picture *is*
+    /// the canvas and there is nowhere to move it to.
+    private func beginImageDrag(at sp: SpacedPoint) -> DragMode? {
+        guard document.presentation != nil else { return nil }
+        let layout = PresentationLayout.resolve(imagePixelSize: document.pixelSize,
+                                                document.presentation)
+        let rect = layout.imageRect
+        guard rect.width > 0, rect.height > 0 else { return nil }
+        let grab = handleGrabPt / sp.canvasScale
+
+        if imageSelected {
+            for corner in ImageCorner.allCases {
+                let c = corner.point(in: rect)
+                if hypot(sp.canvas.x - c.x, sp.canvas.y - c.y) <= grab {
+                    document.beginChange()
+                    return .resizingImage(corner)
+                }
+            }
+        }
+        guard rect.insetBy(dx: -grab / 2, dy: -grab / 2).contains(sp.canvas) else { return nil }
+        document.selectedID = nil
+        imageSelected = true
+        return .movingImage(last: sp.canvas)
+    }
+
     /// A single click that never became a drag: select what's under it, or
     /// place a new text/step marker on empty space. (Double-click editing is
     /// handled up front at mouse-down.)
-    private func handleClick(at p: CGPoint, fitScale: CGFloat) {
-        let tolerancePx = hitTolerancePt / fitScale
-        let hit = document.annotation(at: p, tolerance: tolerancePx)
+    private func handleClick(at sp: SpacedPoint) {
+        let hit = document.annotation(imagePoint: sp.image, canvasPoint: sp.canvas,
+                                      imageTolerance: hitTolerancePt / sp.imageScale,
+                                      canvasTolerance: hitTolerancePt / sp.canvasScale)
+        // Text and step are canvas-space, so a new one is placed there.
+        let p = sp.canvas
+
+        if hit != nil { imageSelected = false }
 
         switch tool {
         case .text:
@@ -1238,9 +1498,13 @@ struct EditorCanvasView: View {
     /// Records the mouse-down and, if it's the second click of a double-click
     /// on a text or step annotation, opens that annotation's inline editor.
     /// Returns true when it started editing (so the caller skips the drag).
-    private func beginEditingIfDoubleClick(at p: CGPoint, fitScale: CGFloat) -> Bool {
-        let tolerancePx = hitTolerancePt / fitScale
-        let hit = document.annotation(at: p, tolerance: tolerancePx)
+    private func beginEditingIfDoubleClick(at sp: SpacedPoint) -> Bool {
+        let hit = document.annotation(imagePoint: sp.image, canvasPoint: sp.canvas,
+                                      imageTolerance: hitTolerancePt / sp.imageScale,
+                                      canvasTolerance: hitTolerancePt / sp.canvasScale)
+        // The double-click test compares against the previous click, so it has
+        // to use one consistent space; text and step are canvas-space.
+        let p = sp.canvas
         let double = isDoubleClick(on: hit?.id, at: p)
         lastClick = (hit?.id, Date(), p)
 
@@ -1303,10 +1567,41 @@ struct EditorCanvasView: View {
         mutate(&document.annotations[idx])
     }
 
+    /// Where a gesture may reach, in image-pixel space.
+    ///
+    /// The canvas bounds alone would make an annotation that has left the frame
+    /// unreachable: every point clamps to the edge, so it could not be grabbed,
+    /// moved back or deleted. With a presentation the reach is widened well
+    /// past the canvas for exactly that. Without one it stays the image, which
+    /// is what the editor has always allowed.
+    private func reachableAnnotationBounds(pixel: CGSize,
+                                           layout: PresentationLayout.Resolved,
+                                           hasPresentation: Bool) -> CGRect {
+        let bounds = PresentationLayout.annotationBounds(imagePixelSize: pixel, layout)
+        guard hasPresentation else { return bounds }
+        return bounds.insetBy(dx: -bounds.width, dy: -bounds.height)
+    }
+
+    /// The same reach, expressed in canvas pixels — the space commentary is
+    /// measured in.
+    private func reachableCanvasBounds(layout: PresentationLayout.Resolved,
+                                       hasPresentation: Bool) -> CGRect {
+        let canvas = CGRect(origin: .zero, size: layout.canvasSize)
+        guard hasPresentation else { return canvas }
+        return canvas.insetBy(dx: -canvas.width, dy: -canvas.height)
+    }
+
+    /// A view point in the image's pixel space, clamped to where annotations
+    /// may go. That is the whole canvas, not the picture: with a presentation
+    /// the background around the image is a legitimate place for a caption or
+    /// for an arrow pointing at the mockup. Without one the bounds collapse to
+    /// the image and the behaviour is unchanged.
     private func pixelPoint(_ viewPoint: CGPoint, fitScale: CGFloat,
-                            offset: CGPoint, pixel: CGSize) -> CGPoint {
-        CGPoint(x: max(0, min(pixel.width, (viewPoint.x - offset.x) / fitScale)),
-                y: max(0, min(pixel.height, (viewPoint.y - offset.y) / fitScale)))
+                            offset: CGPoint, bounds: CGRect) -> CGPoint {
+        CGPoint(
+            x: max(bounds.minX, min(bounds.maxX, (viewPoint.x - offset.x) / fitScale)),
+            y: max(bounds.minY, min(bounds.maxY, (viewPoint.y - offset.y) / fitScale))
+        )
     }
 
     private var isShiftHeld: Bool {
@@ -1497,8 +1792,16 @@ struct EditorCanvasView: View {
                 return nil
             }
 
-            // Arrow-key nudge of the selected annotation (same tiers as crop).
+            // Arrow-key nudge, of whatever is selected — the picture included.
             guard let delta = Self.nudgeDelta(for: event) else { return event }
+            if self.imageSelected, self.document.presentation != nil {
+                let canvas = PresentationLayout.resolve(
+                    imagePixelSize: self.document.pixelSize,
+                    self.document.presentation
+                ).canvasSize
+                self.document.moveImage(by: delta, canvasSize: canvas)
+                return nil
+            }
             self.document.nudgeSelected(by: delta)
             return nil
         }

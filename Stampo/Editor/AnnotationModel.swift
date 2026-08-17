@@ -470,9 +470,15 @@ nonisolated struct Annotation: Identifiable, Equatable, Sendable {
     /// joined by a straight connector; each is dragged independently, while
     /// whole-annotation moves (`move(by:)`) carry both.
     var loupeSource: CGPoint? = nil
-    /// Size of the callout marker, stored independently of the magnifier — the
-    /// magnification (`loupeScale`) zooms the content, not the marker frame, so
-    /// the region the user chose keeps its size when magnification changes.
+    /// Size of the callout marker.
+    ///
+    /// Marker, magnifier and `loupeScale` are one relationship, not three
+    /// independent values: **the magnifier is the marked region drawn at
+    /// `loupeScale`**, so `magnifier == marker × loupeScale` always holds. That
+    /// is already what the renderer draws — it magnifies around the marker's
+    /// centre by that factor — so letting the sizes drift apart made the marker
+    /// outline promise one region while the glass showed another.
+    /// `syncLoupeGeometry(anchoredTo:)` is what keeps the three in step.
     var loupeSourceSize: CGSize? = nil
     /// A `.loupe` magnifies the redacted image by default so blur keeps
     /// hiding what it hides; opting in reveals the raw original pixels.
@@ -509,6 +515,50 @@ nonisolated struct Annotation: Identifiable, Equatable, Sendable {
               let size = loupeSourceSize else { return nil }
         return CGRect(x: center.x - size.width / 2, y: center.y - size.height / 2,
                       width: size.width, height: size.height)
+    }
+
+    /// Which coordinate space this annotation is measured in.
+    ///
+    /// Blur and loupe read pixels *out of the picture* — a redaction that does
+    /// not follow the image it hides stops hiding it — so they are measured in
+    /// image pixels. Everything else is commentary on the page: it belongs to
+    /// the canvas and must not move when the picture is scaled or nudged
+    /// inside it. Without a presentation the two spaces are the same, which is
+    /// why nothing about the plain editor changes.
+    var livesInImageSpace: Bool { Self.kindLivesInImageSpace(kind) }
+
+    /// The same rule before an annotation exists — the creation gesture has to
+    /// know which space it is drawing in from the tool alone.
+    static func kindLivesInImageSpace(_ kind: AnnotationKind) -> Bool {
+        kind == .blur || kind == .loupe
+    }
+
+    /// Restores `magnifier == marker × loupeScale` after one of the three has
+    /// changed, keeping the body named by `anchoredTo` exactly where it is and
+    /// resizing the other about its own centre.
+    ///
+    /// - `.source` — the marker (or the factor) changed; the glass follows.
+    /// - `.display` — the glass was resized; the marked region follows.
+    ///
+    /// No-op for an in-place loupe, which magnifies what is under itself and so
+    /// has no second frame to agree with.
+    mutating func syncLoupeGeometry(anchoredTo part: LoupePart) {
+        guard kind == .loupe, loupeSource != nil, let sourceSize = loupeSourceSize
+        else { return }
+        let scale = max(1, loupeScale)
+        switch part {
+        case .source:
+            let center = CGPoint(x: rect.midX, y: rect.midY)
+            let half = CGSize(width: max(Self.minimumShapeSize, sourceSize.width * scale) / 2,
+                              height: max(Self.minimumShapeSize, sourceSize.height * scale) / 2)
+            start = CGPoint(x: center.x - half.width, y: center.y - half.height)
+            end = CGPoint(x: center.x + half.width, y: center.y + half.height)
+        case .display:
+            loupeSourceSize = CGSize(
+                width: max(Self.minimumShapeSize, rect.width / scale),
+                height: max(Self.minimumShapeSize, rect.height / scale)
+            )
+        }
     }
 
     /// The two independently draggable bodies of a callout loupe.
@@ -1262,28 +1312,16 @@ nonisolated struct Annotation: Identifiable, Equatable, Sendable {
                                height: abs(corner.y - anchor.y))
         loupeSource = CGPoint(x: newSource.midX, y: newSource.midY)
         loupeSourceSize = newSource.size
-        // Grow the magnifier by the same factors, about its own center,
-        // never below the minimum size.
-        let displayCenter = CGPoint(x: rect.midX, y: rect.midY)
-        let kw = sourceRect.width > 0 ? newSource.width / sourceRect.width : 1
-        let kh = sourceRect.height > 0 ? newSource.height / sourceRect.height : 1
-        let half = CGSize(width: max(Self.minimumShapeSize, rect.width * kw) / 2,
-                          height: max(Self.minimumShapeSize, rect.height * kh) / 2)
-        start = CGPoint(x: displayCenter.x - half.width, y: displayCenter.y - half.height)
-        end = CGPoint(x: displayCenter.x + half.width, y: displayCenter.y + half.height)
+        // The glass is the marked region at `loupeScale`, so it follows.
+        syncLoupeGeometry(anchoredTo: .source)
     }
 
-    /// Scales the source marker by the width/height factors implied by the
-    /// magnifier changing from `oldW`×`oldH` to `new`, keeping the marker
-    /// centered where it is and never below the minimum size. No-op for an
-    /// in-place loupe.
+    /// Resizing the glass re-marks the region it shows: the marker becomes the
+    /// new glass divided by `loupeScale`, centred where it already is. No-op for
+    /// an in-place loupe.
     private mutating func scaleLoupeSource(byWidth oldW: CGFloat, height oldH: CGFloat,
                                            from new: CGRect) {
-        guard let size = loupeSourceSize else { return }
-        let kw = oldW > 0 ? new.width / oldW : 1
-        let kh = oldH > 0 ? new.height / oldH : 1
-        loupeSourceSize = CGSize(width: max(Self.minimumShapeSize, size.width * kw),
-                                 height: max(Self.minimumShapeSize, size.height * kh))
+        syncLoupeGeometry(anchoredTo: .display)
     }
 
     // MARK: Arrow geometry (pure — unit-testable)
@@ -1851,6 +1889,28 @@ nonisolated struct Annotation: Identifiable, Equatable, Sendable {
     }
 }
 
+/// The four grab points of the picture's frame.
+enum ImageCorner: CaseIterable, Sendable {
+    case topLeft, topRight, bottomLeft, bottomRight
+
+    var isTop: Bool { self == .topLeft || self == .topRight }
+    var isLeading: Bool { self == .topLeft || self == .bottomLeft }
+
+    var opposite: ImageCorner {
+        switch self {
+        case .topLeft:     return .bottomRight
+        case .topRight:    return .bottomLeft
+        case .bottomLeft:  return .topRight
+        case .bottomRight: return .topLeft
+        }
+    }
+
+    func point(in rect: CGRect) -> CGPoint {
+        CGPoint(x: isLeading ? rect.minX : rect.maxX,
+                y: isTop ? rect.minY : rect.maxY)
+    }
+}
+
 // MARK: - Document history
 
 /// One point-in-time snapshot of everything the undo stack must restore: the
@@ -1861,11 +1921,13 @@ struct DocumentSnapshot: Equatable, Sendable {
     var annotations: [Annotation]
     var image: CGImage
     var rotationQuarters: Int
+    var presentation: Presentation?
 
     static func == (lhs: DocumentSnapshot, rhs: DocumentSnapshot) -> Bool {
         lhs.rotationQuarters == rhs.rotationQuarters
             && lhs.image === rhs.image                 // identity: same image object
             && lhs.annotations == rhs.annotations
+            && lhs.presentation == rhs.presentation
     }
 }
 
@@ -1877,6 +1939,7 @@ nonisolated struct EditorRenderSnapshot: Sendable {
     let annotations: [Annotation]
     let revision: UInt64
     let format: String
+    let presentation: Presentation?
 }
 
 /// Encoded output of a render. The bytes are safe to pass back to the
@@ -1918,6 +1981,13 @@ nonisolated struct RenderedArtifact: Sendable {
     var annotations: [Annotation] = [] {
         didSet { revision &+= 1 }
     }
+    /// Optional so an untouched document remains exactly the old image editor;
+    /// setting nil to nil must not create a dirty state or a new revision.
+    var presentation: Presentation? {
+        didSet {
+            if presentation != oldValue { revision &+= 1 }
+        }
+    }
     var selectedID: UUID?
 
     /// Document state at last save (or open) — dirty means "differs from it".
@@ -1931,7 +2001,8 @@ nonisolated struct RenderedArtifact: Sendable {
         self.baseImage = baseImage
         self.sourceURL = sourceURL
         self.savedSnapshot = DocumentSnapshot(annotations: [], image: baseImage,
-                                              rotationQuarters: 0)
+                                              rotationQuarters: 0,
+                                              presentation: nil)
     }
 
     func makeRenderSnapshot(format: String) -> EditorRenderSnapshot {
@@ -1940,14 +2011,16 @@ nonisolated struct RenderedArtifact: Sendable {
             blurSources: blurSources,
             annotations: annotations,
             revision: revision,
-            format: format
+            format: format,
+            presentation: presentation
         )
     }
 
     /// Everything the history restores, captured from live state.
     private var currentSnapshot: DocumentSnapshot {
         DocumentSnapshot(annotations: annotations, image: baseImage,
-                         rotationQuarters: rotationQuarters)
+                         rotationQuarters: rotationQuarters,
+                         presentation: presentation)
     }
 
     var pixelSize: CGSize {
@@ -2127,12 +2200,24 @@ nonisolated struct RenderedArtifact: Sendable {
     /// so a non-blur annotation over it wins the hit even when the blur was
     /// added later.
     func annotation(at p: CGPoint, tolerance: CGFloat) -> Annotation? {
-        annotations.reversed().first {
-            $0.kind != .blur && $0.hitTest(p, tolerance: tolerance, in: annotations)
+        annotation(imagePoint: p, canvasPoint: p,
+                   imageTolerance: tolerance, canvasTolerance: tolerance)
+    }
+
+    /// Same search, but with the pointer expressed in **both** spaces: each
+    /// annotation is tested against the point (and tolerance) of the space it
+    /// is measured in. Blur and loupe live in image pixels, everything else in
+    /// canvas pixels, and without a presentation the two are identical — which
+    /// is why the single-point overload above is still exactly correct there.
+    func annotation(imagePoint: CGPoint, canvasPoint: CGPoint,
+                    imageTolerance: CGFloat, canvasTolerance: CGFloat) -> Annotation? {
+        func hits(_ a: Annotation) -> Bool {
+            a.hitTest(a.livesInImageSpace ? imagePoint : canvasPoint,
+                      tolerance: a.livesInImageSpace ? imageTolerance : canvasTolerance,
+                      in: annotations)
         }
-            ?? annotations.reversed().first {
-                $0.kind == .blur && $0.hitTest(p, tolerance: tolerance, in: annotations)
-            }
+        return annotations.reversed().first { $0.kind != .blur && hits($0) }
+            ?? annotations.reversed().first { $0.kind == .blur && hits($0) }
     }
 
     // MARK: Arrow binding
@@ -2276,6 +2361,7 @@ nonisolated struct RenderedArtifact: Sendable {
         annotations = snapshot.annotations
         baseImage = snapshot.image
         rotationQuarters = snapshot.rotationQuarters
+        presentation = snapshot.presentation
         if imageChanged {
             rebuildBlurSources()
         } else {
@@ -2385,6 +2471,102 @@ nonisolated struct RenderedArtifact: Sendable {
 
     /// Moves the selected annotation by an exact image-pixel amount and
     /// records that keyboard nudge as one undoable edit.
+    /// Starts a decoration on an undecorated document: a white page and the
+    /// picture framed by `margin` canvas pixels, as one undo step. No-op once
+    /// a decoration exists, so it can be called on every open of the panel.
+    ///
+    /// Deliberately *not* driven by the inspector appearing: SwiftUI builds
+    /// `.inspector` content together with the editor, so an `onAppear` there
+    /// fired at editor launch and decorated documents nobody had asked to
+    /// decorate (measured: presentation set, document dirty, one undo entry,
+    /// without a single click). The button that opens the panel is the event.
+    func startDecorationIfNeeded(margin: CGFloat = Presentation.defaultMargin) {
+        guard presentation == nil, margin > 0 else { return }
+        beginChange()
+        // An auto page: the picture keeps every one of its own pixels and the
+        // page grows around it by the margin, on all four sides equally.
+        presentation = Presentation(canvas: .auto(margins: .init(all: margin), scale: 1),
+                                    background: .solid(.white))
+        commitChange()
+    }
+
+    /// Moves the picture on its canvas by a delta in canvas pixels — the same
+    /// gesture as dragging an annotation, applied to the one object that is not
+    /// one. Undoable as a single step.
+    func moveImage(by delta: CGPoint, canvasSize: CGSize) {
+        guard var presentation, canvasSize.width > 0, canvasSize.height > 0,
+              delta != .zero else { return }
+        beginChange()
+        switch presentation.canvas {
+        case .auto(var margins, let scale):
+            // The page hugs the picture, so moving it trades one margin for the
+            // opposite one: the page keeps its size and the picture slides
+            // inside it, exactly as it does on a fixed page. A margin going
+            // negative is the picture leaving the page, which is allowed.
+            margins.leading += delta.x
+            margins.trailing -= delta.x
+            margins.top += delta.y
+            margins.bottom -= delta.y
+            presentation.canvas = .auto(margins: margins, scale: scale)
+        case .preset:
+            presentation.image.center.x += delta.x / canvasSize.width
+            presentation.image.center.y += delta.y / canvasSize.height
+        }
+        self.presentation = presentation
+        commitChange()
+    }
+
+    /// Resizes the picture so `corner` lands on `point` (canvas pixels) while
+    /// the opposite corner stays put. The aspect ratio is locked, so the drag
+    /// is read along whichever axis moved further.
+    func resizeImage(corner: ImageCorner, to point: CGPoint,
+                     canvasSize: CGSize, imagePixelSize: CGSize) {
+        guard var presentation, canvasSize.width > 0, canvasSize.height > 0,
+              imagePixelSize.width > 0, imagePixelSize.height > 0 else { return }
+        let resolved = PresentationLayout.resolve(imagePixelSize: imagePixelSize,
+                                                  presentation)
+        let rect = resolved.imageRect
+        guard rect.width > 0, rect.height > 0 else { return }
+        let anchor = corner.opposite.point(in: rect)
+        let width = abs(point.x - anchor.x)
+        let height = abs(point.y - anchor.y)
+        // Locked aspect: the axis that travelled further wins, so the picture
+        // never distorts and never snaps to the pointer's other coordinate.
+        let factor = max(width / rect.width, height / rect.height)
+        let newSize = CGSize(width: rect.width * factor, height: rect.height * factor)
+        guard newSize.width >= 1, newSize.height >= 1 else { return }
+
+        switch presentation.canvas {
+        case .auto:
+            // Resizing the picture leaves the page alone; the margins take up
+            // the difference. That is the same thing that happens on a fixed
+            // page, and it is what keeps the page from re-fitting itself under
+            // the cursor while the corner is being dragged.
+            let origin = CGPoint(x: corner.isLeading ? anchor.x - newSize.width : anchor.x,
+                                 y: corner.isTop ? anchor.y - newSize.height : anchor.y)
+            let margins = Presentation.Margins(
+                top: origin.y,
+                leading: origin.x,
+                bottom: canvasSize.height - (origin.y + newSize.height),
+                trailing: canvasSize.width - (origin.x + newSize.width)
+            )
+            presentation.canvas = .auto(margins: margins,
+                                        scale: newSize.width / imagePixelSize.width)
+        case .preset:
+            let fit = min(canvasSize.width / imagePixelSize.width,
+                          canvasSize.height / imagePixelSize.height)
+            guard fit > 0 else { return }
+            presentation.image.scale = newSize.width / (imagePixelSize.width * fit)
+            let center = CGPoint(
+                x: anchor.x + (corner.isLeading ? -newSize.width : newSize.width) / 2,
+                y: anchor.y + (corner.isTop ? -newSize.height : newSize.height) / 2
+            )
+            presentation.image.center = CGPoint(x: center.x / canvasSize.width,
+                                                y: center.y / canvasSize.height)
+        }
+        self.presentation = presentation
+    }
+
     func nudgeSelected(by delta: CGPoint) {
         guard selectedID != nil else { return }
         beginChange()
