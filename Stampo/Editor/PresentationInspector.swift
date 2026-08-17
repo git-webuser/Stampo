@@ -151,32 +151,24 @@ struct PresentationInspector: View {
         var onCommit: (Double) -> Void
 
         final class Field: NSTextField {
-            /// Clears the number the moment the field takes the keyboard: a
-            /// placeholder that stays put while you type looks like text you
-            /// could edit, and it is not — the field is empty.
+            /// The number goes the moment editing starts. Overridden on the
+            /// field rather than handled through the delegate: this is the
+            /// control's own hook and it fires whether or not anything else is
+            /// listening — the delegate route left the placeholder standing.
+            /// The number is ordinary text, and taking the keyboard empties it:
+            /// the field editor is installed *after* this, so it starts on an
+            /// empty string and the first keystroke begins a new number. No
+            /// placeholder is involved — a placeholder that survives the click
+            /// looks like text you could edit, and it is not.
             override func becomeFirstResponder() -> Bool {
                 let accepted = super.becomeFirstResponder()
-                if accepted { placeholderAttributedString = nil }
+                if accepted { stringValue = "" }
                 return accepted
             }
 
-            /// Shows `number` as placeholder text in the normal label colour and
-            /// leaves the editable string empty.
             func show(_ number: Double) {
-                placeholderAttributedString = NSAttributedString(
-                    string: Self.formatter.string(from: NSNumber(value: number))
-                        ?? String(Int(number)),
-                    attributes: [
-                        .foregroundColor: NSColor.labelColor,
-                        .font: font ?? NSFont.systemFont(ofSize: NSFont.systemFontSize),
-                        .paragraphStyle: {
-                            let style = NSMutableParagraphStyle()
-                            style.alignment = alignment
-                            return style
-                        }()
-                    ]
-                )
-                stringValue = ""
+                stringValue = Self.formatter.string(from: NSNumber(value: number))
+                    ?? String(Int(number))
             }
 
             static let formatter: NumberFormatter = {
@@ -202,6 +194,8 @@ struct PresentationInspector: View {
             }
 
             @objc func changed(_ sender: NSTextField) { commit(sender) }
+
+
 
             func controlTextDidEndEditing(_ notification: Notification) {
                 guard let field = notification.object as? NSTextField else { return }
@@ -235,8 +229,10 @@ struct PresentationInspector: View {
             context.coordinator.onCommit = onCommit
             context.coordinator.current = value
             field.alignment = alignment
-            // Never disturb what is being typed.
-            guard field.currentEditor() == nil else { return }
+            // Never disturb a field that has the keyboard — including the
+            // moment after the click when its editor is not installed yet.
+            guard field.currentEditor() == nil,
+                  field.window?.firstResponder !== field else { return }
             field.show(value)
         }
     }
@@ -388,12 +384,13 @@ struct PresentationInspector: View {
                 NumberField(value: .constant(Double(canvasSize.width.rounded()))) { typed in
                     setCustomDimension(.width, to: Int(typed))
                 }
-                .frame(minWidth: 74, maxWidth: .infinity)
+                .frame(width: Self.numberFieldWidth)
                 Text(verbatim: "×").foregroundStyle(.secondary)
                 NumberField(value: .constant(Double(canvasSize.height.rounded()))) { typed in
                     setCustomDimension(.height, to: Int(typed))
                 }
-                .frame(minWidth: 74, maxWidth: .infinity)
+                .frame(width: Self.numberFieldWidth)
+                Spacer(minLength: 0)
                 Button {
                     rotateCanvas()
                 } label: {
@@ -864,10 +861,10 @@ struct PresentationInspector: View {
         return VStack(spacing: 4) {
 
             gapField(.top, value: gaps.top)
-                .frame(width: Self.gapFieldWidth)
+                .frame(width: Self.numberFieldWidth)
             HStack(spacing: 4) {
                 gapField(.leading, value: gaps.leading)
-                    .frame(width: Self.gapFieldWidth)
+                    .frame(width: Self.numberFieldWidth)
                 RoundedRectangle(cornerRadius: 3)
                     .strokeBorder(.tertiary, style: StrokeStyle(lineWidth: 1, dash: [3, 2]))
                     .frame(width: 34, height: 26)
@@ -877,20 +874,24 @@ struct PresentationInspector: View {
                             .foregroundStyle(.tertiary)
                     }
                 gapField(.trailing, value: gaps.trailing)
-                    .frame(width: Self.gapFieldWidth)
+                    .frame(width: Self.numberFieldWidth)
             }
             gapField(.bottom, value: gaps.bottom)
-                .frame(width: Self.gapFieldWidth)
+                .frame(width: Self.numberFieldWidth)
         }
         .frame(maxWidth: .infinity)
     }
 
-    private static let gapFieldWidth: CGFloat = 78
+
 
     private func gapField(_ edge: PresentationLayout.Edge, value: CGFloat) -> some View {
         NumberField(value: .constant(Double(value.rounded())), alignment: .center) { typed in
             setGap(edge, to: CGFloat(typed))
         }
+        // SwiftUI writes the environment's control size onto the wrapped
+        // NSControl, so a field outside a `.large` container is reset to the
+        // regular one — 22 points against the canvas row's 30. Measured.
+        .controlSize(.large)
         .help(Self.gapTitle(edge))
         .accessibilityLabel(Self.gapTitle(edge))
     }
@@ -1213,7 +1214,14 @@ struct PresentationInspector: View {
         case degrees
     }
 
-    private static let valueFieldWidth: CGFloat = 96
+    /// One width for every number in the panel — canvas size, margins, slider
+    /// values. They sit in different rows, and different widths made them read
+    /// as different kinds of control.
+    ///
+    /// 100 is what the tightest row allows at the inspector's own minimum
+    /// width: the canvas row carries two of them plus the × and the rotate
+    /// button, and the margins carry two plus the picture's stand-in.
+    private static let numberFieldWidth: CGFloat = 100
 
     /// A slider **and** a typed field for the same number.
     ///
@@ -1283,7 +1291,8 @@ struct PresentationInspector: View {
                 commit(CGFloat(typed))
             }
         }
-        .frame(width: Self.valueFieldWidth)
+        .controlSize(.large)
+        .frame(width: Self.numberFieldWidth)
     }
 
     private func sliderEditingChanged(_ editing: Bool) {

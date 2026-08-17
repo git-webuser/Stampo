@@ -114,11 +114,11 @@ import Testing
         #expect(scale == 1)   // the picture keeps every pixel it had
     }
 
-    /// The number lives in the placeholder, so the editable text is empty and
-    /// typing starts a fresh value. Three attempts at selecting the text on
-    /// click lost a race with `mouseDown`'s own tracking loop; there is now
-    /// nothing to select.
-    @Test func aNumberFieldKeepsItsValueInThePlaceholder() async {
+    /// A number field shows its value as ordinary text and empties itself when
+    /// clicked, so typing starts a new number. Selecting the text instead lost
+    /// a race with `mouseDown`'s own tracking loop three times over; there is
+    /// now nothing to select.
+    @Test func clickingANumberFieldEmptiesItForANewValue() async {
         let ctx = CGContext(data: nil, width: 400, height: 300, bitsPerComponent: 8,
                             bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!,
                             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
@@ -148,11 +148,25 @@ import Testing
             return
         }
 
-        // The value is visible, but not as text that typing would have to
-        // survive: the field itself is empty.
-        #expect(field.stringValue.isEmpty)
-        let shown = field.placeholderAttributedString?.string ?? field.placeholderString
-        #expect(shown == "440")     // 400 wide picture + 20 either side
+        #expect(field.stringValue == "440")   // 400 wide picture + 20 either side
+
+        // A real mouse-down/up pair: the click is where the problem lived.
+        let point = field.convert(CGPoint(x: field.bounds.midX, y: field.bounds.midY), to: nil)
+        let stamp = ProcessInfo.processInfo.systemUptime
+        let down = NSEvent.mouseEvent(with: .leftMouseDown, location: point,
+                                      modifierFlags: [], timestamp: stamp,
+                                      windowNumber: window.windowNumber, context: nil,
+                                      eventNumber: 0, clickCount: 1, pressure: 1)!
+        let up = NSEvent.mouseEvent(with: .leftMouseUp, location: point,
+                                    modifierFlags: [], timestamp: stamp,
+                                    windowNumber: window.windowNumber, context: nil,
+                                    eventNumber: 1, clickCount: 1, pressure: 0)!
+        window.postEvent(up, atStart: false)
+        window.sendEvent(down)
+        try? await Task.sleep(for: .milliseconds(400))
+
+        #expect(field.currentEditor() != nil)   // it took the keyboard
+        #expect(field.stringValue.isEmpty)      // and emptied itself
 
         window.orderOut(nil)
     }
