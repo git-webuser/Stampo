@@ -3518,6 +3518,23 @@
         }
       }
     },
+    "Presets" : {
+      "comment" : "Ready-made backgrounds",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Presets"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Подборка"
+          }
+        }
+      }
+    },
     "Remove Color" : {
       "comment" : "Removes a saved swatch",
       "localizations" : {

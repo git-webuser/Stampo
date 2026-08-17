@@ -329,6 +329,58 @@ struct PresentationInspector: View {
                      color: Presentation.Color(red: 0.18, green: 0.43, blue: 0.92, alpha: 1))
     ]
 
+    private struct BackgroundPreset: Identifiable {
+        let id: String
+        let background: Presentation.Background
+    }
+
+    private static func rgb(_ r: Double, _ g: Double, _ b: Double) -> Presentation.Color {
+        Presentation.Color(red: CGFloat(r), green: CGFloat(g), blue: CGFloat(b), alpha: 1)
+    }
+
+    /// A fixed set, ours, not saveable — the point is to get a decent page in
+    /// one click. Picking one writes an ordinary background value, so every
+    /// control below keeps working on it: the preset is a starting point for
+    /// this document, never a locked style.
+    private static let backgroundPresets: [BackgroundPreset] = {
+        func linear(_ id: String, _ a: Presentation.Color, _ b: Presentation.Color) -> BackgroundPreset {
+            BackgroundPreset(id: id, background: .linearGradient(stops: [a, b], angle: .pi / 2))
+        }
+        return [
+            BackgroundPreset(id: "paper", background: .solid(rgb(0.97, 0.97, 0.96))),
+            BackgroundPreset(id: "sand", background: .solid(rgb(0.93, 0.89, 0.85))),
+            BackgroundPreset(id: "graphite", background: .solid(rgb(0.11, 0.11, 0.12))),
+            linear("slate", rgb(0.20, 0.23, 0.29), rgb(0.07, 0.08, 0.11)),
+            linear("ocean", rgb(0.26, 0.62, 0.85), rgb(0.09, 0.24, 0.51)),
+            linear("violet", rgb(0.36, 0.35, 0.92), rgb(0.66, 0.33, 0.87)),
+            linear("sunset", rgb(0.99, 0.60, 0.32), rgb(0.87, 0.24, 0.44)),
+            linear("peach", rgb(0.99, 0.83, 0.72), rgb(0.97, 0.62, 0.60)),
+            linear("mint", rgb(0.62, 0.93, 0.79), rgb(0.20, 0.63, 0.63)),
+            linear("lemon", rgb(0.99, 0.90, 0.55), rgb(0.96, 0.70, 0.25)),
+            BackgroundPreset(id: "rose", background: .radialGradient(
+                stops: [rgb(0.98, 0.78, 0.83), rgb(0.85, 0.36, 0.53)])),
+            BackgroundPreset(id: "deep", background: .radialGradient(
+                stops: [rgb(0.31, 0.36, 0.62), rgb(0.06, 0.07, 0.14)])),
+            BackgroundPreset(id: "warmMesh", background: .mesh(colors: [
+                rgb(0.99, 0.80, 0.55), rgb(0.97, 0.55, 0.44),
+                rgb(0.85, 0.36, 0.53), rgb(0.99, 0.88, 0.72)])),
+            BackgroundPreset(id: "coolMesh", background: .mesh(colors: [
+                rgb(0.55, 0.79, 0.99), rgb(0.36, 0.45, 0.92),
+                rgb(0.18, 0.63, 0.75), rgb(0.80, 0.90, 0.99)])),
+            BackgroundPreset(id: "forestMesh", background: .mesh(colors: [
+                rgb(0.72, 0.90, 0.65), rgb(0.30, 0.62, 0.42),
+                rgb(0.16, 0.35, 0.28), rgb(0.88, 0.95, 0.80)])),
+            BackgroundPreset(id: "duskMesh", background: .mesh(colors: [
+                rgb(0.42, 0.33, 0.62), rgb(0.85, 0.45, 0.60),
+                rgb(0.24, 0.20, 0.36), rgb(0.98, 0.75, 0.66)]))
+        ]
+    }()
+
+    /// The gallery's values, for the test that renders every one of them.
+    static var backgroundPresetsForTesting: [Presentation.Background] {
+        backgroundPresets.map(\.background)
+    }
+
     private static let fallbackColor = Presentation.Color(
         red: 0.18, green: 0.43, blue: 0.92, alpha: 1
     )
@@ -494,6 +546,8 @@ struct PresentationInspector: View {
                 setBackgroundKind(kind)
             }
 
+            presetGallery
+
             switch backgroundKind {
             case .none:
                 Text("The canvas around the image stays transparent")
@@ -533,6 +587,54 @@ struct PresentationInspector: View {
                 imageColorsButton("Refresh from Image", systemImage: "arrow.clockwise")
             }
         }
+    }
+
+    /// The ready-made pages, four to a row. Same painter as the tiles above and
+    /// as the export, so nothing here promises a background the file would draw
+    /// differently.
+    private var presetGallery: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Presets")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+            LazyVGrid(
+                columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 4),
+                spacing: 6
+            ) {
+                ForEach(Self.backgroundPresets) { preset in
+                    Button {
+                        updateImmediately { $0.background = preset.background }
+                    } label: {
+                        backgroundSwatch(preset.background)
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 5)
+                                    .strokeBorder(draft.background == preset.background
+                                                  ? Color.accentColor
+                                                  : Color.clear,
+                                                  lineWidth: 2)
+                            }
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(Text("Presets"))
+                }
+            }
+        }
+    }
+
+    private func backgroundSwatch(_ background: Presentation.Background) -> some View {
+        ZStack {
+            checkerboard
+            Canvas { context, size in
+                context.withCGContext { cg in
+                    PresentationRenderer.drawBackground(
+                        background, in: CGRect(origin: .zero, size: size), ctx: cg
+                    )
+                }
+            }
+        }
+        .aspectRatio(4.0 / 3.0, contentMode: .fit)
+        .clipShape(RoundedRectangle(cornerRadius: 5))
+        .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(.quaternary, lineWidth: 1))
     }
 
     /// Painted by `PresentationRenderer`, not by a lookalike: what the tile

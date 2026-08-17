@@ -604,4 +604,25 @@ import Testing
         expectClose(gaps.trailing, 60)
         #expect(after.imageRect.size == before.imageRect.size)
     }
+
+    /// A preset is an ordinary background value, so every control below the
+    /// gallery keeps working on it. If one ever stopped being renderable the
+    /// gallery would show a blank tile and say nothing about why.
+    @Test func everyBackgroundPresetPaintsSomething() {
+        let base = TestImages.make(width: 8, height: 8)
+        for background in PresentationInspector.backgroundPresetsForTesting {
+            let rep = AnnotationRenderer.renderBitmap(
+                base: base, annotations: [],
+                presentation: Presentation(
+                    canvas: .preset(pixelSize: CGSize(width: 60, height: 60)),
+                    background: background,
+                    image: .init(center: CGPoint(x: 0.5, y: 0.5), scale: 0.1)
+                )
+            )
+            let corner = rep?.colorAt(x: 1, y: 1)
+            #expect(corner != nil)
+            #expect((corner?.alphaComponent ?? 0) > 0.99)   // opaque, never a hole
+        }
+        #expect(PresentationInspector.backgroundPresetsForTesting.count == 16)
+    }
 }
