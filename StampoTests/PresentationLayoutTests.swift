@@ -605,6 +605,23 @@ import Testing
         #expect(after.imageRect.size == before.imageRect.size)
     }
 
+    /// Every kind that offers a gallery has something in it — an empty drawer
+    /// under a selected kind reads as a missing feature.
+    @Test func everyGalleryKindHasPresets() {
+        let kinds = PresentationInspector.backgroundPresetsForTesting.map { background -> String in
+            switch background {
+            case .solid: return "solid"
+            case .linearGradient, .radialGradient: return "gradient"
+            case .mesh: return "mesh"
+            case .sampledMesh: return "sampled"
+            case .none: return "none"
+            }
+        }
+        #expect(kinds.filter { $0 == "solid" }.count >= 4)
+        #expect(kinds.filter { $0 == "gradient" }.count >= 4)
+        #expect(kinds.filter { $0 == "mesh" }.count >= 4)
+    }
+
     /// A preset is an ordinary background value, so every control below the
     /// gallery keeps working on it. If one ever stopped being renderable the
     /// gallery would show a blank tile and say nothing about why.
@@ -623,6 +640,6 @@ import Testing
             #expect(corner != nil)
             #expect((corner?.alphaComponent ?? 0) > 0.99)   // opaque, never a hole
         }
-        #expect(PresentationInspector.backgroundPresetsForTesting.count == 16)
+        #expect(PresentationInspector.backgroundPresetsForTesting.count == 21)
     }
 }

@@ -332,6 +332,19 @@ struct PresentationInspector: View {
     private struct BackgroundPreset: Identifiable {
         let id: String
         let background: Presentation.Background
+
+        /// Which list this belongs to. Derived from the value rather than
+        /// stated beside it: a preset that claimed one kind and carried another
+        /// would put a gradient in the solid drawer.
+        var kind: BackgroundKind {
+            switch background {
+            case .none:                          return .none
+            case .solid:                         return .solid
+            case .linearGradient, .radialGradient: return .gradient
+            case .mesh:                          return .mesh
+            case .sampledMesh:                   return .sampled
+            }
+        }
     }
 
     private static func rgb(_ r: Double, _ g: Double, _ b: Double) -> Presentation.Color {
@@ -349,7 +362,12 @@ struct PresentationInspector: View {
         return [
             BackgroundPreset(id: "paper", background: .solid(rgb(0.97, 0.97, 0.96))),
             BackgroundPreset(id: "sand", background: .solid(rgb(0.93, 0.89, 0.85))),
+            BackgroundPreset(id: "mist", background: .solid(rgb(0.87, 0.89, 0.92))),
+            BackgroundPreset(id: "sage", background: .solid(rgb(0.84, 0.88, 0.83))),
             BackgroundPreset(id: "graphite", background: .solid(rgb(0.11, 0.11, 0.12))),
+            BackgroundPreset(id: "midnight", background: .solid(rgb(0.09, 0.11, 0.18))),
+            BackgroundPreset(id: "clay", background: .solid(rgb(0.76, 0.55, 0.47))),
+            BackgroundPreset(id: "denim", background: .solid(rgb(0.25, 0.38, 0.55))),
             linear("slate", rgb(0.20, 0.23, 0.29), rgb(0.07, 0.08, 0.11)),
             linear("ocean", rgb(0.26, 0.62, 0.85), rgb(0.09, 0.24, 0.51)),
             linear("violet", rgb(0.36, 0.35, 0.92), rgb(0.66, 0.33, 0.87)),
@@ -592,30 +610,37 @@ struct PresentationInspector: View {
     /// The ready-made pages, four to a row. Same painter as the tiles above and
     /// as the export, so nothing here promises a background the file would draw
     /// differently.
+    @ViewBuilder
     private var presetGallery: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Presets")
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-            LazyVGrid(
-                columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 4),
-                spacing: 6
-            ) {
-                ForEach(Self.backgroundPresets) { preset in
-                    Button {
-                        updateImmediately { $0.background = preset.background }
-                    } label: {
-                        backgroundSwatch(preset.background)
-                            .overlay {
-                                RoundedRectangle(cornerRadius: 5)
-                                    .strokeBorder(draft.background == preset.background
-                                                  ? Color.accentColor
-                                                  : Color.clear,
-                                                  lineWidth: 2)
-                            }
+        // The kind above *is* the filter: a solid page offers solids, a
+        // gradient offers gradients. Sorting them into one heap made the user
+        // pick the kind twice — once in the tiles, once again by eye.
+        let presets = Self.backgroundPresets.filter { $0.kind == backgroundKind }
+        if !presets.isEmpty {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Presets")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                LazyVGrid(
+                    columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 4),
+                    spacing: 6
+                ) {
+                    ForEach(presets) { preset in
+                        Button {
+                            updateImmediately { $0.background = preset.background }
+                        } label: {
+                            backgroundSwatch(preset.background)
+                                .overlay {
+                                    RoundedRectangle(cornerRadius: 5)
+                                        .strokeBorder(draft.background == preset.background
+                                                      ? Color.accentColor
+                                                      : Color.clear,
+                                                      lineWidth: 2)
+                                }
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(Text("Presets"))
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(Text("Presets"))
                 }
             }
         }
