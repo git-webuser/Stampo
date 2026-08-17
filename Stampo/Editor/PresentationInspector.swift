@@ -1155,11 +1155,11 @@ struct PresentationInspector: View {
 
             if isExpanded {
                 GroupBox {
-                    VStack(alignment: .leading, spacing: 12) {
+                    VStack(alignment: .leading, spacing: Self.controlSpacing) {
                         content()
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.top, 2)
+                    .padding(Self.groupPadding)
                 }
             }
         }
