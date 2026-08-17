@@ -27,6 +27,14 @@ import Testing
         assertSymbols(PresentationInspector.sectionSystemImages)
     }
 
+    /// Two controls wearing the same glyph read as the same control. The decor
+    /// button and the canvas section shared one until this caught it.
+    @Test func inspectorSectionSymbolsAreAllDifferent() {
+        var names = PresentationInspector.sectionSystemImages
+        names.append(PresentationInspector.decorSystemImage)
+        #expect(Set(names).count == names.count)
+    }
+
     @Test func alignmentSymbolsExist() {
         assertSymbols(PresentationInspector.alignmentSystemImages)
     }

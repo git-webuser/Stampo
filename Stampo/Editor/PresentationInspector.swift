@@ -40,16 +40,19 @@ struct PresentationInspector: View {
     @State private var userColors: [Presentation.Color] = []
 
     private enum Section: Hashable, CaseIterable {
-        case canvas, background, image, effects
+        case canvas, background, image, shadow
 
         /// Kept on the case (and exposed through `sectionSystemImages`) so the
         /// SF Symbol availability test can reach these names.
         var systemImage: String {
             switch self {
-            case .canvas:     return "rectangle.center.inset.filled"
+            // Each one its own: the decor button already owns
+            // `rectangle.center.inset.filled`, and a section repeating it made
+            // the panel look like it was labelled twice.
+            case .canvas:     return "rectangle.dashed"
             case .background: return "paintpalette"
             case .image:      return "photo"
-            case .effects:    return "sparkles"
+            case .shadow:     return "square.filled.on.square"
             }
         }
     }
@@ -341,12 +344,12 @@ struct PresentationInspector: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: Self.sectionSpacing) {
                 header
                 canvasSection
                 backgroundSection
                 imageSection
-                effectsSection
+                shadowSection
                 removeButton
             }
             .padding(16)
@@ -514,7 +517,7 @@ struct PresentationInspector: View {
                 // modes of one thing, and the panel must not reflow when the
                 // user flips between them.
                 presentationSlider(
-                    "Angle", id: "angle", systemImage: "rotate.right",
+                    "Angle", id: "angle", systemImage: "angle",
                     value: gradientAngleBinding,
                     range: -180...180, step: 5,
                     unit: .degrees
@@ -858,36 +861,32 @@ struct PresentationInspector: View {
     /// side each one meant.
     private var gapGrid: some View {
         let gaps = PresentationLayout.gaps(resolvedLayout)
-        return VStack(spacing: 4) {
-
+        return VStack(spacing: Self.marginGap) {
             gapField(.top, value: gaps.top)
-                .frame(width: Self.numberFieldWidth)
-            HStack(spacing: 4) {
+            HStack(spacing: Self.marginGap) {
                 gapField(.leading, value: gaps.leading)
-                    .frame(width: Self.numberFieldWidth)
-                RoundedRectangle(cornerRadius: 3)
-                    .strokeBorder(.tertiary, style: StrokeStyle(lineWidth: 1, dash: [3, 2]))
-                    .frame(width: 34, height: 26)
-                    .overlay {
-                        Image(systemName: "photo")
-                            .font(.system(size: 11))
-                            .foregroundStyle(.tertiary)
-                    }
+                // The picture's stand-in, sized to the gap between the fields
+                // so the cross reads as a frame around it rather than as four
+                // controls that happen to be near each other.
+                RoundedRectangle(cornerRadius: 4)
+                    .strokeBorder(.tertiary, style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
+                    .frame(width: Self.marginPlateWidth, height: 30)
                 gapField(.trailing, value: gaps.trailing)
-                    .frame(width: Self.numberFieldWidth)
             }
             gapField(.bottom, value: gaps.bottom)
-                .frame(width: Self.numberFieldWidth)
         }
         .frame(maxWidth: .infinity)
     }
 
-
+    private static let marginGap: CGFloat = 6
+    /// What is left in the middle once two fields and their gaps are placed.
+    private static let marginPlateWidth: CGFloat = 44
 
     private func gapField(_ edge: PresentationLayout.Edge, value: CGFloat) -> some View {
         NumberField(value: .constant(Double(value.rounded())), alignment: .center) { typed in
             setGap(edge, to: CGFloat(typed))
         }
+        .frame(width: Self.numberFieldWidth)
         // SwiftUI writes the environment's control size onto the wrapped
         // NSControl, so a field outside a `.large` container is reset to the
         // regular one — 22 points against the canvas row's 30. Measured.
@@ -1051,49 +1050,49 @@ struct PresentationInspector: View {
         updateImmediately { $0.image = placement }
     }
 
-    private var effectsSection: some View {
-        inspectorGroup("Effects", section: .effects) {
-            Toggle("Shadow", isOn: shadowEnabledBinding)
-                .controlSize(.large)
-            if shadowEnabled {
-                presentationSlider(
-                    "Shadow Radius", id: "shadowRadius", systemImage: "circle.lefthalf.filled",
-                    value: shadowRadiusBinding,
-                    range: 0.005...0.25, step: 0.005,
-                    unit: .pixels(basis: max(canvasSize.width, canvasSize.height))
-                )
-                presentationSlider(
-                    "Shadow Opacity", id: "shadowOpacity", systemImage: "circle.lefthalf.filled",
-                    value: shadowOpacityBinding,
-                    range: 0.05...1, step: 0.01,
-                    unit: .percent
-                )
-                presentationSlider(
-                    "Shadow Offset X", id: "shadowOffsetX", systemImage: "arrow.left.and.right",
-                    value: shadowOffsetXBinding,
-                    range: -0.1...0.1, step: 0.005,
-                    unit: .pixels(basis: canvasSize.width)
-                )
-                presentationSlider(
-                    "Shadow Offset Y", id: "shadowOffsetY", systemImage: "arrow.up.and.down",
-                    value: shadowOffsetYBinding,
-                    range: -0.1...0.1, step: 0.005,
-                    unit: .pixels(basis: canvasSize.height)
-                )
-                HStack(spacing: 8) {
-                    Text("Shadow Color")
-                    ColorChip(color: draft.shadow.color, diameter: Self.swatchSize,
-                              supportsOpacity: false) { picked in
-                        var color = picked
-                        // Opacity has its own slider; a colour that also carried
-                        // alpha would give two controls one number to fight over.
-                        color.alpha = 1
-                        updateImmediately { $0.shadow.color = color }
-                    }
-                    Spacer(minLength: 0)
+    /// One shape for every section: a title and its controls. The shadow used
+    /// to hide behind a switch, which made it the only part of the panel you
+    /// had to turn on before you could see it — zero opacity says the same
+    /// thing and says it in the same place as everything else.
+    private var shadowSection: some View {
+        inspectorGroup("Shadow", section: .shadow) {
+            presentationSlider(
+                "Shadow Radius", id: "shadowRadius", systemImage: "circle.dotted",
+                value: shadowRadiusBinding,
+                range: 0...0.25, step: 0.005,
+                unit: .pixels(basis: max(canvasSize.width, canvasSize.height))
+            )
+            presentationSlider(
+                "Shadow Opacity", id: "shadowOpacity", systemImage: "circle.lefthalf.filled",
+                value: shadowOpacityBinding,
+                range: 0...1, step: 0.01,
+                unit: .percent
+            )
+            presentationSlider(
+                "Shadow Offset X", id: "shadowOffsetX", systemImage: "arrow.left.and.right",
+                value: shadowOffsetXBinding,
+                range: -0.1...0.1, step: 0.005,
+                unit: .pixels(basis: canvasSize.width)
+            )
+            presentationSlider(
+                "Shadow Offset Y", id: "shadowOffsetY", systemImage: "arrow.up.and.down",
+                value: shadowOffsetYBinding,
+                range: -0.1...0.1, step: 0.005,
+                unit: .pixels(basis: canvasSize.height)
+            )
+            HStack(spacing: 8) {
+                Text("Shadow Color")
+                ColorChip(color: draft.shadow.color, diameter: Self.swatchSize,
+                          supportsOpacity: false) { picked in
+                    var color = picked
+                    // Opacity has its own slider; a colour that also carried
+                    // alpha would give two controls one number to fight over.
+                    color.alpha = 1
+                    updateImmediately { $0.shadow.color = color }
                 }
-                .font(.system(size: 11))
+                Spacer(minLength: 0)
             }
+            .font(.system(size: 11))
         }
     }
 
@@ -1222,6 +1221,10 @@ struct PresentationInspector: View {
     /// width: the canvas row carries two of them plus the × and the rotate
     /// button, and the margins carry two plus the picture's stand-in.
     private static let numberFieldWidth: CGFloat = 100
+    /// The panel's rhythm, in one place: between sections, and between the
+    /// controls inside one.
+    private static let sectionSpacing: CGFloat = 16
+    private static let controlSpacing: CGFloat = 12
 
     /// A slider **and** a typed field for the same number.
     ///
@@ -1623,22 +1626,6 @@ struct PresentationInspector: View {
                 }
             }
         )
-    }
-
-    private var shadowEnabled: Bool {
-        draft.shadow.opacity > 0 && draft.shadow.radius > 0
-    }
-
-    private var shadowEnabledBinding: Binding<Bool> {
-        Binding(get: { shadowEnabled }, set: { enabled in
-            updateImmediately {
-                $0.shadow = enabled
-                    ? Presentation.Shadow(radius: 0.06,
-                                          offset: CGPoint(x: 0, y: 0.02),
-                                          opacity: 0.28)
-                    : .none
-            }
-        })
     }
 
     private var shadowRadiusBinding: Binding<CGFloat> {
