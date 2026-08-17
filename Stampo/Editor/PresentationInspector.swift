@@ -1096,15 +1096,24 @@ struct PresentationInspector: View {
         }
     }
 
+    /// Throwing the decoration away is the one thing in this panel that undoes
+    /// everything else, so it gets the weight of a real button rather than a
+    /// line of tinted text that reads as a caption. It keeps the destructive
+    /// role, which is what makes it red, and a rule above it so it is plainly
+    /// not part of the last section.
     private var removeButton: some View {
-        Button(role: .destructive) {
-            removePresentation()
-        } label: {
-            Label("Remove Decor", systemImage: "xmark.circle")
+        VStack(spacing: Self.sectionSpacing) {
+            Divider()
+            Button(role: .destructive) {
+                removePresentation()
+            } label: {
+                Label("Remove Decor", systemImage: "trash")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.large)
+            .disabled(document.presentation == nil)
         }
-        .buttonStyle(.borderless)
-        .disabled(document.presentation == nil)
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: Building blocks
