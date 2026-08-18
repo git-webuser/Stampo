@@ -1311,6 +1311,7 @@ struct EditorCanvasView: View {
                             document.refreshBindingFallbacks()
                         }
                         document.commitChange()
+                        returnToSelect()
                     }
                 case .drawing(let id):
                     let here = point(id)
@@ -1929,6 +1930,24 @@ struct EditorCanvasView: View {
 
     // MARK: Text editing
 
+    /// Hands the tool back to Select once it has produced its object.
+    ///
+    /// Shapes and text do; freehand, the eraser and numbered steps do not.
+    ///
+    /// The split follows Apple's markup, which is the reference here. A shape
+    /// and a label are single finished statements, and there the tool resetting
+    /// is the end of the act. Strokes, erasing and numbering are done in runs,
+    /// and `grabbableAnnotation` is what makes resetting unnecessary for them:
+    /// the stroke you just drew can be picked up without leaving the pen, which
+    /// is what the open-hand cursor is promising.
+    ///
+    /// Recognition and crop are modes rather than makers, and are never
+    /// returned from.
+    private func returnToSelect() {
+        guard tool != .scan, tool != .crop else { return }
+        tool = .select
+    }
+
     private func placeText(at p: CGPoint) {
         document.beginChange()
         var annotation = Annotation(kind: .text, start: p, end: p,
@@ -1975,6 +1994,14 @@ struct EditorCanvasView: View {
         textFieldFocused = true
     }
 
+    /// Commits the label and hands the tool back.
+    ///
+    /// A label is finished when the typing stops, not when the box appears, so
+    /// the reset belongs here: while you are still typing the toolbar honestly
+    /// reads Text, and the click that commits the label is the same one that
+    /// ends the act — which is exactly what Apple's markup does. Returning at
+    /// placement instead would have shown Select while a text box was still
+    /// open for input.
     func finishTextEditing() {
         guard let id = editingTextID else { return }
         editingTextID = nil
@@ -1984,6 +2011,7 @@ struct EditorCanvasView: View {
         } else {
             document.finishTextEditing(id)
         }
+        returnToSelect()
     }
 
     private func textOverlay(for annotation: Annotation, fitScale: CGFloat,
