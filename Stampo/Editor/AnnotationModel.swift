@@ -2513,11 +2513,15 @@ nonisolated struct RenderedArtifact: Sendable {
 
     /// Moves the picture on its canvas by a delta in canvas pixels — the same
     /// gesture as dragging an annotation, applied to the one object that is not
-    /// one. Undoable as a single step.
+    /// one.
+    ///
+    /// The undo step belongs to the caller, exactly as it does for
+    /// `resizeImage`: a drag calls this once per pointer sample, so opening and
+    /// closing a change here would push one undo entry per mouse event and
+    /// leave ⌘Z rewinding a single sample instead of the drag.
     func moveImage(by delta: CGPoint, canvasSize: CGSize) {
         guard var presentation, canvasSize.width > 0, canvasSize.height > 0,
               delta != .zero else { return }
-        beginChange()
         switch presentation.canvas {
         case .auto(var margins, let scale):
             // The page hugs the picture, so moving it trades one margin for the
@@ -2534,7 +2538,6 @@ nonisolated struct RenderedArtifact: Sendable {
             presentation.image.center.y += delta.y / canvasSize.height
         }
         self.presentation = presentation
-        commitChange()
     }
 
     /// Resizes the picture so `corner` lands on `point` (canvas pixels) while

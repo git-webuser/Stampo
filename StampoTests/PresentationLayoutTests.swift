@@ -330,7 +330,13 @@ import Testing
                                        document.presentation)
         )
 
-        document.moveImage(by: CGPoint(x: 40, y: 0), canvasSize: canvas)
+        // A drag is many events, not one: the gesture opens the change and the
+        // move itself must not, or ⌘Z would rewind a single pointer sample.
+        document.beginChange()
+        for _ in 0..<8 {
+            document.moveImage(by: CGPoint(x: 5, y: 0), canvasSize: canvas)
+        }
+        document.commitChange()
 
         let after = PresentationLayout.gaps(
             PresentationLayout.resolve(imagePixelSize: document.pixelSize,

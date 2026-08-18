@@ -1330,12 +1330,13 @@ struct EditorCanvasView: View {
                                           magnet: bindMagnetPt / scaleOf(id))
                     document.refreshBindingFallbacks()
                     document.commitChange()
-                case .resizingImage:
+                case .movingImage, .resizingImage:
                     document.commitChange()
                 case .duplicatePending, .cropCreating, .cropMoving, .cropResizing,
-                     .movingImage, .panning, .ignore, nil:
+                     .panning, .ignore, nil:
                     break
                 }
+                activeGestureTool = nil
             }
     }
 
@@ -1468,6 +1469,8 @@ struct EditorCanvasView: View {
         guard rect.insetBy(dx: -grab / 2, dy: -grab / 2).contains(sp.canvas) else { return nil }
         document.selectedID = nil
         imageSelected = true
+        // One drag, one undo step — the move itself no longer opens its own.
+        document.beginChange()
         return .movingImage(last: sp.canvas)
     }
 
@@ -1809,7 +1812,9 @@ struct EditorCanvasView: View {
                     imagePixelSize: self.document.pixelSize,
                     self.document.presentation
                 ).canvasSize
+                self.document.beginChange()
                 self.document.moveImage(by: delta, canvasSize: canvas)
+                self.document.commitChange()
             case .annotation:
                 self.document.nudgeSelected(by: delta)
             case .nothing:
