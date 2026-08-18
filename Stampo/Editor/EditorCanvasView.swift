@@ -1484,7 +1484,11 @@ struct EditorCanvasView: View {
         // Text and step are canvas-space, so a new one is placed there.
         let p = sp.canvas
 
-        if hit != nil { imageSelected = false }
+        // A click that reaches here never landed on the picture (that returns
+        // `.movingImage` at mouse-down), so it deselects it the same way it
+        // deselects an annotation — otherwise the frame stayed drawn and the
+        // arrow keys kept moving a picture the user had just clicked away from.
+        imageSelected = false
 
         switch tool {
         case .text:
