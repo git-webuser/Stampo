@@ -1978,6 +1978,27 @@ nonisolated struct RenderedArtifact: Sendable {
     private var blurTasks: [BlurSource: Task<CGImage?, Never>] = [:]
     private(set) var imageRevision: UInt64 = 0
 
+    /// The picture's own palette, sampled once per image.
+    ///
+    /// The decor panel reads it from `body`, which re-runs on every slider
+    /// tick; sampling there meant a downsample plus a thousand `colorAt`
+    /// conversions per frame on the main actor. The answer only changes when
+    /// the image does, so it is kept against that image's identity — and kept
+    /// out of observation, since filling a cache while a view is being built
+    /// is not a change anything should redraw for.
+    @ObservationIgnored private var sampledPaletteSource: CGImage?
+    @ObservationIgnored private var sampledPaletteCache: [Presentation.Color] = []
+
+    var sampledPalette: [Presentation.Color] {
+        if let source = sampledPaletteSource, source === baseImage {
+            return sampledPaletteCache
+        }
+        let colors = PresentationColorSampler.colors(from: baseImage)
+        sampledPaletteCache = colors
+        sampledPaletteSource = baseImage
+        return colors
+    }
+
     var annotations: [Annotation] = [] {
         didSet { revision &+= 1 }
     }

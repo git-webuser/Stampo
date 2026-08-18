@@ -1999,7 +1999,7 @@ struct PresentationInspector: View {
     }
 
     private func sampledBackgroundColors() -> [Presentation.Color] {
-        let colors = PresentationColorSampler.colors(from: document.baseImage)
+        let colors = document.sampledPalette
         return colors.isEmpty ? Self.meshColors(from: Self.fallbackColor) : colors
     }
 
