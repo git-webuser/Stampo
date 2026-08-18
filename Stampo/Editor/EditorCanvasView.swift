@@ -286,6 +286,9 @@ struct EditorCanvasView: View {
     @State private var magnificationStart: CGFloat?
     @State private var magnificationStartPan: CGSize?
     @State private var isSpaceHeld = false
+    /// Whether ⌘ is down — see `isCommandHeld`. Held in state rather than read
+    /// live so pressing it redraws the canvas and repaints the cursor.
+    @State private var isCommandDown = false
     @State private var keyMonitor: Any?
     /// Last committed click, for timing-based double-click detection (the
     /// gesture layer doesn't surface a reliable OS click count).
@@ -328,6 +331,9 @@ struct EditorCanvasView: View {
     /// hand and the ring's absence, so the drawn ring and the system cursor
     /// always tell the same story.
     @State private var pointerOverGrabbable = false
+    /// Where the pointer was last seen, in both spaces. Kept so a ⌘ press can
+    /// re-decide the cursor without waiting for the mouse to move.
+    @State private var lastHoverPoint: SpacedPoint?
     /// The picture is selected. Kept apart from `document.selectedID`, which
     /// names an annotation — the picture is not one, it is what they sit on.
     @State private var imageSelected = false
@@ -487,6 +493,7 @@ struct EditorCanvasView: View {
                                            bounds: canvasBounds),
                         imageScale: fitScale, canvasScale: geometry.canvasScale
                     )
+                    lastHoverPoint = sp
                     let grabbable = pointerCanGrab(at: sp, for: borrowedTool)
                     pointerOverGrabbable = grabbable
                     updateCursor(
@@ -496,6 +503,7 @@ struct EditorCanvasView: View {
                 case .ended:
                     drawingCursorLocation = nil
                     pointerOverGrabbable = false
+                    lastHoverPoint = nil
                     restoreCursor()
                 }
             }
@@ -1607,6 +1615,17 @@ struct EditorCanvasView: View {
         updateGrabCursor(grabbable)
     }
 
+    /// Repaints the cursor after ⌘ went down or up, from where the pointer was
+    /// last seen — the modifier changes what the press will do, so it has to
+    /// change what the pointer looks like, and no hover event is coming.
+    private func refreshCursorForBorrow() {
+        guard let sp = lastHoverPoint else { return }
+        let grabbable = pointerCanGrab(at: sp, for: borrowedTool)
+        pointerOverGrabbable = grabbable
+        updateCursor(ringShown: drawingCursorFootprint != nil && !grabbable,
+                     grabbable: grabbable)
+    }
+
     /// Gives the cursor back: leaving the canvas, changing tool, closing the
     /// editor. A hidden cursor outlives the view that hid it, so every exit has
     /// to come through here.
@@ -1838,7 +1857,10 @@ struct EditorCanvasView: View {
     }
 
     private var isCommandHeld: Bool {
-        NSEvent.modifierFlags.contains(.command)
+        // The tracked flag is what makes the view redraw on the press itself;
+        // the live read covers a press that arrived while another window was
+        // key, so a gesture is never wrong about it even if the monitor was.
+        isCommandDown || NSEvent.modifierFlags.contains(.command)
     }
 
     /// The tool a fresh mouse-down acts with.
@@ -1942,8 +1964,24 @@ struct EditorCanvasView: View {
 
     private func installKeyMonitor() {
         guard keyMonitor == nil else { return }
-        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp]) { event in
+        keyMonitor = NSEvent.addLocalMonitorForEvents(
+            matching: [.keyDown, .keyUp, .flagsChanged]
+        ) { event in
             guard EditorWindowController.shared.isKeyWindow else { return event }
+
+            // A modifier arrives as `.flagsChanged` and never as a keyDown, so
+            // holding ⌘ changed nothing until the mouse moved: the ring stayed
+            // lit, the hand never appeared, and a borrow that says nothing when
+            // you press it cannot be learned. Mirroring it into state is what
+            // redraws the canvas and repaints the cursor on the press itself.
+            if event.type == .flagsChanged {
+                let down = event.modifierFlags.contains(.command)
+                if down != self.isCommandDown {
+                    self.isCommandDown = down
+                    self.refreshCursorForBorrow()
+                }
+                return event
+            }
 
             let commandModifiers = event.modifierFlags
                 .intersection([.command, .control, .option, .shift])
@@ -2116,6 +2154,7 @@ struct EditorCanvasView: View {
         if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
         keyMonitor = nil
         isSpaceHeld = false
+        isCommandDown = false
     }
 
     // MARK: Text editing
