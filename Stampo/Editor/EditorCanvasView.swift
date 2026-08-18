@@ -318,6 +318,8 @@ struct EditorCanvasView: View {
         case ignore
     }
     @State private var dragMode: DragMode?
+    /// Captured at mouse-down, cleared when the gesture ends — see `gestureTool`.
+    @State private var activeGestureTool: EditorTool?
     /// The picture is selected. Kept apart from `document.selectedID`, which
     /// names an annotation — the picture is not one, it is what they sit on.
     @State private var imageSelected = false
@@ -973,6 +975,8 @@ struct EditorCanvasView: View {
                 let p = sp.canvas
 
                 if dragMode == nil {
+                    // What the gesture is, decided once, here.
+                    activeGestureTool = borrowedTool
                     // First event of the gesture: a click anywhere commits an
                     // in-progress text edit before anything else happens.
                     if editingTextID != nil {
@@ -1035,8 +1039,10 @@ struct EditorCanvasView: View {
                     guard viewDistance >= 3 else { break }
                     // The select tool has nothing to create on empty space, so
                     // an empty-space drag pans the (zoomed) image instead.
-                    guard let kind = shapeKind(for: tool) else {
-                        if tool == .select { dragMode = .panning(last: value.location) }
+                    guard let kind = shapeKind(for: gestureTool) else {
+                        if gestureTool == .select {
+                            dragMode = .panning(last: value.location)
+                        }
                         break
                     }
                     // A blur or loupe is born in image pixels; everything else
@@ -1391,7 +1397,7 @@ struct EditorCanvasView: View {
             return .duplicatePending(sourceID: hit.id, start: p)
         }
 
-        switch tool {
+        switch gestureTool {
         case .scan:
             // The selection overlay covers the image while this tool is
             // active, so a drag never reaches the canvas.
@@ -1501,7 +1507,7 @@ struct EditorCanvasView: View {
         // arrow keys kept moving a picture the user had just clicked away from.
         imageSelected = false
 
-        switch tool {
+        switch gestureTool {
         case .text:
             if let hit, hit.kind == .text { document.selectedID = hit.id }
             else { placeText(at: snapped(p)) }        // new text opens straight into editing
@@ -1639,6 +1645,38 @@ struct EditorCanvasView: View {
     private var isOptionHeld: Bool {
         NSEvent.modifierFlags.contains(.option)
     }
+
+    private var isCommandHeld: Bool {
+        NSEvent.modifierFlags.contains(.command)
+    }
+
+    /// The tool a fresh mouse-down acts with.
+    ///
+    /// Holding ⌘ borrows `.select` for as long as it is down: click to select,
+    /// drag to move, and the picture becomes grabbable — so reaching an object
+    /// no longer costs a trip to the toolbar and back for every adjustment.
+    ///
+    /// It is a modifier rather than a rule about what wins the grab, because a
+    /// rule would have to take something away. An object that always caught the
+    /// pointer would make it impossible to start a new shape over an existing
+    /// one, and the picture lies under the entire canvas — letting it catch the
+    /// pointer would mean never drawing on the screenshot again. With the
+    /// modifier, nothing is taken: without ⌘ every tool behaves exactly as
+    /// before.
+    ///
+    /// Recognition and crop own their gestures outright and are never borrowed
+    /// from.
+    private var borrowedTool: EditorTool {
+        guard isCommandHeld, tool != .scan, tool != .crop else { return tool }
+        return .select
+    }
+
+    /// The tool the gesture in progress began with.
+    ///
+    /// A mouse-down decides what a gesture *is*, so letting go of ⌘ halfway
+    /// through must not turn the move under way into a new rectangle on
+    /// mouse-up.
+    private var gestureTool: EditorTool { activeGestureTool ?? tool }
 
     private func constrainedEndpoint(_ point: CGPoint, from start: CGPoint,
                                      kind: AnnotationKind) -> CGPoint {
