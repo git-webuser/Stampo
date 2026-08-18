@@ -610,6 +610,40 @@ enum TestImages {
     // MARK: loupe
 
     /// Solid-color image for deterministic loupe/blur source tests.
+    /// A picture dragged clean off the page is the one object the user cannot
+    /// get back by any other means — it is what they grab to drag it. Drawn
+    /// only inside the canvas, it left the editor showing a bare background.
+    @Test func thePictureStaysVisibleAfterItLeavesTheCanvas() {
+        let base = solidImage(width: 100, height: 100, red: 1, green: 0, blue: 0)
+        // A 100×100 page with the picture sitting entirely to its left.
+        let layout = PresentationLayout.Resolved(
+            canvasSize: CGSize(width: 100, height: 100),
+            imageRect: CGRect(x: -120, y: 0, width: 100, height: 100)
+        )
+        // Room around the page for the ghost to land in: the page occupies
+        // (150, 150)…(250, 250) of a 400×400 sheet.
+        let rep = NSBitmapImageRep(
+            bitmapDataPlanes: nil, pixelsWide: 400, pixelsHigh: 400,
+            bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0
+        )!
+        let gc = NSGraphicsContext(bitmapImageRep: rep)!
+        let ctx = gc.cgContext
+        ctx.translateBy(x: 150, y: 150)
+
+        PresentationRenderer.drawGhostOutsideCanvas(
+            in: ctx, base: base, blurSources: [:], annotations: [], layout: layout
+        )
+        ctx.flush()
+
+        // Centre of where the picture went: 150 + (-120 + 50) = 80.
+        let ghost = rep.colorAt(x: 80, y: 200)
+        #expect((ghost?.alphaComponent ?? 0) > 0.1)
+        #expect((ghost?.redComponent ?? 0) > 0.5)
+        // The page itself is left alone — the ghost is an outside-only pass.
+        #expect((rep.colorAt(x: 200, y: 200)?.alphaComponent ?? 1) < 0.01)
+    }
+
     private func solidImage(width: Int, height: Int,
                             red: CGFloat, green: CGFloat, blue: CGFloat) -> CGImage {
         let ctx = CGContext(

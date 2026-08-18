@@ -85,12 +85,19 @@ nonisolated enum PresentationRenderer {
     /// keeps drawing it, dimmed, *only* outside the canvas: the even-odd clip
     /// leaves everything inside untouched, so nothing on the artwork is
     /// greyed. Never called from the export path.
+    ///
+    /// The picture is drawn here too, and that is not a detail: it is
+    /// draggable, so it is the thing most likely to end up off the page. Drawn
+    /// only inside the canvas, a picture pushed past the edge left the editor
+    /// showing a bare background with nothing to grab and no hint of where the
+    /// screenshot had gone.
     static func drawGhostOutsideCanvas(
         in ctx: CGContext,
         base: CGImage,
         blurSources: [BlurSource: CGImage],
         annotations: [Annotation],
         layout: PresentationLayout.Resolved,
+        cornerRadius: CGFloat = 0,
         skipping skippedID: UUID? = nil,
         alpha: CGFloat = 0.3
     ) {
@@ -108,6 +115,24 @@ nonisolated enum PresentationRenderer {
         ctx.addRect(canvasRect)
         ctx.clip(using: .evenOdd)
         ctx.setAlpha(alpha)
+
+        // The picture and its redactions, in the picture's own rounded frame —
+        // the same two-clip split the real pass uses, so the ghost is the
+        // artwork itself rather than a lookalike.
+        if layout.imageRect.width > 0, layout.imageRect.height > 0 {
+            ctx.saveGState()
+            clip(to: layout.imageRect,
+                 canvasSize: layout.canvasSize,
+                 cornerRadius: cornerRadius,
+                 in: ctx)
+            applyImageTransform(layout: layout, base: base, ctx: ctx)
+            AnnotationRenderer.drawBaseLayer(in: ctx,
+                                             base: base,
+                                             blurSources: blurSources,
+                                             annotations: annotations,
+                                             skipping: skippedID)
+            ctx.restoreGState()
+        }
 
         ctx.saveGState()
         applyImageTransform(layout: layout, base: base, ctx: ctx)

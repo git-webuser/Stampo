@@ -1969,32 +1969,40 @@ struct EditorView: View {
     private func fitZoom() {
         let layout = PresentationLayout.resolve(imagePixelSize: document.pixelSize,
                                                 document.presentation)
-        guard let live = imageScreenGeometry,
-              let content = contentBounds(layout: layout),
+        // The pan is always zero: the canvas stays centred and the zoom is what
+        // reaches out to the content. See `EditorViewportGeometry.fitAll` for
+        // why re-centring cannot survive the pan clamp.
+        panOffset = .zero
+        guard let content = contentBounds(layout: layout),
               content != CGRect(origin: .zero, size: layout.canvasSize)
         else {
             zoomFactor = 1
-            panOffset = .zero
             return
         }
-        let fitted = EditorViewportGeometry.fitAll(
-            canvasSize: layout.canvasSize,
-            content: content,
-            canvasBaseDrawSize: live.baseDrawSize
-        )
-        zoomFactor = fitted.zoom
-        panOffset = fitted.pan
+        zoomFactor = EditorViewportGeometry.fitAll(canvasSize: layout.canvasSize,
+                                                   content: content)
     }
 
     /// The canvas united with every annotation, in canvas pixels. nil when
     /// there is nothing to add to the canvas itself.
+    ///
+    /// Only blur and loupe are stored in image pixels and need the image
+    /// transform; everything else is already measured on the canvas. Mapping
+    /// them all sent a caption sitting off the left edge to the *inside* of a
+    /// scaled-down picture, so the one command meant to reveal it framed the
+    /// canvas and left it off screen.
     private func contentBounds(layout: PresentationLayout.Resolved) -> CGRect? {
         let canvas = CGRect(origin: .zero, size: layout.canvasSize)
         let pixel = document.pixelSize
         guard pixel.width > 0, layout.imageRect.width > 0 else { return nil }
         let scale = layout.imageRect.width / pixel.width
-        return document.annotations.reduce(canvas) { union, annotation in
+        // The picture is the first thing that can be off the page — it is
+        // draggable now — and it was the one thing this union left out, so fit
+        // framed an empty background and the picture stayed off screen.
+        let start = canvas.union(layout.imageRect)
+        return document.annotations.reduce(start) { union, annotation in
             let r = annotation.rect
+            guard annotation.livesInImageSpace else { return union.union(r) }
             let mapped = CGRect(x: layout.imageRect.minX + r.minX * scale,
                                 y: layout.imageRect.minY + r.minY * scale,
                                 width: r.width * scale,

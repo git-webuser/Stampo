@@ -192,38 +192,50 @@ import Testing
 
     @Test func fitFramesTheCanvasWhenNothingHasLeftIt() {
         let canvas = CGSize(width: 1600, height: 900)
-        let fitted = EditorViewportGeometry.fitAll(
+        let zoom = EditorViewportGeometry.fitAll(
             canvasSize: canvas,
-            content: CGRect(origin: .zero, size: canvas),
-            canvasBaseDrawSize: CGSize(width: 800, height: 450)
+            content: CGRect(origin: .zero, size: canvas)
         )
-        #expect(fitted.zoom == 1)
-        #expect(fitted.pan == .zero)
+        #expect(zoom == 1)
     }
 
-    @Test func fitZoomsOutAndRecentresForContentOutsideTheCanvas() {
+    /// The canvas stays centred, so it is the *far* side of the content that
+    /// decides — half the reach is the half-canvas the zoom is measured
+    /// against. Re-centring instead was computed and then clamped away.
+    @Test func fitZoomsOutForContentOutsideTheCanvas() {
         let canvas = CGSize(width: 1000, height: 1000)
-        // Content reaches 500 past the right edge: twice as wide as the canvas.
-        let fitted = EditorViewportGeometry.fitAll(
+        // Content spans the canvas and 1000 more to its right, so its far edge
+        // is 1500 from the centre against the half-canvas's 500. The other axis
+        // is exactly the canvas and does not bind.
+        let zoom = EditorViewportGeometry.fitAll(
             canvasSize: canvas,
-            content: CGRect(x: 0, y: 0, width: 2000, height: 1000),
-            canvasBaseDrawSize: CGSize(width: 500, height: 500)   // baseScale 0.5
+            content: CGRect(x: 0, y: 0, width: 2000, height: 1000)
         )
-        #expect(abs(fitted.zoom - 0.5) < 0.0001)
-        // Content centre is 500 right of the canvas centre, so the view pans
-        // left by that distance in drawn points: 500 × 0.5 × 0.5.
-        #expect(abs(fitted.pan.width - -125) < 0.0001)
-        #expect(abs(fitted.pan.height) < 0.0001)
+        #expect(abs(zoom - 500.0 / 1500.0) < 0.0001)
+    }
+
+    /// The picture dragged clean off the left of the page — the case that had
+    /// the editor showing a bare background with nothing to grab.
+    @Test func fitReachesAPictureDraggedOffThePage() {
+        let canvas = CGSize(width: 1000, height: 1000)
+        let picture = CGRect(x: -1200, y: 100, width: 800, height: 800)
+        let zoom = EditorViewportGeometry.fitAll(
+            canvasSize: canvas,
+            content: CGRect(origin: .zero, size: canvas).union(picture)
+        )
+        // Furthest reach from the canvas centre is 1200 + 500 = 1700.
+        #expect(abs(zoom - 500 / 1700) < 0.0001)
+        // Whatever fit can show, a gesture must be able to reach: at this zoom
+        // the viewport spans well under the two canvases of pointer reach.
+        #expect(zoom > EditorViewportGeometry.clampedZoom(0))
     }
 
     @Test func fitSurvivesDegenerateInput() {
-        let fitted = EditorViewportGeometry.fitAll(
+        let zoom = EditorViewportGeometry.fitAll(
             canvasSize: .zero,
-            content: CGRect(x: 0, y: 0, width: 10, height: 10),
-            canvasBaseDrawSize: .zero
+            content: CGRect(x: 0, y: 0, width: 10, height: 10)
         )
-        #expect(fitted.zoom == 1)
-        #expect(fitted.pan == .zero)
+        #expect(zoom == 1)
     }
 
     @Test func ratioLabelsReduceWhenAPersonWouldSayThem() {

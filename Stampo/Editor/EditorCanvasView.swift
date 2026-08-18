@@ -113,25 +113,35 @@ enum EditorViewportGeometry {
                       height: min(maxY, max(-maxY, offset.height)))
     }
 
-    /// Zoom and pan that bring `content` fully into view, where zoom 1 means
-    /// "the canvas exactly fits".
+    /// The zoom that brings `content` into view, where zoom 1 means "the canvas
+    /// exactly fits".
     ///
     /// Fit is how a user finds something they have lost. If it only ever framed
-    /// the canvas, an annotation dragged outside would stay off screen and the
-    /// one command meant to reveal everything would be the one that hides it.
-    static func fitAll(canvasSize: CGSize, content: CGRect,
-                       canvasBaseDrawSize: CGSize) -> (zoom: CGFloat, pan: CGSize) {
+    /// the canvas, a picture or an annotation dragged outside would stay off
+    /// screen and the one command meant to reveal everything would be the one
+    /// that hides it.
+    ///
+    /// It returns a zoom and nothing else, because the pan is not fit's to
+    /// choose: `clampedPanOffset` keeps the canvas centred whenever it is
+    /// smaller than the viewport, which at any fit zoom it is — so a pan that
+    /// re-centred on the content was computed, applied, and then clamped
+    /// straight back to zero on the very next layout pass. Measured: fit
+    /// zoomed out and stayed staring at the middle of the page.
+    ///
+    /// So the canvas stays centred and the zoom is taken from the *symmetric*
+    /// reach around its centre — the far side of the content decides, and
+    /// whatever wandered off comes back into view on its own side. It is up to
+    /// twice as wide a view as re-centring would need, and it is the one that
+    /// survives the clamp.
+    static func fitAll(canvasSize: CGSize, content: CGRect) -> CGFloat {
         guard canvasSize.width > 0, canvasSize.height > 0,
-              content.width > 0, content.height > 0,
-              canvasBaseDrawSize.width > 0
-        else { return (1, .zero) }
-        let zoom = clampedZoom(min(1, min(canvasSize.width / content.width,
-                                          canvasSize.height / content.height)))
-        let baseScale = canvasBaseDrawSize.width / canvasSize.width
-        let dx = content.midX - canvasSize.width / 2
-        let dy = content.midY - canvasSize.height / 2
-        return (zoom, CGSize(width: -dx * baseScale * zoom,
-                             height: -dy * baseScale * zoom))
+              content.width > 0, content.height > 0
+        else { return 1 }
+        let center = CGPoint(x: canvasSize.width / 2, y: canvasSize.height / 2)
+        let reachX = max(abs(content.minX - center.x), abs(content.maxX - center.x))
+        let reachY = max(abs(content.minY - center.y), abs(content.maxY - center.y))
+        guard reachX > 0, reachY > 0 else { return 1 }
+        return clampedZoom(min(1, min(center.x / reachX, center.y / reachY)))
     }
 }
 
@@ -511,6 +521,7 @@ struct EditorCanvasView: View {
                         blurSources: document.blurSources,
                         annotations: document.annotations,
                         layout: layout,
+                        cornerRadius: presentation.cornerRadius,
                         skipping: skipID
                     )
                 } else {
@@ -1586,7 +1597,8 @@ struct EditorCanvasView: View {
                                            hasPresentation: Bool) -> CGRect {
         let bounds = PresentationLayout.annotationBounds(imagePixelSize: pixel, layout)
         guard hasPresentation else { return bounds }
-        return bounds.insetBy(dx: -bounds.width, dy: -bounds.height)
+        return bounds.insetBy(dx: -bounds.width * Self.offCanvasReach,
+                              dy: -bounds.height * Self.offCanvasReach)
     }
 
     /// The same reach, expressed in canvas pixels — the space commentary is
@@ -1595,8 +1607,17 @@ struct EditorCanvasView: View {
                                        hasPresentation: Bool) -> CGRect {
         let canvas = CGRect(origin: .zero, size: layout.canvasSize)
         guard hasPresentation else { return canvas }
-        return canvas.insetBy(dx: -canvas.width, dy: -canvas.height)
+        return canvas.insetBy(dx: -canvas.width * Self.offCanvasReach,
+                              dy: -canvas.height * Self.offCanvasReach)
     }
+
+    /// How far past each canvas edge a gesture may still reach, in canvases.
+    ///
+    /// Whatever fit can show, the pointer must be able to grab. The zoom floor
+    /// is 0.25, so a fully zoomed-out view shows four canvases across — two of
+    /// them beyond each edge. One canvas of reach left a picture that fit had
+    /// just revealed visible but untouchable.
+    private static let offCanvasReach: CGFloat = 2
 
     /// A view point in the image's pixel space, clamped to where annotations
     /// may go. That is the whole canvas, not the picture: with a presentation
