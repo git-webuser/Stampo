@@ -320,6 +320,14 @@ struct EditorCanvasView: View {
     @State private var dragMode: DragMode?
     /// Captured at mouse-down, cleared when the gesture ends — see `gestureTool`.
     @State private var activeGestureTool: EditorTool?
+    /// Whether the open-hand cursor is currently ours — see `updateGrabCursor`.
+    @State private var grabCursorShown = false
+    /// Whether the app-wide cursor is hidden by us — see `updateCursor`.
+    @State private var systemCursorHidden = false
+    /// Whether the pointer is over something it can pick up. Drives both the
+    /// hand and the ring's absence, so the drawn ring and the system cursor
+    /// always tell the same story.
+    @State private var pointerOverGrabbable = false
     /// The picture is selected. Kept apart from `document.selectedID`, which
     /// names an annotation — the picture is not one, it is what they sit on.
     @State private var imageSelected = false
@@ -350,6 +358,15 @@ struct EditorCanvasView: View {
             let baseDrawSize = geometry.canvasBaseDrawSize
             let drawSize = geometry.imageDrawSize
             let offset = geometry.imageOffset
+            let annotationBounds = reachableAnnotationBounds(
+                pixel: pixel,
+                layout: geometry.presentationLayout,
+                hasPresentation: renderPresentation != nil
+            )
+            let canvasBounds = reachableCanvasBounds(
+                layout: geometry.presentationLayout,
+                hasPresentation: renderPresentation != nil
+            )
 
             ZStack(alignment: .topLeading) {
                 canvas(
@@ -374,10 +391,17 @@ struct EditorCanvasView: View {
                     }
                 }
 
-                if let diameter = drawingCursorDiameter,
+                // Canvas, not picture: a stroke is measured in canvas pixels
+                // and may land on the decorated background, so scaling the ring
+                // by the image's own scale drew it at the wrong size the moment
+                // the picture was scaled inside the page.
+                if let footprint = drawingCursorFootprint,
+                   !pointerOverGrabbable,
                    let location = drawingCursorLocation,
-                   CGRect(origin: offset, size: drawSize).contains(location) {
-                    drawingCursor(at: location, diameter: diameter * fitScale)
+                   CGRect(origin: geometry.canvasOffset,
+                          size: geometry.canvasDrawSize).contains(location) {
+                    drawingCursor(footprint, at: location,
+                                  scale: geometry.canvasScale)
                 }
 
                 // Sits exactly over the drawn image and only measures it.
@@ -406,17 +430,10 @@ struct EditorCanvasView: View {
                 .allowsHitTesting(false)
             }
             .gesture(dragGesture(fitScale: fitScale, offset: offset, pixel: pixel,
-                                 annotationBounds: reachableAnnotationBounds(
-                                    pixel: pixel,
-                                    layout: geometry.presentationLayout,
-                                    hasPresentation: renderPresentation != nil
-                                 ),
+                                 annotationBounds: annotationBounds,
                                  canvasScale: geometry.canvasScale,
                                  canvasOffset: geometry.canvasOffset,
-                                 canvasBounds: reachableCanvasBounds(
-                                    layout: geometry.presentationLayout,
-                                    hasPresentation: renderPresentation != nil
-                                 ),
+                                 canvasBounds: canvasBounds,
                                  canvasSize: geometry.presentationLayout.canvasSize,
                                  viewport: geo.size, baseDrawSize: baseDrawSize))
             .simultaneousGesture(magnificationGesture(baseDrawSize: baseDrawSize,
@@ -456,17 +473,39 @@ struct EditorCanvasView: View {
                     panOffset, baseDrawSize: baseDrawSize,
                     zoom: zoomFactor, viewport: geo.size
                 )
+                restoreCursor()
             }
             .onContinuousHover { phase in
                 switch phase {
-                case .active(let location): drawingCursorLocation = location
-                case .ended: drawingCursorLocation = nil
+                case .active(let location):
+                    drawingCursorLocation = location
+                    let sp = SpacedPoint(
+                        image: pixelPoint(location, fitScale: fitScale,
+                                          offset: offset, bounds: annotationBounds),
+                        canvas: pixelPoint(location, fitScale: geometry.canvasScale,
+                                           offset: geometry.canvasOffset,
+                                           bounds: canvasBounds),
+                        imageScale: fitScale, canvasScale: geometry.canvasScale
+                    )
+                    let grabbable = pointerCanGrab(at: sp, for: borrowedTool)
+                    pointerOverGrabbable = grabbable
+                    updateCursor(
+                        ringShown: drawingCursorFootprint != nil && !grabbable,
+                        grabbable: grabbable
+                    )
+                case .ended:
+                    drawingCursorLocation = nil
+                    pointerOverGrabbable = false
+                    restoreCursor()
                 }
             }
             .clipped()
         }
         .onAppear { installKeyMonitor() }
-        .onDisappear { removeKeyMonitor() }
+        .onDisappear {
+            removeKeyMonitor()
+            restoreCursor()
+        }
     }
 
     /// The annotation currently in inline editing, if any.
@@ -919,21 +958,52 @@ struct EditorCanvasView: View {
         }
     }
 
-    private func drawingCursor(at location: CGPoint, diameter: CGFloat) -> some View {
-        Circle()
-            .stroke(Color.white.opacity(0.95), lineWidth: 2)
-            .overlay(Circle().stroke(Color.black.opacity(0.7), lineWidth: 1))
-            .frame(width: max(2, diameter), height: max(2, diameter))
-            .position(location)
-            .allowsHitTesting(false)
+    /// The mark the tool is about to leave, which is what the cursor draws.
+    ///
+    /// Shape as well as size, because the square marker really does lay a
+    /// square: a single dab of a square nib is an axis-aligned filled square of
+    /// side `lineWidth` — see `AnnotationRenderer.drawFreehand`. A round ring
+    /// over a chisel nib would misdescribe both the footprint and the corners
+    /// the stroke will have.
+    private struct CursorFootprint: Equatable {
+        let size: CGFloat
+        let isSquare: Bool
     }
 
-    private var drawingCursorDiameter: CGFloat? {
-        switch tool {
-        case .drawing where style.drawingMode == .marker:
-            return style.markerWidth
+    @ViewBuilder
+    private func drawingCursor(_ footprint: CursorFootprint,
+                              at location: CGPoint, scale: CGFloat) -> some View {
+        let side = max(2, footprint.size * scale)
+        // Two strokes, light over dark, so the outline survives both a white
+        // page and a dark screenshot.
+        ZStack {
+            if footprint.isSquare {
+                Rectangle().stroke(Color.white.opacity(0.95), lineWidth: 2)
+                Rectangle().stroke(Color.black.opacity(0.7), lineWidth: 1)
+            } else {
+                Circle().stroke(Color.white.opacity(0.95), lineWidth: 2)
+                Circle().stroke(Color.black.opacity(0.7), lineWidth: 1)
+            }
+        }
+        .frame(width: side, height: side)
+        .position(location)
+        .allowsHitTesting(false)
+    }
+
+    private var drawingCursorFootprint: CursorFootprint? {
+        // ⌘ borrows Select, and a ring under a pointer that is about to select
+        // would promise the wrong gesture.
+        switch borrowedTool {
+        case .drawing:
+            // The pen gets one too. It is thinner than the marker, not
+            // sizeless, and showing the ring for only one of the two made the
+            // same tool look like two different kinds of thing.
+            return CursorFootprint(
+                size: style.width(for: style.drawingMode),
+                isSquare: style.drawingMode == .marker && style.markerTip == .square
+            )
         case .eraser:
-            return style.eraserDiameter
+            return CursorFootprint(size: style.eraserDiameter, isSquare: false)
         default:
             return nil
         }
@@ -1368,6 +1438,14 @@ struct EditorCanvasView: View {
         let tolerancePx = hitTolerancePt / selectedScale
         let p = document.selectedAnnotation.map(sp.point(for:)) ?? sp.canvas
 
+        // A new object is born in the space its *kind* lives in, and the active
+        // tool already decides that kind. Reading the selection's space instead
+        // meant a blur drawn while an arrow was selected started from a
+        // canvas-space corner and ended at an image-space one.
+        let toolIsImageSpace = shapeKind(for: gestureTool)
+            .map(Annotation.kindLivesInImageSpace) ?? false
+        let toolPoint = sp.point(imageSpace: toolIsImageSpace)
+
         // Resize handles of the current selection win over everything. Bound
         // arrow endpoints are grabbed at their resolved (drawn) positions.
         if let selected = document.selectedAnnotation,
@@ -1407,61 +1485,173 @@ struct EditorCanvasView: View {
             // Crop drags are routed through beginCropDrag before reaching here.
             return .ignore
         case .select:
-            if let hit = document.annotation(at: p, tolerance: tolerancePx) {
-                document.selectedID = hit.id
-                document.beginChange()
-                // A callout loupe's bodies drag independently; whole-
-                // annotation moves stay on the keyboard-nudge path.
-                if let part = hit.loupePart(at: p, tolerance: tolerancePx) {
-                    return .movingLoupePart(hit.id, part, last: snapped(p))
-                }
-                return .moving(hit.id, last: snapped(p))
+            // Each annotation is tested in its own space — the selection's
+            // space says nothing about what is under the pointer now, and
+            // using it left a blur ungrabbable whenever the picture was
+            // offset inside the canvas.
+            if let hit = grabbableAnnotation(at: sp, for: .select) {
+                return beginMove(of: hit, at: sp)
             }
             // The picture is the last thing under the pointer: annotations sit
             // on top of it, empty background below.
             if let mode = beginImageDrag(at: sp) { return mode }
             // Empty space: a click deselects (in handleClick), a drag pans.
-            return .undecided(pixelPoint: p)
+            return .undecided(pixelPoint: toolPoint)
         case .text:
-            // Drag the selected text's body to move it; otherwise a click
-            // places or edits (handled in onEnded).
-            if let selected = document.selectedAnnotation,
-               selected.kind == .text, selected.hitTest(p, tolerance: tolerancePx) {
-                document.beginChange()
-                return .moving(selected.id, last: snapped(p))
+            // An object under the pointer is picked up; empty space places or
+            // edits a label (handled in onEnded).
+            if let hit = grabbableAnnotation(at: sp, for: gestureTool) {
+                return beginMove(of: hit, at: sp)
             }
-            return .undecided(pixelPoint: p)
+            return .undecided(pixelPoint: toolPoint)
         case .drawing:
+            // A finished stroke — or anything else already on the canvas — is
+            // draggable without leaving the pen. This is what the open hand
+            // promises.
+            if let hit = grabbableAnnotation(at: sp, for: gestureTool) {
+                return beginMove(of: hit, at: sp)
+            }
             document.selectedID = nil
             document.beginChange()
             let width = style.width(for: style.drawingMode)
-            var annotation = Annotation(kind: .freehand, start: p, end: p,
+            var annotation = Annotation(kind: .freehand, start: toolPoint, end: toolPoint,
                                         color: style.color, lineWidth: width)
             annotation.freehandStyle = style.drawingMode.freehandStyle
             annotation.markerTip = style.markerTip
-            annotation.appendFreehandPoint(p, minimumDistance: 0)
+            annotation.appendFreehandPoint(toolPoint, minimumDistance: 0)
             document.annotations.append(annotation)
             document.selectedID = annotation.id
             return .drawing(annotation.id)
         case .eraser:
             document.selectedID = nil
             document.beginChange()
-            document.eraseFreehand(from: p, to: p, diameter: style.eraserDiameter)
-            return .erasing(last: p)
+            document.eraseFreehand(from: sp.canvas, to: sp.canvas,
+                                   diameter: style.eraserDiameter)
+            return .erasing(last: sp.canvas)
         case .line, .arrow, .rect, .oval, .roundedRect, .polygon,
              .star, .bubble, .blur, .step, .loupe:
-            // Dragging the selected annotation's body moves it even with a
-            // shape tool active; empty space starts a new shape on drag.
-            if let selected = document.selectedAnnotation,
-               selected.hitTest(p, tolerance: tolerancePx, in: document.annotations) {
-                document.beginChange()
-                if let part = selected.loupePart(at: p, tolerance: tolerancePx) {
-                    return .movingLoupePart(selected.id, part, last: snapped(p))
-                }
-                return .moving(selected.id, last: snapped(p))
+            // Any object under the pointer moves, not just the selected one;
+            // empty space starts a new shape on drag.
+            if let hit = grabbableAnnotation(at: sp, for: gestureTool) {
+                return beginMove(of: hit, at: sp)
             }
-            return .undecided(pixelPoint: p)
+            return .undecided(pixelPoint: toolPoint)
         }
+    }
+
+    /// What the active tool may pick up instead of drawing.
+    ///
+    /// Apple's markup works this way: an existing object catches the pointer
+    /// and the cursor says so. That is what makes staying in the tool viable —
+    /// the stroke you just drew is draggable where it lies, so the tool has no
+    /// reason to reset itself.
+    ///
+    /// The eraser is the exception, and not an arbitrary one: touching existing
+    /// ink *is* its gesture, so ink that caught its pointer could never be
+    /// erased.
+    ///
+    /// The picture is not here either. It lies under the entire canvas, so
+    /// letting it catch the pointer would mean never drawing on the screenshot
+    /// again — ⌘ is how it is reached.
+    ///
+    /// What this costs: a new shape can no longer start on top of an existing
+    /// one. ⌘ borrows Select for the trip towards objects; nothing borrows
+    /// creation back, and that modifier is where it would go if this bites.
+    private func grabbableAnnotation(at sp: SpacedPoint,
+                                     for activeTool: EditorTool) -> Annotation? {
+        guard activeTool != .eraser, activeTool != .scan, activeTool != .crop
+        else { return nil }
+        return document.annotation(imagePoint: sp.image, canvasPoint: sp.canvas,
+                                   imageTolerance: hitTolerancePt / sp.imageScale,
+                                   canvasTolerance: hitTolerancePt / sp.canvasScale)
+    }
+
+    /// Picking one up. Shared by Select and by every maker tool, so a loupe's
+    /// two bodies still drag apart whichever tool the hand happens to hold.
+    private func beginMove(of hit: Annotation, at sp: SpacedPoint) -> DragMode {
+        let hitPoint = sp.point(for: hit)
+        let hitTolerance = hitTolerancePt / sp.scale(for: hit)
+        document.selectedID = hit.id
+        // Selecting an annotation drops the picture's frame; the two are never
+        // both live.
+        imageSelected = false
+        document.beginChange()
+        // A callout loupe's bodies drag independently; whole-annotation moves
+        // stay on the keyboard-nudge path.
+        if let part = hit.loupePart(at: hitPoint, tolerance: hitTolerance) {
+            return .movingLoupePart(hit.id, part, last: snapped(hitPoint))
+        }
+        return .moving(hit.id, last: snapped(hitPoint))
+    }
+
+    /// What the pointer looks like, decided in one place so the ring and the
+    /// hand cannot fight over it.
+    ///
+    /// A sized ring *is* the cursor. The arrow beside it adds nothing, and its
+    /// tip sits at the ring's centre — so its body covers exactly the spot
+    /// about to be painted or erased. Every editor with a sized brush hides the
+    /// arrow here; this one never did, and the two read as two cursors.
+    /// The hand wins. Over something grabbable a stroke cannot be started
+    /// anyway — the press will pick the object up — so a ring there promises a
+    /// mark that will not happen. This is the one case where the two cursors
+    /// both apply, and the truthful one has to take it.
+    private func updateCursor(ringShown: Bool, grabbable: Bool) {
+        // `hide()`/`unhide()` are reference counted and app-wide, so the flag is
+        // what guarantees exactly one outstanding hide. Getting that wrong
+        // leaves the user with no cursor anywhere.
+        if ringShown != systemCursorHidden {
+            systemCursorHidden = ringShown
+            if ringShown { NSCursor.hide() } else { NSCursor.unhide() }
+        }
+        guard !ringShown else { return }
+        updateGrabCursor(grabbable)
+    }
+
+    /// Gives the cursor back: leaving the canvas, changing tool, closing the
+    /// editor. A hidden cursor outlives the view that hid it, so every exit has
+    /// to come through here.
+    private func restoreCursor() {
+        if systemCursorHidden {
+            systemCursorHidden = false
+            NSCursor.unhide()
+        }
+        updateGrabCursor(false)
+    }
+
+    /// An open hand over anything the pointer can pick up.
+    ///
+    /// Without it a finished object looks inert and the only way to learn it is
+    /// draggable is to try. The hand is set on every hover event because AppKit
+    /// resets cursors freely; the arrow is restored only on the way out, so
+    /// this never stamps over a cursor another view owns.
+    private func updateGrabCursor(_ grabbable: Bool) {
+        if grabbable {
+            NSCursor.openHand.set()
+            grabCursorShown = true
+        } else if grabCursorShown {
+            grabCursorShown = false
+            NSCursor.arrow.set()
+        }
+    }
+
+    /// Whether the picture itself would take the press.
+    ///
+    /// Shared with the cursor, so the open hand cannot promise a grab the
+    /// gesture would refuse — the picture is grabbable only under Select (⌘
+    /// included) and only once there is a page around it to move it on.
+    private func imageIsGrabbable(at sp: SpacedPoint, for activeTool: EditorTool) -> Bool {
+        guard activeTool == .select, document.presentation != nil else { return false }
+        let rect = PresentationLayout.resolve(imagePixelSize: document.pixelSize,
+                                              document.presentation).imageRect
+        guard rect.width > 0, rect.height > 0 else { return false }
+        let grab = handleGrabPt / sp.canvasScale
+        return rect.insetBy(dx: -grab / 2, dy: -grab / 2).contains(sp.canvas)
+    }
+
+    /// Everything the press could pick up, in the order the gesture tries them.
+    private func pointerCanGrab(at sp: SpacedPoint, for activeTool: EditorTool) -> Bool {
+        grabbableAnnotation(at: sp, for: activeTool) != nil
+            || imageIsGrabbable(at: sp, for: activeTool)
     }
 
     /// Grabbing the picture: a corner of the selection frame resizes it, its
@@ -1484,7 +1674,7 @@ struct EditorCanvasView: View {
                 }
             }
         }
-        guard rect.insetBy(dx: -grab / 2, dy: -grab / 2).contains(sp.canvas) else { return nil }
+        guard imageIsGrabbable(at: sp, for: .select) else { return nil }
         document.selectedID = nil
         imageSelected = true
         // One drag, one undo step — the move itself no longer opens its own.
