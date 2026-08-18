@@ -294,6 +294,9 @@ struct EditorCanvasView: View {
     /// gesture layer doesn't surface a reliable OS click count).
     @State private var lastClick: (id: UUID?, time: Date, point: CGPoint)?
     @State private var drawingCursorLocation: CGPoint?
+    /// Whether the inline edit under way is the one that placed its label —
+    /// see `finishTextEditing`.
+    @State private var editingPlacedALabel = false
 
     private enum DragMode {
         /// Nothing decided yet, and the tool that will decide. Carried here
@@ -326,10 +329,8 @@ struct EditorCanvasView: View {
         case ignore
     }
     @State private var dragMode: DragMode?
-    /// Whether the open-hand cursor is currently ours — see `updateGrabCursor`.
-    @State private var grabCursorShown = false
-    /// Whether the app-wide cursor is hidden by us — see `updateCursor`.
-    @State private var systemCursorHidden = false
+    /// Whether the pointer is wearing a cursor we set — see `updateCursor`.
+    @State private var cursorIsOurs = false
     /// Whether the pointer is over something it can pick up. Drives both the
     /// hand and the ring's absence, so the drawn ring and the system cursor
     /// always tell the same story.
@@ -482,8 +483,13 @@ struct EditorCanvasView: View {
                     panOffset, baseDrawSize: baseDrawSize,
                     zoom: zoomFactor, viewport: geo.size
                 )
-                restoreCursor()
+                refreshCursor()
             }
+            // The document changing under a still pointer changes what the
+            // press would do: a shape finished right where the pointer sits
+            // becomes grabbable, a deleted one stops being. Revision covers
+            // annotations and the decoration alike.
+            .onChange(of: document.revision) { _, _ in refreshCursor() }
             .onContinuousHover { phase in
                 switch phase {
                 case .active(let location):
@@ -1445,7 +1451,6 @@ struct EditorCanvasView: View {
         // is measured in, so a grab feels the same distance on screen either way.
         let selectedScale = document.selectedAnnotation.map(sp.scale(for:)) ?? sp.canvasScale
         let grabPx = handleGrabPt / selectedScale
-        let tolerancePx = hitTolerancePt / selectedScale
         let p = document.selectedAnnotation.map(sp.point(for:)) ?? sp.canvas
 
         // A new object is born in the space its *kind* lives in, and the active
@@ -1597,62 +1602,68 @@ struct EditorCanvasView: View {
     /// What the pointer looks like, decided in one place so the ring and the
     /// hand cannot fight over it.
     ///
-    /// A sized ring *is* the cursor. The arrow beside it adds nothing, and its
+    /// A sized ring *is* the cursor. An arrow beside it adds nothing, and its
     /// tip sits at the ring's centre — so its body covers exactly the spot
-    /// about to be painted or erased. Every editor with a sized brush hides the
-    /// arrow here; this one never did, and the two read as two cursors.
-    /// The hand wins. Over something grabbable a stroke cannot be started
-    /// anyway — the press will pick the object up — so a ring there promises a
-    /// mark that will not happen. This is the one case where the two cursors
-    /// both apply, and the truthful one has to take it.
+    /// about to be painted or erased.
+    ///
+    /// The hand wins over the ring. Over something grabbable a stroke cannot be
+    /// started anyway — the press will pick the object up — so a ring there
+    /// promises a mark that will not happen. This is the one case where both
+    /// apply, and the truthful one has to take it.
+    ///
+    /// Each is set on every event, because AppKit resets cursors freely; the
+    /// arrow comes back only on the way out, so this never stamps over a cursor
+    /// another view owns.
     private func updateCursor(ringShown: Bool, grabbable: Bool) {
-        // `hide()`/`unhide()` are reference counted and app-wide, so the flag is
-        // what guarantees exactly one outstanding hide. Getting that wrong
-        // leaves the user with no cursor anywhere.
-        if ringShown != systemCursorHidden {
-            systemCursorHidden = ringShown
-            if ringShown { NSCursor.hide() } else { NSCursor.unhide() }
+        if ringShown {
+            Self.invisibleCursor.set()
+            cursorIsOurs = true
+        } else if grabbable {
+            NSCursor.openHand.set()
+            cursorIsOurs = true
+        } else if cursorIsOurs {
+            cursorIsOurs = false
+            NSCursor.arrow.set()
         }
-        guard !ringShown else { return }
-        updateGrabCursor(grabbable)
     }
 
-    /// Repaints the cursor after ⌘ went down or up, from where the pointer was
-    /// last seen — the modifier changes what the press will do, so it has to
-    /// change what the pointer looks like, and no hover event is coming.
-    private func refreshCursorForBorrow() {
-        guard let sp = lastHoverPoint else { return }
+    /// A cursor that draws nothing, so the ring is the only thing on screen.
+    ///
+    /// Deliberately not `NSCursor.hide()`: that is app-wide and reference
+    /// counted, and it is undone only by code that runs when the pointer moves.
+    /// Raise a save panel with ⌘S while the pointer sits still over the canvas
+    /// and nothing tells us to unhide — the panel greets the user with no
+    /// pointer at all. An image cursor cannot leak that way: it is replaced the
+    /// moment anything else sets one.
+    private static let invisibleCursor: NSCursor = {
+        let image = NSImage(size: NSSize(width: 1, height: 1))
+        image.lockFocus()
+        NSColor.clear.set()
+        NSRect(x: 0, y: 0, width: 1, height: 1).fill()
+        image.unlockFocus()
+        return NSCursor(image: image, hotSpot: .zero)
+    }()
+
+    /// Re-decides the cursor from where the pointer was last seen.
+    ///
+    /// Needed whenever the answer changes without the mouse moving: ⌘ going
+    /// down or up, the tool handing itself back, an annotation appearing under
+    /// the pointer or being deleted from under it. No hover event is coming in
+    /// any of those, and a cursor that waits for one describes the scene before
+    /// the change.
+    private func refreshCursor() {
+        guard let sp = lastHoverPoint else { restoreCursor(); return }
         let grabbable = pointerCanGrab(at: sp, for: borrowedTool)
         pointerOverGrabbable = grabbable
         updateCursor(ringShown: drawingCursorFootprint != nil && !grabbable,
                      grabbable: grabbable)
     }
 
-    /// Gives the cursor back: leaving the canvas, changing tool, closing the
-    /// editor. A hidden cursor outlives the view that hid it, so every exit has
-    /// to come through here.
+    /// Gives the cursor back on the way out: the pointer leaving the canvas,
+    /// the editor closing.
     private func restoreCursor() {
-        if systemCursorHidden {
-            systemCursorHidden = false
-            NSCursor.unhide()
-        }
-        updateGrabCursor(false)
-    }
-
-    /// An open hand over anything the pointer can pick up.
-    ///
-    /// Without it a finished object looks inert and the only way to learn it is
-    /// draggable is to try. The hand is set on every hover event because AppKit
-    /// resets cursors freely; the arrow is restored only on the way out, so
-    /// this never stamps over a cursor another view owns.
-    private func updateGrabCursor(_ grabbable: Bool) {
-        if grabbable {
-            NSCursor.openHand.set()
-            grabCursorShown = true
-        } else if grabCursorShown {
-            grabCursorShown = false
-            NSCursor.arrow.set()
-        }
+        pointerOverGrabbable = false
+        updateCursor(ringShown: false, grabbable: false)
     }
 
     /// Whether the picture itself would take the press.
@@ -1719,15 +1730,19 @@ struct EditorCanvasView: View {
         // arrow keys kept moving a picture the user had just clicked away from.
         imageSelected = false
 
+        // Anything under the click is selected, whatever tool is held and
+        // whatever kind it is — the same answer the mouse-down would have
+        // given. The kind-matching arms this replaces were all but unreachable
+        // (a press on an annotation returns `.moving` and never arrives here)
+        // and disagreed with `beginMove` where they did fire.
+        if let hit {
+            document.selectedID = hit.id
+            return
+        }
         switch gestureTool {
-        case .text:
-            if let hit, hit.kind == .text { document.selectedID = hit.id }
-            else { placeText(at: snapped(p)) }        // new text opens straight into editing
-        case .step:
-            if let hit, hit.kind == .step { document.selectedID = hit.id }
-            else { placeStep(at: snapped(p)) }
-        default:
-            document.selectedID = hit?.id
+        case .text:  placeText(at: snapped(p))   // opens straight into editing
+        case .step:  placeStep(at: snapped(p))
+        default:     document.selectedID = nil
         }
     }
 
@@ -1977,7 +1992,7 @@ struct EditorCanvasView: View {
                 let down = event.modifierFlags.contains(.command)
                 if down != self.isCommandDown {
                     self.isCommandDown = down
-                    self.refreshCursorForBorrow()
+                    self.refreshCursor()
                 }
                 return event
             }
@@ -2219,6 +2234,7 @@ struct EditorCanvasView: View {
     private func startEditingText(_ id: UUID, isNew: Bool = false) {
         if !isNew { document.beginChange() }
         editingTextID = id
+        editingPlacedALabel = isNew
         textFieldFocused = true
     }
 
@@ -2228,10 +2244,13 @@ struct EditorCanvasView: View {
         document.selectedID = id
         document.beginChange()
         editingTextID = id
+        // Relabelling makes nothing, so the tool is not owed back.
+        editingPlacedALabel = false
         textFieldFocused = true
     }
 
-    /// Commits the label and hands the tool back.
+    /// Commits the label and, if this edit was what *made* it, hands the tool
+    /// back.
     ///
     /// A label is finished when the typing stops, not when the box appears, so
     /// the reset belongs here: while you are still typing the toolbar honestly
@@ -2239,16 +2258,24 @@ struct EditorCanvasView: View {
     /// ends the act — which is exactly what Apple's markup does. Returning at
     /// placement instead would have shown Select while a text box was still
     /// open for input.
+    ///
+    /// Only for a label this edit created, though. Every inline edit leaves
+    /// through here, relabelling an existing step included, and resetting on
+    /// those took the tool away from someone who had made nothing — fixing the
+    /// number on step 2 dropped them out of Step before they could place
+    /// step 3, which is the run the rule in `returnToSelect` exists to protect.
     func finishTextEditing() {
         guard let id = editingTextID else { return }
+        let placed = editingPlacedALabel
         editingTextID = nil
+        editingPlacedALabel = false
         textFieldFocused = false
         if document.annotations.first(where: { $0.id == id })?.kind == .step {
             document.finishStepEditing(id)
         } else {
             document.finishTextEditing(id)
         }
-        returnToSelect()
+        if placed { returnToSelect() }
     }
 
     private func textOverlay(for annotation: Annotation, fitScale: CGFloat,

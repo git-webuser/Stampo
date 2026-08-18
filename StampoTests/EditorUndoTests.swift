@@ -415,7 +415,9 @@ import Testing
                               color: .red, lineWidth: 0)
         // Blur sits last (topmost by array order) but must not win the hit.
         doc.annotations = [rect, blur]
-        #expect(doc.annotation(at: CGPoint(x: 20, y: 20), tolerance: 2)?.kind == .rect)
+        let p = CGPoint(x: 20, y: 20)
+        #expect(doc.annotation(imagePoint: p, canvasPoint: p,
+                               imageTolerance: 2, canvasTolerance: 2)?.kind == .rect)
     }
 
     @Test func rotateSwapsDimensionsAndMarksDirty() {

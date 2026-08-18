@@ -2216,20 +2216,15 @@ nonisolated struct RenderedArtifact: Sendable {
         return String(highest + 1)
     }
 
-    /// Topmost annotation under the point (annotations later in the array
+    /// Topmost annotation under the pointer (annotations later in the array
     /// draw on top, so search in reverse). Blur is a bottom redaction layer,
     /// so a non-blur annotation over it wins the hit even when the blur was
     /// added later.
-    func annotation(at p: CGPoint, tolerance: CGFloat) -> Annotation? {
-        annotation(imagePoint: p, canvasPoint: p,
-                   imageTolerance: tolerance, canvasTolerance: tolerance)
-    }
-
-    /// Same search, but with the pointer expressed in **both** spaces: each
-    /// annotation is tested against the point (and tolerance) of the space it
-    /// is measured in. Blur and loupe live in image pixels, everything else in
-    /// canvas pixels, and without a presentation the two are identical — which
-    /// is why the single-point overload above is still exactly correct there.
+    ///
+    /// The pointer comes in **both** spaces, and each annotation is tested
+    /// against the point (and tolerance) of the space it is measured in. Blur
+    /// and loupe live in image pixels, everything else in canvas pixels;
+    /// without a presentation the two are the same point and the same scale.
     func annotation(imagePoint: CGPoint, canvasPoint: CGPoint,
                     imageTolerance: CGFloat, canvasTolerance: CGFloat) -> Annotation? {
         func hits(_ a: Annotation) -> Bool {
