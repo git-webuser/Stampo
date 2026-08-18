@@ -1059,7 +1059,6 @@ struct EditorCanvasView: View {
                     document.annotations.first { $0.id == id }
                         .map(sp.scale(for:)) ?? sp.canvasScale
                 }
-                let p = sp.canvas
 
                 if dragMode == nil {
                     // What the gesture is, decided once, here.
