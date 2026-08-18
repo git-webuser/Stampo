@@ -2066,7 +2066,12 @@ struct EditorCanvasView: View {
             // Esc walks the interaction hierarchy. Handled here (not via
             // SwiftUI onExitCommand) because the Canvas is never first
             // responder, so the command modifier never reaches the view.
-            if event.type == .keyDown, event.keyCode == 53 {
+            //
+            // Not while a field has the keyboard. This monitor runs before the
+            // responder chain, so swallowing Esc here meant the field's own
+            // `cancelOperation` was never reached and a number could not be
+            // abandoned — the neighbouring blocks all yield the same way.
+            if event.type == .keyDown, event.keyCode == 53, !fieldHasFocus {
                 if self.tool != .select {
                     self.tool = .select
                 } else if self.document.selectedID != nil {
@@ -2082,7 +2087,11 @@ struct EditorCanvasView: View {
             let nudges = Self.nudgeTarget(selectedID: self.document.selectedID,
                                           imageSelected: self.imageSelected,
                                           isDecorated: self.document.presentation != nil)
-            guard event.type == .keyDown, nudges != .nothing else { return event }
+            // Same yield: with a field focused these keys belong to the number
+            // being typed. Delete took out the selected annotation instead of a
+            // digit, and the arrows moved the picture instead of the caret.
+            guard event.type == .keyDown, !fieldHasFocus, nudges != .nothing
+            else { return event }
 
             // Delete / Backspace removes the selection. SwiftUI's
             // onDeleteCommand never fires because the Canvas isn't first
