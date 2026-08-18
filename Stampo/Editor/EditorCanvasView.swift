@@ -296,7 +296,12 @@ struct EditorCanvasView: View {
     @State private var drawingCursorLocation: CGPoint?
 
     private enum DragMode {
-        case undecided(pixelPoint: CGPoint)
+        /// Nothing decided yet, and the tool that will decide. Carried here
+        /// rather than kept in `@State`: a write to state is not guaranteed to
+        /// be visible to a read in the same event, and this is read a few lines
+        /// after it would have been written — which is exactly how the ⌘ borrow
+        /// came out inert, the gesture reading back the real tool every time.
+        case undecided(pixelPoint: CGPoint, tool: EditorTool)
         case duplicatePending(sourceID: UUID, start: CGPoint)
         case creating(UUID)
         case drawing(UUID)
@@ -321,8 +326,6 @@ struct EditorCanvasView: View {
         case ignore
     }
     @State private var dragMode: DragMode?
-    /// Captured at mouse-down, cleared when the gesture ends — see `gestureTool`.
-    @State private var activeGestureTool: EditorTool?
     /// Whether the open-hand cursor is currently ours — see `updateGrabCursor`.
     @State private var grabCursorShown = false
     /// Whether the app-wide cursor is hidden by us — see `updateCursor`.
@@ -1054,7 +1057,7 @@ struct EditorCanvasView: View {
 
                 if dragMode == nil {
                     // What the gesture is, decided once, here.
-                    activeGestureTool = borrowedTool
+                    let activeTool = borrowedTool
                     // First event of the gesture: a click anywhere commits an
                     // in-progress text edit before anything else happens.
                     if editingTextID != nil {
@@ -1076,7 +1079,7 @@ struct EditorCanvasView: View {
                         // so it works even on an already-selected annotation.
                         dragMode = .ignore
                     } else {
-                        dragMode = beginDrag(at: sp)
+                        dragMode = beginDrag(at: sp, with: activeTool)
                     }
                 }
 
@@ -1112,7 +1115,7 @@ struct EditorCanvasView: View {
                     )
                     dragMode = .erasing(last: sp.canvas)
 
-                case .undecided(let startPixel):
+                case .undecided(let startPixel, let gestureTool):
                     let viewDistance = hypot(value.translation.width, value.translation.height)
                     guard viewDistance >= 3 else { break }
                     // The select tool has nothing to create on empty space, so
@@ -1347,8 +1350,8 @@ struct EditorCanvasView: View {
                 }
 
                 switch dragMode {
-                case .undecided:
-                    handleClick(at: sp)
+                case .undecided(_, let gestureTool):
+                    handleClick(at: sp, for: gestureTool)
                 case .creating(let id):
                     if let a = document.annotations.first(where: { $0.id == id }), a.isDegenerate {
                         document.annotations.removeAll { $0.id == id }
@@ -1432,13 +1435,12 @@ struct EditorCanvasView: View {
                      .panning, .ignore, nil:
                     break
                 }
-                activeGestureTool = nil
             }
     }
 
     /// Decides what a fresh mouse-down does, before we know if it's a click
     /// or a drag.
-    private func beginDrag(at sp: SpacedPoint) -> DragMode {
+    private func beginDrag(at sp: SpacedPoint, with gestureTool: EditorTool) -> DragMode {
         // Tolerances are in pixels of whichever space the object being tested
         // is measured in, so a grab feels the same distance on screen either way.
         let selectedScale = document.selectedAnnotation.map(sp.scale(for:)) ?? sp.canvasScale
@@ -1504,14 +1506,14 @@ struct EditorCanvasView: View {
             // on top of it, empty background below.
             if let mode = beginImageDrag(at: sp) { return mode }
             // Empty space: a click deselects (in handleClick), a drag pans.
-            return .undecided(pixelPoint: toolPoint)
+            return .undecided(pixelPoint: toolPoint, tool: gestureTool)
         case .text:
             // An object under the pointer is picked up; empty space places or
             // edits a label (handled in onEnded).
             if let hit = grabbableAnnotation(at: sp, for: gestureTool) {
                 return beginMove(of: hit, at: sp)
             }
-            return .undecided(pixelPoint: toolPoint)
+            return .undecided(pixelPoint: toolPoint, tool: gestureTool)
         case .drawing:
             // A finished stroke — or anything else already on the canvas — is
             // draggable without leaving the pen. This is what the open hand
@@ -1543,7 +1545,7 @@ struct EditorCanvasView: View {
             if let hit = grabbableAnnotation(at: sp, for: gestureTool) {
                 return beginMove(of: hit, at: sp)
             }
-            return .undecided(pixelPoint: toolPoint)
+            return .undecided(pixelPoint: toolPoint, tool: gestureTool)
         }
     }
 
@@ -1704,7 +1706,7 @@ struct EditorCanvasView: View {
     /// A single click that never became a drag: select what's under it, or
     /// place a new text/step marker on empty space. (Double-click editing is
     /// handled up front at mouse-down.)
-    private func handleClick(at sp: SpacedPoint) {
+    private func handleClick(at sp: SpacedPoint, for gestureTool: EditorTool) {
         let hit = document.annotation(imagePoint: sp.image, canvasPoint: sp.canvas,
                                       imageTolerance: hitTolerancePt / sp.imageScale,
                                       canvasTolerance: hitTolerancePt / sp.canvasScale)
@@ -1884,12 +1886,9 @@ struct EditorCanvasView: View {
         return .select
     }
 
-    /// The tool the gesture in progress began with.
-    ///
-    /// A mouse-down decides what a gesture *is*, so letting go of ⌘ halfway
-    /// through must not turn the move under way into a new rectangle on
-    /// mouse-up.
-    private var gestureTool: EditorTool { activeGestureTool ?? tool }
+    /// A mouse-down decides what a gesture *is*, and that decision is then
+    /// carried by `DragMode` — so letting go of ⌘ halfway through cannot turn
+    /// the move under way into a new rectangle on mouse-up.
 
     private func constrainedEndpoint(_ point: CGPoint, from start: CGPoint,
                                      kind: AnnotationKind) -> CGPoint {
