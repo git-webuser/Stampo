@@ -1554,6 +1554,64 @@ struct EditorCanvasView: View {
         }
     }
 
+    // MARK: Interaction rules
+    //
+    // Four decisions the pointer makes, lifted out of the view as pure
+    // functions of their inputs. They were methods reading `self`, which meant
+    // nothing could pin them: the ⌘ borrow once shipped completely inert with
+    // the suite green, because no test could ask it what it answered. The
+    // wrappers below them keep the call sites reading as before.
+
+    /// Which tool a fresh mouse-down acts with.
+    ///
+    /// ⌘ borrows Select for as long as it is held: click to select, drag to
+    /// move, and the picture becomes grabbable. Recognition and crop own their
+    /// gestures outright and are never borrowed from.
+    static func actingTool(_ tool: EditorTool, commandHeld: Bool) -> EditorTool {
+        guard commandHeld, tool != .scan, tool != .crop else { return tool }
+        return .select
+    }
+
+    /// Whether a tool picks up an object under the pointer instead of drawing
+    /// over it.
+    ///
+    /// The eraser is the exception, and not an arbitrary one: touching existing
+    /// ink *is* its gesture, so ink that caught its pointer could never be
+    /// erased. Recognition and crop never reach this decision.
+    static func picksUpObjects(_ tool: EditorTool) -> Bool {
+        tool != .eraser && tool != .scan && tool != .crop
+    }
+
+    /// Whether the picture itself takes the press.
+    ///
+    /// Only under Select — it lies under the entire canvas, so letting it catch
+    /// any tool's pointer would mean never drawing on the screenshot again —
+    /// and only once there is a page around it to move it on. `grab` widens the
+    /// rect by half, so the edge is catchable from just outside it.
+    static func imageTakesPress(_ tool: EditorTool, isDecorated: Bool,
+                                imageRect: CGRect, point: CGPoint,
+                                grab: CGFloat) -> Bool {
+        guard tool == .select, isDecorated,
+              imageRect.width > 0, imageRect.height > 0 else { return false }
+        return imageRect.insetBy(dx: -grab / 2, dy: -grab / 2).contains(point)
+    }
+
+    /// Whether finishing this tool's object hands the tool back to Select.
+    ///
+    /// A shape and a label are single finished statements, and there the tool
+    /// resetting is the end of the act. Strokes, erasing and numbering are done
+    /// in runs, and picking an object up without leaving the tool is what makes
+    /// resetting unnecessary for them.
+    static func handsBackAfterMaking(_ tool: EditorTool) -> Bool {
+        switch tool {
+        case .select, .drawing, .eraser, .step, .scan, .crop:
+            return false
+        case .line, .arrow, .rect, .oval, .roundedRect, .polygon,
+             .star, .bubble, .blur, .loupe, .text:
+            return true
+        }
+    }
+
     /// What the active tool may pick up instead of drawing.
     ///
     /// Apple's markup works this way: an existing object catches the pointer
@@ -1574,8 +1632,7 @@ struct EditorCanvasView: View {
     /// creation back, and that modifier is where it would go if this bites.
     private func grabbableAnnotation(at sp: SpacedPoint,
                                      for activeTool: EditorTool) -> Annotation? {
-        guard activeTool != .eraser, activeTool != .scan, activeTool != .crop
-        else { return nil }
+        guard Self.picksUpObjects(activeTool) else { return nil }
         return document.annotation(imagePoint: sp.image, canvasPoint: sp.canvas,
                                    imageTolerance: hitTolerancePt / sp.imageScale,
                                    canvasTolerance: hitTolerancePt / sp.canvasScale)
@@ -1672,12 +1729,12 @@ struct EditorCanvasView: View {
     /// gesture would refuse — the picture is grabbable only under Select (⌘
     /// included) and only once there is a page around it to move it on.
     private func imageIsGrabbable(at sp: SpacedPoint, for activeTool: EditorTool) -> Bool {
-        guard activeTool == .select, document.presentation != nil else { return false }
+        guard document.presentation != nil else { return false }
         let rect = PresentationLayout.resolve(imagePixelSize: document.pixelSize,
                                               document.presentation).imageRect
-        guard rect.width > 0, rect.height > 0 else { return false }
-        let grab = handleGrabPt / sp.canvasScale
-        return rect.insetBy(dx: -grab / 2, dy: -grab / 2).contains(sp.canvas)
+        return Self.imageTakesPress(activeTool, isDecorated: true,
+                                    imageRect: rect, point: sp.canvas,
+                                    grab: handleGrabPt / sp.canvasScale)
     }
 
     /// Everything the press could pick up, in the order the gesture tries them.
@@ -1897,8 +1954,7 @@ struct EditorCanvasView: View {
     /// Recognition and crop own their gestures outright and are never borrowed
     /// from.
     private var borrowedTool: EditorTool {
-        guard isCommandHeld, tool != .scan, tool != .crop else { return tool }
-        return .select
+        Self.actingTool(tool, commandHeld: isCommandHeld)
     }
 
     /// A mouse-down decides what a gesture *is*, and that decision is then
@@ -2195,8 +2251,12 @@ struct EditorCanvasView: View {
     ///
     /// Recognition and crop are modes rather than makers, and are never
     /// returned from.
+    ///
+    /// Which tools those are is `handsBackAfterMaking`, not the choice of call
+    /// site: a rule encoded by where a function happens to be invoked cannot be
+    /// read off, and cannot be tested.
     private func returnToSelect() {
-        guard tool != .scan, tool != .crop else { return }
+        guard Self.handsBackAfterMaking(tool) else { return }
         tool = .select
     }
 
