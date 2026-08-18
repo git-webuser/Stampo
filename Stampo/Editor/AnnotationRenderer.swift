@@ -665,7 +665,13 @@ nonisolated enum AnnotationRenderer {
         annotations: [Annotation],
         presentation: Presentation? = nil
     ) -> NSBitmapImageRep? {
-        let resolvedPresentation = presentation ?? .identity
+        // `nil` means "nobody decorated this", and that has to stay lossless.
+        // The identity's geometry is exactly the image, but its background is
+        // a white page: painting it would fill the transparent halo of a
+        // window shot taken with its shadow, turning an untouched document
+        // opaque on save. The live canvas draws no background there either.
+        var resolvedPresentation = presentation ?? .identity
+        if presentation == nil { resolvedPresentation.background = .none }
         let layout = PresentationLayout.resolve(
             imagePixelSize: CGSize(width: base.width, height: base.height),
             resolvedPresentation

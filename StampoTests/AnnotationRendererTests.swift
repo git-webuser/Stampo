@@ -32,6 +32,30 @@ enum TestImages {
         #expect(rep?.pixelsHigh == 23)
     }
 
+    /// A window shot taken with its shadow carries a transparent halo, and an
+    /// untouched document must hand that halo back untouched. The identity
+    /// presentation stands in for `nil` only to supply geometry — its white
+    /// page must never be painted, or every undecorated save came out opaque.
+    @Test func exportWithoutAPresentationKeepsTheImagesTransparency() {
+        let ctx = CGContext(
+            data: nil, width: 20, height: 20,
+            bitsPerComponent: 8, bytesPerRow: 0,
+            space: CGColorSpace(name: CGColorSpace.sRGB)!,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        )!
+        // Opaque red centre, transparent everywhere else.
+        ctx.setFillColor(CGColor(srgbRed: 1, green: 0, blue: 0, alpha: 1))
+        ctx.fill(CGRect(x: 5, y: 5, width: 10, height: 10))
+        let base = ctx.makeImage()!
+
+        let rep = AnnotationRenderer.renderBitmap(base: base, annotations: [])
+
+        #expect(rep?.pixelsWide == 20)
+        #expect((rep?.colorAt(x: 1, y: 1)?.alphaComponent ?? 1) < 0.01)
+        #expect((rep?.colorAt(x: 10, y: 10)?.alphaComponent ?? 0) > 0.99)
+        #expect((rep?.colorAt(x: 10, y: 10)?.redComponent ?? 0) > 0.9)
+    }
+
     @Test func presentationControlsExportCanvasSizeAndBackground() {
         let base = solidImage(width: 20, height: 10, red: 1, green: 0, blue: 0)
         let blue = Presentation.Color(red: 0, green: 0, blue: 1, alpha: 1)
