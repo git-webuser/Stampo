@@ -28,20 +28,26 @@ struct PresentationInspector: View {
     static let contentMinimumWidth: CGFloat = 320
 
     let document: EditorDocument
+    /// The app's colours, live — see `PresentationColorShelf`. nil in previews
+    /// and tests, where the built-in palette stands alone.
+    let colorShelf: (any PresentationColorShelf)?
 
     @State private var draft: Presentation
     /// Which groups the user has folded away. Sections are identified by a
     /// stable case rather than by their title, which is a localized key and
     /// therefore not a usable dictionary key.
     @State private var collapsed: Set<Section> = []
-    /// Colours the user chose to keep, alongside the eight built-ins.
-    @State private var userColors: [Presentation.Color] = []
     /// The shadow put aside by the hide button, so showing it again brings back
     /// the one you had rather than a stock one.
     @State private var hiddenShadow: Presentation.Shadow?
     /// Whether a number typed into one margin goes to all four. A way of
     /// typing, not a property of the document — see `marginLinkButton`.
     @State private var marginsLinked = false
+    /// Which gradient stop the row's controls act on. Held loosely: the list
+    /// changes under it (a stop is added, removed, dragged elsewhere), so every
+    /// read goes through `GradientStops.clampedSelection` rather than trusting
+    /// the number.
+    @State private var selectedStop = 0
 
     private enum Section: Hashable, CaseIterable {
         case canvas, background, image, shadow
@@ -337,6 +343,27 @@ struct PresentationInspector: View {
     /// control, and a row of them pushed the inspector past its own maximum
     /// width. This is the same circle the annotation toolbar uses, so every
     /// colour in the app is picked from the same shape.
+    /// Hands a colour to the system colour panel and takes the changes back.
+    ///
+    /// Order matters and so does ownership. `NSColorPanel` keeps an unowned
+    /// target, and assigning its colour makes it fire the action straight away
+    /// — so the target is installed first, and it is a process-wide object
+    /// rather than a view's own state. A per-view proxy was deallocated as its
+    /// chip re-rendered and the panel then messaged freed memory
+    /// (EXC_BAD_ACCESS in objc_msgSend, measured from the crash report).
+    static func openColorPanel(for color: Presentation.Color,
+                               supportsOpacity: Bool = true,
+                               onChange: @escaping (Presentation.Color) -> Void) {
+        let panel = NSColorPanel.shared
+        ColorPanelProxy.shared.onChange = onChange
+        panel.setTarget(ColorPanelProxy.shared)
+        panel.setAction(#selector(ColorPanelProxy.colorChanged(_:)))
+        panel.showsAlpha = supportsOpacity
+        panel.color = NSColor(srgbRed: color.red, green: color.green,
+                              blue: color.blue, alpha: color.alpha)
+        panel.makeKeyAndOrderFront(nil)
+    }
+
     private struct ColorChip: View {
         let color: Presentation.Color
         var diameter: CGFloat
@@ -346,21 +373,9 @@ struct PresentationInspector: View {
 
         var body: some View {
             Button {
-                // Order matters and so does ownership. `NSColorPanel` keeps an
-                // unowned target, and assigning its colour makes it fire the
-                // action straight away — so the target is installed first, and
-                // it is a process-wide object rather than this view's state.
-                // A per-view proxy was deallocated as the chip re-rendered and
-                // the panel then messaged freed memory (EXC_BAD_ACCESS in
-                // objc_msgSend, measured from the crash report).
-                let panel = NSColorPanel.shared
-                ColorPanelProxy.shared.onChange = onChange
-                panel.setTarget(ColorPanelProxy.shared)
-                panel.setAction(#selector(ColorPanelProxy.colorChanged(_:)))
-                panel.showsAlpha = supportsOpacity
-                panel.color = NSColor(srgbRed: color.red, green: color.green,
-                                      blue: color.blue, alpha: color.alpha)
-                panel.makeKeyAndOrderFront(nil)
+                PresentationInspector.openColorPanel(for: color,
+                                                     supportsOpacity: supportsOpacity,
+                                                     onChange: onChange)
             } label: {
                 Circle()
                     .fill(Color(red: Double(color.red), green: Double(color.green),
@@ -546,8 +561,9 @@ struct PresentationInspector: View {
     /// The square inside a section's action button.
     private static let sectionActionSize: CGFloat = 22
 
-    init(document: EditorDocument) {
+    init(document: EditorDocument, colorShelf: (any PresentationColorShelf)? = nil) {
         self.document = document
+        self.colorShelf = colorShelf
         _draft = State(initialValue: document.presentation ?? .identity)
     }
 
@@ -991,40 +1007,124 @@ struct PresentationInspector: View {
         Presentation.Color(red: 0.09, green: 0.13, blue: 0.36, alpha: 1)
     ]
 
-    /// Stops are the whole gradient UI: every one is an editable well, and the
-    /// two buttons are what turns an ordinary gradient into a layered one.
+    /// Stops are the whole gradient UI, and each one is a thing you can point
+    /// at: click selects, clicking the selected stop opens the colour panel,
+    /// and every other control in the row acts on the selection.
+    ///
+    /// It used to act on the end of the list instead — "+" appended a darkened
+    /// copy of the last colour, "−" took the last one away, a palette tap
+    /// overwrote the last one, and order could not be changed at all. A middle
+    /// stop was therefore unreachable: the row showed three colours and let you
+    /// edit one. The list operations are in `GradientStops`, which is also
+    /// where the tests ask about them.
     private var stopEditor: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        let stops = currentStops
+        let selection = GradientStops.clampedSelection(selectedStop, in: stops)
+        return VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: Self.swatchGap) {
-                ForEach(Array(currentStops.enumerated()), id: \.offset) { index, color in
-                    ColorChip(color: color, diameter: Self.swatchSize) { picked in
-                        var stops = currentStops
-                        guard stops.indices.contains(index) else { return }
-                        stops[index] = picked
-                        setStops(stops)
-                    }
-                    .accessibilityLabel(Text("Stop"))
+                ForEach(Array(stops.enumerated()), id: \.offset) { index, color in
+                    stopChip(color, index: index, selected: index == selection, stops: stops)
                 }
                 Spacer(minLength: 0)
                 Button {
-                    addStop()
+                    setStops(GradientStops.inserted(into: stops, after: selection))
+                    selectedStop = selection + 1
                 } label: {
                     Image(systemName: "plus")
                 }
-                .disabled(currentStops.count >= 5)
+                .disabled(stops.count >= GradientStops.maximum)
+                .help("Add Stop")
                 .accessibilityLabel(Text("Add Stop"))
                 Button {
-                    removeStop()
+                    removeStop(at: selection, in: stops)
                 } label: {
                     Image(systemName: "minus")
                 }
-                .disabled(currentStops.count <= 2)
+                .disabled(stops.count <= GradientStops.minimum)
+                .help("Remove Stop")
                 .accessibilityLabel(Text("Remove Stop"))
             }
             .controlSize(.large)
 
-            swatchRow(selected: nil) { appendOrReplaceLastStop($0) }
+            swatchRow(selected: stops.indices.contains(selection) ? stops[selection] : nil) {
+                setSelectedStopColor($0)
+            }
         }
+    }
+
+    /// One stop. Dragging it onto another one puts it there; the context menu
+    /// says the same thing in words, for a pointer that cannot hold a drag and
+    /// for anyone who does not think to try one.
+    private func stopChip(_ color: Presentation.Color,
+                          index: Int,
+                          selected: Bool,
+                          stops: [Presentation.Color]) -> some View {
+        Button {
+            // The second click on the same stop is the one that means "change
+            // this colour": the first has to be free to mean "this is the one
+            // I am talking about", or nothing else in the row has a subject.
+            if selected {
+                Self.openColorPanel(for: color) { picked in
+                    var updated = stops
+                    guard updated.indices.contains(index) else { return }
+                    updated[index] = picked
+                    setStops(updated)
+                }
+            } else {
+                selectedStop = index
+            }
+        } label: {
+            Circle()
+                .fill(swiftUIColor(color))
+                .overlay(Circle().strokeBorder(.quaternary, lineWidth: 1))
+                .overlay {
+                    if selected {
+                        Circle().strokeBorder(Color.accentColor, lineWidth: 2)
+                            .padding(-3)
+                    }
+                }
+                .frame(width: Self.swatchSize, height: Self.swatchSize)
+        }
+        .buttonStyle(.plain)
+        .help(selected ? "Edit Stop Color" : "Stop")
+        .accessibilityLabel(Text("Stop"))
+        .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
+        .draggable(String(index)) {
+            Circle()
+                .fill(swiftUIColor(color))
+                .frame(width: Self.swatchSize, height: Self.swatchSize)
+        }
+        .dropDestination(for: String.self) { items, _ in
+            guard let from = items.first.flatMap(Int.init) else { return false }
+            setStops(GradientStops.moved(stops, from: from, to: index))
+            selectedStop = index
+            return true
+        }
+        .contextMenu {
+            MenuCommandButton("Move Left", icon: .moveLeft) {
+                moveStop(from: index, to: index - 1, in: stops)
+            }
+            MenuCommandButton("Move Right", icon: .moveRight) {
+                moveStop(from: index, to: index + 1, in: stops)
+            }
+            MenuCommandButton("Remove Stop", icon: .remove, role: .destructive) {
+                removeStop(at: index, in: stops)
+            }
+        }
+    }
+
+    private func moveStop(from: Int, to: Int, in stops: [Presentation.Color]) {
+        let moved = GradientStops.moved(stops, from: from, to: to)
+        guard moved != stops else { return }
+        setStops(moved)
+        selectedStop = to
+    }
+
+    private func removeStop(at index: Int, in stops: [Presentation.Color]) {
+        let remaining = GradientStops.removed(from: stops, at: index)
+        guard remaining != stops else { return }
+        setStops(remaining)
+        selectedStop = GradientStops.clampedSelection(index, in: remaining)
     }
 
     private var swatchRowWidth: CGFloat {
@@ -1057,30 +1157,42 @@ struct PresentationInspector: View {
             }
             .frame(minWidth: swatchRowWidth, alignment: .leading)
 
-            if !userColors.isEmpty {
-                Divider()
-                // Adaptive, not an HStack: saved colours must wrap onto another
-                // line rather than push the inspector past its own maximum
-                // width (and, with enough of them, off the screen).
-                LazyVGrid(
-                    columns: [GridItem(.adaptive(minimum: Self.swatchSize),
-                                       spacing: Self.swatchGap,
-                                       alignment: .leading)],
-                    alignment: .leading,
-                    spacing: Self.swatchGap
-                ) {
-                    ForEach(Array(userColors.enumerated()), id: \.offset) { index, color in
-                        swatch(color, selected: selected, label: "Custom Color",
-                               action: action)
-                            .contextMenu {
-                                Button(role: .destructive) {
-                                    userColors.remove(at: index)
-                                } label: {
-                                    Label("Remove Color", systemImage: "trash")
-                                        .labelStyle(.titleAndIcon)
-                                }
-                            }
-                    }
+            archiveRow(selected: selected, action: action)
+        }
+    }
+
+    /// The colours the user has already collected — the archive's, live.
+    ///
+    /// A colour picked with the eyedropper is an archive entry, so it is
+    /// already in a list the user keeps and can see from the panel. Repeating
+    /// that list here is what turns the eyedropper into a way of choosing a
+    /// background or a gradient stop, and it is why the inspector keeps no
+    /// private palette of its own: a second list would be one to fill, prune
+    /// and disagree with.
+    @ViewBuilder
+    private func archiveRow(
+        selected: Presentation.Color?,
+        action: @escaping (Presentation.Color) -> Void
+    ) -> some View {
+        let colors = colorShelf?.shelfColors ?? []
+        if !colors.isEmpty {
+            Divider()
+            Text("From Archive")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+            // Adaptive, not an HStack: the archive holds up to fifty entries,
+            // and they must wrap onto another line rather than push the
+            // inspector past its own maximum width.
+            LazyVGrid(
+                columns: [GridItem(.adaptive(minimum: Self.swatchSize),
+                                   spacing: Self.swatchGap,
+                                   alignment: .leading)],
+                alignment: .leading,
+                spacing: Self.swatchGap
+            ) {
+                ForEach(Array(colors.enumerated()), id: \.offset) { _, color in
+                    swatch(color, selected: selected, label: "From Archive",
+                           action: action)
                 }
             }
         }
@@ -1109,9 +1221,10 @@ struct PresentationInspector: View {
         .accessibilityLabel(label)
     }
 
-    /// The well picks a colour; the plus keeps it. Without the second half a
-    /// "custom colour" is a single slot that the next pick overwrites, which is
-    /// no use when a design needs three of them.
+    /// The well picks a colour; the plus keeps it — in the archive, beside the
+    /// ones the eyedropper put there. Without the second half a "custom colour"
+    /// is a single slot that the next pick overwrites, which is no use when a
+    /// design needs three of them.
     private func customColorRow(binding: Binding<SwiftUI.Color>) -> some View {
         HStack(spacing: 8) {
             Text("Custom Color")
@@ -1123,16 +1236,14 @@ struct PresentationInspector: View {
             // Trailing, like the canvas rotate button: the actions in this
             // panel all sit on the right edge of their row.
             Button {
-                let color = presentationColor(binding.wrappedValue)
-                if !userColors.contains(color), !Self.palette.contains(where: { $0.color == color }) {
-                    userColors.append(color)
-                }
+                colorShelf?.addShelfColor(presentationColor(binding.wrappedValue))
             } label: {
                 Image(systemName: "plus")
             }
             .controlSize(.large)
-            .help("Save Color")
-            .accessibilityLabel(Text("Save Color"))
+            .disabled(colorShelf == nil)
+            .help("Save Color to Archive")
+            .accessibilityLabel(Text("Save Color to Archive"))
         }
         .font(.system(size: 11))
     }
@@ -2030,26 +2141,15 @@ struct PresentationInspector: View {
         }
     }
 
-    private func addStop() {
+    /// A palette or archive tap paints the stop the user has selected — the
+    /// one wearing the ring. That is the whole reason the row has a selection:
+    /// picking colours for a gradient is otherwise a trip through the system
+    /// colour panel for every stop.
+    private func setSelectedStopColor(_ color: Presentation.Color) {
         var stops = currentStops
-        guard stops.count < 5, let last = stops.last else { return }
-        stops.append(Self.mix(last, .black, amount: 0.35))
-        setStops(stops)
-    }
-
-    private func removeStop() {
-        var stops = currentStops
-        guard stops.count > 2 else { return }
-        stops.removeLast()
-        setStops(stops)
-    }
-
-    /// A palette tap edits the stop nearest to "the one you are working on":
-    /// the last. Picking colors for a gradient is otherwise a trip through the
-    /// system color panel for every stop.
-    private func appendOrReplaceLastStop(_ color: Presentation.Color) {
-        var stops = currentStops
-        stops[stops.count - 1] = color
+        let index = GradientStops.clampedSelection(selectedStop, in: stops)
+        guard stops.indices.contains(index) else { return }
+        stops[index] = color
         setStops(stops)
     }
 
@@ -2071,13 +2171,7 @@ struct PresentationInspector: View {
     private static func mix(_ lhs: Presentation.Color,
                             _ rhs: Presentation.Color,
                             amount: CGFloat) -> Presentation.Color {
-        let t = min(1, max(0, amount))
-        return Presentation.Color(
-            red: lhs.red + (rhs.red - lhs.red) * t,
-            green: lhs.green + (rhs.green - lhs.green) * t,
-            blue: lhs.blue + (rhs.blue - lhs.blue) * t,
-            alpha: lhs.alpha + (rhs.alpha - lhs.alpha) * t
-        )
+        GradientStops.blend(lhs, rhs, amount: amount)
     }
 
     private func sampledBackgroundColors() -> [Presentation.Color] {

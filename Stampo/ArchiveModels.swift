@@ -651,3 +651,18 @@ private struct PersistedArchiveItem: Codable {
         attachFileResources()
     }
 }
+
+// MARK: - PresentationColorShelf
+
+/// The archive is the app's one list of colours, so it is also the editor's.
+/// A colour saved from the decor inspector shows up in the panel and is
+/// removed there, like any other entry — no second palette to keep in sync.
+extension NotchArchiveModel: PresentationColorShelf {
+    var shelfColors: [Presentation.Color] {
+        colors.map { Presentation.Color($0.color) }
+    }
+
+    func addShelfColor(_ color: Presentation.Color) {
+        add(color: color.nsColor)
+    }
+}

@@ -37,6 +37,12 @@ final class EditorWindowController: NSObject, NSWindowDelegate {
     /// Alive only while its sheet is up — it owns the format popup's target.
     private var saveAsPanel: EditorSaveAsPanel?
 
+    /// The app's colour list, handed to the editor by whoever owns it — see
+    /// `PresentationColorShelf`. Weak: the archive belongs to the panel
+    /// controller and outlives every editor window, but the editor must not be
+    /// the reason it stays alive.
+    weak var colorShelf: (any PresentationColorShelf)?
+
     /// Toast for editor action and OCR/scan outcomes, shared with the notch
     /// capture flows so the editor and hotkey paths confirm results identically.
     /// Owned here because the panel must outlive EditorView's value-type updates.
@@ -97,7 +103,8 @@ final class EditorWindowController: NSObject, NSWindowDelegate {
                 DispatchQueue.main.async {
                     self?.updateEditorMinimumSize(inspectorPresented: isPresented)
                 }
-            }
+            },
+            colorShelf: colorShelf
         )
         .managedLocale()
 

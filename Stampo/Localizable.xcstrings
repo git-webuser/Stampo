@@ -2277,6 +2277,23 @@
         }
       }
     },
+    "Edit Stop Color" : {
+      "comment" : "Tooltip on the selected gradient stop — clicking it opens the colour panel",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Edit Stop Color"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Изменить цвет точки"
+          }
+        }
+      }
+    },
     "Edit in Editor" : {
       "comment" : "Drop-zone label — archive dropped files, then open the first one in the editor",
       "localizations" : {
@@ -2673,6 +2690,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Свободные поля"
+          }
+        }
+      }
+    },
+    "From Archive" : {
+      "comment" : "Decor inspector — the colours the archive holds",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "From Archive"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Из архива"
           }
         }
       }
@@ -3772,6 +3806,40 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Сдвиг на 50 pt"
+          }
+        }
+      }
+    },
+    "Move Left" : {
+      "comment" : "Reorders one gradient stop",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Move Left"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сдвинуть влево"
+          }
+        }
+      }
+    },
+    "Move Right" : {
+      "comment" : "Reorders one gradient stop",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Move Right"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сдвинуть вправо"
           }
         }
       }
@@ -4994,23 +5062,6 @@
         }
       }
     },
-    "Remove Color" : {
-      "comment" : "Removes a saved swatch",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Remove Color"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Убрать цвет"
-          }
-        }
-      }
-    },
     "Remove Decor" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -5314,6 +5365,23 @@
         }
       }
     },
+    "Save Color to Archive" : {
+      "comment" : "Decor inspector — keeps the picked colour in the archive",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Save Color to Archive"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сохранить цвет в архив"
+          }
+        }
+      }
+    },
     "Save changes before closing?" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -5327,23 +5395,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Сохранить изменения перед закрытием?"
-          }
-        }
-      }
-    },
-    "Save Color" : {
-      "comment" : "Adds the picked colour to the user's swatches",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Save Color"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Сохранить цвет"
           }
         }
       }

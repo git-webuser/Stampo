@@ -33,6 +33,10 @@ struct EditorView: View {
     /// Lets the window controller keep its AppKit minimum in step with the
     /// native inspector column without making the view own window policy.
     var presentationInspectorChanged: ((Bool) -> Void)? = nil
+    /// The app's colours — the archive, seen through the one protocol the
+    /// editor needs. nil only in previews and tests: the decor inspector then
+    /// shows its built-in palette alone.
+    var colorShelf: (any PresentationColorShelf)? = nil
 
     @State private var tool: EditorTool = .select
     @State private var style = ToolStyle()
@@ -114,7 +118,7 @@ struct EditorView: View {
         .frame(minWidth: Self.minimumContentSize.width,
                minHeight: Self.minimumContentSize.height)
         .inspector(isPresented: $presentationInspectorPresented) {
-            PresentationInspector(document: document)
+            PresentationInspector(document: document, colorShelf: colorShelf)
                 .inspectorColumnWidth(
                     min: Self.presentationInspectorMinimumWidth,
                     ideal: Self.presentationInspectorIdealWidth,
