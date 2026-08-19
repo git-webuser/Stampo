@@ -112,6 +112,56 @@ enum EditorViewportGeometry {
         return CGSize(width: min(maxX, max(-maxX, offset.width)),
                       height: min(maxY, max(-maxY, offset.height)))
     }
+
+    /// The zoom that brings `content` into view, where zoom 1 means "the canvas
+    /// exactly fits".
+    ///
+    /// Fit is how a user finds something they have lost. If it only ever framed
+    /// the canvas, a picture or an annotation dragged outside would stay off
+    /// screen and the one command meant to reveal everything would be the one
+    /// that hides it.
+    ///
+    /// It returns a zoom and nothing else, because the pan is not fit's to
+    /// choose: `clampedPanOffset` keeps the canvas centred whenever it is
+    /// smaller than the viewport, which at any fit zoom it is — so a pan that
+    /// re-centred on the content was computed, applied, and then clamped
+    /// straight back to zero on the very next layout pass. Measured: fit
+    /// zoomed out and stayed staring at the middle of the page.
+    ///
+    /// So the canvas stays centred and the zoom is taken from the *symmetric*
+    /// reach around its centre — the far side of the content decides, and
+    /// whatever wandered off comes back into view on its own side. It is up to
+    /// twice as wide a view as re-centring would need, and it is the one that
+    /// survives the clamp.
+    static func fitAll(canvasSize: CGSize, content: CGRect) -> CGFloat {
+        guard canvasSize.width > 0, canvasSize.height > 0,
+              content.width > 0, content.height > 0
+        else { return 1 }
+        let center = CGPoint(x: canvasSize.width / 2, y: canvasSize.height / 2)
+        let reachX = max(abs(content.minX - center.x), abs(content.maxX - center.x))
+        let reachY = max(abs(content.minY - center.y), abs(content.maxY - center.y))
+        guard reachX > 0, reachY > 0 else { return 1 }
+        return clampedZoom(min(1, min(center.x / reachX, center.y / reachY)))
+    }
+}
+
+/// The pointer, expressed in both spaces the editor works in.
+///
+/// Blur and loupe are measured in image pixels; every other annotation in
+/// canvas pixels. Which one a gesture needs depends on what it is touching, and
+/// what it is touching is only known after the hit test — so both are carried
+/// and each annotation is asked for its own. Without a presentation the two are
+/// the same point and the same scale.
+struct SpacedPoint {
+    let image: CGPoint
+    let canvas: CGPoint
+    let imageScale: CGFloat
+    let canvasScale: CGFloat
+
+    func point(imageSpace: Bool) -> CGPoint { imageSpace ? image : canvas }
+    func scale(imageSpace: Bool) -> CGFloat { imageSpace ? imageScale : canvasScale }
+    func point(for a: Annotation) -> CGPoint { point(imageSpace: a.livesInImageSpace) }
+    func scale(for a: Annotation) -> CGFloat { scale(imageSpace: a.livesInImageSpace) }
 }
 
 /// The eight draggable handles of the crop rectangle (corners resize two
@@ -236,14 +286,25 @@ struct EditorCanvasView: View {
     @State private var magnificationStart: CGFloat?
     @State private var magnificationStartPan: CGSize?
     @State private var isSpaceHeld = false
+    /// Whether ⌘ is down — see `isCommandHeld`. Held in state rather than read
+    /// live so pressing it redraws the canvas and repaints the cursor.
+    @State private var isCommandDown = false
     @State private var keyMonitor: Any?
     /// Last committed click, for timing-based double-click detection (the
     /// gesture layer doesn't surface a reliable OS click count).
     @State private var lastClick: (id: UUID?, time: Date, point: CGPoint)?
     @State private var drawingCursorLocation: CGPoint?
+    /// Whether the inline edit under way is the one that placed its label —
+    /// see `finishTextEditing`.
+    @State private var editingPlacedALabel = false
 
     private enum DragMode {
-        case undecided(pixelPoint: CGPoint)
+        /// Nothing decided yet, and the tool that will decide. Carried here
+        /// rather than kept in `@State`: a write to state is not guaranteed to
+        /// be visible to a read in the same event, and this is read a few lines
+        /// after it would have been written — which is exactly how the ⌘ borrow
+        /// came out inert, the gesture reading back the real tool every time.
+        case undecided(pixelPoint: CGPoint, tool: EditorTool)
         case duplicatePending(sourceID: UUID, start: CGPoint)
         case creating(UUID)
         case drawing(UUID)
@@ -261,9 +322,25 @@ struct EditorCanvasView: View {
         case cropCreating(start: CGPoint)
         case cropMoving(last: CGPoint)
         case cropResizing(CropHandle)
+        /// The picture is an object too: it drags and resizes like everything
+        /// else on the canvas, in canvas pixels.
+        case movingImage(last: CGPoint)
+        case resizingImage(ImageCorner)
         case ignore
     }
     @State private var dragMode: DragMode?
+    /// Whether the pointer is wearing a cursor we set — see `updateCursor`.
+    @State private var cursorIsOurs = false
+    /// Whether the pointer is over something it can pick up. Drives both the
+    /// hand and the ring's absence, so the drawn ring and the system cursor
+    /// always tell the same story.
+    @State private var pointerOverGrabbable = false
+    /// Where the pointer was last seen, in both spaces. Kept so a ⌘ press can
+    /// re-decide the cursor without waiting for the mouse to move.
+    @State private var lastHoverPoint: SpacedPoint?
+    /// The picture is selected. Kept apart from `document.selectedID`, which
+    /// names an annotation — the picture is not one, it is what they sit on.
+    @State private var imageSelected = false
 
     /// Handle grab radius in view points (converted to pixels per gesture).
     private let handleGrabPt: CGFloat = 8
@@ -276,38 +353,65 @@ struct EditorCanvasView: View {
     var body: some View {
         GeometryReader { geo in
             let pixel = document.pixelSize
-            // Reserve a margin around the fitted image so its edges (and a
-            // crop frame snapped to them) never sit flush against the window,
-            // where a drag would resize the window instead of the frame.
-            let edgeInset: CGFloat = 24
-            let availWidth = max(1, geo.size.width - edgeInset * 2)
-            let availHeight = max(1, geo.size.height - edgeInset * 2)
-            let baseFitScale = min(min(availWidth / pixel.width,
-                                       availHeight / pixel.height), 1.0)
-            let fitScale = baseFitScale * zoomFactor
-            let baseDrawSize = CGSize(width: pixel.width * baseFitScale,
-                                      height: pixel.height * baseFitScale)
-            let drawSize = CGSize(width: baseDrawSize.width * zoomFactor,
-                                  height: baseDrawSize.height * zoomFactor)
-            let offset = CGPoint(x: (geo.size.width - drawSize.width) / 2 + panOffset.width,
-                                 y: (geo.size.height - drawSize.height) / 2 + panOffset.height)
+            // Crop stays in image-pixel space while it is active. Hiding the
+            // presentation there keeps the existing crop interaction safe;
+            // the styled canvas returns as soon as the crop is committed.
+            let renderPresentation = tool == .crop ? nil : document.presentation
+            let geometry = EditorCanvasGeometry.resolve(
+                viewport: geo.size,
+                imagePixelSize: pixel,
+                presentation: renderPresentation,
+                zoom: zoomFactor,
+                pan: panOffset
+            )
+            let fitScale = geometry.imageFitScale
+            let baseDrawSize = geometry.canvasBaseDrawSize
+            let drawSize = geometry.imageDrawSize
+            let offset = geometry.imageOffset
+            let annotationBounds = reachableAnnotationBounds(
+                pixel: pixel,
+                layout: geometry.presentationLayout,
+                hasPresentation: renderPresentation != nil
+            )
+            let canvasBounds = reachableCanvasBounds(
+                layout: geometry.presentationLayout,
+                hasPresentation: renderPresentation != nil
+            )
 
             ZStack(alignment: .topLeading) {
-                canvas(fitScale: fitScale, offset: offset)
+                canvas(
+                    presentation: renderPresentation,
+                    layout: geometry.presentationLayout,
+                    canvasScale: geometry.canvasScale,
+                    canvasOffset: geometry.canvasOffset,
+                    fitScale: fitScale,
+                    offset: offset
+                )
 
                 if let editingID = editingTextID,
                    let annotation = document.annotations.first(where: { $0.id == editingID }) {
                     if annotation.kind == .step {
-                        stepOverlay(for: annotation, fitScale: fitScale, offset: offset)
+                        stepOverlay(for: annotation,
+                                    fitScale: geometry.canvasScale,
+                                    offset: geometry.canvasOffset)
                     } else {
-                        textOverlay(for: annotation, fitScale: fitScale, offset: offset)
+                        textOverlay(for: annotation,
+                                    fitScale: geometry.canvasScale,
+                                    offset: geometry.canvasOffset)
                     }
                 }
 
-                if let diameter = drawingCursorDiameter,
+                // Canvas, not picture: a stroke is measured in canvas pixels
+                // and may land on the decorated background, so scaling the ring
+                // by the image's own scale drew it at the wrong size the moment
+                // the picture was scaled inside the page.
+                if let footprint = drawingCursorFootprint,
+                   !pointerOverGrabbable,
                    let location = drawingCursorLocation,
-                   CGRect(origin: offset, size: drawSize).contains(location) {
-                    drawingCursor(at: location, diameter: diameter * fitScale)
+                   CGRect(origin: geometry.canvasOffset,
+                          size: geometry.canvasDrawSize).contains(location) {
+                    drawingCursor(footprint, at: location,
+                                  scale: geometry.canvasScale)
                 }
 
                 // Sits exactly over the drawn image and only measures it.
@@ -336,6 +440,11 @@ struct EditorCanvasView: View {
                 .allowsHitTesting(false)
             }
             .gesture(dragGesture(fitScale: fitScale, offset: offset, pixel: pixel,
+                                 annotationBounds: annotationBounds,
+                                 canvasScale: geometry.canvasScale,
+                                 canvasOffset: geometry.canvasOffset,
+                                 canvasBounds: canvasBounds,
+                                 canvasSize: geometry.presentationLayout.canvasSize,
                                  viewport: geo.size, baseDrawSize: baseDrawSize))
             .simultaneousGesture(magnificationGesture(baseDrawSize: baseDrawSize,
                                                        viewport: geo.size))
@@ -363,16 +472,57 @@ struct EditorCanvasView: View {
                     zoom: zoomFactor, viewport: geo.size
                 )
             }
+            .onChange(of: document.presentation) { _, _ in
+                panOffset = EditorViewportGeometry.clampedPanOffset(
+                    panOffset, baseDrawSize: baseDrawSize,
+                    zoom: zoomFactor, viewport: geo.size
+                )
+            }
+            .onChange(of: tool) { _, _ in
+                panOffset = EditorViewportGeometry.clampedPanOffset(
+                    panOffset, baseDrawSize: baseDrawSize,
+                    zoom: zoomFactor, viewport: geo.size
+                )
+                refreshCursor()
+            }
+            // The document changing under a still pointer changes what the
+            // press would do: a shape finished right where the pointer sits
+            // becomes grabbable, a deleted one stops being. Revision covers
+            // annotations and the decoration alike.
+            .onChange(of: document.revision) { _, _ in refreshCursor() }
             .onContinuousHover { phase in
                 switch phase {
-                case .active(let location): drawingCursorLocation = location
-                case .ended: drawingCursorLocation = nil
+                case .active(let location):
+                    drawingCursorLocation = location
+                    let sp = SpacedPoint(
+                        image: pixelPoint(location, fitScale: fitScale,
+                                          offset: offset, bounds: annotationBounds),
+                        canvas: pixelPoint(location, fitScale: geometry.canvasScale,
+                                           offset: geometry.canvasOffset,
+                                           bounds: canvasBounds),
+                        imageScale: fitScale, canvasScale: geometry.canvasScale
+                    )
+                    lastHoverPoint = sp
+                    let grabbable = pointerCanGrab(at: sp, for: borrowedTool)
+                    pointerOverGrabbable = grabbable
+                    updateCursor(
+                        ringShown: drawingCursorFootprint != nil && !grabbable,
+                        grabbable: grabbable
+                    )
+                case .ended:
+                    drawingCursorLocation = nil
+                    pointerOverGrabbable = false
+                    lastHoverPoint = nil
+                    restoreCursor()
                 }
             }
             .clipped()
         }
         .onAppear { installKeyMonitor() }
-        .onDisappear { removeKeyMonitor() }
+        .onDisappear {
+            removeKeyMonitor()
+            restoreCursor()
+        }
     }
 
     /// The annotation currently in inline editing, if any.
@@ -393,26 +543,63 @@ struct EditorCanvasView: View {
 
     // MARK: Canvas
 
-    private func canvas(fitScale: CGFloat, offset: CGPoint) -> some View {
+    private func canvas(presentation: Presentation?,
+                        layout: PresentationLayout.Resolved,
+                        canvasScale: CGFloat,
+                        canvasOffset: CGPoint,
+                        fitScale: CGFloat,
+                        offset: CGPoint) -> some View {
         Canvas { context, _ in
             let markerPreviewID = calloutMarkerPreviewID
             context.withCGContext { cg in
                 cg.saveGState()
-                cg.translateBy(x: offset.x, y: offset.y)
-                cg.scaleBy(x: fitScale, y: fitScale)
+                cg.translateBy(x: canvasOffset.x, y: canvasOffset.y)
+                cg.scaleBy(x: canvasScale, y: canvasScale)
                 // Skip the magnifier for: a text annotation being edited (its
                 // TextField overlays it) and a callout loupe still being drawn
                 // — the marker region is defined without magnification, which
                 // only appears once the drag ends.
                 let skipID = editingAnnotation?.kind == .text ? editingTextID
                     : markerPreviewID
-                AnnotationRenderer.draw(
-                    in: cg,
-                    base: document.baseImage,
-                    blurSources: document.blurSources,
-                    annotations: document.annotations,
-                    skipping: skipID
-                )
+                if let presentation {
+                    PresentationRenderer.draw(
+                        in: cg,
+                        base: document.baseImage,
+                        blurSources: document.blurSources,
+                        annotations: document.annotations,
+                        presentation: presentation,
+                        layout: layout,
+                        skipping: skipID
+                    )
+                    // Editor only: show what the canvas cropped away, so it can
+                    // still be selected and moved back in.
+                    PresentationRenderer.drawGhostOutsideCanvas(
+                        in: cg,
+                        base: document.baseImage,
+                        blurSources: document.blurSources,
+                        annotations: document.annotations,
+                        layout: layout,
+                        cornerRadius: presentation.cornerRadius,
+                        skipping: skipID
+                    )
+                } else {
+                    // Match the export contract: without presentation the
+                    // bitmap is exactly the image bounds, so annotation ink
+                    // beyond those bounds must be clipped in the live preview
+                    // as well. Selection chrome is drawn below in view space
+                    // and intentionally remains outside this clip.
+                    cg.saveGState()
+                    cg.addRect(layout.imageRect)
+                    cg.clip()
+                    AnnotationRenderer.draw(
+                        in: cg,
+                        base: document.baseImage,
+                        blurSources: document.blurSources,
+                        annotations: document.annotations,
+                        skipping: skipID
+                    )
+                    cg.restoreGState()
+                }
                 cg.restoreGState()
             }
 
@@ -425,7 +612,18 @@ struct EditorCanvasView: View {
 
             // Selection chrome in view space (crisp at any zoom).
             if let selected = document.selectedAnnotation, selected.id != editingTextID {
-                drawSelection(for: selected, context: context, fitScale: fitScale, offset: offset)
+                // Chrome follows the space of what it decorates: a blur's
+                // handles ride the image, an arrow's ride the canvas.
+                drawSelection(for: selected, context: context,
+                              fitScale: selected.livesInImageSpace ? fitScale : canvasScale,
+                              offset: selected.livesInImageSpace ? offset : canvasOffset)
+            }
+
+            // The picture's own selection frame, in canvas space.
+            if imageSelected, presentation != nil {
+                drawImageSelection(layout.imageRect, context: context,
+                                   fitScale: canvasScale, offset: canvasOffset,
+                                   showsHandles: true)
             }
 
             // While dragging an arrow/line endpoint — either resizing an
@@ -433,8 +631,9 @@ struct EditorCanvasView: View {
             // anchors and highlight the one the drop will snap to (none
             // highlighted = releasing here leaves the endpoint free).
             if let (id, tip) = bindingDragEndpoint {
+                // Arrows and the shapes they bind to are canvas-space.
                 drawBindingCandidates(near: tip, excluding: id, context: context,
-                                      fitScale: fitScale, offset: offset)
+                                      fitScale: canvasScale, offset: canvasOffset)
             }
 
             // Crop overlay: dim everything outside the crop rect, frame it, and
@@ -450,6 +649,28 @@ struct EditorCanvasView: View {
     private func drawSize(fitScale: CGFloat) -> CGSize {
         CGSize(width: document.pixelSize.width * fitScale,
                height: document.pixelSize.height * fitScale)
+    }
+
+    /// The picture's frame and corner grips — the same vocabulary an annotation
+    /// uses, so it reads as the object it now is.
+    private func drawImageSelection(_ rect: CGRect, context: GraphicsContext,
+                                    fitScale: CGFloat, offset: CGPoint,
+                                    showsHandles: Bool) {
+        func view(_ p: CGPoint) -> CGPoint {
+            CGPoint(x: offset.x + p.x * fitScale, y: offset.y + p.y * fitScale)
+        }
+        let frame = CGRect(origin: view(rect.origin),
+                           size: CGSize(width: rect.width * fitScale,
+                                        height: rect.height * fitScale))
+        context.stroke(Path(frame), with: .color(.accentColor), lineWidth: 1.5)
+        guard showsHandles else { return }
+        for corner in ImageCorner.allCases {
+            let c = view(corner.point(in: rect))
+            let box = CGRect(x: c.x - 4, y: c.y - 4, width: 8, height: 8)
+            context.fill(Path(roundedRect: box, cornerRadius: 2), with: .color(.white))
+            context.stroke(Path(roundedRect: box, cornerRadius: 2),
+                           with: .color(.accentColor), lineWidth: 1.5)
+        }
     }
 
     private func drawCropOverlay(_ rect: CGRect, context: GraphicsContext,
@@ -754,21 +975,52 @@ struct EditorCanvasView: View {
         }
     }
 
-    private func drawingCursor(at location: CGPoint, diameter: CGFloat) -> some View {
-        Circle()
-            .stroke(Color.white.opacity(0.95), lineWidth: 2)
-            .overlay(Circle().stroke(Color.black.opacity(0.7), lineWidth: 1))
-            .frame(width: max(2, diameter), height: max(2, diameter))
-            .position(location)
-            .allowsHitTesting(false)
+    /// The mark the tool is about to leave, which is what the cursor draws.
+    ///
+    /// Shape as well as size, because the square marker really does lay a
+    /// square: a single dab of a square nib is an axis-aligned filled square of
+    /// side `lineWidth` — see `AnnotationRenderer.drawFreehand`. A round ring
+    /// over a chisel nib would misdescribe both the footprint and the corners
+    /// the stroke will have.
+    private struct CursorFootprint: Equatable {
+        let size: CGFloat
+        let isSquare: Bool
     }
 
-    private var drawingCursorDiameter: CGFloat? {
-        switch tool {
-        case .drawing where style.drawingMode == .marker:
-            return style.markerWidth
+    @ViewBuilder
+    private func drawingCursor(_ footprint: CursorFootprint,
+                              at location: CGPoint, scale: CGFloat) -> some View {
+        let side = max(2, footprint.size * scale)
+        // Two strokes, light over dark, so the outline survives both a white
+        // page and a dark screenshot.
+        ZStack {
+            if footprint.isSquare {
+                Rectangle().stroke(Color.white.opacity(0.95), lineWidth: 2)
+                Rectangle().stroke(Color.black.opacity(0.7), lineWidth: 1)
+            } else {
+                Circle().stroke(Color.white.opacity(0.95), lineWidth: 2)
+                Circle().stroke(Color.black.opacity(0.7), lineWidth: 1)
+            }
+        }
+        .frame(width: side, height: side)
+        .position(location)
+        .allowsHitTesting(false)
+    }
+
+    private var drawingCursorFootprint: CursorFootprint? {
+        // ⌘ borrows Select, and a ring under a pointer that is about to select
+        // would promise the wrong gesture.
+        switch borrowedTool {
+        case .drawing:
+            // The pen gets one too. It is thinner than the marker, not
+            // sizeless, and showing the ring for only one of the two made the
+            // same tool look like two different kinds of thing.
+            return CursorFootprint(
+                size: style.width(for: style.drawingMode),
+                isSquare: style.drawingMode == .marker && style.markerTip == .square
+            )
         case .eraser:
-            return style.eraserDiameter
+            return CursorFootprint(size: style.eraserDiameter, isSquare: false)
         default:
             return nil
         }
@@ -777,6 +1029,9 @@ struct EditorCanvasView: View {
     // MARK: Gesture
 
     private func dragGesture(fitScale: CGFloat, offset: CGPoint, pixel: CGSize,
+                             annotationBounds: CGRect,
+                             canvasScale: CGFloat, canvasOffset: CGPoint,
+                             canvasBounds: CGRect, canvasSize: CGSize,
                              viewport: CGSize, baseDrawSize: CGSize) -> some Gesture {
         DragGesture(minimumDistance: 0)
             .onChanged { value in
@@ -786,9 +1041,28 @@ struct EditorCanvasView: View {
                 if tool == .drawing || tool == .eraser {
                     drawingCursorLocation = value.location
                 }
-                let p = pixelPoint(value.location, fitScale: fitScale, offset: offset, pixel: pixel)
+                let sp = SpacedPoint(
+                    image: pixelPoint(value.location, fitScale: fitScale,
+                                      offset: offset, bounds: annotationBounds),
+                    canvas: pixelPoint(value.location, fitScale: canvasScale,
+                                       offset: canvasOffset, bounds: canvasBounds),
+                    imageScale: fitScale, canvasScale: canvasScale
+                )
+                // Most gestures act on one known annotation, so the point is
+                // resolved in *its* space; the ones that create act in the
+                // space their kind will live in.
+                let point = { (id: UUID) -> CGPoint in
+                    document.annotations.first { $0.id == id }
+                        .map(sp.point(for:)) ?? sp.canvas
+                }
+                let scaleOf = { (id: UUID) -> CGFloat in
+                    document.annotations.first { $0.id == id }
+                        .map(sp.scale(for:)) ?? sp.canvasScale
+                }
 
                 if dragMode == nil {
+                    // What the gesture is, decided once, here.
+                    let activeTool = borrowedTool
                     // First event of the gesture: a click anywhere commits an
                     // in-progress text edit before anything else happens.
                     if editingTextID != nil {
@@ -800,17 +1074,17 @@ struct EditorCanvasView: View {
                         // Interacting with the frame takes focus off the size
                         // fields, so arrow keys move the frame (not the caret).
                         NSApp.keyWindow?.makeFirstResponder(nil)
-                        dragMode = beginCropDrag(at: p, fitScale: fitScale)
+                        dragMode = beginCropDrag(at: sp.image, fitScale: fitScale)
                     } else if isSpaceHeld {
                         dragMode = .panning(last: value.location)
                     } else if tool != .scan,
-                              beginEditingIfDoubleClick(at: p, fitScale: fitScale) {
+                              beginEditingIfDoubleClick(at: sp) {
                         // A double-click on text/step opens its inline editor
                         // instead of starting a move — detected at mouse-down
                         // so it works even on an already-selected annotation.
                         dragMode = .ignore
                     } else {
-                        dragMode = beginDrag(at: p, fitScale: fitScale)
+                        dragMode = beginDrag(at: sp, with: activeTool)
                     }
                 }
 
@@ -819,7 +1093,8 @@ struct EditorCanvasView: View {
                     let viewDistance = hypot(value.translation.width, value.translation.height)
                     guard viewDistance >= 3 else { break }
                     document.beginChange()
-                    let offset = CGPoint(x: p.x - start.x, y: p.y - start.y)
+                    let here = point(sourceID)
+                    let offset = CGPoint(x: here.x - start.x, y: here.y - start.y)
                     guard let duplicateID = document.appendDuplicate(
                         of: sourceID, offset: offset
                     ) else {
@@ -827,29 +1102,38 @@ struct EditorCanvasView: View {
                         dragMode = .ignore
                         break
                     }
-                    dragMode = .moving(duplicateID, last: snapped(p))
+                    dragMode = .moving(duplicateID, last: snapped(point(duplicateID)))
 
                 case .drawing(let id):
-                    let sampleDistance = max(0.5, 1 / fitScale)
+                    // Resolved before `update`: that call takes exclusive access
+                    // to the annotation array, and reading it from inside the
+                    // mutation is an overlapping-access trap.
+                    let sampleDistance = max(0.5, 1 / scaleOf(id))
+                    let here = point(id)
                     update(id) {
-                        $0.appendFreehandPoint(p, minimumDistance: sampleDistance)
+                        $0.appendFreehandPoint(here, minimumDistance: sampleDistance)
                     }
 
                 case .erasing(let last):
                     document.eraseFreehand(
-                        from: last, to: p, diameter: style.eraserDiameter
+                        from: last, to: sp.canvas, diameter: style.eraserDiameter
                     )
-                    dragMode = .erasing(last: p)
+                    dragMode = .erasing(last: sp.canvas)
 
-                case .undecided(let startPixel):
+                case .undecided(let startPixel, let gestureTool):
                     let viewDistance = hypot(value.translation.width, value.translation.height)
                     guard viewDistance >= 3 else { break }
                     // The select tool has nothing to create on empty space, so
                     // an empty-space drag pans the (zoomed) image instead.
-                    guard let kind = shapeKind(for: tool) else {
-                        if tool == .select { dragMode = .panning(last: value.location) }
+                    guard let kind = shapeKind(for: gestureTool) else {
+                        if gestureTool == .select {
+                            dragMode = .panning(last: value.location)
+                        }
                         break
                     }
+                    // A blur or loupe is born in image pixels; everything else
+                    // on the canvas.
+                    let p = sp.point(imageSpace: Annotation.kindLivesInImageSpace(kind))
                     document.beginChange()
                     var annotation = Annotation(kind: kind, start: snapped(startPixel),
                                                 end: snapped(p),
@@ -876,13 +1160,14 @@ struct EditorCanvasView: View {
                     dragMode = .creating(annotation.id)
 
                 case .creating(let id):
-                    let target = snapped(p)
+                    let target = snapped(point(id))
                     update(id) {
                         $0.end = constrainedEndpoint(target, from: $0.start, kind: $0.kind)
                         $0.updateCreationOrientation()
                     }
 
                 case .moving(let id, let last):
+                    let p = point(id)
                     // Snapping the pointer (not the raw delta) keeps a move in
                     // whole grid steps, so an object created on the lattice
                     // stays on it.
@@ -893,7 +1178,7 @@ struct EditorCanvasView: View {
                     dragMode = .moving(id, last: target)
 
                 case .movingLoupePart(let id, let part, let last):
-                    let target = snapped(p)
+                    let target = snapped(point(id))
                     let delta = CGPoint(x: target.x - last.x, y: target.y - last.y)
                     guard delta != .zero else { break }
                     update(id) { $0.moveLoupePart(part, by: delta) }
@@ -907,12 +1192,13 @@ struct EditorCanvasView: View {
                     // chord the user sees, then store the control in the raw
                     // chord frame so a bound arrow's bend follows its endpoints
                     // (an identity map when unbound).
+                    let p = point(id)
                     if handle == .control,
                        let arrow = document.annotations.first(where: { $0.id == id }),
                        arrow.kind == .arrow {
                         let rs = arrow.resolvedStart(in: document.annotations)
                         let re = arrow.resolvedEnd(in: document.annotations)
-                        let snapDistance = 9 / fitScale
+                        let snapDistance = 9 / scaleOf(id)
                         update(id) { annotation in
                             if let bent = Annotation.bentControl(
                                 forDrag: p, start: rs, end: re,
@@ -965,20 +1251,20 @@ struct EditorCanvasView: View {
                     // result is a pure function of the pointer; legs that
                     // collapse to zero length drop out.
                     let waypoints = Annotation.movingRouteSegment(
-                        baseline, index: index, to: p, grid: activeGrid)
+                        baseline, index: index, to: point(id), grid: activeGrid)
                     update(id) { $0.elbowWaypoints = waypoints }
 
                 case .cropCreating(let start) where style.snapsToGrid:
                     let moved = hypot(value.translation.width, value.translation.height)
                     if moved >= 3 {
-                        let a = snapped(start), b = snapped(p)
+                        let a = snapped(start), b = snapped(sp.image)
                         let raw = CGRect(x: min(a.x, b.x), y: min(a.y, b.y),
                                          width: abs(b.x - a.x), height: abs(b.y - a.y))
                         cropRect = raw.intersection(CGRect(origin: .zero, size: pixel))
                     }
 
                 case .cropMoving(let last) where style.snapsToGrid:
-                    let target = snapped(p)
+                    let target = snapped(sp.image)
                     if let rect = cropRect, target != last {
                         cropRect = movedCrop(rect, by: CGPoint(x: target.x - last.x,
                                                                y: target.y - last.y))
@@ -987,7 +1273,7 @@ struct EditorCanvasView: View {
 
                 case .cropResizing(let handle) where style.snapsToGrid:
                     if let rect = cropRect {
-                        cropRect = resizedCrop(rect, handle: handle, to: snapped(p))
+                        cropRect = resizedCrop(rect, handle: handle, to: snapped(sp.image))
                     }
 
                 case .cropCreating(let start):
@@ -996,21 +1282,39 @@ struct EditorCanvasView: View {
                     // starts a fresh rect.
                     let moved = hypot(value.translation.width, value.translation.height)
                     if moved >= 3 {
-                        let raw = CGRect(x: min(start.x, p.x), y: min(start.y, p.y),
-                                         width: abs(p.x - start.x), height: abs(p.y - start.y))
+                        let ip = sp.image
+                        let raw = CGRect(x: min(start.x, ip.x), y: min(start.y, ip.y),
+                                         width: abs(ip.x - start.x), height: abs(ip.y - start.y))
                         cropRect = raw.intersection(CGRect(origin: .zero, size: pixel))
                     }
 
                 case .cropMoving(let last):
                     if let rect = cropRect {
-                        cropRect = movedCrop(rect, by: CGPoint(x: p.x - last.x, y: p.y - last.y))
+                        cropRect = movedCrop(rect, by: CGPoint(x: sp.image.x - last.x,
+                                                               y: sp.image.y - last.y))
                     }
-                    dragMode = .cropMoving(last: p)
+                    dragMode = .cropMoving(last: sp.image)
 
                 case .cropResizing(let handle):
                     if let rect = cropRect {
-                        cropRect = resizedCrop(rect, handle: handle, to: p)
+                        cropRect = resizedCrop(rect, handle: handle, to: sp.image)
                     }
+
+                case .movingImage(let last):
+                    let target = sp.canvas
+                    let delta = CGPoint(x: target.x - last.x, y: target.y - last.y)
+                    guard delta != .zero else { break }
+                    document.moveImage(by: delta, canvasSize: canvasSize)
+                    dragMode = .movingImage(last: target)
+
+                case .resizingImage(let corner):
+                    // The page keeps its size through a resize, so its mapping
+                    // to the view is stable and the live point is exact.
+                    document.resizeImage(
+                        corner: corner, to: sp.canvas,
+                        canvasSize: canvasSize,
+                        imagePixelSize: pixel
+                    )
 
                 case .panning(let last):
                     // Clamp so the image can't be dragged past its overflow
@@ -1034,11 +1338,25 @@ struct EditorCanvasView: View {
                 if tool == .drawing || tool == .eraser {
                     drawingCursorLocation = value.location
                 }
-                let p = pixelPoint(value.location, fitScale: fitScale, offset: offset, pixel: pixel)
+                let sp = SpacedPoint(
+                    image: pixelPoint(value.location, fitScale: fitScale,
+                                      offset: offset, bounds: annotationBounds),
+                    canvas: pixelPoint(value.location, fitScale: canvasScale,
+                                       offset: canvasOffset, bounds: canvasBounds),
+                    imageScale: fitScale, canvasScale: canvasScale
+                )
+                let point = { (id: UUID) -> CGPoint in
+                    document.annotations.first { $0.id == id }
+                        .map(sp.point(for:)) ?? sp.canvas
+                }
+                let scaleOf = { (id: UUID) -> CGFloat in
+                    document.annotations.first { $0.id == id }
+                        .map(sp.scale(for:)) ?? sp.canvasScale
+                }
 
                 switch dragMode {
-                case .undecided:
-                    handleClick(at: p, fitScale: fitScale)
+                case .undecided(_, let gestureTool):
+                    handleClick(at: sp, for: gestureTool)
                 case .creating(let id):
                     if let a = document.annotations.first(where: { $0.id == id }), a.isDegenerate {
                         document.annotations.removeAll { $0.id == id }
@@ -1063,14 +1381,15 @@ struct EditorCanvasView: View {
                         }
                         // A freshly drawn elbow arrow squares up onto its axis
                         // when it was drawn nearly straight.
-                        update(id) { $0.alignForElbow(tolerance: 12 / fitScale) }
+                        let elbowTolerance = 12 / scaleOf(id)
+                        update(id) { $0.alignForElbow(tolerance: elbowTolerance) }
                         // A freshly drawn arrow/line binds whichever endpoints
                         // landed on (or near) a shape, so drawing one straight
                         // onto a shape connects it — same undo step.
                         if let a = document.annotations.first(where: { $0.id == id }),
                            a.kind == .arrow || a.kind == .line {
-                            let tolerancePx = hitTolerancePt / fitScale
-                            let magnetPx = bindMagnetPt / fitScale
+                            let tolerancePx = hitTolerancePt / scaleOf(id)
+                            let magnetPx = bindMagnetPt / scaleOf(id)
                             document.bindEndpoint(.start, of: id, releasedAt: a.start,
                                                   tolerance: tolerancePx, magnet: magnetPx)
                             document.bindEndpoint(.end, of: id, releasedAt: a.end,
@@ -1078,9 +1397,11 @@ struct EditorCanvasView: View {
                             document.refreshBindingFallbacks()
                         }
                         document.commitChange()
+                        returnToSelect()
                     }
                 case .drawing(let id):
-                    update(id) { $0.appendFreehandPoint(p, minimumDistance: 0.01) }
+                    let here = point(id)
+                    update(id) { $0.appendFreehandPoint(here, minimumDistance: 0.01) }
                     if let annotation = document.annotations.first(where: { $0.id == id }),
                        annotation.isDegenerate {
                         document.annotations.removeAll { $0.id == id }
@@ -1108,10 +1429,12 @@ struct EditorCanvasView: View {
                     // Dropping an arrow/line endpoint over (or near) a shape
                     // binds it; empty space clears any prior binding. Part of
                     // the same undo step as the drag.
-                    document.bindEndpoint(handle, of: id, releasedAt: p,
-                                          tolerance: hitTolerancePt / fitScale,
-                                          magnet: bindMagnetPt / fitScale)
+                    document.bindEndpoint(handle, of: id, releasedAt: point(id),
+                                          tolerance: hitTolerancePt / scaleOf(id),
+                                          magnet: bindMagnetPt / scaleOf(id))
                     document.refreshBindingFallbacks()
+                    document.commitChange()
+                case .movingImage, .resizingImage:
                     document.commitChange()
                 case .duplicatePending, .cropCreating, .cropMoving, .cropResizing,
                      .panning, .ignore, nil:
@@ -1122,9 +1445,20 @@ struct EditorCanvasView: View {
 
     /// Decides what a fresh mouse-down does, before we know if it's a click
     /// or a drag.
-    private func beginDrag(at p: CGPoint, fitScale: CGFloat) -> DragMode {
-        let grabPx = handleGrabPt / fitScale
-        let tolerancePx = hitTolerancePt / fitScale
+    private func beginDrag(at sp: SpacedPoint, with gestureTool: EditorTool) -> DragMode {
+        // Tolerances are in pixels of whichever space the object being tested
+        // is measured in, so a grab feels the same distance on screen either way.
+        let selectedScale = document.selectedAnnotation.map(sp.scale(for:)) ?? sp.canvasScale
+        let grabPx = handleGrabPt / selectedScale
+        let p = document.selectedAnnotation.map(sp.point(for:)) ?? sp.canvas
+
+        // A new object is born in the space its *kind* lives in, and the active
+        // tool already decides that kind. Reading the selection's space instead
+        // meant a blur drawn while an arrow was selected started from a
+        // canvas-space corner and ended at an image-space one.
+        let toolIsImageSpace = shapeKind(for: gestureTool)
+            .map(Annotation.kindLivesInImageSpace) ?? false
+        let toolPoint = sp.point(imageSpace: toolIsImageSpace)
 
         // Resize handles of the current selection win over everything. Bound
         // arrow endpoints are grabbed at their resolved (drawn) positions.
@@ -1148,12 +1482,15 @@ struct EditorCanvasView: View {
         // exclusive ownership of their gestures. Creation is deferred until
         // movement crosses the standard 3 pt drag threshold, so Option-click only selects.
         if tool != .scan, tool != .crop, isOptionHeld,
-           let hit = document.annotation(at: p, tolerance: tolerancePx) {
+           let hit = document.annotation(imagePoint: sp.image, canvasPoint: sp.canvas,
+                                         imageTolerance: hitTolerancePt / sp.imageScale,
+                                         canvasTolerance: hitTolerancePt / sp.canvasScale) {
+            let p = sp.point(for: hit)
             document.selectedID = hit.id
             return .duplicatePending(sourceID: hit.id, start: p)
         }
 
-        switch tool {
+        switch gestureTool {
         case .scan:
             // The selection overlay covers the image while this tool is
             // active, so a drag never reaches the canvas.
@@ -1162,85 +1499,319 @@ struct EditorCanvasView: View {
             // Crop drags are routed through beginCropDrag before reaching here.
             return .ignore
         case .select:
-            if let hit = document.annotation(at: p, tolerance: tolerancePx) {
-                document.selectedID = hit.id
-                document.beginChange()
-                // A callout loupe's bodies drag independently; whole-
-                // annotation moves stay on the keyboard-nudge path.
-                if let part = hit.loupePart(at: p, tolerance: tolerancePx) {
-                    return .movingLoupePart(hit.id, part, last: snapped(p))
-                }
-                return .moving(hit.id, last: snapped(p))
+            // Each annotation is tested in its own space — the selection's
+            // space says nothing about what is under the pointer now, and
+            // using it left a blur ungrabbable whenever the picture was
+            // offset inside the canvas.
+            if let hit = grabbableAnnotation(at: sp, for: .select) {
+                return beginMove(of: hit, at: sp)
             }
+            // The picture is the last thing under the pointer: annotations sit
+            // on top of it, empty background below.
+            if let mode = beginImageDrag(at: sp) { return mode }
             // Empty space: a click deselects (in handleClick), a drag pans.
-            return .undecided(pixelPoint: p)
+            return .undecided(pixelPoint: toolPoint, tool: gestureTool)
         case .text:
-            // Drag the selected text's body to move it; otherwise a click
-            // places or edits (handled in onEnded).
-            if let selected = document.selectedAnnotation,
-               selected.kind == .text, selected.hitTest(p, tolerance: tolerancePx) {
-                document.beginChange()
-                return .moving(selected.id, last: snapped(p))
+            // An object under the pointer is picked up; empty space places or
+            // edits a label (handled in onEnded).
+            if let hit = grabbableAnnotation(at: sp, for: gestureTool) {
+                return beginMove(of: hit, at: sp)
             }
-            return .undecided(pixelPoint: p)
+            return .undecided(pixelPoint: toolPoint, tool: gestureTool)
         case .drawing:
+            // A finished stroke — or anything else already on the canvas — is
+            // draggable without leaving the pen. This is what the open hand
+            // promises.
+            if let hit = grabbableAnnotation(at: sp, for: gestureTool) {
+                return beginMove(of: hit, at: sp)
+            }
             document.selectedID = nil
             document.beginChange()
             let width = style.width(for: style.drawingMode)
-            var annotation = Annotation(kind: .freehand, start: p, end: p,
+            var annotation = Annotation(kind: .freehand, start: toolPoint, end: toolPoint,
                                         color: style.color, lineWidth: width)
             annotation.freehandStyle = style.drawingMode.freehandStyle
             annotation.markerTip = style.markerTip
-            annotation.appendFreehandPoint(p, minimumDistance: 0)
+            annotation.appendFreehandPoint(toolPoint, minimumDistance: 0)
             document.annotations.append(annotation)
             document.selectedID = annotation.id
             return .drawing(annotation.id)
         case .eraser:
             document.selectedID = nil
             document.beginChange()
-            document.eraseFreehand(from: p, to: p, diameter: style.eraserDiameter)
-            return .erasing(last: p)
+            document.eraseFreehand(from: sp.canvas, to: sp.canvas,
+                                   diameter: style.eraserDiameter)
+            return .erasing(last: sp.canvas)
         case .line, .arrow, .rect, .oval, .roundedRect, .polygon,
              .star, .bubble, .blur, .step, .loupe:
-            // Dragging the selected annotation's body moves it even with a
-            // shape tool active; empty space starts a new shape on drag.
-            if let selected = document.selectedAnnotation,
-               selected.hitTest(p, tolerance: tolerancePx, in: document.annotations) {
-                document.beginChange()
-                if let part = selected.loupePart(at: p, tolerance: tolerancePx) {
-                    return .movingLoupePart(selected.id, part, last: snapped(p))
-                }
-                return .moving(selected.id, last: snapped(p))
+            // Any object under the pointer moves, not just the selected one;
+            // empty space starts a new shape on drag.
+            if let hit = grabbableAnnotation(at: sp, for: gestureTool) {
+                return beginMove(of: hit, at: sp)
             }
-            return .undecided(pixelPoint: p)
+            return .undecided(pixelPoint: toolPoint, tool: gestureTool)
         }
+    }
+
+    // MARK: Interaction rules
+    //
+    // Four decisions the pointer makes, lifted out of the view as pure
+    // functions of their inputs. They were methods reading `self`, which meant
+    // nothing could pin them: the ⌘ borrow once shipped completely inert with
+    // the suite green, because no test could ask it what it answered. The
+    // wrappers below them keep the call sites reading as before.
+
+    /// Which tool a fresh mouse-down acts with.
+    ///
+    /// ⌘ borrows Select for as long as it is held: click to select, drag to
+    /// move, and the picture becomes grabbable. Recognition and crop own their
+    /// gestures outright and are never borrowed from.
+    static func actingTool(_ tool: EditorTool, commandHeld: Bool) -> EditorTool {
+        guard commandHeld, tool != .scan, tool != .crop else { return tool }
+        return .select
+    }
+
+    /// Whether a tool picks up an object under the pointer instead of drawing
+    /// over it.
+    ///
+    /// The eraser is the exception, and not an arbitrary one: touching existing
+    /// ink *is* its gesture, so ink that caught its pointer could never be
+    /// erased. Recognition and crop never reach this decision.
+    static func picksUpObjects(_ tool: EditorTool) -> Bool {
+        tool != .eraser && tool != .scan && tool != .crop
+    }
+
+    /// Whether the picture itself takes the press.
+    ///
+    /// Only under Select — it lies under the entire canvas, so letting it catch
+    /// any tool's pointer would mean never drawing on the screenshot again —
+    /// and only once there is a page around it to move it on. `grab` widens the
+    /// rect by half, so the edge is catchable from just outside it.
+    static func imageTakesPress(_ tool: EditorTool, isDecorated: Bool,
+                                imageRect: CGRect, point: CGPoint,
+                                grab: CGFloat) -> Bool {
+        guard tool == .select, isDecorated,
+              imageRect.width > 0, imageRect.height > 0 else { return false }
+        return imageRect.insetBy(dx: -grab / 2, dy: -grab / 2).contains(point)
+    }
+
+    /// Whether finishing this tool's object hands the tool back to Select.
+    ///
+    /// A shape and a label are single finished statements, and there the tool
+    /// resetting is the end of the act. Strokes, erasing and numbering are done
+    /// in runs, and picking an object up without leaving the tool is what makes
+    /// resetting unnecessary for them.
+    static func handsBackAfterMaking(_ tool: EditorTool) -> Bool {
+        switch tool {
+        case .select, .drawing, .eraser, .step, .scan, .crop:
+            return false
+        case .line, .arrow, .rect, .oval, .roundedRect, .polygon,
+             .star, .bubble, .blur, .loupe, .text:
+            return true
+        }
+    }
+
+    /// What the active tool may pick up instead of drawing.
+    ///
+    /// Apple's markup works this way: an existing object catches the pointer
+    /// and the cursor says so. That is what makes staying in the tool viable —
+    /// the stroke you just drew is draggable where it lies, so the tool has no
+    /// reason to reset itself.
+    ///
+    /// The eraser is the exception, and not an arbitrary one: touching existing
+    /// ink *is* its gesture, so ink that caught its pointer could never be
+    /// erased.
+    ///
+    /// The picture is not here either. It lies under the entire canvas, so
+    /// letting it catch the pointer would mean never drawing on the screenshot
+    /// again — ⌘ is how it is reached.
+    ///
+    /// What this costs: a new shape can no longer start on top of an existing
+    /// one. ⌘ borrows Select for the trip towards objects; nothing borrows
+    /// creation back, and that modifier is where it would go if this bites.
+    private func grabbableAnnotation(at sp: SpacedPoint,
+                                     for activeTool: EditorTool) -> Annotation? {
+        guard Self.picksUpObjects(activeTool) else { return nil }
+        return document.annotation(imagePoint: sp.image, canvasPoint: sp.canvas,
+                                   imageTolerance: hitTolerancePt / sp.imageScale,
+                                   canvasTolerance: hitTolerancePt / sp.canvasScale)
+    }
+
+    /// Picking one up. Shared by Select and by every maker tool, so a loupe's
+    /// two bodies still drag apart whichever tool the hand happens to hold.
+    private func beginMove(of hit: Annotation, at sp: SpacedPoint) -> DragMode {
+        let hitPoint = sp.point(for: hit)
+        let hitTolerance = hitTolerancePt / sp.scale(for: hit)
+        document.selectedID = hit.id
+        // Selecting an annotation drops the picture's frame; the two are never
+        // both live.
+        imageSelected = false
+        document.beginChange()
+        // A callout loupe's bodies drag independently; whole-annotation moves
+        // stay on the keyboard-nudge path.
+        if let part = hit.loupePart(at: hitPoint, tolerance: hitTolerance) {
+            return .movingLoupePart(hit.id, part, last: snapped(hitPoint))
+        }
+        return .moving(hit.id, last: snapped(hitPoint))
+    }
+
+    /// What the pointer looks like, decided in one place so the ring and the
+    /// hand cannot fight over it.
+    ///
+    /// A sized ring *is* the cursor. An arrow beside it adds nothing, and its
+    /// tip sits at the ring's centre — so its body covers exactly the spot
+    /// about to be painted or erased.
+    ///
+    /// The hand wins over the ring. Over something grabbable a stroke cannot be
+    /// started anyway — the press will pick the object up — so a ring there
+    /// promises a mark that will not happen. This is the one case where both
+    /// apply, and the truthful one has to take it.
+    ///
+    /// Each is set on every event, because AppKit resets cursors freely; the
+    /// arrow comes back only on the way out, so this never stamps over a cursor
+    /// another view owns.
+    private func updateCursor(ringShown: Bool, grabbable: Bool) {
+        if ringShown {
+            Self.invisibleCursor.set()
+            cursorIsOurs = true
+        } else if grabbable {
+            NSCursor.openHand.set()
+            cursorIsOurs = true
+        } else if cursorIsOurs {
+            cursorIsOurs = false
+            NSCursor.arrow.set()
+        }
+    }
+
+    /// A cursor that draws nothing, so the ring is the only thing on screen.
+    ///
+    /// Deliberately not `NSCursor.hide()`: that is app-wide and reference
+    /// counted, and it is undone only by code that runs when the pointer moves.
+    /// Raise a save panel with ⌘S while the pointer sits still over the canvas
+    /// and nothing tells us to unhide — the panel greets the user with no
+    /// pointer at all. An image cursor cannot leak that way: it is replaced the
+    /// moment anything else sets one.
+    private static let invisibleCursor: NSCursor = {
+        let image = NSImage(size: NSSize(width: 1, height: 1))
+        image.lockFocus()
+        NSColor.clear.set()
+        NSRect(x: 0, y: 0, width: 1, height: 1).fill()
+        image.unlockFocus()
+        return NSCursor(image: image, hotSpot: .zero)
+    }()
+
+    /// Re-decides the cursor from where the pointer was last seen.
+    ///
+    /// Needed whenever the answer changes without the mouse moving: ⌘ going
+    /// down or up, the tool handing itself back, an annotation appearing under
+    /// the pointer or being deleted from under it. No hover event is coming in
+    /// any of those, and a cursor that waits for one describes the scene before
+    /// the change.
+    private func refreshCursor() {
+        guard let sp = lastHoverPoint else { restoreCursor(); return }
+        let grabbable = pointerCanGrab(at: sp, for: borrowedTool)
+        pointerOverGrabbable = grabbable
+        updateCursor(ringShown: drawingCursorFootprint != nil && !grabbable,
+                     grabbable: grabbable)
+    }
+
+    /// Gives the cursor back on the way out: the pointer leaving the canvas,
+    /// the editor closing.
+    private func restoreCursor() {
+        pointerOverGrabbable = false
+        updateCursor(ringShown: false, grabbable: false)
+    }
+
+    /// Whether the picture itself would take the press.
+    ///
+    /// Shared with the cursor, so the open hand cannot promise a grab the
+    /// gesture would refuse — the picture is grabbable only under Select (⌘
+    /// included) and only once there is a page around it to move it on.
+    private func imageIsGrabbable(at sp: SpacedPoint, for activeTool: EditorTool) -> Bool {
+        guard document.presentation != nil else { return false }
+        let rect = PresentationLayout.resolve(imagePixelSize: document.pixelSize,
+                                              document.presentation).imageRect
+        return Self.imageTakesPress(activeTool, isDecorated: true,
+                                    imageRect: rect, point: sp.canvas,
+                                    grab: handleGrabPt / sp.canvasScale)
+    }
+
+    /// Everything the press could pick up, in the order the gesture tries them.
+    private func pointerCanGrab(at sp: SpacedPoint, for activeTool: EditorTool) -> Bool {
+        grabbableAnnotation(at: sp, for: activeTool) != nil
+            || imageIsGrabbable(at: sp, for: activeTool)
+    }
+
+    /// Grabbing the picture: a corner of the selection frame resizes it, its
+    /// body moves it. Only with a presentation — without one the picture *is*
+    /// the canvas and there is nowhere to move it to.
+    private func beginImageDrag(at sp: SpacedPoint) -> DragMode? {
+        guard document.presentation != nil else { return nil }
+        let layout = PresentationLayout.resolve(imagePixelSize: document.pixelSize,
+                                                document.presentation)
+        let rect = layout.imageRect
+        guard rect.width > 0, rect.height > 0 else { return nil }
+        let grab = handleGrabPt / sp.canvasScale
+
+        if imageSelected {
+            for corner in ImageCorner.allCases {
+                let c = corner.point(in: rect)
+                if hypot(sp.canvas.x - c.x, sp.canvas.y - c.y) <= grab {
+                    document.beginChange()
+                    return .resizingImage(corner)
+                }
+            }
+        }
+        guard imageIsGrabbable(at: sp, for: .select) else { return nil }
+        document.selectedID = nil
+        imageSelected = true
+        // One drag, one undo step — the move itself no longer opens its own.
+        document.beginChange()
+        return .movingImage(last: sp.canvas)
     }
 
     /// A single click that never became a drag: select what's under it, or
     /// place a new text/step marker on empty space. (Double-click editing is
     /// handled up front at mouse-down.)
-    private func handleClick(at p: CGPoint, fitScale: CGFloat) {
-        let tolerancePx = hitTolerancePt / fitScale
-        let hit = document.annotation(at: p, tolerance: tolerancePx)
+    private func handleClick(at sp: SpacedPoint, for gestureTool: EditorTool) {
+        let hit = document.annotation(imagePoint: sp.image, canvasPoint: sp.canvas,
+                                      imageTolerance: hitTolerancePt / sp.imageScale,
+                                      canvasTolerance: hitTolerancePt / sp.canvasScale)
+        // Text and step are canvas-space, so a new one is placed there.
+        let p = sp.canvas
 
-        switch tool {
-        case .text:
-            if let hit, hit.kind == .text { document.selectedID = hit.id }
-            else { placeText(at: snapped(p)) }        // new text opens straight into editing
-        case .step:
-            if let hit, hit.kind == .step { document.selectedID = hit.id }
-            else { placeStep(at: snapped(p)) }
-        default:
-            document.selectedID = hit?.id
+        // A click that reaches here never landed on the picture (that returns
+        // `.movingImage` at mouse-down), so it deselects it the same way it
+        // deselects an annotation — otherwise the frame stayed drawn and the
+        // arrow keys kept moving a picture the user had just clicked away from.
+        imageSelected = false
+
+        // Anything under the click is selected, whatever tool is held and
+        // whatever kind it is — the same answer the mouse-down would have
+        // given. The kind-matching arms this replaces were all but unreachable
+        // (a press on an annotation returns `.moving` and never arrives here)
+        // and disagreed with `beginMove` where they did fire.
+        if let hit {
+            document.selectedID = hit.id
+            return
+        }
+        switch gestureTool {
+        case .text:  placeText(at: snapped(p))   // opens straight into editing
+        case .step:  placeStep(at: snapped(p))
+        default:     document.selectedID = nil
         }
     }
 
     /// Records the mouse-down and, if it's the second click of a double-click
     /// on a text or step annotation, opens that annotation's inline editor.
     /// Returns true when it started editing (so the caller skips the drag).
-    private func beginEditingIfDoubleClick(at p: CGPoint, fitScale: CGFloat) -> Bool {
-        let tolerancePx = hitTolerancePt / fitScale
-        let hit = document.annotation(at: p, tolerance: tolerancePx)
+    private func beginEditingIfDoubleClick(at sp: SpacedPoint) -> Bool {
+        let hit = document.annotation(imagePoint: sp.image, canvasPoint: sp.canvas,
+                                      imageTolerance: hitTolerancePt / sp.imageScale,
+                                      canvasTolerance: hitTolerancePt / sp.canvasScale)
+        // The double-click test compares against the previous click, so it has
+        // to use one consistent space; text and step are canvas-space.
+        let p = sp.canvas
         let double = isDoubleClick(on: hit?.id, at: p)
         lastClick = (hit?.id, Date(), p)
 
@@ -1303,10 +1874,51 @@ struct EditorCanvasView: View {
         mutate(&document.annotations[idx])
     }
 
+    /// Where a gesture may reach, in image-pixel space.
+    ///
+    /// The canvas bounds alone would make an annotation that has left the frame
+    /// unreachable: every point clamps to the edge, so it could not be grabbed,
+    /// moved back or deleted. With a presentation the reach is widened well
+    /// past the canvas for exactly that. Without one it stays the image, which
+    /// is what the editor has always allowed.
+    private func reachableAnnotationBounds(pixel: CGSize,
+                                           layout: PresentationLayout.Resolved,
+                                           hasPresentation: Bool) -> CGRect {
+        let bounds = PresentationLayout.annotationBounds(imagePixelSize: pixel, layout)
+        guard hasPresentation else { return bounds }
+        return bounds.insetBy(dx: -bounds.width * Self.offCanvasReach,
+                              dy: -bounds.height * Self.offCanvasReach)
+    }
+
+    /// The same reach, expressed in canvas pixels — the space commentary is
+    /// measured in.
+    private func reachableCanvasBounds(layout: PresentationLayout.Resolved,
+                                       hasPresentation: Bool) -> CGRect {
+        let canvas = CGRect(origin: .zero, size: layout.canvasSize)
+        guard hasPresentation else { return canvas }
+        return canvas.insetBy(dx: -canvas.width * Self.offCanvasReach,
+                              dy: -canvas.height * Self.offCanvasReach)
+    }
+
+    /// How far past each canvas edge a gesture may still reach, in canvases.
+    ///
+    /// Whatever fit can show, the pointer must be able to grab. The zoom floor
+    /// is 0.25, so a fully zoomed-out view shows four canvases across — two of
+    /// them beyond each edge. One canvas of reach left a picture that fit had
+    /// just revealed visible but untouchable.
+    private static let offCanvasReach: CGFloat = 2
+
+    /// A view point in the image's pixel space, clamped to where annotations
+    /// may go. That is the whole canvas, not the picture: with a presentation
+    /// the background around the image is a legitimate place for a caption or
+    /// for an arrow pointing at the mockup. Without one the bounds collapse to
+    /// the image and the behaviour is unchanged.
     private func pixelPoint(_ viewPoint: CGPoint, fitScale: CGFloat,
-                            offset: CGPoint, pixel: CGSize) -> CGPoint {
-        CGPoint(x: max(0, min(pixel.width, (viewPoint.x - offset.x) / fitScale)),
-                y: max(0, min(pixel.height, (viewPoint.y - offset.y) / fitScale)))
+                            offset: CGPoint, bounds: CGRect) -> CGPoint {
+        CGPoint(
+            x: max(bounds.minX, min(bounds.maxX, (viewPoint.x - offset.x) / fitScale)),
+            y: max(bounds.minY, min(bounds.maxY, (viewPoint.y - offset.y) / fitScale))
+        )
     }
 
     private var isShiftHeld: Bool {
@@ -1316,6 +1928,37 @@ struct EditorCanvasView: View {
     private var isOptionHeld: Bool {
         NSEvent.modifierFlags.contains(.option)
     }
+
+    private var isCommandHeld: Bool {
+        // The tracked flag is what makes the view redraw on the press itself;
+        // the live read covers a press that arrived while another window was
+        // key, so a gesture is never wrong about it even if the monitor was.
+        isCommandDown || NSEvent.modifierFlags.contains(.command)
+    }
+
+    /// The tool a fresh mouse-down acts with.
+    ///
+    /// Holding ⌘ borrows `.select` for as long as it is down: click to select,
+    /// drag to move, and the picture becomes grabbable — so reaching an object
+    /// no longer costs a trip to the toolbar and back for every adjustment.
+    ///
+    /// It is a modifier rather than a rule about what wins the grab, because a
+    /// rule would have to take something away. An object that always caught the
+    /// pointer would make it impossible to start a new shape over an existing
+    /// one, and the picture lies under the entire canvas — letting it catch the
+    /// pointer would mean never drawing on the screenshot again. With the
+    /// modifier, nothing is taken: without ⌘ every tool behaves exactly as
+    /// before.
+    ///
+    /// Recognition and crop own their gestures outright and are never borrowed
+    /// from.
+    private var borrowedTool: EditorTool {
+        Self.actingTool(tool, commandHeld: isCommandHeld)
+    }
+
+    /// A mouse-down decides what a gesture *is*, and that decision is then
+    /// carried by `DragMode` — so letting go of ⌘ halfway through cannot turn
+    /// the move under way into a new rectangle on mouse-up.
 
     private func constrainedEndpoint(_ point: CGPoint, from start: CGPoint,
                                      kind: AnnotationKind) -> CGPoint {
@@ -1390,8 +2033,24 @@ struct EditorCanvasView: View {
 
     private func installKeyMonitor() {
         guard keyMonitor == nil else { return }
-        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp]) { event in
+        keyMonitor = NSEvent.addLocalMonitorForEvents(
+            matching: [.keyDown, .keyUp, .flagsChanged]
+        ) { event in
             guard EditorWindowController.shared.isKeyWindow else { return event }
+
+            // A modifier arrives as `.flagsChanged` and never as a keyDown, so
+            // holding ⌘ changed nothing until the mouse moved: the ring stayed
+            // lit, the hand never appeared, and a borrow that says nothing when
+            // you press it cannot be learned. Mirroring it into state is what
+            // redraws the canvas and repaints the cursor on the press itself.
+            if event.type == .flagsChanged {
+                let down = event.modifierFlags.contains(.command)
+                if down != self.isCommandDown {
+                    self.isCommandDown = down
+                    self.refreshCursor()
+                }
+                return event
+            }
 
             let commandModifiers = event.modifierFlags
                 .intersection([.command, .control, .option, .shift])
@@ -1477,31 +2136,79 @@ struct EditorCanvasView: View {
             // Esc walks the interaction hierarchy. Handled here (not via
             // SwiftUI onExitCommand) because the Canvas is never first
             // responder, so the command modifier never reaches the view.
-            if event.type == .keyDown, event.keyCode == 53 {
+            //
+            // Not while a field has the keyboard. This monitor runs before the
+            // responder chain, so swallowing Esc here meant the field's own
+            // `cancelOperation` was never reached and a number could not be
+            // abandoned — the neighbouring blocks all yield the same way.
+            if event.type == .keyDown, event.keyCode == 53, !fieldHasFocus {
                 if self.tool != .select {
                     self.tool = .select
                 } else if self.document.selectedID != nil {
                     self.document.selectedID = nil
+                } else if self.imageSelected {
+                    // The picture is a selection like any other, frame and all,
+                    // so Escape has to be able to drop it too.
+                    self.imageSelected = false
                 }
                 return nil
             }
 
-            guard event.type == .keyDown, self.document.selectedID != nil else { return event }
+            let nudges = Self.nudgeTarget(selectedID: self.document.selectedID,
+                                          imageSelected: self.imageSelected,
+                                          isDecorated: self.document.presentation != nil)
+            // Same yield: with a field focused these keys belong to the number
+            // being typed. Delete took out the selected annotation instead of a
+            // digit, and the arrows moved the picture instead of the caret.
+            guard event.type == .keyDown, !fieldHasFocus, nudges != .nothing
+            else { return event }
 
             // Delete / Backspace removes the selection. SwiftUI's
             // onDeleteCommand never fires because the Canvas isn't first
-            // responder, so the monitor owns this.
+            // responder, so the monitor owns this. The picture cannot be
+            // deleted — it is the document.
             if event.keyCode == 51 || event.keyCode == 117,
+               nudges == .annotation,
                event.modifierFlags.intersection([.command, .control, .option]).isEmpty {
                 self.document.deleteSelected()
                 return nil
             }
 
-            // Arrow-key nudge of the selected annotation (same tiers as crop).
+            // Arrow-key nudge, of whatever is selected — the picture included.
             guard let delta = Self.nudgeDelta(for: event) else { return event }
-            self.document.nudgeSelected(by: delta)
+            switch nudges {
+            case .image:
+                let canvas = PresentationLayout.resolve(
+                    imagePixelSize: self.document.pixelSize,
+                    self.document.presentation
+                ).canvasSize
+                self.document.beginChange()
+                self.document.moveImage(by: delta, canvasSize: canvas)
+                self.document.commitChange()
+            case .annotation:
+                self.document.nudgeSelected(by: delta)
+            case .nothing:
+                break
+            }
             return nil
         }
+    }
+
+    /// What the arrow keys (and Delete) act on.
+    enum NudgeTarget: Equatable { case annotation, image, nothing }
+
+    /// The picture is not an annotation and therefore has no `selectedID`.
+    /// Asking for one before letting an arrow key through is what left a
+    /// selected picture sitting still: the keys never reached the nudge.
+    static func nudgeTarget(selectedID: UUID?,
+                            imageSelected: Bool,
+                            isDecorated: Bool) -> NudgeTarget {
+        // A selected annotation wins: selecting one drops the picture's
+        // selection anyway, so the two are never both live.
+        if selectedID != nil { return .annotation }
+        // Nothing to move a picture within until there is a canvas around it.
+        if imageSelected, isDecorated { return .image }
+        return .nothing
     }
 
     /// Arrow-key nudge delta in native image pixels: 1, ⇧ 10, ⌥⇧ 50. Returns
@@ -1525,9 +2232,32 @@ struct EditorCanvasView: View {
         if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
         keyMonitor = nil
         isSpaceHeld = false
+        isCommandDown = false
     }
 
     // MARK: Text editing
+
+    /// Hands the tool back to Select once it has produced its object.
+    ///
+    /// Shapes and text do; freehand, the eraser and numbered steps do not.
+    ///
+    /// The split follows Apple's markup, which is the reference here. A shape
+    /// and a label are single finished statements, and there the tool resetting
+    /// is the end of the act. Strokes, erasing and numbering are done in runs,
+    /// and `grabbableAnnotation` is what makes resetting unnecessary for them:
+    /// the stroke you just drew can be picked up without leaving the pen, which
+    /// is what the open-hand cursor is promising.
+    ///
+    /// Recognition and crop are modes rather than makers, and are never
+    /// returned from.
+    ///
+    /// Which tools those are is `handsBackAfterMaking`, not the choice of call
+    /// site: a rule encoded by where a function happens to be invoked cannot be
+    /// read off, and cannot be tested.
+    private func returnToSelect() {
+        guard Self.handsBackAfterMaking(tool) else { return }
+        tool = .select
+    }
 
     private func placeText(at p: CGPoint) {
         document.beginChange()
@@ -1563,6 +2293,7 @@ struct EditorCanvasView: View {
     private func startEditingText(_ id: UUID, isNew: Bool = false) {
         if !isNew { document.beginChange() }
         editingTextID = id
+        editingPlacedALabel = isNew
         textFieldFocused = true
     }
 
@@ -1572,18 +2303,38 @@ struct EditorCanvasView: View {
         document.selectedID = id
         document.beginChange()
         editingTextID = id
+        // Relabelling makes nothing, so the tool is not owed back.
+        editingPlacedALabel = false
         textFieldFocused = true
     }
 
+    /// Commits the label and, if this edit was what *made* it, hands the tool
+    /// back.
+    ///
+    /// A label is finished when the typing stops, not when the box appears, so
+    /// the reset belongs here: while you are still typing the toolbar honestly
+    /// reads Text, and the click that commits the label is the same one that
+    /// ends the act — which is exactly what Apple's markup does. Returning at
+    /// placement instead would have shown Select while a text box was still
+    /// open for input.
+    ///
+    /// Only for a label this edit created, though. Every inline edit leaves
+    /// through here, relabelling an existing step included, and resetting on
+    /// those took the tool away from someone who had made nothing — fixing the
+    /// number on step 2 dropped them out of Step before they could place
+    /// step 3, which is the run the rule in `returnToSelect` exists to protect.
     func finishTextEditing() {
         guard let id = editingTextID else { return }
+        let placed = editingPlacedALabel
         editingTextID = nil
+        editingPlacedALabel = false
         textFieldFocused = false
         if document.annotations.first(where: { $0.id == id })?.kind == .step {
             document.finishStepEditing(id)
         } else {
             document.finishTextEditing(id)
         }
+        if placed { returnToSelect() }
     }
 
     private func textOverlay(for annotation: Annotation, fitScale: CGFloat,

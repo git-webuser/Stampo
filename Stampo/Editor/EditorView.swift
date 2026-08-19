@@ -12,6 +12,13 @@ struct EditorView: View {
     /// rows (text with its alignment picker, loupe with its shape picker and
     /// source toggle) set the floor.
     static let minimumContentSize = CGSize(width: 900, height: 360)
+    /// The inspector is a separate native column. Its floor is not a taste
+    /// judgement: below `PresentationInspector.contentMinimumWidth` the colour
+    /// swatches wrap onto a second line, which reads as a layout bug rather
+    /// than as a narrow panel.
+    static let presentationInspectorMinimumWidth = PresentationInspector.contentMinimumWidth
+    static let presentationInspectorIdealWidth: CGFloat = 360
+    static let presentationInspectorMaximumWidth: CGFloat = 460
 
     var document: EditorDocument
     /// Wired by EditorWindowController in the save/copy commit; nil disables Save.
@@ -23,6 +30,9 @@ struct EditorView: View {
     /// window closes. The controller owns both halves; anything the user wanted
     /// to keep out of it (the clipboard copy) happens here first.
     var deleteHandler: ((EditorDocument) -> Void)?
+    /// Lets the window controller keep its AppKit minimum in step with the
+    /// native inspector column without making the view own window policy.
+    var presentationInspectorChanged: ((Bool) -> Void)? = nil
 
     @State private var tool: EditorTool = .select
     @State private var style = ToolStyle()
@@ -44,6 +54,9 @@ struct EditorView: View {
     @State private var scanOverlayActive = false
     /// The overlay's armed mode, mirrored here so the context bar can follow it.
     @State private var scanMode: ScanSelectionMode = .plain
+    /// Presentation is a sidebar, not a canvas tool: its visibility must not
+    /// change selection, crop, or the active annotation gesture.
+    @State private var presentationInspectorPresented = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -95,8 +108,22 @@ struct EditorView: View {
                 scanOverlay.cancel()
             }
         }
+        .onAppear {
+            presentationInspectorChanged?(presentationInspectorPresented)
+        }
         .frame(minWidth: Self.minimumContentSize.width,
                minHeight: Self.minimumContentSize.height)
+        .inspector(isPresented: $presentationInspectorPresented) {
+            PresentationInspector(document: document)
+                .inspectorColumnWidth(
+                    min: Self.presentationInspectorMinimumWidth,
+                    ideal: Self.presentationInspectorIdealWidth,
+                    max: Self.presentationInspectorMaximumWidth
+                )
+        }
+        .onChange(of: presentationInspectorPresented) { _, presented in
+            presentationInspectorChanged?(presented)
+        }
     }
 
     private var textEditingActive: Bool { editingTextID != nil }
@@ -115,6 +142,8 @@ struct EditorView: View {
             cropButton
             Divider().frame(height: 20)
             scanButton
+            Divider().frame(height: 20)
+            decorButton
             Spacer(minLength: 8)
             undoRedoButtons
             Divider().frame(height: 20)
@@ -1109,7 +1138,14 @@ struct EditorView: View {
                 style.loupeScale = newValue
                 // Magnification is the content zoom only — neither the marker
                 // nor the magnifier frame moves.
-                document.updateSelected { if $0.kind == .loupe { $0.loupeScale = newValue } }
+                document.updateSelected {
+                    guard $0.kind == .loupe else { return }
+                    $0.loupeScale = newValue
+                    // The factor is the relationship between the two frames, so
+                    // changing it has to resize the glass — the marked region is
+                    // what the user chose and stays as it is.
+                    $0.syncLoupeGeometry(anchoredTo: .source)
+                }
             }
         )
     }
@@ -1464,6 +1500,24 @@ struct EditorView: View {
         .activeToolChrome(tool == .scan)
         .disabled(textEditingActive)
         .hoverTip("Scan")
+    }
+
+    /// Opens the native trailing inspector. It is deliberately not an
+    /// `EditorTool`: opening properties must leave the current canvas gesture
+    /// and selected annotation untouched.
+    private var decorButton: some View {
+        Button {
+            // Pressing the button is the decision to decorate, so the picture
+            // arrives framed rather than edge to edge. Only on the way in.
+            if !presentationInspectorPresented { document.startDecorationIfNeeded() }
+            presentationInspectorPresented.toggle()
+        } label: {
+            Image(systemName: PresentationInspector.decorSystemImage)
+                .frame(width: ToolButtonMetrics.width, height: ToolButtonMetrics.height)
+        }
+        .buttonStyle(.borderless)
+        .activeToolChrome(presentationInspectorPresented)
+        .hoverTip("Decor")
     }
 
     /// In crop mode the Copy/Save actions are replaced by Cancel/Apply.
@@ -1908,9 +1962,53 @@ struct EditorView: View {
         zoomFactor = EditorViewportGeometry.clampedZoom(zoomFactor + amount)
     }
 
+    /// Frames the canvas — and anything that has wandered off it.
+    ///
+    /// Without a presentation the canvas is the image and nothing can be
+    /// outside it, so this stays the old "zoom 1, no pan".
     private func fitZoom() {
-        zoomFactor = 1
+        let layout = PresentationLayout.resolve(imagePixelSize: document.pixelSize,
+                                                document.presentation)
+        // The pan is always zero: the canvas stays centred and the zoom is what
+        // reaches out to the content. See `EditorViewportGeometry.fitAll` for
+        // why re-centring cannot survive the pan clamp.
         panOffset = .zero
+        guard let content = contentBounds(layout: layout),
+              content != CGRect(origin: .zero, size: layout.canvasSize)
+        else {
+            zoomFactor = 1
+            return
+        }
+        zoomFactor = EditorViewportGeometry.fitAll(canvasSize: layout.canvasSize,
+                                                   content: content)
+    }
+
+    /// The canvas united with every annotation, in canvas pixels. nil when
+    /// there is nothing to add to the canvas itself.
+    ///
+    /// Only blur and loupe are stored in image pixels and need the image
+    /// transform; everything else is already measured on the canvas. Mapping
+    /// them all sent a caption sitting off the left edge to the *inside* of a
+    /// scaled-down picture, so the one command meant to reveal it framed the
+    /// canvas and left it off screen.
+    private func contentBounds(layout: PresentationLayout.Resolved) -> CGRect? {
+        let canvas = CGRect(origin: .zero, size: layout.canvasSize)
+        let pixel = document.pixelSize
+        guard pixel.width > 0, layout.imageRect.width > 0 else { return nil }
+        let scale = layout.imageRect.width / pixel.width
+        // The picture is the first thing that can be off the page — it is
+        // draggable now — and it was the one thing this union left out, so fit
+        // framed an empty background and the picture stayed off screen.
+        let start = canvas.union(layout.imageRect)
+        return document.annotations.reduce(start) { union, annotation in
+            let r = annotation.rect
+            guard annotation.livesInImageSpace else { return union.union(r) }
+            let mapped = CGRect(x: layout.imageRect.minX + r.minX * scale,
+                                y: layout.imageRect.minY + r.minY * scale,
+                                width: r.width * scale,
+                                height: r.height * scale)
+            return union.union(mapped)
+        }
     }
 }
 

@@ -629,6 +629,44 @@ import Testing
         #expect(a.handle(at: CGPoint(x: 140, y: 140), tolerance: 3) == .bottomRight)
     }
 
+    /// The glass shows the marked region at `loupeScale`, so the three values
+    /// are one relationship. Letting them drift made the marker outline promise
+    /// a region the glass did not show.
+    @Test func theGlassIsAlwaysTheMarkedRegionTimesTheFactor() {
+        var a = callout(display: CGRect(x: 100, y: 100, width: 40, height: 40),
+                        markerCenter: CGPoint(x: 30, y: 30),
+                        markerSize: CGSize(width: 20, height: 20), scale: 2)
+
+        // Marker grows → glass follows, about its own centre.
+        let glassCenter = CGPoint(x: a.rect.midX, y: a.rect.midY)
+        a.apply(handle: .sourceBottomRight, to: CGPoint(x: 50, y: 50))
+        #expect(a.loupeSourceSize == CGSize(width: 30, height: 30))
+        #expect(a.rect.width == 60 && a.rect.height == 60)
+        #expect(a.rect.midX == glassCenter.x && a.rect.midY == glassCenter.y)
+
+        // Factor changes → the glass resizes, the marked region does not.
+        let markerBefore = a.loupeSourceSize
+        a.loupeScale = 3
+        a.syncLoupeGeometry(anchoredTo: .source)
+        #expect(a.loupeSourceSize == markerBefore)
+        #expect(a.rect.width == 90 && a.rect.height == 90)
+
+        // Glass is dragged → the marked region follows, about its own centre.
+        let markerCenter = a.loupeSource!
+        a.apply(handle: .bottomRight, to: CGPoint(x: a.rect.minX + 60,
+                                                  y: a.rect.minY + 60))
+        #expect(a.loupeSourceSize == CGSize(width: 20, height: 20))
+        #expect(a.loupeSource == markerCenter)
+    }
+
+    @Test func anInPlaceLoupeHasNoSecondFrameToSync() {
+        var a = make(.loupe, start: CGPoint(x: 100, y: 100), end: CGPoint(x: 140, y: 140))
+        a.loupeScale = 3
+        a.syncLoupeGeometry(anchoredTo: .source)
+        #expect(a.rect == CGRect(x: 100, y: 100, width: 40, height: 40))
+        #expect(a.loupeSourceSize == nil)
+    }
+
     @Test func resizingEitherFrameScalesBothKeepingRatio() {
         // Marker 20×20, magnifier 40×40 → size ratio 2.
         var a = callout(display: CGRect(x: 100, y: 100, width: 40, height: 40),
@@ -1186,6 +1224,27 @@ import Testing
             targetID: target.id,
             anchor: .fixed(unit: CGPoint(x: 0.5, y: 0)), fallback: .zero)
         #expect(arrow.resolvedEnd(in: [target, arrow]) == CGPoint(x: 150, y: 100))
+    }
+
+    // MARK: arrow keys
+
+    /// The arrow keys used to ask for a selected *annotation* before they did
+    /// anything, so a selected picture — which has no annotation id — could be
+    /// dragged with the mouse but never nudged with the keyboard.
+    @Test func arrowKeysMoveASelectedPicture() {
+        #expect(EditorCanvasView.nudgeTarget(selectedID: nil, imageSelected: true,
+                                             isDecorated: true) == .image)
+    }
+
+    /// An annotation still wins, and an undecorated picture has no canvas to
+    /// move within, so the keys stay with whatever else wants them.
+    @Test func arrowKeysPreferTheAnnotationAndSkipAnUndecoratedPicture() {
+        #expect(EditorCanvasView.nudgeTarget(selectedID: UUID(), imageSelected: true,
+                                             isDecorated: true) == .annotation)
+        #expect(EditorCanvasView.nudgeTarget(selectedID: nil, imageSelected: true,
+                                             isDecorated: false) == .nothing)
+        #expect(EditorCanvasView.nudgeTarget(selectedID: nil, imageSelected: false,
+                                             isDecorated: true) == .nothing)
     }
 
     // MARK: degenerate

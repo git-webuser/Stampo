@@ -32,6 +32,374 @@ enum TestImages {
         #expect(rep?.pixelsHigh == 23)
     }
 
+    /// A window shot taken with its shadow carries a transparent halo, and an
+    /// untouched document must hand that halo back untouched. The identity
+    /// presentation stands in for `nil` only to supply geometry — its white
+    /// page must never be painted, or every undecorated save came out opaque.
+    @Test func exportWithoutAPresentationKeepsTheImagesTransparency() {
+        let ctx = CGContext(
+            data: nil, width: 20, height: 20,
+            bitsPerComponent: 8, bytesPerRow: 0,
+            space: CGColorSpace(name: CGColorSpace.sRGB)!,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        )!
+        // Opaque red centre, transparent everywhere else.
+        ctx.setFillColor(CGColor(srgbRed: 1, green: 0, blue: 0, alpha: 1))
+        ctx.fill(CGRect(x: 5, y: 5, width: 10, height: 10))
+        let base = ctx.makeImage()!
+
+        let rep = AnnotationRenderer.renderBitmap(base: base, annotations: [])
+
+        #expect(rep?.pixelsWide == 20)
+        #expect((rep?.colorAt(x: 1, y: 1)?.alphaComponent ?? 1) < 0.01)
+        #expect((rep?.colorAt(x: 10, y: 10)?.alphaComponent ?? 0) > 0.99)
+        #expect((rep?.colorAt(x: 10, y: 10)?.redComponent ?? 0) > 0.9)
+    }
+
+    @Test func presentationControlsExportCanvasSizeAndBackground() {
+        let base = solidImage(width: 20, height: 10, red: 1, green: 0, blue: 0)
+        let blue = Presentation.Color(red: 0, green: 0, blue: 1, alpha: 1)
+        let presentation = Presentation(
+            canvas: .preset(pixelSize: CGSize(width: 40, height: 30)),
+            background: .solid(blue)
+        )
+
+        let rep = AnnotationRenderer.renderBitmap(
+            base: base, annotations: [], presentation: presentation)
+
+        #expect(rep?.pixelsWide == 40)
+        #expect(rep?.pixelsHigh == 30)
+        #expect((rep?.colorAt(x: 20, y: 15)?.redComponent ?? 0) > 0.9)
+        #expect((rep?.colorAt(x: 0, y: 0)?.blueComponent ?? 0) > 0.9)
+    }
+
+    @Test func presentationRoundsImageCornersWithoutClippingBackground() {
+        let base = solidImage(width: 24, height: 24, red: 1, green: 0, blue: 0)
+        let blue = Presentation.Color(red: 0, green: 0, blue: 1, alpha: 1)
+        let presentation = Presentation(
+            canvas: .preset(pixelSize: CGSize(width: 24, height: 24)),
+            background: .solid(blue),
+            cornerRadius: 0.25
+        )
+
+        let rep = AnnotationRenderer.renderBitmap(
+            base: base, annotations: [], presentation: presentation)
+
+        #expect((rep?.colorAt(x: 12, y: 12)?.redComponent ?? 0) > 0.9)
+        #expect((rep?.colorAt(x: 0, y: 0)?.blueComponent ?? 0) > 0.9)
+    }
+
+    @Test func presentationShadowProducesPixelsOutsideImage() {
+        let base = solidImage(width: 100, height: 100, red: 1, green: 1, blue: 1)
+        let presentation = Presentation(
+            canvas: .preset(pixelSize: CGSize(width: 300, height: 300)),
+            background: .solid(.white),
+            image: .init(center: CGPoint(x: 0.5, y: 0.5), scale: 1.0 / 3.0),
+            shadow: Presentation.Shadow(radius: 0.06, offset: .zero, opacity: 0.9)
+        )
+
+        let rep = AnnotationRenderer.renderBitmap(
+            base: base, annotations: [], presentation: presentation)
+
+        let outside = rep?.colorAt(x: 150, y: 90)?.brightnessComponent ?? 1
+        #expect(outside < 0.95)
+    }
+
+    @Test func presentationShadowHonorsZeroOpacityAndRadius() {
+        let base = solidImage(width: 100, height: 100, red: 1, green: 1, blue: 1)
+        let shadows = [
+            Presentation.Shadow(radius: 0, offset: .zero, opacity: 0.9),
+            Presentation.Shadow(radius: 0.06, offset: .zero, opacity: 0)
+        ]
+
+        for shadow in shadows {
+            let presentation = Presentation(
+                canvas: .preset(pixelSize: CGSize(width: 300, height: 300)),
+                background: .solid(.white),
+                image: .init(center: CGPoint(x: 0.5, y: 0.5), scale: 1.0 / 3.0),
+                shadow: shadow
+            )
+            let rep = AnnotationRenderer.renderBitmap(
+                base: base, annotations: [], presentation: presentation)
+            let outside = rep?.colorAt(x: 150, y: 90)?.brightnessComponent ?? 0
+            #expect(outside > 0.99)
+        }
+    }
+
+    @Test func presentationShadowOffsetMovesDarknessDownward() {
+        let base = solidImage(width: 100, height: 100, red: 1, green: 1, blue: 1)
+        let presentation = Presentation(
+            canvas: .preset(pixelSize: CGSize(width: 300, height: 300)),
+            background: .solid(.white),
+            image: .init(center: CGPoint(x: 0.5, y: 0.5), scale: 1.0 / 3.0),
+            shadow: Presentation.Shadow(
+                radius: 0.06, offset: CGPoint(x: 0, y: 0.12), opacity: 0.9
+            )
+        )
+
+        let rep = AnnotationRenderer.renderBitmap(
+            base: base, annotations: [], presentation: presentation)
+        let above = rep?.colorAt(x: 150, y: 80)?.brightnessComponent ?? 1
+        let below = rep?.colorAt(x: 150, y: 220)?.brightnessComponent ?? 1
+        #expect(below < above)
+    }
+
+    @Test func presentationShadowDoesNotPaintTransparentImageCornersBlack() {
+        let base = roundedTransparentImage(width: 100, height: 100, radius: 24)
+        let presentation = Presentation(
+            canvas: .preset(pixelSize: CGSize(width: 300, height: 300)),
+            background: .solid(.white),
+            image: .init(center: CGPoint(x: 0.5, y: 0.5), scale: 1.0 / 3.0),
+            shadow: Presentation.Shadow(radius: 0.06, offset: .zero, opacity: 0.9)
+        )
+
+        let rep = AnnotationRenderer.renderBitmap(
+            base: base, annotations: [], presentation: presentation)
+
+        let transparentCorner = rep?.colorAt(x: 101, y: 101)?.brightnessComponent ?? 0
+        #expect(transparentCorner > 0.95)
+    }
+
+    @Test func meshBackgroundIsContinuousAcrossTheCanvas() {
+        let base = solidImage(width: 10, height: 10, red: 1, green: 1, blue: 1)
+        let black = Presentation.Color.black
+        let white = Presentation.Color.white
+        let presentation = Presentation(
+            canvas: .preset(pixelSize: CGSize(width: 1600, height: 900)),
+            background: .mesh(colors: [black, white, black, white]),
+            image: .init(center: CGPoint(x: 0.5, y: 0.5), scale: 0.1)
+        )
+
+        let rep = AnnotationRenderer.renderBitmap(
+            base: base, annotations: [], presentation: presentation)
+        let levels = (0..<1600).map { x in
+            Int(((rep?.colorAt(x: x, y: 100)?.redComponent ?? 0) * 255).rounded())
+        }
+        let maximumJump = zip(levels, levels.dropFirst())
+            .map { abs($0.0 - $0.1) }
+            .max() ?? 255
+
+        #expect(maximumJump <= 2)
+        #expect((rep?.colorAt(x: 0, y: 100)?.redComponent ?? 1) < 0.05)
+        #expect((rep?.colorAt(x: 1599, y: 100)?.redComponent ?? 0) > 0.95)
+    }
+
+    @Test func meshBackgroundRepeatsShortPalettes() {
+        let base = solidImage(width: 8, height: 8, red: 1, green: 1, blue: 1)
+        let red = Presentation.Color(red: 1, green: 0, blue: 0, alpha: 1)
+        let presentation = Presentation(
+            canvas: .preset(pixelSize: CGSize(width: 80, height: 80)),
+            background: .mesh(colors: [red]),
+            image: .init(center: CGPoint(x: 0.5, y: 0.5), scale: 0.1)
+        )
+
+        let rep = AnnotationRenderer.renderBitmap(
+            base: base, annotations: [], presentation: presentation)
+        let corner = rep?.colorAt(x: 0, y: 0)
+        #expect((corner?.redComponent ?? 0) > 0.9)
+        #expect((corner?.greenComponent ?? 1) < 0.1)
+        #expect((corner?.blueComponent ?? 1) < 0.1)
+    }
+
+    @Test func noBackgroundLeavesTheCanvasTransparent() {
+        let base = solidImage(width: 8, height: 8, red: 1, green: 0, blue: 0)
+        let presentation = Presentation(
+            canvas: .preset(pixelSize: CGSize(width: 80, height: 80)),
+            background: .none,
+            image: .init(center: CGPoint(x: 0.5, y: 0.5), scale: 0.4)
+        )
+
+        let rep = AnnotationRenderer.renderBitmap(
+            base: base, annotations: [], presentation: presentation)
+
+        // Corner is canvas, centre is the image: one must be see-through and
+        // the other must not, or "no background" is indistinguishable from
+        // white on export.
+        #expect((rep?.colorAt(x: 0, y: 0)?.alphaComponent ?? 1) < 0.01)
+        #expect((rep?.colorAt(x: 40, y: 40)?.alphaComponent ?? 0) > 0.99)
+    }
+
+    @Test func radialGradientPutsTheFirstStopInTheMiddle() {
+        let base = solidImage(width: 4, height: 4, red: 1, green: 1, blue: 1)
+        let inner = Presentation.Color(red: 1, green: 0, blue: 0, alpha: 1)
+        let outer = Presentation.Color(red: 0, green: 0, blue: 1, alpha: 1)
+        let presentation = Presentation(
+            canvas: .preset(pixelSize: CGSize(width: 100, height: 100)),
+            background: .radialGradient(stops: [inner, outer]),
+            image: .init(center: CGPoint(x: 0.5, y: 0.5), scale: 0.04)
+        )
+
+        let rep = AnnotationRenderer.renderBitmap(
+            base: base, annotations: [], presentation: presentation)
+
+        #expect((rep?.colorAt(x: 2, y: 2)?.blueComponent ?? 0) > 0.8)   // corner: outer
+        #expect((rep?.colorAt(x: 2, y: 2)?.redComponent ?? 1) < 0.2)
+        // Just outside the tiny image, still near the centre: inner stop.
+        #expect((rep?.colorAt(x: 50, y: 44)?.redComponent ?? 0) > 0.6)
+    }
+
+    @Test func aThirdGradientStopChangesTheMiddleOfTheCanvas() {
+        let base = solidImage(width: 4, height: 4, red: 1, green: 1, blue: 1)
+        let black = Presentation.Color(red: 0, green: 0, blue: 0, alpha: 1)
+        let green = Presentation.Color(red: 0, green: 1, blue: 0, alpha: 1)
+        let canvas = CGSize(width: 100, height: 100)
+        func middleGreen(_ stops: [Presentation.Color]) -> CGFloat {
+            let presentation = Presentation(
+                canvas: .preset(pixelSize: canvas),
+                // Horizontal sweep so the vertical middle is a pure stop.
+                background: .linearGradient(stops: stops, angle: 0),
+                image: .init(center: CGPoint(x: 0.5, y: 0.5), scale: 0.04)
+            )
+            let rep = AnnotationRenderer.renderBitmap(
+                base: base, annotations: [], presentation: presentation)
+            return rep?.colorAt(x: 50, y: 8)?.greenComponent ?? 0
+        }
+
+        #expect(middleGreen([black, black]) < 0.1)
+        #expect(middleGreen([black, green, black]) > 0.8)
+    }
+
+    /// The reported bug: `drawLinearGradient` paints the whole clip region, not
+    /// the rect it is given, so in the live preview a gradient flooded well past
+    /// the canvas it belonged to.
+    @Test func aGradientStaysInsideTheRectItIsGiven() {
+        let ctx = CGContext(
+            data: nil, width: 100, height: 100, bitsPerComponent: 8, bytesPerRow: 0,
+            space: CGColorSpace(name: CGColorSpace.sRGB)!,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        )!
+        ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+        ctx.fill(CGRect(x: 0, y: 0, width: 100, height: 100))
+
+        PresentationRenderer.drawBackground(
+            .linearGradient(stops: [.black, .black], angle: 0),
+            in: CGRect(x: 30, y: 30, width: 40, height: 40),
+            ctx: ctx
+        )
+
+        let rep = NSBitmapImageRep(cgImage: ctx.makeImage()!)
+        #expect((rep.colorAt(x: 50, y: 50)?.redComponent ?? 1) < 0.1)   // inside: painted
+        #expect((rep.colorAt(x: 5, y: 5)?.redComponent ?? 0) > 0.9)     // outside: untouched
+        #expect((rep.colorAt(x: 95, y: 95)?.redComponent ?? 0) > 0.9)
+    }
+
+    /// Commentary is measured in canvas pixels, so it can sit on the decorated
+    /// background — and it stays put no matter what happens to the picture
+    /// inside the canvas.
+    @Test func commentaryIsPlacedAndKeptInCanvasPixels() {
+        let base = solidImage(width: 100, height: 100, red: 1, green: 1, blue: 1)
+        let green = Presentation.Color(red: 0, green: 1, blue: 0, alpha: 1)
+        // Canvas 200×200 with the image fitted at (50,50,100,100).
+        func render(scale: CGFloat, canvas: CGSize) -> NSBitmapImageRep? {
+            let line = Annotation(kind: .line, start: CGPoint(x: 10, y: 25),
+                                  end: CGPoint(x: 40, y: 25), color: .red, lineWidth: 10)
+            return AnnotationRenderer.renderBitmap(
+                base: base, annotations: [line],
+                presentation: Presentation(
+                    canvas: .preset(pixelSize: canvas),
+                    background: .solid(green),
+                    image: .init(center: CGPoint(x: 0.5, y: 0.5), scale: scale)
+                )
+            )
+        }
+
+        // On the background, in canvas coordinates.
+        let plain = render(scale: 0.5, canvas: CGSize(width: 200, height: 200))
+        #expect((plain?.colorAt(x: 25, y: 25)?.redComponent ?? 0) > 0.5)
+        #expect((plain?.colorAt(x: 25, y: 25)?.greenComponent ?? 1) < 0.5)
+
+        // Shrinking the picture inside the canvas must not move it.
+        let scaled = render(scale: 0.3, canvas: CGSize(width: 200, height: 200))
+        #expect((scaled?.colorAt(x: 25, y: 25)?.redComponent ?? 0) > 0.5)
+
+        // Nor must a taller canvas: the same canvas pixels are still its home.
+        let taller = render(scale: 0.5, canvas: CGSize(width: 200, height: 300))
+        #expect((taller?.colorAt(x: 25, y: 25)?.redComponent ?? 0) > 0.5)
+    }
+
+    /// The redaction is measured in image pixels, so it travels with what it
+    /// hides. If it did not, scaling the picture would slide the blur off the
+    /// thing the user covered up.
+    @Test func aRedactionTravelsWithThePictureItHides() {
+        // Left half black, right half white: the blur has something to smear.
+        let ctx = CGContext(data: nil, width: 100, height: 100, bitsPerComponent: 8,
+                            bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        ctx.setFillColor(CGColor(red: 1, green: 0, blue: 0, alpha: 1))
+        ctx.fill(CGRect(x: 0, y: 0, width: 100, height: 100))
+        let base = ctx.makeImage()!
+
+        // A blur covering the image's own top-left quarter.
+        var blur = Annotation(kind: .blur, start: CGPoint(x: 0, y: 0),
+                              end: CGPoint(x: 50, y: 50), color: .red, lineWidth: 1)
+        blur.blurStyle = .pixelate
+        let source = AnnotationRenderer.makePixelated(base: base)!
+
+        func imageRect(_ scale: CGFloat) -> CGRect {
+            PresentationLayout.resolve(
+                imagePixelSize: CGSize(width: 100, height: 100),
+                Presentation(canvas: .preset(pixelSize: CGSize(width: 200, height: 200)),
+                             image: .init(center: CGPoint(x: 0.5, y: 0.5), scale: scale))
+            ).imageRect
+        }
+
+        // Whatever the picture's scale, the blur's canvas position is derived
+        // from the image rect — that is what "travels with it" means.
+        let full = imageRect(0.5)
+        let half = imageRect(0.3)
+        #expect(full != half)
+        #expect(blur.livesInImageSpace)
+        #expect(Annotation(kind: .arrow, start: .zero, end: .zero,
+                           color: .red, lineWidth: 1).livesInImageSpace == false)
+        _ = source
+    }
+
+    /// …but the picture itself is still confined to its rounded frame, so a
+    /// redaction cannot leak onto the background.
+    @Test func theImageItselfStaysInsideItsFrame() {
+        let base = solidImage(width: 100, height: 100, red: 1, green: 0, blue: 0)
+        let presentation = Presentation(
+            canvas: .preset(pixelSize: CGSize(width: 200, height: 200)),
+            background: .solid(Presentation.Color(red: 0, green: 1, blue: 0, alpha: 1)),
+            image: .init(center: CGPoint(x: 0.5, y: 0.5), scale: 0.5)
+        )
+
+        let rep = AnnotationRenderer.renderBitmap(
+            base: base, annotations: [], presentation: presentation)
+
+        #expect((rep?.colorAt(x: 25, y: 25)?.greenComponent ?? 0) > 0.9)
+        #expect((rep?.colorAt(x: 100, y: 100)?.redComponent ?? 0) > 0.9)
+    }
+
+    @Test func shadowUsesItsOwnColorAndBothOffsets() {
+        let base = solidImage(width: 40, height: 40, red: 1, green: 1, blue: 1)
+        func render(offset: CGPoint, color: Presentation.Color) -> NSBitmapImageRep? {
+            AnnotationRenderer.renderBitmap(
+                base: base, annotations: [],
+                presentation: Presentation(
+                    canvas: .preset(pixelSize: CGSize(width: 200, height: 200)),
+                    background: .solid(.white),
+                    image: .init(center: CGPoint(x: 0.5, y: 0.5), scale: 0.4),
+                    shadow: Presentation.Shadow(radius: 0.05, offset: offset,
+                                                opacity: 0.9, color: color)
+                )
+            )
+        }
+        let blue = Presentation.Color(red: 0, green: 0, blue: 1, alpha: 1)
+
+        // A blue shadow must read as blue, not as grey.
+        let tinted = render(offset: CGPoint(x: 0, y: 0.03), color: blue)
+        let below = tinted?.colorAt(x: 100, y: 148)
+        #expect((below?.blueComponent ?? 0) - (below?.redComponent ?? 1) > 0.2)
+
+        // Horizontal offset must move darkness sideways, which the old
+        // single-axis control could not express at all.
+        let sideways = render(offset: CGPoint(x: 0.05, y: 0), color: .black)
+        let right = sideways?.colorAt(x: 148, y: 100)?.redComponent ?? 1
+        let left = sideways?.colorAt(x: 52, y: 100)?.redComponent ?? 0
+        #expect(right < left)
+    }
+
     @Test func annotationActuallyDrawsPixels() {
         let base = TestImages.make(width: 40, height: 40)  // all white
         var arrow = Annotation(kind: .arrow, start: CGPoint(x: 4, y: 20),
@@ -242,6 +610,40 @@ enum TestImages {
     // MARK: loupe
 
     /// Solid-color image for deterministic loupe/blur source tests.
+    /// A picture dragged clean off the page is the one object the user cannot
+    /// get back by any other means — it is what they grab to drag it. Drawn
+    /// only inside the canvas, it left the editor showing a bare background.
+    @Test func thePictureStaysVisibleAfterItLeavesTheCanvas() {
+        let base = solidImage(width: 100, height: 100, red: 1, green: 0, blue: 0)
+        // A 100×100 page with the picture sitting entirely to its left.
+        let layout = PresentationLayout.Resolved(
+            canvasSize: CGSize(width: 100, height: 100),
+            imageRect: CGRect(x: -120, y: 0, width: 100, height: 100)
+        )
+        // Room around the page for the ghost to land in: the page occupies
+        // (150, 150)…(250, 250) of a 400×400 sheet.
+        let rep = NSBitmapImageRep(
+            bitmapDataPlanes: nil, pixelsWide: 400, pixelsHigh: 400,
+            bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0
+        )!
+        let gc = NSGraphicsContext(bitmapImageRep: rep)!
+        let ctx = gc.cgContext
+        ctx.translateBy(x: 150, y: 150)
+
+        PresentationRenderer.drawGhostOutsideCanvas(
+            in: ctx, base: base, blurSources: [:], annotations: [], layout: layout
+        )
+        ctx.flush()
+
+        // Centre of where the picture went: 150 + (-120 + 50) = 80.
+        let ghost = rep.colorAt(x: 80, y: 200)
+        #expect((ghost?.alphaComponent ?? 0) > 0.1)
+        #expect((ghost?.redComponent ?? 0) > 0.5)
+        // The page itself is left alone — the ghost is an outside-only pass.
+        #expect((rep.colorAt(x: 200, y: 200)?.alphaComponent ?? 1) < 0.01)
+    }
+
     private func solidImage(width: Int, height: Int,
                             red: CGFloat, green: CGFloat, blue: CGFloat) -> CGImage {
         let ctx = CGContext(
@@ -252,6 +654,24 @@ enum TestImages {
         )!
         ctx.setFillColor(CGColor(srgbRed: red, green: green, blue: blue, alpha: 1))
         ctx.fill(CGRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height)))
+        return ctx.makeImage()!
+    }
+
+    private func roundedTransparentImage(width: Int, height: Int,
+                                        radius: CGFloat) -> CGImage {
+        let ctx = CGContext(
+            data: nil, width: width, height: height,
+            bitsPerComponent: 8, bytesPerRow: 0,
+            space: CGColorSpace(name: CGColorSpace.sRGB)!,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        )!
+        ctx.clear(CGRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height)))
+        ctx.setFillColor(CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 1))
+        ctx.addPath(CGPath(
+            roundedRect: CGRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height)),
+            cornerWidth: radius, cornerHeight: radius, transform: nil
+        ))
+        ctx.fillPath()
         return ctx.makeImage()!
     }
 

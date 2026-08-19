@@ -14,8 +14,8 @@ import SwiftUI
 /// (trash); "Pin to Screen" opens a pin and "Unpin" closes one (pin.slash).
 /// Copy/Share keep their base glyph in the "… As" submenus — what a submenu
 /// picks there is the notation, not the verb.
-enum MenuIcon: String {
-    case edit     = "pencil"
+enum MenuIcon: String, CaseIterable {
+    case edit     = "square.and.pencil"
     case open     = "arrow.up.forward.app"
     case pin      = "pin"
     case unpin    = "pin.slash"

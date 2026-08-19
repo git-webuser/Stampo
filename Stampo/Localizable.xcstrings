@@ -463,6 +463,23 @@
         }
       }
     },
+    "Add Stop" : {
+      "comment" : "Gradient stop editor — add one more colour stop",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Add Stop"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Добавить точку"
+          }
+        }
+      }
+    },
     "Add…" : {
       "comment" : "Menu button that lists the languages that can be added",
       "localizations" : {
@@ -514,6 +531,74 @@
         }
       }
     },
+    "Align Bottom" : {
+      "comment" : "Aligns the picture inside the canvas",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Align Bottom"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Выровнять по низу"
+          }
+        }
+      }
+    },
+    "Align Left" : {
+      "comment" : "Aligns the picture inside the canvas",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Align Left"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Выровнять по левому краю"
+          }
+        }
+      }
+    },
+    "Align Right" : {
+      "comment" : "Aligns the picture inside the canvas",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Align Right"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Выровнять по правому краю"
+          }
+        }
+      }
+    },
+    "Align Top" : {
+      "comment" : "Aligns the picture inside the canvas",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Align Top"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Выровнять по верху"
+          }
+        }
+      }
+    },
     "Already in that language" : {
       "comment" : "Feedback shown when a translation came back identical to its source",
       "localizations" : {
@@ -545,6 +630,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Уже используется другим действием Stampo"
+          }
+        }
+      }
+    },
+    "Angle" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Angle"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Угол"
           }
         }
       }
@@ -701,6 +803,23 @@
         }
       }
     },
+    "Auto" : {
+      "comment" : "Canvas that grows with the picture and its margins",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Auto"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Авто"
+          }
+        }
+      }
+    },
     "Auto-dismiss after" : {
       "localizations" : {
         "en" : {
@@ -750,6 +869,23 @@
         }
       }
     },
+    "Background" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Background"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Фон"
+          }
+        }
+      }
+    },
     "Behavior" : {
       "comment" : "Settings section header for capture behavior toggles",
       "localizations" : {
@@ -769,7 +905,6 @@
     },
     "Black" : {
       "comment" : "Annotation color name (tooltip on the black swatch).",
-      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -787,7 +922,6 @@
     },
     "Blue" : {
       "comment" : "Annotation color name (tooltip on the blue swatch).",
-      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -851,6 +985,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Полужирный"
+          }
+        }
+      }
+    },
+    "Bottom Margin" : {
+      "comment" : "Gap between the picture and that canvas edge",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bottom Margin"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Нижнее поле"
           }
         }
       }
@@ -919,6 +1070,40 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Отменить выделение"
+          }
+        }
+      }
+    },
+    "Canvas" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Canvas"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Холст"
+          }
+        }
+      }
+    },
+    "Canvas and image presentation" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Canvas and image presentation"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Холст и оформление изображения"
           }
         }
       }
@@ -998,6 +1183,40 @@
         }
       }
     },
+    "Center Horizontally" : {
+      "comment" : "Aligns the picture inside the canvas",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Center Horizontally"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Центрировать по горизонтали"
+          }
+        }
+      }
+    },
+    "Center Vertically" : {
+      "comment" : "Aligns the picture inside the canvas",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Center Vertically"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Центрировать по вертикали"
+          }
+        }
+      }
+    },
     "Check for updates automatically" : {
       "comment" : "Toggle title in General settings",
       "localizations" : {
@@ -1062,6 +1281,40 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Выбрать…"
+          }
+        }
+      }
+    },
+    "Classic 3:4" : {
+      "comment" : "Canvas format — 3:4",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Classic 3:4"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Классический 3:4"
+          }
+        }
+      }
+    },
+    "Clear" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Clear"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Прозрачный"
           }
         }
       }
@@ -1422,6 +1675,40 @@
         }
       }
     },
+    "Corner Radius" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Corner Radius"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Радиус скругления"
+          }
+        }
+      }
+    },
+    "Corners" : {
+      "comment" : "The four corner colours of a mesh gradient",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Corners"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Углы"
+          }
+        }
+      }
+    },
     "Could not delete the file" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1578,6 +1865,40 @@
         }
       }
     },
+    "Custom" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Custom"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Другое"
+          }
+        }
+      }
+    },
+    "Custom Color" : {
+      "comment" : "Colour well for a background colour outside the preset swatches",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Custom Color"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Свой цвет"
+          }
+        }
+      }
+    },
     "Cycle Color or Language" : {
       "comment" : "Element Controls row: one key steps the list on whichever surface is open",
       "extractionState" : "stale",
@@ -1609,6 +1930,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Тёмная"
+          }
+        }
+      }
+    },
+    "Decor" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Decor"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Оформление"
           }
         }
       }
@@ -1855,6 +2193,7 @@
       }
     },
     "Drop Files Here" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -1866,6 +2205,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Бросьте файлы сюда"
+          }
+        }
+      }
+    },
+    "Drop into Archive" : {
+      "comment" : "Drop-zone label — keep dropped files in Stampo's archive",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Drop into Archive"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "В архив"
           }
         }
       }
@@ -1904,6 +2260,40 @@
         }
       }
     },
+    "Edit in Editor" : {
+      "comment" : "Drop-zone label — archive dropped files, then open the first one in the editor",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Edit in Editor"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Редактировать"
+          }
+        }
+      }
+    },
+    "Effects" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Effects"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Эффекты"
+          }
+        }
+      }
+    },
     "Element Controls" : {
       "comment" : "Header of the fixed element-control shortcuts section",
       "localizations" : {
@@ -1936,6 +2326,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Включено"
+          }
+        }
+      }
+    },
+    "End" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "End"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Конец"
           }
         }
       }
@@ -2235,6 +2642,40 @@
         }
       }
     },
+    "Free Margins" : {
+      "comment" : "Switches a fixed canvas to one that grows with the margins",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Free Margins"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Свободные поля"
+          }
+        }
+      }
+    },
+    "From Image" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "From Image"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Из изображения"
+          }
+        }
+      }
+    },
     "Fullscreen Screenshot" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2288,6 +2729,23 @@
         }
       }
     },
+    "Gradient" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gradient"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Градиент"
+          }
+        }
+      }
+    },
     "Granted" : {
       "comment" : "A label indicating that a permission has been granted.",
       "isCommentAutoGenerated" : true,
@@ -2306,9 +2764,25 @@
         }
       }
     },
+    "Graphite" : {
+      "comment" : "Background swatch name",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Graphite"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Графит"
+          }
+        }
+      }
+    },
     "Green" : {
       "comment" : "Annotation color name (tooltip on the green swatch).",
-      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -2342,6 +2816,23 @@
         }
       }
     },
+    "Height" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Height"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Высота"
+          }
+        }
+      }
+    },
     "Hide archive" : {
       "comment" : "A button to show or hide the archive.",
       "isCommentAutoGenerated" : true,
@@ -2350,6 +2841,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Скрыть архив"
+          }
+        }
+      }
+    },
+    "Hide Shadow" : {
+      "comment" : "Turns the shadow off without losing its settings",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hide Shadow"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Скрыть тень"
           }
         }
       }
@@ -2407,6 +2915,23 @@
         }
       }
     },
+    "Horizontal Offset" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Horizontal Offset"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Смещение по горизонтали"
+          }
+        }
+      }
+    },
     "Hotkeys" : {
       "comment" : "Settings tab label — Hotkeys/keyboard shortcuts page",
       "extractionState" : "stale",
@@ -2437,6 +2962,57 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Наведите курсор на элемент в архиве, и пробел откроет предварительный просмотр"
+          }
+        }
+      }
+    },
+    "Image" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Image"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Изображение"
+          }
+        }
+      }
+    },
+    "Image Colors" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Image Colors"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Цвета изображения"
+          }
+        }
+      }
+    },
+    "Image Scale" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Image Scale"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Масштаб изображения"
           }
         }
       }
@@ -2505,6 +3081,40 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Мониторинг ввода"
+          }
+        }
+      }
+    },
+    "Instagram 4:5" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Instagram 4:5"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Instagram 4:5"
+          }
+        }
+      }
+    },
+    "Instagram Story" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Instagram Story"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "История Instagram"
           }
         }
       }
@@ -2737,6 +3347,23 @@
         }
       }
     },
+    "Left Margin" : {
+      "comment" : "Gap between the picture and that canvas edge",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Left Margin"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Левое поле"
+          }
+        }
+      }
+    },
     "Less than a minute ago" : {
       "comment" : "Coarse relative time for the last update check",
       "extractionState" : "stale",
@@ -2823,6 +3450,23 @@
         }
       }
     },
+    "Linear" : {
+      "comment" : "Gradient shape — linear",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Linear"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Линейный"
+          }
+        }
+      }
+    },
     "Links" : {
       "comment" : "About page section header for GitHub links",
       "localizations" : {
@@ -2904,6 +3548,193 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Источник лупы"
+          }
+        }
+      }
+    },
+    "Presets" : {
+      "comment" : "Ready-made backgrounds",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Presets"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Подборка"
+          }
+        }
+      }
+    },
+    "Remove Color" : {
+      "comment" : "Removes a saved swatch",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remove Color"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Убрать цвет"
+          }
+        }
+      }
+    },
+    "Right Margin" : {
+      "comment" : "Gap between the picture and that canvas edge",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Right Margin"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Правое поле"
+          }
+        }
+      }
+    },
+    "Rotate Canvas" : {
+      "comment" : "Swaps the canvas width and height",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rotate Canvas"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Повернуть холст"
+          }
+        }
+      }
+    },
+    "Save Color" : {
+      "comment" : "Adds the picked colour to the user's swatches",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Save Color"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сохранить цвет"
+          }
+        }
+      }
+    },
+    "Shadow Color" : {
+      "comment" : "Colour well for the presentation shadow",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Shadow Color"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Цвет тени"
+          }
+        }
+      }
+    },
+    "Shadow Offset X" : {
+      "comment" : "Horizontal shadow offset slider",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Shadow Offset X"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Смещение тени по горизонтали"
+          }
+        }
+      }
+    },
+    "Shadow Offset Y" : {
+      "comment" : "Vertical shadow offset slider",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Shadow Offset Y"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Смещение тени по вертикали"
+          }
+        }
+      }
+    },
+    "Show Shadow" : {
+      "comment" : "Brings the hidden shadow back",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show Shadow"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Показать тень"
+          }
+        }
+      }
+    },
+    "Square" : {
+      "comment" : "Canvas format — 1:1",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Square"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Квадрат"
+          }
+        }
+      }
+    },
+    "Top Margin" : {
+      "comment" : "Gap between the picture and that canvas edge",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Top Margin"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Верхнее поле"
           }
         }
       }
@@ -3009,6 +3840,23 @@
         }
       }
     },
+    "Mesh" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mesh"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Меш"
+          }
+        }
+      }
+    },
     "Move 1 pt" : {
       "comment" : "Hotkey action label — nudge color picker cursor by 1 point",
       "extractionState" : "manual",
@@ -3093,6 +3941,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Никогда"
+          }
+        }
+      }
+    },
+    "No Background" : {
+      "comment" : "Background kind — leave the canvas transparent",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No Background"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Без фона"
           }
         }
       }
@@ -3441,6 +4306,23 @@
         }
       }
     },
+    "Open Graph" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open Graph"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open Graph"
+          }
+        }
+      }
+    },
     "Open preview" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -3514,7 +4396,6 @@
     },
     "Orange" : {
       "comment" : "Annotation color name (tooltip on the orange swatch).",
-      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -3560,6 +4441,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Овал"
+          }
+        }
+      }
+    },
+    "Padding" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Padding"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Поля"
           }
         }
       }
@@ -4009,6 +4907,23 @@
         }
       }
     },
+    "px" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "px"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "пикс."
+          }
+        }
+      }
+    },
     "Quit Stampo" : {
       "comment" : "Menu item to quit the application",
       "extractionState" : "stale",
@@ -4023,6 +4938,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Выйти из Stampo"
+          }
+        }
+      }
+    },
+    "Radial" : {
+      "comment" : "Background kind — radial gradient",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Radial"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Радиальный"
           }
         }
       }
@@ -4079,7 +5011,6 @@
     },
     "Red" : {
       "comment" : "Annotation color name (tooltip on the red swatch).",
-      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -4108,6 +5039,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Повторить"
+          }
+        }
+      }
+    },
+    "Refresh from Image" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Refresh from Image"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Обновить из изображения"
           }
         }
       }
@@ -4164,6 +5112,23 @@
         }
       }
     },
+    "Remove Decor" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remove Decor"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Убрать оформление"
+          }
+        }
+      }
+    },
     "Remove from archive" : {
       "localizations" : {
         "en" : {
@@ -4193,6 +5158,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Удалить сочетание"
+          }
+        }
+      }
+    },
+    "Remove Stop" : {
+      "comment" : "Gradient stop editor — remove the last colour stop",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remove Stop"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Убрать точку"
           }
         }
       }
@@ -4346,6 +5328,10 @@
           }
         }
       }
+    },
+    "Sand" : {
+      "comment" : "Color name.",
+      "isCommentAutoGenerated" : true
     },
     "Save" : {
       "extractionState" : "manual",
@@ -4675,6 +5661,7 @@
     },
     "Select All" : {
       "comment" : "Archive ⋯ menu command while selecting — picks every entry",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -4736,7 +5723,7 @@
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "\u0412\u044b\u0434\u0435\u043b\u0438\u0442\u044c"
+            "value" : "Выделить"
           }
         }
       }
@@ -4777,6 +5764,7 @@
     },
     "Selected items" : {
       "comment" : "VoiceOver label of the archive button that shows how many entries are picked and opens their menu",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -4930,6 +5918,74 @@
         }
       }
     },
+    "Shadow" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Shadow"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Тень"
+          }
+        }
+      }
+    },
+    "Shadow Offset" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Shadow Offset"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Смещение тени"
+          }
+        }
+      }
+    },
+    "Shadow Opacity" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Shadow Opacity"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Прозрачность тени"
+          }
+        }
+      }
+    },
+    "Shadow Radius" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Shadow Radius"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Радиус тени"
+          }
+        }
+      }
+    },
     "Share" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -4984,6 +6040,7 @@
     },
     "Shortcut already taken by another app" : {
       "comment" : "Shortcut row status — Carbon refused the registration",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -5001,6 +6058,7 @@
     },
     "Shortcut disabled" : {
       "comment" : "Shortcut row status — the user cleared this shortcut",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -5036,6 +6094,7 @@
     },
     "Shortcuts unavailable in this app session" : {
       "comment" : "Shortcut row status — the Carbon event handler never installed",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -5216,6 +6275,23 @@
         }
       }
     },
+    "Solid" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Solid"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сплошной"
+          }
+        }
+      }
+    },
     "Stampo" : {
       "comment" : "The name of the app.",
       "isCommentAutoGenerated" : true
@@ -5273,6 +6349,23 @@
         }
       }
     },
+    "Start" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Start"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Начало"
+          }
+        }
+      }
+    },
     "Startup" : {
       "comment" : "A section header in the general settings view, describing the startup options.",
       "isCommentAutoGenerated" : true,
@@ -5281,6 +6374,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Запуск"
+          }
+        }
+      }
+    },
+    "Stop" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stop"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Точка"
           }
         }
       }
@@ -5535,6 +6645,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Размер текста"
+          }
+        }
+      }
+    },
+    "The canvas around the image stays transparent" : {
+      "comment" : "Explains what the No Background option does",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The canvas around the image stays transparent"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Холст вокруг изображения останется прозрачным"
           }
         }
       }
@@ -5870,6 +6997,23 @@
         }
       }
     },
+    "Twitter / X" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Twitter / X"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Twitter / X"
+          }
+        }
+      }
+    },
     "Underline" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -5950,6 +7094,23 @@
         }
       }
     },
+    "Use Image Colors" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Use Image Colors"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Цвета изображения"
+          }
+        }
+      }
+    },
     "Used by Translate and by scanning when no language is picked" : {
       "comment" : "Description of the Translate into row: which surfaces read it",
       "localizations" : {
@@ -6001,6 +7162,23 @@
         }
       }
     },
+    "Vertical Offset" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vertical Offset"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Смещение по вертикали"
+          }
+        }
+      }
+    },
     "View on GitHub" : {
       "localizations" : {
         "en" : {
@@ -6037,7 +7215,6 @@
     },
     "White" : {
       "comment" : "Annotation color name (tooltip on the white swatch).",
-      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -6049,6 +7226,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Белый"
+          }
+        }
+      }
+    },
+    "Width" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Width"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ширина"
           }
         }
       }

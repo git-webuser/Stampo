@@ -31,6 +31,24 @@ import UniformTypeIdentifiers
         #expect(after.annotations.count == 1)
     }
 
+    @Test func renderSnapshotAndEncodedArtifactCarryPresentation() throws {
+        let document = makeDocument()
+        let presentation = Presentation(
+            canvas: .preset(pixelSize: CGSize(width: 32, height: 24)),
+            background: .solid(.white)
+        )
+        document.presentation = presentation
+
+        let snapshot = document.makeRenderSnapshot(format: "png")
+        #expect(snapshot.presentation == presentation)
+
+        let artifact = try #require(AnnotationRenderer.renderEncoded(snapshot: snapshot))
+        let source = try #require(CGImageSourceCreateWithData(artifact.data as CFData, nil))
+        let image = try #require(CGImageSourceCreateImageAtIndex(source, 0, nil))
+        #expect(image.width == 32)
+        #expect(image.height == 24)
+    }
+
     @Test func artifactFromOldSnapshotCannotRepresentCurrentRevision() {
         let document = makeDocument()
         let snapshot = document.makeRenderSnapshot(format: "png")
