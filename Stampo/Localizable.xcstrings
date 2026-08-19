@@ -1504,6 +1504,23 @@
         }
       }
     },
+    "Colors" : {
+      "comment" : "The palette above the decor inspector's colour swatches",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Colors"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Цвета"
+          }
+        }
+      }
+    },
     "Compact" : {
       "comment" : "Filename preset name",
       "extractionState" : "stale",
@@ -2644,6 +2661,7 @@
     },
     "Free Margins" : {
       "comment" : "Switches a fixed canvas to one that grows with the margins",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -3467,6 +3485,23 @@
         }
       }
     },
+    "Link Margins" : {
+      "comment" : "Decor inspector — types one number into all four margins",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Link Margins"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Связать поля"
+          }
+        }
+      }
+    },
     "Links" : {
       "comment" : "About page section header for GitHub links",
       "localizations" : {
@@ -3552,193 +3587,6 @@
         }
       }
     },
-    "Presets" : {
-      "comment" : "Ready-made backgrounds",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Presets"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Подборка"
-          }
-        }
-      }
-    },
-    "Remove Color" : {
-      "comment" : "Removes a saved swatch",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Remove Color"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Убрать цвет"
-          }
-        }
-      }
-    },
-    "Right Margin" : {
-      "comment" : "Gap between the picture and that canvas edge",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Right Margin"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Правое поле"
-          }
-        }
-      }
-    },
-    "Rotate Canvas" : {
-      "comment" : "Swaps the canvas width and height",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Rotate Canvas"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Повернуть холст"
-          }
-        }
-      }
-    },
-    "Save Color" : {
-      "comment" : "Adds the picked colour to the user's swatches",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Save Color"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Сохранить цвет"
-          }
-        }
-      }
-    },
-    "Shadow Color" : {
-      "comment" : "Colour well for the presentation shadow",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Shadow Color"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Цвет тени"
-          }
-        }
-      }
-    },
-    "Shadow Offset X" : {
-      "comment" : "Horizontal shadow offset slider",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Shadow Offset X"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Смещение тени по горизонтали"
-          }
-        }
-      }
-    },
-    "Shadow Offset Y" : {
-      "comment" : "Vertical shadow offset slider",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Shadow Offset Y"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Смещение тени по вертикали"
-          }
-        }
-      }
-    },
-    "Show Shadow" : {
-      "comment" : "Brings the hidden shadow back",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Show Shadow"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Показать тень"
-          }
-        }
-      }
-    },
-    "Square" : {
-      "comment" : "Canvas format — 1:1",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Square"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Квадрат"
-          }
-        }
-      }
-    },
-    "Top Margin" : {
-      "comment" : "Gap between the picture and that canvas edge",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Top Margin"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Верхнее поле"
-          }
-        }
-      }
-    },
     "macOS couldn't capture the screen. This usually means Screen Recording permission is missing or was revoked." : {
       "extractionState" : "stale",
       "localizations" : {
@@ -3769,6 +3617,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Управляй файлами"
+          }
+        }
+      }
+    },
+    "Margins, px" : {
+      "comment" : "Decor inspector — caption over the four margin fields",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Margins, px"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Поля, px"
           }
         }
       }
@@ -4822,6 +4687,23 @@
         }
       }
     },
+    "Presets" : {
+      "comment" : "Ready-made backgrounds",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Presets"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Подборка"
+          }
+        }
+      }
+    },
     "Press ⌥ to keep line breaks, ⌃ to translate" : {
       "comment" : "Modifier hint under the Scan shortcut row in Settings",
       "extractionState" : "stale",
@@ -5112,6 +4994,23 @@
         }
       }
     },
+    "Remove Color" : {
+      "comment" : "Removes a saved swatch",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remove Color"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Убрать цвет"
+          }
+        }
+      }
+    },
     "Remove Decor" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -5278,6 +5177,40 @@
         }
       }
     },
+    "Right Margin" : {
+      "comment" : "Gap between the picture and that canvas edge",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Right Margin"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Правое поле"
+          }
+        }
+      }
+    },
+    "Rotate Canvas" : {
+      "comment" : "Swaps the canvas width and height",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rotate Canvas"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Повернуть холст"
+          }
+        }
+      }
+    },
     "Rotate Left" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -5331,7 +5264,21 @@
     },
     "Sand" : {
       "comment" : "Color name.",
-      "isCommentAutoGenerated" : true
+      "isCommentAutoGenerated" : true,
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sand"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Песочный"
+          }
+        }
+      }
     },
     "Save" : {
       "extractionState" : "manual",
@@ -5380,6 +5327,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Сохранить изменения перед закрытием?"
+          }
+        }
+      }
+    },
+    "Save Color" : {
+      "comment" : "Adds the picked colour to the user's swatches",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Save Color"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сохранить цвет"
           }
         }
       }
@@ -5935,6 +5899,23 @@
         }
       }
     },
+    "Shadow Color" : {
+      "comment" : "Colour well for the presentation shadow",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Shadow Color"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Цвет тени"
+          }
+        }
+      }
+    },
     "Shadow Offset" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -5948,6 +5929,40 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Смещение тени"
+          }
+        }
+      }
+    },
+    "Shadow Offset X" : {
+      "comment" : "Horizontal shadow offset slider",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Shadow Offset X"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Смещение тени по горизонтали"
+          }
+        }
+      }
+    },
+    "Shadow Offset Y" : {
+      "comment" : "Vertical shadow offset slider",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Shadow Offset Y"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Смещение тени по вертикали"
           }
         }
       }
@@ -6172,6 +6187,23 @@
         }
       }
     },
+    "Show Shadow" : {
+      "comment" : "Brings the hidden shadow back",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show Shadow"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Показать тень"
+          }
+        }
+      }
+    },
     "Show the welcome again" : {
       "comment" : "Description for the Introduction row in General settings",
       "localizations" : {
@@ -6288,6 +6320,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Сплошной"
+          }
+        }
+      }
+    },
+    "Square" : {
+      "comment" : "Canvas format — 1:1",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Square"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Квадрат"
           }
         }
       }
@@ -6838,6 +6887,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Инструменты"
+          }
+        }
+      }
+    },
+    "Top Margin" : {
+      "comment" : "Gap between the picture and that canvas edge",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Top Margin"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Верхнее поле"
           }
         }
       }

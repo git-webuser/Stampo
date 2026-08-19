@@ -275,8 +275,15 @@ enum AppSettings {
         let v = UserDefaults.standard.object(forKey: Keys.trayMaxItems) as? Int ?? 20
         return max(5, min(50, v))
     }
+    /// Default on, because the panel calls it an archive.
+    ///
+    /// A screenshot is on disk whichever way this is set, but a picked colour
+    /// and a scanned text live nowhere else: off by default, quitting the app
+    /// threw away the only copy of things the user had deliberately kept. The
+    /// setting stays — someone who wants a clean start every launch turns it
+    /// off, and their choice is what `object(forKey:)` returns.
     static var persistTray: Bool {
-        UserDefaults.standard.object(forKey: Keys.persistTray) as? Bool ?? false
+        UserDefaults.standard.object(forKey: Keys.persistTray) as? Bool ?? true
     }
     static var defaultColorFormat: ColorSchemeType {
         let raw = UserDefaults.standard.string(forKey: Keys.defaultColorFormat) ?? "HEX"

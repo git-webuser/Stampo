@@ -381,4 +381,16 @@ import Testing
         #expect(shown.shadow.opacity == 0.4)
         #expect(shown.shadow.radius == 0.08)
     }
+
+    /// The gallery is a shortcut and the palette is a vocabulary; a tile that
+    /// is pixel-for-pixel the circle below it makes them read as one list
+    /// drawn twice.
+    @Test func noPresetRepeatsAPaletteColor() {
+        let palette = PresentationInspector.paletteColorsForTesting
+        for preset in PresentationInspector.backgroundPresetsForTesting {
+            guard case .solid(let color) = preset else { continue }
+            #expect(palette.contains(color) == false,
+                    "Preset repeats a palette colour: \(color)")
+        }
+    }
 }

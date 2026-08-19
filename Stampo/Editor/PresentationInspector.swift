@@ -35,12 +35,13 @@ struct PresentationInspector: View {
     /// therefore not a usable dictionary key.
     @State private var collapsed: Set<Section> = []
     /// Colours the user chose to keep, alongside the eight built-ins.
-    /// Session-scoped on purpose: nothing about the decoration is
-    /// persisted yet, and a palette is not the place to start.
     @State private var userColors: [Presentation.Color] = []
     /// The shadow put aside by the hide button, so showing it again brings back
     /// the one you had rather than a stock one.
     @State private var hiddenShadow: Presentation.Shadow?
+    /// Whether a number typed into one margin goes to all four. A way of
+    /// typing, not a property of the document — see `marginLinkButton`.
+    @State private var marginsLinked = false
 
     private enum Section: Hashable, CaseIterable {
         case canvas, background, image, shadow
@@ -453,16 +454,23 @@ struct PresentationInspector: View {
     /// one click. Picking one writes an ordinary background value, so every
     /// control below keeps working on it: the preset is a starting point for
     /// this document, never a locked style.
+    ///
+    /// No solid here may equal a swatch in `palette` — the rule that
+    /// `noPresetRepeatsAPaletteColor` keeps. Two grids of colour sit one above
+    /// the other, and a tile that is pixel-for-pixel the circle below it makes
+    /// the pair look like one list drawn twice rather than a shortcut above a
+    /// vocabulary. `sand` and `graphite` used to be exactly that; they are the
+    /// lighter `linen` and `charcoal` now, and the palette keeps the originals.
     private static let backgroundPresets: [BackgroundPreset] = {
         func linear(_ id: String, _ a: Presentation.Color, _ b: Presentation.Color) -> BackgroundPreset {
             BackgroundPreset(id: id, background: .linearGradient(stops: [a, b], angle: .pi / 2))
         }
         return [
             BackgroundPreset(id: "paper", background: .solid(rgb(0.97, 0.97, 0.96))),
-            BackgroundPreset(id: "sand", background: .solid(rgb(0.93, 0.89, 0.85))),
+            BackgroundPreset(id: "linen", background: .solid(rgb(0.96, 0.93, 0.87))),
             BackgroundPreset(id: "mist", background: .solid(rgb(0.87, 0.89, 0.92))),
             BackgroundPreset(id: "sage", background: .solid(rgb(0.84, 0.88, 0.83))),
-            BackgroundPreset(id: "graphite", background: .solid(rgb(0.11, 0.11, 0.12))),
+            BackgroundPreset(id: "charcoal", background: .solid(rgb(0.17, 0.17, 0.19))),
             BackgroundPreset(id: "midnight", background: .solid(rgb(0.09, 0.11, 0.18))),
             BackgroundPreset(id: "clay", background: .solid(rgb(0.76, 0.55, 0.47))),
             BackgroundPreset(id: "denim", background: .solid(rgb(0.25, 0.38, 0.55))),
@@ -520,6 +528,12 @@ struct PresentationInspector: View {
     /// The gallery's values, for the test that renders every one of them.
     static var backgroundPresetsForTesting: [Presentation.Background] {
         backgroundPresets.map(\.background)
+    }
+
+    /// The eight built-in swatches, for the test that keeps the gallery above
+    /// them from repeating any of these.
+    static var paletteColorsForTesting: [Presentation.Color] {
+        palette.map(\.color)
     }
 
     private static let fallbackColor = Presentation.Color(
@@ -592,10 +606,16 @@ struct PresentationInspector: View {
                 }
                 .frame(minWidth: 56, maxWidth: Self.numberFieldWidth)
                 Spacer(minLength: 0)
-                sectionActionButton("rotate.right", label: "Rotate Canvas") {
-                    rotateCanvas()
+                // Gone rather than greyed on an auto page. Rotating means
+                // turning a format on its side, and an auto page has no format
+                // to turn — its size follows the picture and the margins. A
+                // permanently dead button in the row says "broken" where the
+                // absence says "not a thing here".
+                if !marginsAreFree {
+                    sectionActionButton("rotate.right", label: "Rotate Canvas") {
+                        rotateCanvas()
+                    }
                 }
-                .disabled(marginsAreFree)
             }
             .controlSize(.large)
             .font(.system(size: 13))
@@ -625,7 +645,7 @@ struct PresentationInspector: View {
                         Text(verbatim: choice.pixelSize == nil
                              ? "—"
                              : Self.ratioLabel(for: size))
-                            .font(.system(size: 9, weight: .medium, design: .rounded))
+                            .font(.system(size: 11, weight: .medium, design: .rounded))
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                             .minimumScaleFactor(0.7)
@@ -634,16 +654,21 @@ struct PresentationInspector: View {
                     .aspectRatio(max(0.3, min(3, ratio)), contentMode: .fit)
             }
             .frame(height: 34)
+            // Two lines rather than one: at the inspector's minimum width a
+            // long localized name ("Классический 3:4") no longer fits on one
+            // line at a readable size, and a wrapped name beats a truncated
+            // one — "Классический…" names nothing.
             Text(choice.titleKey)
-                .font(.system(size: 10))
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
+                .font(.system(size: 11))
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+                .minimumScaleFactor(0.85)
             // `verbatim` on purpose: a localized interpolation groups the
             // digits, and "1 080×1 350" is not how anyone writes a pixel size.
             // Custom says nothing here: its numbers are the fields below, and
             // printing them twice is what made the tile look like a duplicate.
             Text(verbatim: "\(Int(size.width.rounded()))×\(Int(size.height.rounded()))")
-                .font(.system(size: 9, design: .monospaced))
+                .font(.system(size: 11, design: .monospaced))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
@@ -693,7 +718,7 @@ struct PresentationInspector: View {
             switch backgroundKind {
             case .none:
                 Text("The canvas around the image stays transparent")
-                    .font(.system(size: 10))
+                    .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             case .solid:
@@ -838,7 +863,7 @@ struct PresentationInspector: View {
                                 .overlay(alignment: .bottomTrailing) {
                                     if preset.id == "fromImage" {
                                         Image(systemName: "eyedropper")
-                                            .font(.system(size: 9, weight: .semibold))
+                                            .font(.system(size: 11, weight: .semibold))
                                             .foregroundStyle(.white)
                                             .shadow(radius: 1)
                                             .padding(3)
@@ -900,7 +925,7 @@ struct PresentationInspector: View {
             .clipShape(RoundedRectangle(cornerRadius: 5))
             .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(.quaternary, lineWidth: 1))
             Text(kind.titleKey)
-                .font(.system(size: 10))
+                .font(.system(size: 11))
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
         }
@@ -1011,11 +1036,19 @@ struct PresentationInspector: View {
     /// inspector is too narrow and `contentMinimumWidth` is the thing to fix.
     /// The user's own colours follow the eight built-ins on a second row, which
     /// only appears once there is something to put on it.
+    ///
+    /// Captioned like "Presets" above it and "Corners" beside it, because
+    /// without a word the two grids of colour read as one list that changed
+    /// its mind about size: the gallery is a ready-made page, this is the
+    /// palette a page is painted from.
     private func swatchRow(
         selected: Presentation.Color?,
         action: @escaping (Presentation.Color) -> Void
     ) -> some View {
         VStack(alignment: .leading, spacing: Self.swatchGap) {
+            Text("Colors")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
             HStack(spacing: Self.swatchGap) {
                 ForEach(Self.palette) { entry in
                     swatch(entry.color, selected: selected, label: entry.titleKey,
@@ -1178,23 +1211,64 @@ struct PresentationInspector: View {
     /// The four margins drawn where they are: around a small stand-in for the
     /// picture. A column of four labelled fields made the reader work out which
     /// side each one meant.
+    ///
+    /// The caption carries the unit for all four: four fields with "px" in each
+    /// of them says the same thing four times, in the one place on the panel
+    /// where there is no room to say anything.
     private var gapGrid: some View {
         let gaps = PresentationLayout.gaps(resolvedLayout)
-        return VStack(spacing: Self.marginGap) {
-            gapField(.top, value: gaps.top)
-            HStack(spacing: Self.marginGap) {
-                gapField(.leading, value: gaps.leading)
-                // The picture's stand-in, sized to the gap between the fields
-                // so the cross reads as a frame around it rather than as four
-                // controls that happen to be near each other.
-                RoundedRectangle(cornerRadius: 4)
-                    .strokeBorder(.tertiary, style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
-                    .frame(width: Self.marginPlateWidth, height: 30)
-                gapField(.trailing, value: gaps.trailing)
+        return VStack(alignment: .leading, spacing: Self.marginGap) {
+            Text("Margins, px")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+            VStack(spacing: Self.marginGap) {
+                gapField(.top, value: gaps.top)
+                HStack(spacing: Self.marginGap) {
+                    gapField(.leading, value: gaps.leading)
+                    marginLinkButton
+                    gapField(.trailing, value: gaps.trailing)
+                }
+                gapField(.bottom, value: gaps.bottom)
             }
-            gapField(.bottom, value: gaps.bottom)
+            .frame(maxWidth: .infinity)
         }
-        .frame(maxWidth: .infinity)
+    }
+
+    /// The picture's stand-in, sized to the gap between the fields so the cross
+    /// reads as a frame around it rather than as four controls that happen to
+    /// be near each other — and, since it is the one thing in the middle of
+    /// four margins, the switch that ties them together.
+    ///
+    /// Linking is an input mode, not a state of the document: turning it on
+    /// changes nothing, and the next number typed into any of the four goes to
+    /// all four. Equalizing on the flip would have to pick one of the four
+    /// numbers to win, and there is no reason for the picture to jump because
+    /// the user said how they intend to type.
+    ///
+    /// Only an auto page can honour it. On a fixed page the four gaps are not
+    /// independent — the aspect ratio is locked, so setting one resizes the
+    /// picture against the opposite edge — and four equal margins there are a
+    /// coincidence of the format, not something to ask for.
+    private var marginLinkButton: some View {
+        Button {
+            marginsLinked.toggle()
+        } label: {
+            RoundedRectangle(cornerRadius: 4)
+                .strokeBorder(marginsLinked ? Color.accentColor : Color(nsColor: .tertiaryLabelColor),
+                              style: StrokeStyle(lineWidth: 1,
+                                                 dash: marginsLinked ? [] : [3, 3]))
+                .frame(width: Self.marginPlateWidth, height: 30)
+                .overlay {
+                    Image(systemName: marginsLinked ? "link" : "link.badge.plus")
+                        .font(.system(size: 11))
+                        .foregroundStyle(marginsLinked ? Color.accentColor : .secondary)
+                }
+        }
+        .buttonStyle(.plain)
+        .disabled(!marginsAreFree)
+        .help("Link Margins")
+        .accessibilityLabel(Text("Link Margins"))
+        .accessibilityAddTraits(marginsLinked ? [.isButton, .isSelected] : .isButton)
     }
 
     private static let marginGap: CGFloat = 6
@@ -1232,6 +1306,14 @@ struct PresentationInspector: View {
         // itself: 50 on four sides is four numbers. On a fixed page there is a
         // size to respect, so the picture resizes against the opposite edge.
         if case .auto(var margins, let scale) = draft.canvas {
+            // Linked, one number is all four — the whole reason a page that
+            // hugs its picture keeps four free margins instead of a placement.
+            if marginsLinked {
+                let all = Presentation.Margins(all: value)
+                guard margins != all else { return }
+                updateImmediately { $0.canvas = .auto(margins: all, scale: scale) }
+                return
+            }
             guard margins[edge] != value else { return }
             margins[edge] = value
             updateImmediately { $0.canvas = .auto(margins: margins, scale: scale) }
