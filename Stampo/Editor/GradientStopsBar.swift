@@ -209,24 +209,32 @@ struct GradientStopsBar: View {
     }
 }
 
-/// A colour as `#RRGGBB`, typed.
+/// A colour, written out and typed back in.
 ///
-/// The ramp says where a colour is and the swatch opens the system panel; this
-/// is for the case both are bad at — a colour someone already has as six
-/// digits, from a brand sheet or from the app's own archive, where every colour
-/// is copied in exactly this notation.
-struct HexField: View {
+/// In whatever notation the user set as their default — the same
+/// "Формат по умолчанию" the eyedropper and the archive copy in, because a
+/// person who reads colours as `237 227 217` should not have to translate to
+/// hex to type one here. Reading is lenient: the preferred notation is tried
+/// first and then all the others, so a `#3A7BD5` pasted from a brand sheet
+/// works while the panel is set to RGB.
+///
+/// The control size is set here rather than by whoever places it: the field
+/// appears in three sections with different defaults, and it looked like two
+/// different controls when it inherited them.
+struct ColorField: View {
     let color: Presentation.Color
     let onCommit: (Presentation.Color) -> Void
 
+    @AppStorage(AppSettings.Keys.defaultColorFormat) private var format = ColorSchemeType.hex
     @State private var text: String = ""
     @FocusState private var isFocused: Bool
 
     var body: some View {
         TextField("", text: $text)
             .textFieldStyle(.roundedBorder)
+            .controlSize(.large)
             .font(.system(size: 12, design: .monospaced))
-            .frame(width: 90)
+            .frame(width: 118)
             .focused($isFocused)
             .onSubmit(commit)
             .onChange(of: isFocused) { _, focused in
@@ -235,30 +243,34 @@ struct HexField: View {
                 // never took is the lie the number fields were built to avoid.
                 if !focused { commit() }
             }
-            .onAppear { text = Self.hex(color) }
+            .onAppear { text = written(color) }
             // Not while typing: the document's colour changes with every
             // keystroke the *other* controls make, and rewriting the field
             // under the cursor would fight the person using it.
             .onChange(of: color) { _, new in
-                if !isFocused { text = Self.hex(new) }
+                if !isFocused { text = written(new) }
             }
-            .help("Hex")
-            .accessibilityLabel(Text("Hex"))
+            .onChange(of: format) { _, _ in
+                if !isFocused { text = written(color) }
+            }
+            .help(Text(format.title))
+            .accessibilityLabel(Text("Color"))
+            .accessibilityValue(Text(verbatim: text))
     }
 
     private func commit() {
-        guard let parsed = NSColor(hexString: text) else {
-            text = Self.hex(color)
+        guard let parsed = ColorSchemeType.color(from: text, preferring: format) else {
+            text = written(color)
             return
         }
         let srgb = parsed.usingColorSpace(.sRGB) ?? parsed
         onCommit(Presentation.Color(red: srgb.redComponent, green: srgb.greenComponent,
                                     blue: srgb.blueComponent, alpha: color.alpha))
-        text = Self.hex(color)
+        text = written(color)
     }
 
-    private static func hex(_ color: Presentation.Color) -> String {
-        NSColor(srgbRed: color.red, green: color.green, blue: color.blue,
-                alpha: color.alpha).hexString
+    private func written(_ color: Presentation.Color) -> String {
+        format.convert(NSColor(srgbRed: color.red, green: color.green,
+                               blue: color.blue, alpha: color.alpha))
     }
 }

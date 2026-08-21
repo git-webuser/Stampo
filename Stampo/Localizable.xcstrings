@@ -1937,6 +1937,7 @@
     },
     "Custom Color" : {
       "comment" : "Colour well for a background colour outside the preset swatches",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -2918,23 +2919,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Высота"
-          }
-        }
-      }
-    },
-    "Hex" : {
-      "comment" : "Decor inspector — the selected gradient stop's colour, typed as #RRGGBB",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Hex"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Hex"
           }
         }
       }

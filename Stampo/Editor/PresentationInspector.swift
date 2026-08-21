@@ -708,7 +708,7 @@ struct PresentationInspector: View {
         HStack(spacing: 8) {
             ColorChip(color: color, diameter: Self.swatchSize) { onPick($0) }
                 .accessibilityLabel(Text("Color"))
-            HexField(color: color) { onPick($0) }
+            ColorField(color: color) { onPick($0) }
             Spacer(minLength: 0)
             trailing()
         }
@@ -1169,16 +1169,18 @@ struct PresentationInspector: View {
                 range: -0.1...0.1, step: 0.005,
                 unit: .pixels(basis: canvasSize.height)
             )
+            // The caption sits above its controls, like "Presets", "Colors"
+            // and "From Archive" — the sliders in this section put their names
+            // on the left because a slider has no room above it, which is not
+            // a reason for a colour row to do the same.
+            Text("Shadow Color")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
             HStack(spacing: 8) {
-                // Labelled, unlike the colour rows in Background: every other
-                // row in this section names its number, and a bare swatch here
-                // would read as the odd one out rather than as the tidy one.
-                Text("Shadow Color")
-                    .font(.system(size: 11))
                 ColorChip(color: draft.shadow.color, diameter: Self.swatchSize,
                           supportsOpacity: false) { setShadowColor($0) }
                     .accessibilityLabel(Text("Shadow Color"))
-                HexField(color: draft.shadow.color) { setShadowColor($0) }
+                ColorField(color: draft.shadow.color) { setShadowColor($0) }
                 Spacer(minLength: 0)
                 // Same corner, same button as the canvas rotate: the section's
                 // one whole-block action. It hides rather than resets — the
