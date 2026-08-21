@@ -127,6 +127,21 @@ import Testing
         #expect(CanvasRatio.preset(matching: CGSize(width: 1237, height: 641)) == nil)
     }
 
+    /// After a swap the lit chip has to say 5:4, and the rest have to go on
+    /// saying what they say. A derived page is what makes this a rule rather
+    /// than a formatting detail: 5:4 comes out as 2736×2189, which reduces to
+    /// nothing at all and would print as "1.25:1".
+    @Test func onlyTheChipThatMatchesFollowsThePage() {
+        let landscape = CGSize(width: 2736, height: 2189)   // 4:5, swapped
+        let portrait = CGSize(width: 2736, height: 3420)    // 4:5, as written
+
+        #expect(CanvasRatio.shown(fourFive, matching: landscape) == fourFive.swapped)
+        #expect(CanvasRatio.shown(fourFive, matching: portrait) == fourFive)
+        // A format the page is not in is left alone either way round.
+        #expect(CanvasRatio.shown(sixteenNine, matching: landscape) == sixteenNine)
+        #expect(CanvasRatio.shown(sixteenNine, matching: portrait) == sixteenNine)
+    }
+
     @Test func aRatioReadsAsPeopleWriteIt() {
         #expect(CanvasRatio.label(for: CGSize(width: 1600, height: 900)) == "16:9")
         #expect(CanvasRatio.label(for: CGSize(width: 2736, height: 3420)) == "4:5")

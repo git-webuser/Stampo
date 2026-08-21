@@ -44,12 +44,13 @@ struct CanvasRatioBar: View {
                 document.setAutoPage()
             }
             ForEach(Array(CanvasRatio.presets.enumerated()), id: \.offset) { _, preset in
-                chip(title: CanvasRatio.label(for: CGSize(width: preset.width,
-                                                          height: preset.height)),
+                let shown = asShown(preset)
+                chip(title: CanvasRatio.label(for: CGSize(width: shown.width,
+                                                          height: shown.height)),
                      tooltip: preset.titleKey,
-                     tooltipDetail: pageSizeLabel(for: preset),
+                     tooltipDetail: pageSizeLabel(for: shown),
                      isSelected: !isAuto && isCurrent(preset)) {
-                    document.setCanvasRatio(preset)
+                    document.setCanvasRatio(shown)
                 }
             }
         }
@@ -152,21 +153,29 @@ struct CanvasRatioBar: View {
         return false
     }
 
+    /// What the collapsed button prints. A derived page rarely reduces to the
+    /// ratio that made it — 5:4 comes out as 2736×2189, which reduces to
+    /// nothing and reads as "1.25:1" — so the format's own numbers win whenever
+    /// the page is in one.
     private var currentLabel: String {
-        isAuto ? LocaleManager.shared.string("Auto") : CanvasRatio.label(for: canvasSize)
+        if isAuto { return LocaleManager.shared.string("Auto") }
+        if let preset = CanvasRatio.preset(matching: canvasSize) {
+            let shown = CanvasRatio.shown(preset, matching: canvasSize)
+            return CanvasRatio.label(for: CGSize(width: shown.width, height: shown.height))
+        }
+        return CanvasRatio.label(for: canvasSize)
     }
 
-    /// Chips are constants: 4:5 says 4:5 whichever way the page is turned, and
-    /// pressing it gives exactly that. Following the page's orientation was
-    /// tried and photographed — the whole row re-labels itself the moment you
-    /// swap sides (3:4 becomes 4:3, 16:9 becomes 9:16), so the set of formats
-    /// looks like it changed when only the page did.
-    ///
-    /// A turned format is still that format, though, so the chip stays lit
-    /// either way round; the swap button is what says which way it is. Pressing
-    /// a lit chip therefore means "put it back the way it is written".
+    /// A turned format is still that format, so the chip stays lit either way
+    /// round.
     private func isCurrent(_ preset: CanvasRatio) -> Bool {
         preset.matches(canvasSize) || preset.swapped.matches(canvasSize)
+    }
+
+    /// The lit chip tells the truth about the page; the rest stay as written —
+    /// see `CanvasRatio.shown`.
+    private func asShown(_ preset: CanvasRatio) -> CanvasRatio {
+        isAuto ? preset : CanvasRatio.shown(preset, matching: canvasSize)
     }
 
     /// The size this chip would actually make out of *this* picture — the one
@@ -218,12 +227,14 @@ private struct CanvasRatioMenuButton: View {
                 }
                 Divider()
                 ForEach(Array(CanvasRatio.presets.enumerated()), id: \.offset) { _, preset in
-                    cell(title: CanvasRatio.label(for: CGSize(width: preset.width,
-                                                              height: preset.height)),
+                    let selected = !isAuto && (preset.matches(canvasSize)
+                                               || preset.swapped.matches(canvasSize))
+                    let shown = isAuto ? preset : CanvasRatio.shown(preset, matching: canvasSize)
+                    cell(title: CanvasRatio.label(for: CGSize(width: shown.width,
+                                                              height: shown.height)),
                          tooltip: preset.titleKey,
-                         isSelected: !isAuto && (preset.matches(canvasSize)
-                                                 || preset.swapped.matches(canvasSize))) {
-                        document.setCanvasRatio(preset)
+                         isSelected: selected) {
+                        document.setCanvasRatio(shown)
                     }
                 }
             }

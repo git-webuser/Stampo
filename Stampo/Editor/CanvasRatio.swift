@@ -113,6 +113,20 @@ nonisolated struct CanvasRatio: Equatable, Sendable {
         return abs(ratio - value) / value <= tolerance
     }
 
+    /// How a preset should be *printed* for a given page.
+    ///
+    /// The one that matches takes the page's orientation; everything else stays
+    /// as it is written. Both extremes were built and photographed: when every
+    /// chip follows the page, swapping sides re-labels the whole row (3:4 to
+    /// 4:3, 16:9 to 9:16) and the set of formats looks like it changed when
+    /// only the page did — and when none of them follows, the lit chip says
+    /// 4:5 over a page lying on its side, which is simply untrue. It is the
+    /// rule the canvas tiles used before they moved to the toolbar.
+    static func shown(_ preset: CanvasRatio, matching page: CGSize) -> CanvasRatio {
+        guard !preset.matches(page), preset.swapped.matches(page) else { return preset }
+        return preset.swapped
+    }
+
     /// The preset a page is currently in, or nil for a shape of the user's own.
     /// Either orientation counts — turning a format does not make it a
     /// different one.

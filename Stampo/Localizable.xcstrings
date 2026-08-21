@@ -805,6 +805,7 @@
     },
     "Auto" : {
       "comment" : "Canvas that grows with the picture and its margins",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -1287,6 +1288,7 @@
     },
     "Classic 3:4" : {
       "comment" : "Canvas format — 3:4",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -2277,23 +2279,6 @@
         }
       }
     },
-    "Edit Stop Color" : {
-      "comment" : "Tooltip on the selected gradient stop — clicking it opens the colour panel",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Edit Stop Color"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Изменить цвет точки"
-          }
-        }
-      }
-    },
     "Edit in Editor" : {
       "comment" : "Drop-zone label — archive dropped files, then open the first one in the editor",
       "localizations" : {
@@ -2307,6 +2292,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Редактировать"
+          }
+        }
+      }
+    },
+    "Edit Stop Color" : {
+      "comment" : "Tooltip on the selected gradient stop — clicking it opens the colour panel",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Edit Stop Color"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Изменить цвет точки"
           }
         }
       }
@@ -5348,23 +5350,6 @@
         }
       }
     },
-    "Save Color to Archive" : {
-      "comment" : "Decor inspector — keeps the picked colour in the archive",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Save Color to Archive"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Сохранить цвет в архив"
-          }
-        }
-      }
-    },
     "Save changes before closing?" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -5378,6 +5363,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Сохранить изменения перед закрытием?"
+          }
+        }
+      }
+    },
+    "Save Color to Archive" : {
+      "comment" : "Decor inspector — keeps the picked colour in the archive",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Save Color to Archive"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сохранить цвет в архив"
           }
         }
       }
@@ -6037,6 +6039,7 @@
     },
     "Shapes" : {
       "comment" : "Editor toolbar — the shape family popover",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -6377,6 +6380,7 @@
     },
     "Square" : {
       "comment" : "Canvas format — 1:1",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -6548,6 +6552,7 @@
     },
     "Swap Sides" : {
       "comment" : "Editor toolbar — turns the page's ratio on its side (the picture's own rotate lives in the row above)",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
