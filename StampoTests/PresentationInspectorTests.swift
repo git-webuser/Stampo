@@ -138,8 +138,11 @@ import Testing
         // starves the very main-queue work being waited on.
         try? await Task.sleep(for: .milliseconds(600))
 
+        // The *number* field, by type rather than by being first: the panel
+        // also carries a hex field now, and "the first editable text field"
+        // moves whenever the rows are rearranged.
         func firstEditable(_ view: NSView) -> NSTextField? {
-            if let field = view as? NSTextField, field.isEditable { return field }
+            if let field = view as? NumberField.Field, field.isEditable { return field }
             for sub in view.subviews { if let found = firstEditable(sub) { return found } }
             return nil
         }
@@ -148,9 +151,9 @@ import Testing
             return
         }
 
-        // The first editable number in the panel is the top margin: the page's
-        // own size moved to the toolbar's second row with the rest of the
-        // canvas controls.
+        // The first number in the panel is the top margin: the page's own size
+        // moved to the toolbar's second row with the rest of the canvas
+        // controls.
         #expect(field.stringValue == "20")
 
         // A real mouse-down/up pair: the click is where the problem lived.

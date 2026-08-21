@@ -43,6 +43,9 @@ struct PresentationInspector: View {
     /// Whether a number typed into one margin goes to all four. A way of
     /// typing, not a property of the document — see `marginLinkButton`.
     @State private var marginsLinked = false
+    /// What each kind of background held when it was last left. Session-scoped
+    /// by design — see `BackgroundDrawers`.
+    @State private var drawers = BackgroundDrawers()
     /// Which mesh corner the row below the plate acts on. Four corners, so no
     /// clamping machinery — just a number between 0 and 3.
     @State private var selectedCorner = 0
@@ -394,8 +397,10 @@ struct PresentationInspector: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             case .solid:
+                selectedColorRow(color: solidColor, onPick: { setSolidColor($0) }) {
+                    saveToArchiveButton(color: solidColor)
+                }
                 swatchRow(selected: solidColor) { setSolidColor($0) }
-                customColorRow(binding: solidColorBinding)
             case .gradient:
                 if gradientShape == .mesh {
                     meshCornerEditor
@@ -658,10 +663,7 @@ struct PresentationInspector: View {
         return Presentation.Stop.spread(Self.defaultStops)
     }
 
-    private static let defaultStops: [Presentation.Color] = [
-        Presentation.Color(red: 0.36, green: 0.55, blue: 0.98, alpha: 1),
-        Presentation.Color(red: 0.09, green: 0.13, blue: 0.36, alpha: 1)
-    ]
+    private static var defaultStops: [Presentation.Color] { BackgroundDrawers.defaultStops }
 
     /// The gradient's stops, on the ramp they belong to.
     ///
@@ -846,31 +848,19 @@ struct PresentationInspector: View {
         .accessibilityLabel(label)
     }
 
-    /// The well picks a colour; the plus keeps it — in the archive, beside the
-    /// ones the eyedropper put there. Without the second half a "custom colour"
-    /// is a single slot that the next pick overwrites, which is no use when a
-    /// design needs three of them.
-    private func customColorRow(binding: Binding<SwiftUI.Color>) -> some View {
-        HStack(spacing: 8) {
-            Text("Custom Color")
-            ColorChip(color: presentationColor(binding.wrappedValue),
-                      diameter: Self.swatchSize) { picked in
-                binding.wrappedValue = swiftUIColor(picked)
-            }
-            Spacer(minLength: 0)
-            // Trailing, like the canvas rotate button: the actions in this
-            // panel all sit on the right edge of their row.
-            Button {
-                colorShelf?.addShelfColor(presentationColor(binding.wrappedValue))
-            } label: {
-                Image(systemName: "plus")
-            }
-            .controlSize(.large)
-            .disabled(colorShelf == nil)
-            .help("Save Color to Archive")
-            .accessibilityLabel(Text("Save Color to Archive"))
+    /// Keeps the colour on screen in the archive, beside the ones the
+    /// eyedropper put there. The row it sits on already says which colour that
+    /// is — the swatch and the hex field — so the button needs no label of its
+    /// own, and it sits on the right edge like every other action here.
+    private func saveToArchiveButton(color: Presentation.Color) -> some View {
+        Button {
+            colorShelf?.addShelfColor(color)
+        } label: {
+            Image(systemName: "plus")
         }
-        .font(.system(size: 11))
+        .disabled(colorShelf == nil)
+        .help("Save Color to Archive")
+        .accessibilityLabel(Text("Save Color to Archive"))
     }
 
 
@@ -916,11 +906,8 @@ struct PresentationInspector: View {
     /// Two stops spread over four corners: the ends keep their colours and the
     /// other two are the blend, so switching from a line to a mesh keeps what
     /// the user had rather than starting over.
-    static func meshCorners(from stops: [Presentation.Color]) -> [Presentation.Color] {
-        guard let first = stops.first else { return meshColors(from: fallbackColor) }
-        let last = stops.last ?? first
-        let middle = mix(first, last, amount: 0.5)
-        return [first, middle, middle, last]
+    static func meshCorners(from colors: [Presentation.Color]) -> [Presentation.Color] {
+        BackgroundDrawers.meshCorners(from: colors)
     }
 
 
@@ -1183,15 +1170,15 @@ struct PresentationInspector: View {
                 unit: .pixels(basis: canvasSize.height)
             )
             HStack(spacing: 8) {
+                // Labelled, unlike the colour rows in Background: every other
+                // row in this section names its number, and a bare swatch here
+                // would read as the odd one out rather than as the tidy one.
                 Text("Shadow Color")
+                    .font(.system(size: 11))
                 ColorChip(color: draft.shadow.color, diameter: Self.swatchSize,
-                          supportsOpacity: false) { picked in
-                    var color = picked
-                    // Opacity has its own slider; a colour that also carried
-                    // alpha would give two controls one number to fight over.
-                    color.alpha = 1
-                    updateImmediately { $0.shadow.color = color }
-                }
+                          supportsOpacity: false) { setShadowColor($0) }
+                    .accessibilityLabel(Text("Shadow Color"))
+                HexField(color: draft.shadow.color) { setShadowColor($0) }
                 Spacer(minLength: 0)
                 // Same corner, same button as the canvas rotate: the section's
                 // one whole-block action. It hides rather than resets — the
@@ -1514,25 +1501,28 @@ struct PresentationInspector: View {
     }
 
     private func setBackgroundKind(_ kind: BackgroundKind) {
-        let carried = draft.background.colors
-        let stops = draft.background.stops.count >= 2
-            ? draft.background.stops
-            : Presentation.Stop.spread(carried.count >= 2 ? carried : Self.defaultStops)
-        let next: Presentation.Background
         switch kind {
         case .none:
-            next = .none
+            drawers.keep(draft.background)
+            updateImmediately { $0.background = .none }
         case .solid:
-            if case .solid(let color) = draft.background { next = .solid(color) }
-            else { next = .solid(carried.first ?? .white) }
+            switchBackground(to: .solid)
         case .gradient:
-            switch draft.background {
-            case .linearGradient, .radialGradient, .mesh:
-                next = draft.background
-            default:
-                next = .linearGradient(stops: stops, angle: .pi / 2)
-            }
+            // Back to the gradient you were last in, not to a linear one you
+            // may never have chosen.
+            switchBackground(to: drawers.lastGradient)
         }
+    }
+
+    /// Moving between the four drawers puts back what was in the one you are
+    /// entering and keeps what was in the one you are leaving — the rules, and
+    /// the reason for them, are in `BackgroundDrawers`.
+    private func switchBackground(to drawer: BackgroundDrawers.Drawer) {
+        guard BackgroundDrawers.drawer(of: draft.background) != drawer else { return }
+        var drawers = self.drawers
+        let next = drawers.switching(from: draft.background, to: drawer,
+                                     angle: currentGradientAngle)
+        self.drawers = drawers
         updateImmediately { $0.background = next }
     }
 
@@ -1567,22 +1557,10 @@ struct PresentationInspector: View {
     /// gradient drawn a different way, so nothing the user picked is discarded.
     private var gradientShapeBinding: Binding<GradientShape> {
         Binding(get: { gradientShape }, set: { shape in
-            let stops = currentStops
-            let angle = currentGradientAngle
-            updateImmediately { presentation in
-                switch shape {
-                case .linear:
-                    presentation.background = .linearGradient(stops: stops, angle: angle)
-                case .radial:
-                    presentation.background = .radialGradient(stops: stops)
-                case .mesh:
-                    // The colours carry across: two stops become the two ends
-                    // of a four-corner spread rather than being thrown away.
-                    // Their positions do not — a mesh's corners sit in a
-                    // square, and there is no line for them to sit along.
-                    presentation.background = .mesh(
-                        colors: Self.meshCorners(from: stops.map(\.color)))
-                }
+            switch shape {
+            case .linear: switchBackground(to: .linear)
+            case .radial: switchBackground(to: .radial)
+            case .mesh:   switchBackground(to: .mesh)
             }
         })
     }
@@ -1694,6 +1672,14 @@ struct PresentationInspector: View {
         Binding(get: { draft.shadow.offset.y }, set: { value in
             updateLive { $0.shadow.offset.y = value }
         })
+    }
+
+    /// Opacity has its own slider; a colour that also carried alpha would give
+    /// two controls one number to fight over.
+    private func setShadowColor(_ color: Presentation.Color) {
+        var opaque = color
+        opaque.alpha = 1
+        updateImmediately { $0.shadow.color = opaque }
     }
 
     private var shadowColorBinding: Binding<SwiftUI.Color> {
