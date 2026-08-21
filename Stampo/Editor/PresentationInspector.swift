@@ -524,7 +524,7 @@ struct PresentationInspector: View {
         // line is not.
         let presets = curated.isEmpty ? [] : [sampledPreset] + curated.dropLast()
         if !presets.isEmpty {
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: Self.captionGap) {
                 Text("Presets")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
@@ -772,7 +772,7 @@ struct PresentationInspector: View {
         selected: Presentation.Color?,
         action: @escaping (Presentation.Color) -> Void
     ) -> some View {
-        VStack(alignment: .leading, spacing: Self.swatchGap) {
+        VStack(alignment: .leading, spacing: Self.captionGap) {
             Text("Colors")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
@@ -951,7 +951,7 @@ struct PresentationInspector: View {
     /// where there is no room to say anything.
     private var gapGrid: some View {
         let gaps = PresentationLayout.gaps(resolvedLayout)
-        return VStack(alignment: .leading, spacing: Self.marginGap) {
+        return VStack(alignment: .leading, spacing: Self.captionGap) {
             Text("Margins, px")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
@@ -1173,22 +1173,29 @@ struct PresentationInspector: View {
             // and "From Archive" — the sliders in this section put their names
             // on the left because a slider has no room above it, which is not
             // a reason for a colour row to do the same.
-            Text("Shadow Color")
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-            HStack(spacing: 8) {
-                ColorChip(color: draft.shadow.color, diameter: Self.swatchSize,
-                          supportsOpacity: false) { setShadowColor($0) }
-                    .accessibilityLabel(Text("Shadow Color"))
-                ColorField(color: draft.shadow.color) { setShadowColor($0) }
-                Spacer(minLength: 0)
-                // Same corner, same button as the canvas rotate: the section's
-                // one whole-block action. It hides rather than resets — the
-                // radius and the offset survive the round trip, so turning the
-                // shadow back on returns the one you had.
-                sectionActionButton(shadowIsVisible ? "eye" : "eye.slash",
-                                    label: shadowIsVisible ? "Hide Shadow" : "Show Shadow") {
-                    toggleShadow()
+            //
+            // In its own stack, and that is the whole point of the stack: a
+            // caption left as a sibling of the row inherits the section's
+            // spacing between *controls* (14), so it floated twice as far from
+            // what it names as every other caption in the panel does.
+            VStack(alignment: .leading, spacing: Self.captionGap) {
+                Text("Shadow Color")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                HStack(spacing: 8) {
+                    ColorChip(color: draft.shadow.color, diameter: Self.swatchSize,
+                              supportsOpacity: false) { setShadowColor($0) }
+                        .accessibilityLabel(Text("Shadow Color"))
+                    ColorField(color: draft.shadow.color) { setShadowColor($0) }
+                    Spacer(minLength: 0)
+                    // Same corner, same button as the canvas rotate: the section's
+                    // one whole-block action. It hides rather than resets — the
+                    // radius and the offset survive the round trip, so turning the
+                    // shadow back on returns the one you had.
+                    sectionActionButton(shadowIsVisible ? "eye" : "eye.slash",
+                                        label: shadowIsVisible ? "Hide Shadow" : "Show Shadow") {
+                        toggleShadow()
+                    }
                 }
             }
             .font(.system(size: 11))
@@ -1354,6 +1361,11 @@ struct PresentationInspector: View {
     /// controls inside one.
     private static let sectionSpacing: CGFloat = 16
     private static let controlSpacing: CGFloat = 14
+    /// Between a caption and the thing it names. Every caption in the panel —
+    /// "Presets", "Colors", "From Archive", "Corners", "Margins, px" — sits
+    /// this far above its controls, and the shadow's colour drifted to the
+    /// section's own control spacing until it was given a stack of its own.
+    private static let captionGap: CGFloat = 6
     /// Breathing room inside a section's box, on top of what `GroupBox` gives.
     /// Its own inset is about half of what the app's settings cards use, and
     /// beside them the panel looked cramped rather than compact.
