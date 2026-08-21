@@ -186,13 +186,30 @@ nonisolated enum PresentationRenderer {
     /// A gradient of `stops` spread evenly from 0 to 1. One stop degenerates to
     /// a flat fill rather than to nothing, which is what a user who deleted the
     /// second stop expects to see.
-    private static func gradient(for stops: [Presentation.Color]) -> CGGradient? {
+    /// `CGGradient` insists on positions that only climb, so the list is
+    /// sorted and clamped on the way in. A single stop is a flat fill drawn as
+    /// a gradient from itself to itself — the ends have to differ for the
+    /// gradient to exist at all, not for the picture to look right.
+    private static func gradient(for stops: [Presentation.Stop]) -> CGGradient? {
         guard let first = stops.first else { return nil }
-        let colors = stops.count == 1 ? [first, first] : stops
-        let last = CGFloat(colors.count - 1)
-        let locations = colors.indices.map { CGFloat($0) / last }
+        let ordered = (stops.count == 1 ? [first, first] : stops)
+            .sorted { $0.location < $1.location }
+        var locations: [CGFloat] = []
+        var previous: CGFloat = 0
+        for stop in ordered {
+            let clamped = max(previous, min(1, max(0, stop.location)))
+            locations.append(clamped)
+            previous = clamped
+        }
+        // Two stops in the same spot are a hard edge, which is a legitimate
+        // thing to ask for — but every stop in the same spot leaves nothing to
+        // interpolate, and Core Graphics draws that as nothing at all.
+        if let firstLocation = locations.first, let lastLocation = locations.last,
+           firstLocation == lastLocation {
+            locations = ordered.indices.map { CGFloat($0) / CGFloat(max(1, ordered.count - 1)) }
+        }
         return CGGradient(colorsSpace: sRGB,
-                          colors: colors.map(cgColor) as CFArray,
+                          colors: ordered.map { cgColor($0.color) } as CFArray,
                           locations: locations)
     }
 
@@ -200,7 +217,7 @@ nonisolated enum PresentationRenderer {
     /// handed — so without this clip a gradient floods the live preview well
     /// past the canvas it belongs to. The export never showed it because there
     /// the context *is* the canvas.
-    private static func drawLinearGradient(stops: [Presentation.Color],
+    private static func drawLinearGradient(stops: [Presentation.Stop],
                                            angle: CGFloat,
                                            in rect: CGRect,
                                            ctx: CGContext) {
@@ -221,7 +238,7 @@ nonisolated enum PresentationRenderer {
 
     /// Centred radial gradient reaching the far corner, so the outermost stop
     /// still covers the corners of a non-square canvas.
-    private static func drawRadialGradient(stops: [Presentation.Color],
+    private static func drawRadialGradient(stops: [Presentation.Stop],
                                            in rect: CGRect,
                                            ctx: CGContext) {
         guard let gradient = gradient(for: stops) else { return }

@@ -55,32 +55,80 @@ nonisolated struct Presentation: Equatable, Sendable {
         static let black = Color(red: 0, green: 0, blue: 0, alpha: 1)
     }
 
+    /// One colour of a gradient, and where along it that colour sits.
+    ///
+    /// The position is what makes a gradient editable rather than merely
+    /// orderable: without it the stops are spread evenly and the only thing a
+    /// person can change is which comes first, so "this colour holds to the
+    /// middle and then falls away" cannot be said at all.
+    struct Stop: Equatable, Sendable {
+        var color: Color
+        /// 0 at the start of the ramp, 1 at its end.
+        var location: CGFloat
+
+        init(_ color: Color, at location: CGFloat) {
+            self.color = color
+            self.location = location
+        }
+
+        /// Colours laid out evenly — how every gradient was built before
+        /// positions existed, and still the right answer for a preset, for a
+        /// mesh unfolded into a ramp, and for anything else that has colours
+        /// but no opinion about where they go.
+        static func spread(_ colors: [Color]) -> [Stop] {
+            guard colors.count > 1 else {
+                return colors.map { Stop($0, at: 0) }
+            }
+            let last = CGFloat(colors.count - 1)
+            return colors.enumerated().map { Stop($1, at: CGFloat($0) / last) }
+        }
+    }
+
     /// Background recipes are values, not live SwiftUI gradients.
     ///
     /// Both gradients carry a *list* of stops rather than a start/end pair:
     /// two stops is the ordinary gradient and three or more is the layered one,
     /// so the renderer, the inspector and the model need no separate case for
-    /// "complex". Stops are distributed evenly; the list is never empty.
+    /// "complex". Each stop carries its own position; the list is never empty.
     enum Background: Equatable, Sendable {
         /// Nothing is painted, so the canvas around the image stays
         /// transparent and PNG export carries that transparency through.
         case none
         case solid(Color)
-        case linearGradient(stops: [Color], angle: CGFloat)
-        case radialGradient(stops: [Color])
+        case linearGradient(stops: [Stop], angle: CGFloat)
+        case radialGradient(stops: [Stop])
         /// Four corner colours. Where they came from — a preset, the picture,
         /// the user — is not the model's business; a separate "sampled" case
         /// only meant the same drawing twice.
         case mesh(colors: [Color])
 
-        /// The colors a user-facing stop editor works with. Empty for the
-        /// cases that have no editable stop list.
-        var stops: [Color] {
+        /// The stops a user-facing editor works with. Empty for the cases that
+        /// have no ramp — the mesh included: its four corners are colours in a
+        /// square, not points on a line, and handing them back as "stops" is
+        /// what made one accessor mean two different things.
+        var stops: [Stop] {
             switch self {
-            case .none, .solid:                  return []
+            case .none, .solid, .mesh:           return []
             case .linearGradient(let stops, _):  return stops
             case .radialGradient(let stops):     return stops
-            case .mesh(let colors):                return colors
+            }
+        }
+
+        /// The four corners of a mesh, or nothing.
+        var meshColors: [Color] {
+            if case .mesh(let colors) = self { return colors }
+            return []
+        }
+
+        /// Every colour this background is made of, wherever it keeps them —
+        /// what a switch between kinds carries across.
+        var colors: [Color] {
+            switch self {
+            case .none:              return []
+            case .solid(let color):  return [color]
+            case .mesh(let colors):  return colors
+            case .linearGradient(let stops, _), .radialGradient(let stops):
+                return stops.map(\.color)
             }
         }
     }

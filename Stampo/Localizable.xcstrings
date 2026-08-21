@@ -2899,6 +2899,23 @@
         }
       }
     },
+    "Hex" : {
+      "comment" : "Decor inspector — the selected gradient stop's colour, typed as #RRGGBB",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hex"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hex"
+          }
+        }
+      }
+    },
     "Hide Shadow" : {
       "comment" : "Turns the shadow off without losing its settings",
       "localizations" : {

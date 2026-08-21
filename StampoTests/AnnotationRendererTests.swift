@@ -225,7 +225,7 @@ enum TestImages {
         let outer = Presentation.Color(red: 0, green: 0, blue: 1, alpha: 1)
         let presentation = Presentation(
             canvas: .preset(pixelSize: CGSize(width: 100, height: 100)),
-            background: .radialGradient(stops: [inner, outer]),
+            background: .radialGradient(stops: Presentation.Stop.spread([inner, outer])),
             image: .init(center: CGPoint(x: 0.5, y: 0.5), scale: 0.04)
         )
 
@@ -243,7 +243,7 @@ enum TestImages {
         let black = Presentation.Color(red: 0, green: 0, blue: 0, alpha: 1)
         let green = Presentation.Color(red: 0, green: 1, blue: 0, alpha: 1)
         let canvas = CGSize(width: 100, height: 100)
-        func middleGreen(_ stops: [Presentation.Color]) -> CGFloat {
+        func middleGreen(_ stops: [Presentation.Stop]) -> CGFloat {
             let presentation = Presentation(
                 canvas: .preset(pixelSize: canvas),
                 // Horizontal sweep so the vertical middle is a pure stop.
@@ -255,8 +255,48 @@ enum TestImages {
             return rep?.colorAt(x: 50, y: 8)?.greenComponent ?? 0
         }
 
-        #expect(middleGreen([black, black]) < 0.1)
-        #expect(middleGreen([black, green, black]) > 0.8)
+        #expect(middleGreen(Presentation.Stop.spread([black, black])) < 0.1)
+        #expect(middleGreen(Presentation.Stop.spread([black, green, black])) > 0.8)
+    }
+
+    /// A stop paints where its position says, not where its turn in the list
+    /// would have put it. This is the whole point of giving stops positions —
+    /// and it is checked in pixels, because the model can be right about
+    /// numbers the renderer never passes on.
+    @Test func aStopPaintsWhereItsPositionSays() {
+        let base = solidImage(width: 4, height: 4, red: 1, green: 1, blue: 1)
+        let black = Presentation.Color(red: 0, green: 0, blue: 0, alpha: 1)
+        let green = Presentation.Color(red: 0, green: 1, blue: 0, alpha: 1)
+        let canvas = CGSize(width: 100, height: 100)
+
+        func greenAt(_ x: Int, _ stops: [Presentation.Stop]) -> CGFloat {
+            let presentation = Presentation(
+                canvas: .preset(pixelSize: canvas),
+                background: .linearGradient(stops: stops, angle: 0),
+                image: .init(center: CGPoint(x: 0.5, y: 0.5), scale: 0.04)
+            )
+            let rep = AnnotationRenderer.renderBitmap(
+                base: base, annotations: [], presentation: presentation)
+            return rep?.colorAt(x: x, y: 8)?.greenComponent ?? 0
+        }
+
+        // The ramp runs corner to corner, so it is wider than the canvas: it
+        // spans hypot(100, 100) ≈ 141 centred on 50, and a stop at 0.25 lands
+        // at 50 − 141/4 ≈ 15.
+        let quarter = [Presentation.Stop(black, at: 0),
+                       Presentation.Stop(green, at: 0.25),
+                       Presentation.Stop(black, at: 1)]
+        // The same three colours spread evenly put the green in the middle
+        // instead — which is all the old model could say.
+        let evenly = Presentation.Stop.spread([black, green, black])
+
+        // Where the green *peaks* is the claim; the ramp is 141 wide, so it
+        // falls away gently and an absolute threshold on the far side would
+        // only be testing the slope.
+        #expect(greenAt(15, quarter) > 0.8)
+        #expect(greenAt(50, evenly) > 0.8)
+        #expect(greenAt(15, quarter) > greenAt(50, quarter))
+        #expect(greenAt(50, evenly) > greenAt(15, evenly))
     }
 
     /// The reported bug: `drawLinearGradient` paints the whole clip region, not
@@ -272,7 +312,7 @@ enum TestImages {
         ctx.fill(CGRect(x: 0, y: 0, width: 100, height: 100))
 
         PresentationRenderer.drawBackground(
-            .linearGradient(stops: [.black, .black], angle: 0),
+            .linearGradient(stops: Presentation.Stop.spread([.black, .black]), angle: 0),
             in: CGRect(x: 30, y: 30, width: 40, height: 40),
             ctx: ctx
         )

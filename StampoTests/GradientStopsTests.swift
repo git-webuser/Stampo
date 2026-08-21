@@ -1,9 +1,10 @@
+import CoreGraphics
 import Testing
 @testable import Stampo
 
-/// The row these back used to act on the end of the list whatever the user
-/// pointed at: "+" appended, "−" took the last one away, and order could not be
-/// changed at all. Each test below is one of the things that could not be done.
+/// The row these back went through three shapes, and each test below is one of
+/// the things that could not be done in an earlier one: reach a middle stop,
+/// say where a colour sits, add a handle without changing what is on screen.
 @Suite struct GradientStopsTests {
 
     private let white = Presentation.Color.white
@@ -12,68 +13,104 @@ import Testing
         Presentation.Color(red: 1, green: 0, blue: 0, alpha: 1)
     }
 
-    /// A stop added in the middle sits between the two it was added between,
-    /// and carries their blend — so the ramp keeps its shape and only gains a
-    /// handle.
-    @Test func insertingInTheMiddleLandsBetweenTheNeighbours() {
-        let stops = GradientStops.inserted(into: [white, black], after: 0)
-
-        #expect(stops.count == 3)
-        #expect(stops[0] == white)
-        #expect(stops[2] == black)
-        #expect(stops[1] == GradientStops.blend(white, black, amount: 0.5))
+    private var whiteToBlack: [Presentation.Stop] {
+        Presentation.Stop.spread([white, black])
     }
 
-    /// After the last stop there is nothing to meet, so the ramp carries on
-    /// darker rather than repeating the colour it already ends on.
-    @Test func insertingAfterTheLastStopContinuesTheRamp() {
-        let stops = GradientStops.inserted(into: [white, red], after: 1)
+    /// Colours with no opinion about where they go get laid out evenly — the
+    /// way every gradient was built before positions existed.
+    @Test func spreadingColoursPutsThemAtEvenPlaces() {
+        let three = Presentation.Stop.spread([white, red, black])
 
-        #expect(stops.count == 3)
-        #expect(stops[2] != red)
-        #expect(stops[2] == GradientStops.blend(red, black, amount: 0.35))
+        #expect(three.map(\.location) == [0, 0.5, 1])
+        #expect(three.map(\.color) == [white, red, black])
+        #expect(Presentation.Stop.spread([white]).map(\.location) == [0])
+        #expect(Presentation.Stop.spread([]).isEmpty)
     }
 
-    @Test func theListStopsGrowingAtFive() {
-        var stops = [white, black]
-        for _ in 0..<10 { stops = GradientStops.inserted(into: stops, after: 0) }
+    /// A stop added on the ramp takes the colour that was already there, so the
+    /// gradient does not change until the new handle is moved or recoloured.
+    @Test func addingAStopChangesNothingUntilItMoves() {
+        let stops = GradientStops.inserted(into: whiteToBlack, at: 0.25)
+
+        #expect(stops.count == 3)
+        #expect(stops[1].location == 0.25)
+        #expect(abs(stops[1].color.red - 0.75) < 0.001)
+        #expect(abs(stops[1].color.green - 0.75) < 0.001)
+    }
+
+    @Test func aStopLandsWhereItWasAskedFor() {
+        #expect(GradientStops.inserted(into: whiteToBlack, at: 0.9)[1].location == 0.9)
+        // Outside the ramp is not a place; it lands on the end.
+        #expect(GradientStops.inserted(into: whiteToBlack, at: 1.4).last?.location == 1)
+        #expect(GradientStops.inserted(into: whiteToBlack, at: -2).first?.location == 0)
+    }
+
+    @Test func theListStopsGrowingAtEight() {
+        var stops = whiteToBlack
+        for i in 0..<20 { stops = GradientStops.inserted(into: stops, at: CGFloat(i) / 21) }
 
         #expect(stops.count == GradientStops.maximum)
     }
 
-    /// The one the user picked, not the one that happens to be last.
-    @Test func removingTakesTheStopItWasGiven() {
-        let stops = GradientStops.removed(from: [white, red, black], at: 1)
+    /// Dragging a stop past its neighbour *is* reordering — there is nothing
+    /// else to reorder with, and the caller's selection has to follow the stop
+    /// it was holding rather than the slot.
+    @Test func draggingPastANeighbourReordersAndKeepsTheSelection() {
+        let stops = Presentation.Stop.spread([white, red, black])   // 0, 0.5, 1
+        // White dragged past red: the list re-sorts, and the selection has to
+        // follow the stop that was dragged rather than the slot it left.
+        let moved = GradientStops.moved(stops, at: 0, to: 0.8)
 
-        #expect(stops == [white, black])
+        #expect(moved.stops.map(\.color) == [red, white, black])
+        #expect(moved.index == 1)
+        #expect(moved.stops[1].location == 0.8)
+    }
+
+    @Test func aStopCannotLeaveTheRamp() {
+        #expect(GradientStops.moved(whiteToBlack, at: 0, to: 3).stops[1].location == 1)
+        #expect(GradientStops.moved(whiteToBlack, at: 1, to: -1).stops[0].location == 0)
+    }
+
+    /// The stop the user picked, not the one that happens to be last.
+    @Test func removingTakesTheStopItWasGiven() {
+        let stops = Presentation.Stop.spread([white, red, black])
+
+        #expect(GradientStops.removed(from: stops, at: 1).map(\.color) == [white, black])
     }
 
     @Test func aGradientNeverFallsBelowTwoStops() {
-        let stops = GradientStops.removed(from: [white, black], at: 0)
-
-        #expect(stops == [white, black])
+        #expect(GradientStops.removed(from: whiteToBlack, at: 0) == whiteToBlack)
     }
 
-    /// `to` is the slot in the finished list — the spelling both a drag and a
-    /// "move left" mean.
-    @Test func movingPutsTheStopInTheSlotItWasDroppedOn() {
-        #expect(GradientStops.moved([white, red, black], from: 2, to: 0) == [black, white, red])
-        #expect(GradientStops.moved([white, red, black], from: 0, to: 1) == [red, white, black])
+    /// The colour the ramp shows at a point — the same blend Core Graphics
+    /// draws, which is what makes an added stop invisible until it moves.
+    @Test func theRampReadsTheSameWayItIsDrawn() {
+        #expect(GradientStops.color(of: whiteToBlack, at: 0).red == 1)
+        #expect(GradientStops.color(of: whiteToBlack, at: 1).red == 0)
+        #expect(abs(GradientStops.color(of: whiteToBlack, at: 0.5).red - 0.5) < 0.001)
+
+        // Before the first stop and after the last, the ramp is flat.
+        let inset = [Presentation.Stop(white, at: 0.3), Presentation.Stop(black, at: 0.7)]
+        #expect(GradientStops.color(of: inset, at: 0.1).red == 1)
+        #expect(GradientStops.color(of: inset, at: 0.95).red == 0)
+        #expect(abs(GradientStops.color(of: inset, at: 0.5).red - 0.5) < 0.001)
     }
 
-    @Test func movingNowhereChangesNothing() {
-        let stops = [white, red, black]
+    /// Two stops in the same spot are a hard edge, which is allowed; the reader
+    /// must not divide by the zero between them.
+    @Test func twoStopsInOnePlaceAreAnEdge() {
+        let edge = [Presentation.Stop(white, at: 0.5), Presentation.Stop(black, at: 0.5)]
 
-        #expect(GradientStops.moved(stops, from: 1, to: 1) == stops)
-        #expect(GradientStops.moved(stops, from: 0, to: -1) == stops)
-        #expect(GradientStops.moved(stops, from: 3, to: 0) == stops)
+        // Either colour is defensible *on* the seam; what matters is that the
+        // reader does not divide by the zero between them, and that each side
+        // is its own colour.
+        #expect(GradientStops.color(of: edge, at: 0.49).red == 1)
+        #expect(GradientStops.color(of: edge, at: 0.51).red == 0)
     }
 
-    /// The selection outlives the list changing under it, which is the whole
-    /// reason it is clamped on every read rather than trusted.
     @Test func theSelectionFollowsTheListItPointsInto() {
-        #expect(GradientStops.clampedSelection(2, in: [white, black]) == 1)
-        #expect(GradientStops.clampedSelection(-1, in: [white, black]) == 0)
-        #expect(GradientStops.clampedSelection(1, in: [white, red, black]) == 1)
+        #expect(GradientStops.clampedSelection(2, in: whiteToBlack) == 1)
+        #expect(GradientStops.clampedSelection(-1, in: whiteToBlack) == 0)
     }
 }

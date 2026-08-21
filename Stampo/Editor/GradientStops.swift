@@ -1,66 +1,99 @@
 import CoreGraphics
 
-/// The list operations behind the gradient's stop row.
+/// The rules behind the gradient's stop bar.
 ///
-/// They live outside the view because the old row's logic was the problem, not
-/// its looks: "+" always appended a darkened copy of the last colour, "−"
-/// always took the last one away, and there was no way to say which stop you
-/// meant — so a three-stop gradient could not be edited in the middle, and a
-/// stop could not be moved at all. Written here, each operation is one function
-/// with an obvious answer, and the tests can ask for it directly.
+/// They live outside the view because the row's logic was the problem, not its
+/// looks. First it acted on the end of the list whatever the user pointed at:
+/// "+" appended, "−" took the last one away, and order could not be changed at
+/// all. Selecting a stop fixed half of that; the other half was that stops were
+/// spread **evenly**, so their order was the only thing anyone could change —
+/// "this colour holds to the middle and then falls away" could not be said.
 ///
-/// Every function returns the list unchanged when what was asked for is not
-/// allowed, so a caller can hand the result straight back to the model.
+/// With a position per stop, order stops being a separate idea: it *is* the
+/// position. Every function here keeps the list sorted and returns it unchanged
+/// when what was asked for is not allowed, so a caller can hand the result
+/// straight back to the model.
 nonisolated enum GradientStops {
-    /// Two is a gradient; below that it is a colour. Five is what the row can
-    /// show at the inspector's minimum width.
+    /// Two is a gradient; below that it is a colour. Eight is what the bar can
+    /// show without the handles overlapping at the inspector's own width.
     static let minimum = 2
-    static let maximum = 5
+    static let maximum = 8
 
-    /// A new stop right after `index`, coloured halfway between it and the
-    /// stop that follows — which is what "add a stop" means on a ramp: the
-    /// gradient does not change shape, it gains a handle where you asked for
-    /// one. After the last stop there is nothing to meet, so the ramp carries
-    /// on in the direction it was already going.
-    static func inserted(into stops: [Presentation.Color], after index: Int) -> [Presentation.Color] {
-        guard stops.count < maximum, stops.indices.contains(index) else { return stops }
-        var result = stops
-        let color: Presentation.Color
-        if index + 1 < stops.count {
-            color = blend(stops[index], stops[index + 1], amount: 0.5)
-        } else {
-            color = blend(stops[index], .black, amount: 0.35)
-        }
-        result.insert(color, at: index + 1)
-        return result
+    /// A stop at `location`, coloured by what the ramp already shows there — so
+    /// adding one changes nothing until it is moved or recoloured, which is
+    /// what "add a handle" should mean.
+    static func inserted(into stops: [Presentation.Stop],
+                         at location: CGFloat) -> [Presentation.Stop] {
+        guard stops.count < maximum else { return stops }
+        let place = clampedLocation(location)
+        return sorted(stops + [Presentation.Stop(color(of: stops, at: place), at: place)])
     }
 
     /// The stop the user picked, not the one that happens to be last.
-    static func removed(from stops: [Presentation.Color], at index: Int) -> [Presentation.Color] {
+    static func removed(from stops: [Presentation.Stop], at index: Int) -> [Presentation.Stop] {
         guard stops.count > minimum, stops.indices.contains(index) else { return stops }
         var result = stops
         result.remove(at: index)
         return result
     }
 
-    /// Moves one stop to another slot, keeping the rest in order. `to` is the
-    /// slot the stop ends up in, counted in the finished list — which is what
-    /// both a drag and a "move left" mean, and it saves every caller the
-    /// off-by-one that the insert-after-remove spelling invites.
-    static func moved(_ stops: [Presentation.Color], from: Int, to: Int) -> [Presentation.Color] {
-        guard stops.indices.contains(from), stops.indices.contains(to), from != to else { return stops }
+    /// Moves one stop along the ramp. The list is re-sorted, so dragging a stop
+    /// past its neighbour reorders the gradient — there is nothing else to
+    /// reorder with.
+    ///
+    /// Returns the moved stop's new index alongside the list, because the
+    /// caller is holding a selection that has just been re-sorted under it.
+    static func moved(_ stops: [Presentation.Stop], at index: Int,
+                      to location: CGFloat) -> (stops: [Presentation.Stop], index: Int) {
+        guard stops.indices.contains(index) else { return (stops, index) }
+        var moved = stops
+        moved[index].location = clampedLocation(location)
+        let target = moved[index]
+        let result = sorted(moved)
+        // Same colour and same position can appear twice; take the first that
+        // is not another stop the caller already had in that spot.
+        let newIndex = result.firstIndex { $0 == target } ?? index
+        return (result, newIndex)
+    }
+
+    static func recolored(_ stops: [Presentation.Stop], at index: Int,
+                          to color: Presentation.Color) -> [Presentation.Stop] {
+        guard stops.indices.contains(index) else { return stops }
         var result = stops
-        let stop = result.remove(at: from)
-        result.insert(stop, at: to)
+        result[index].color = color
         return result
     }
 
-    /// Where the selection lands after the list changed under it: the same
-    /// stop if it survived, otherwise the nearest one that exists. A list is
-    /// never empty here, so this always names a real stop.
-    static func clampedSelection(_ index: Int, in stops: [Presentation.Color]) -> Int {
+    /// Where the selection lands after the list changed under it.
+    static func clampedSelection(_ index: Int, in stops: [Presentation.Stop]) -> Int {
         guard !stops.isEmpty else { return 0 }
         return min(max(0, index), stops.count - 1)
+    }
+
+    static func sorted(_ stops: [Presentation.Stop]) -> [Presentation.Stop] {
+        stops.sorted { $0.location < $1.location }
+    }
+
+    static func clampedLocation(_ location: CGFloat) -> CGFloat {
+        guard location.isFinite else { return 0 }
+        return min(1, max(0, location))
+    }
+
+    /// The colour the ramp shows at `location` — the same linear blend Core
+    /// Graphics draws between two stops, so a stop added on the bar lands in
+    /// the colour that was already under the pointer.
+    static func color(of stops: [Presentation.Stop], at location: CGFloat) -> Presentation.Color {
+        let ordered = sorted(stops)
+        guard let first = ordered.first, let last = ordered.last else { return .white }
+        let place = clampedLocation(location)
+        if place <= first.location { return first.color }
+        if place >= last.location { return last.color }
+        for (left, right) in zip(ordered, ordered.dropFirst()) where place <= right.location {
+            let span = right.location - left.location
+            guard span > 0 else { return right.color }
+            return blend(left.color, right.color, amount: (place - left.location) / span)
+        }
+        return last.color
     }
 
     static func blend(_ lhs: Presentation.Color,

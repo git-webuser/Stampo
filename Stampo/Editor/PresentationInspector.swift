@@ -251,7 +251,9 @@ struct PresentationInspector: View {
     /// lighter `linen` and `charcoal` now, and the palette keeps the originals.
     private static let backgroundPresets: [BackgroundPreset] = {
         func linear(_ id: String, _ a: Presentation.Color, _ b: Presentation.Color) -> BackgroundPreset {
-            BackgroundPreset(id: id, background: .linearGradient(stops: [a, b], angle: .pi / 2))
+            BackgroundPreset(id: id,
+                             background: .linearGradient(stops: Presentation.Stop.spread([a, b]),
+                                                         angle: .pi / 2))
         }
         return [
             BackgroundPreset(id: "paper", background: .solid(rgb(0.97, 0.97, 0.96))),
@@ -271,21 +273,21 @@ struct PresentationInspector: View {
             linear("lemon", rgb(0.99, 0.90, 0.55), rgb(0.96, 0.70, 0.25)),
             linear("lavender", rgb(0.86, 0.83, 0.99), rgb(0.55, 0.50, 0.85)),
             BackgroundPreset(id: "rose", background: .radialGradient(
-                stops: [rgb(0.98, 0.78, 0.83), rgb(0.85, 0.36, 0.53)])),
+                stops: Presentation.Stop.spread([rgb(0.98, 0.78, 0.83), rgb(0.85, 0.36, 0.53)]))),
             BackgroundPreset(id: "deep", background: .radialGradient(
-                stops: [rgb(0.31, 0.36, 0.62), rgb(0.06, 0.07, 0.14)])),
+                stops: Presentation.Stop.spread([rgb(0.31, 0.36, 0.62), rgb(0.06, 0.07, 0.14)]))),
             BackgroundPreset(id: "amberGlow", background: .radialGradient(
-                stops: [rgb(0.99, 0.85, 0.55), rgb(0.85, 0.45, 0.15)])),
+                stops: Presentation.Stop.spread([rgb(0.99, 0.85, 0.55), rgb(0.85, 0.45, 0.15)]))),
             BackgroundPreset(id: "mintGlow", background: .radialGradient(
-                stops: [rgb(0.80, 0.98, 0.90), rgb(0.15, 0.50, 0.45)])),
+                stops: Presentation.Stop.spread([rgb(0.80, 0.98, 0.90), rgb(0.15, 0.50, 0.45)]))),
             BackgroundPreset(id: "violetGlow", background: .radialGradient(
-                stops: [rgb(0.80, 0.70, 0.99), rgb(0.30, 0.15, 0.55)])),
+                stops: Presentation.Stop.spread([rgb(0.80, 0.70, 0.99), rgb(0.30, 0.15, 0.55)]))),
             BackgroundPreset(id: "steel", background: .radialGradient(
-                stops: [rgb(0.85, 0.88, 0.92), rgb(0.35, 0.40, 0.48)])),
+                stops: Presentation.Stop.spread([rgb(0.85, 0.88, 0.92), rgb(0.35, 0.40, 0.48)]))),
             BackgroundPreset(id: "ember", background: .radialGradient(
-                stops: [rgb(0.99, 0.72, 0.55), rgb(0.55, 0.12, 0.15)])),
+                stops: Presentation.Stop.spread([rgb(0.99, 0.72, 0.55), rgb(0.55, 0.12, 0.15)]))),
             BackgroundPreset(id: "ink", background: .radialGradient(
-                stops: [rgb(0.45, 0.50, 0.60), rgb(0.05, 0.05, 0.09)])),
+                stops: Presentation.Stop.spread([rgb(0.45, 0.50, 0.60), rgb(0.05, 0.05, 0.09)]))),
             BackgroundPreset(id: "warmMesh", background: .mesh(colors: [
                 rgb(0.99, 0.80, 0.55), rgb(0.97, 0.55, 0.44),
                 rgb(0.85, 0.36, 0.53), rgb(0.99, 0.88, 0.72)])),
@@ -438,7 +440,7 @@ struct PresentationInspector: View {
         case (.solid, _):
             background = .solid(base)
         case (.gradient, .radial):
-            background = .radialGradient(stops: [light, dark])
+            background = .radialGradient(stops: Presentation.Stop.spread([light, dark]))
         case (.gradient, .mesh):
             // Four near-identical quarters make a mesh that looks like a fill.
             // When the shot has no spread of its own, the corners are built
@@ -447,7 +449,7 @@ struct PresentationInspector: View {
                                ? colors
                                : Self.meshColors(from: base))
         default:
-            background = .linearGradient(stops: [light, dark], angle: .pi / 2)
+            background = .linearGradient(stops: Presentation.Stop.spread([light, dark]), angle: .pi / 2)
         }
         return BackgroundPreset(id: "fromImage", background: background)
     }
@@ -646,11 +648,11 @@ struct PresentationInspector: View {
         }
     }
 
-    private func previewStops(for kind: BackgroundKind) -> [Presentation.Color] {
+    private func previewStops(for kind: BackgroundKind) -> [Presentation.Stop] {
         if backgroundKind == kind, !draft.background.stops.isEmpty {
             return draft.background.stops
         }
-        return Self.defaultStops
+        return Presentation.Stop.spread(Self.defaultStops)
     }
 
     private static let defaultStops: [Presentation.Color] = [
@@ -658,124 +660,80 @@ struct PresentationInspector: View {
         Presentation.Color(red: 0.09, green: 0.13, blue: 0.36, alpha: 1)
     ]
 
-    /// Stops are the whole gradient UI, and each one is a thing you can point
-    /// at: click selects, clicking the selected stop opens the colour panel,
-    /// and every other control in the row acts on the selection.
+    /// The gradient's stops, on the ramp they belong to.
     ///
-    /// It used to act on the end of the list instead — "+" appended a darkened
-    /// copy of the last colour, "−" took the last one away, a palette tap
-    /// overwrote the last one, and order could not be changed at all. A middle
-    /// stop was therefore unreachable: the row showed three colours and let you
-    /// edit one. The list operations are in `GradientStops`, which is also
-    /// where the tests ask about them.
+    /// Three rewrites, each answering the last one's complaint. It began acting
+    /// on the end of the list whatever the user pointed at — "+" appended a
+    /// darkened copy of the last colour, "−" took the last one away, a palette
+    /// tap overwrote the last one, and order could not be changed at all. Then
+    /// the stops became selectable, which reached the middle ones but left
+    /// "order" as a separate idea to manipulate. Now they have positions, and
+    /// order is simply where they sit: `GradientStopsBar` drags them, a tap on
+    /// the ramp adds one where it landed, and the row below belongs to whichever
+    /// is selected.
     private var stopEditor: some View {
         let stops = currentStops
         let selection = GradientStops.clampedSelection(selectedStop, in: stops)
         return VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: Self.swatchGap) {
-                ForEach(Array(stops.enumerated()), id: \.offset) { index, color in
-                    stopChip(color, index: index, selected: index == selection, stops: stops)
-                }
-                Spacer(minLength: 0)
-                Button {
-                    setStops(GradientStops.inserted(into: stops, after: selection))
-                    selectedStop = selection + 1
-                } label: {
-                    Image(systemName: "plus")
-                }
-                .disabled(stops.count >= GradientStops.maximum)
-                .help("Add Stop")
-                .accessibilityLabel(Text("Add Stop"))
-                Button {
-                    removeStop(at: selection, in: stops)
-                } label: {
-                    Image(systemName: "minus")
-                }
-                .disabled(stops.count <= GradientStops.minimum)
-                .help("Remove Stop")
-                .accessibilityLabel(Text("Remove Stop"))
-            }
-            .controlSize(.large)
-
-            swatchRow(selected: stops.indices.contains(selection) ? stops[selection] : nil) {
+            GradientStopsBar(stops: stops,
+                             selection: Binding(get: { selection },
+                                                set: { selectedStop = $0 }),
+                             apply: { setStops($0) })
+            selectedStopRow(stops: stops, selection: selection)
+            swatchRow(selected: stops.indices.contains(selection)
+                      ? stops[selection].color : nil) {
                 setSelectedStopColor($0)
             }
         }
     }
 
-    /// One stop. Dragging it onto another one puts it there; the context menu
-    /// says the same thing in words, for a pointer that cannot hold a drag and
-    /// for anyone who does not think to try one.
-    private func stopChip(_ color: Presentation.Color,
-                          index: Int,
-                          selected: Bool,
-                          stops: [Presentation.Color]) -> some View {
-        Button {
-            // The second click on the same stop is the one that means "change
-            // this colour": the first has to be free to mean "this is the one
-            // I am talking about", or nothing else in the row has a subject.
-            if selected {
-                Self.openColorPanel(for: color) { picked in
-                    var updated = stops
-                    guard updated.indices.contains(index) else { return }
-                    updated[index] = picked
-                    setStops(updated)
-                }
-            } else {
-                selectedStop = index
+    /// What the selected stop is, and the two things you can do to it that the
+    /// ramp itself cannot show: name a colour exactly, and take the stop away.
+    /// "+" stays beside them because a bar you cannot click — a keyboard — still
+    /// needs a way to add one.
+    private func selectedStopRow(stops: [Presentation.Stop], selection: Int) -> some View {
+        let color = stops.indices.contains(selection) ? stops[selection].color : .white
+        return HStack(spacing: 8) {
+            ColorChip(color: color, diameter: Self.swatchSize) { picked in
+                setStops(GradientStops.recolored(stops, at: selection, to: picked))
             }
-        } label: {
-            Circle()
-                .fill(swiftUIColor(color))
-                .overlay(Circle().strokeBorder(.quaternary, lineWidth: 1))
-                .overlay {
-                    if selected {
-                        Circle().strokeBorder(Color.accentColor, lineWidth: 2)
-                            .padding(-3)
-                    }
-                }
-                .frame(width: Self.swatchSize, height: Self.swatchSize)
-        }
-        .buttonStyle(.plain)
-        .help(selected ? "Edit Stop Color" : "Stop")
-        .accessibilityLabel(Text("Stop"))
-        .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
-        .draggable(String(index)) {
-            Circle()
-                .fill(swiftUIColor(color))
-                .frame(width: Self.swatchSize, height: Self.swatchSize)
-        }
-        .dropDestination(for: String.self) { items, _ in
-            guard let from = items.first.flatMap(Int.init) else { return false }
-            setStops(GradientStops.moved(stops, from: from, to: index))
-            selectedStop = index
-            return true
-        }
-        .contextMenu {
-            MenuCommandButton("Move Left", icon: .moveLeft) {
-                moveStop(from: index, to: index - 1, in: stops)
+            .accessibilityLabel(Text("Stop"))
+            HexField(color: color) { picked in
+                setStops(GradientStops.recolored(stops, at: selection, to: picked))
             }
-            MenuCommandButton("Move Right", icon: .moveRight) {
-                moveStop(from: index, to: index + 1, in: stops)
+            Spacer(minLength: 0)
+            Button {
+                // Halfway to the next stop, or halfway to the end when the
+                // selected one is last: the same "add a handle where there is
+                // room" the ramp does under the pointer.
+                setStops(GradientStops.inserted(into: stops, at: nextGap(in: stops, after: selection)))
+                selectedStop = selection + 1
+            } label: {
+                Image(systemName: "plus")
             }
-            MenuCommandButton("Remove Stop", icon: .remove, role: .destructive) {
-                removeStop(at: index, in: stops)
+            .disabled(stops.count >= GradientStops.maximum)
+            .help("Add Stop")
+            .accessibilityLabel(Text("Add Stop"))
+            Button {
+                let remaining = GradientStops.removed(from: stops, at: selection)
+                guard remaining != stops else { return }
+                setStops(remaining)
+                selectedStop = GradientStops.clampedSelection(selection, in: remaining)
+            } label: {
+                Image(systemName: "minus")
             }
+            .disabled(stops.count <= GradientStops.minimum)
+            .help("Remove Stop")
+            .accessibilityLabel(Text("Remove Stop"))
         }
+        .controlSize(.large)
     }
 
-    private func moveStop(from: Int, to: Int, in stops: [Presentation.Color]) {
-        let moved = GradientStops.moved(stops, from: from, to: to)
-        guard moved != stops else { return }
-        setStops(moved)
-        selectedStop = to
-    }
-
-    private func removeStop(at index: Int, in stops: [Presentation.Color]) {
-        let remaining = GradientStops.removed(from: stops, at: index)
-        guard remaining != stops else { return }
-        setStops(remaining)
-        selectedStop = GradientStops.clampedSelection(index, in: remaining)
+    private func nextGap(in stops: [Presentation.Stop], after index: Int) -> CGFloat {
+        guard stops.indices.contains(index) else { return 0.5 }
+        let here = stops[index].location
+        let next = stops.indices.contains(index + 1) ? stops[index + 1].location : 1
+        return here + (next - here) / 2
     }
 
     private var swatchRowWidth: CGFloat {
@@ -925,7 +883,7 @@ struct PresentationInspector: View {
 
     private var meshCorners: [Presentation.Color] {
         if case .mesh(let colors) = draft.background, colors.count >= 4 { return colors }
-        return Self.meshCorners(from: draft.background.stops)
+        return Self.meshCorners(from: draft.background.colors)
     }
 
     /// Two stops spread over four corners: the ends keep their colours and the
@@ -1529,8 +1487,10 @@ struct PresentationInspector: View {
     }
 
     private func setBackgroundKind(_ kind: BackgroundKind) {
-        let carried = draft.background.stops
-        let stops = carried.count >= 2 ? carried : Self.defaultStops
+        let carried = draft.background.colors
+        let stops = draft.background.stops.count >= 2
+            ? draft.background.stops
+            : Presentation.Stop.spread(carried.count >= 2 ? carried : Self.defaultStops)
         let next: Presentation.Background
         switch kind {
         case .none:
@@ -1563,7 +1523,7 @@ struct PresentationInspector: View {
 
     private var meshSeedBinding: Binding<SwiftUI.Color> {
         Binding(
-            get: { swiftUIColor(draft.background.stops.first ?? Self.fallbackColor) },
+            get: { swiftUIColor(draft.background.colors.first ?? Self.fallbackColor) },
             set: { setMeshColor(presentationColor($0)) }
         )
     }
@@ -1591,7 +1551,10 @@ struct PresentationInspector: View {
                 case .mesh:
                     // The colours carry across: two stops become the two ends
                     // of a four-corner spread rather than being thrown away.
-                    presentation.background = .mesh(colors: Self.meshCorners(from: stops))
+                    // Their positions do not — a mesh's corners sit in a
+                    // square, and there is no line for them to sit along.
+                    presentation.background = .mesh(
+                        colors: Self.meshCorners(from: stops.map(\.color)))
                 }
             }
         })
@@ -1602,28 +1565,12 @@ struct PresentationInspector: View {
         return .pi / 2
     }
 
-    private var currentStops: [Presentation.Color] {
+    private var currentStops: [Presentation.Stop] {
         let stops = draft.background.stops
-        return stops.count >= 2 ? stops : Self.defaultStops
+        return stops.count >= 2 ? stops : Presentation.Stop.spread(Self.defaultStops)
     }
 
-    private func stopBinding(at index: Int) -> Binding<SwiftUI.Color> {
-        Binding(
-            get: {
-                let stops = currentStops
-                guard stops.indices.contains(index) else { return .clear }
-                return swiftUIColor(stops[index])
-            },
-            set: { newValue in
-                var stops = currentStops
-                guard stops.indices.contains(index) else { return }
-                stops[index] = presentationColor(newValue)
-                setStops(stops)
-            }
-        )
-    }
-
-    private func setStops(_ stops: [Presentation.Color]) {
+    private func setStops(_ stops: [Presentation.Stop]) {
         updateImmediately {
             switch $0.background {
             case .radialGradient:
@@ -1641,11 +1588,9 @@ struct PresentationInspector: View {
     /// picking colours for a gradient is otherwise a trip through the system
     /// colour panel for every stop.
     private func setSelectedStopColor(_ color: Presentation.Color) {
-        var stops = currentStops
+        let stops = currentStops
         let index = GradientStops.clampedSelection(selectedStop, in: stops)
-        guard stops.indices.contains(index) else { return }
-        stops[index] = color
-        setStops(stops)
+        setStops(GradientStops.recolored(stops, at: index, to: color))
     }
 
     private func setSolidColor(_ color: Presentation.Color) {
