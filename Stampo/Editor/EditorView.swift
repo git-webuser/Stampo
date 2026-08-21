@@ -324,9 +324,10 @@ struct EditorView: View {
                 thicknessSlider
                 arrowHeadSizeSlider
             default:
-                // Select tool with nothing selected: there is nothing to
-                // restyle, so the row offers a hint instead of orphaned
-                // controls.
+                // Select tool with nothing selected. Nothing to restyle — so
+                // the row belongs to the page, which is what is selected when
+                // nothing else is. Without a decoration there is no page to
+                // speak of either, and the row goes back to saying so.
                 // `cursorarrow.rays` (a pointer with selection rays) reads as
                 // "select", distinct from the arrow tool's plain arrow.
                 // pointer.arrow.rays would be closer but is macOS 26-only.
@@ -335,10 +336,14 @@ struct EditorView: View {
                 // in any one annotation's controls.
                 snapPicker
                 Divider().frame(height: 18)
-                Label("Select an annotation to edit its style",
-                      systemImage: "cursorarrow.rays")
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
+                if document.presentation != nil {
+                    CanvasRatioBar(document: document)
+                } else {
+                    Label("Select an annotation to edit its style",
+                          systemImage: "cursorarrow.rays")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                }
         }
     }
 

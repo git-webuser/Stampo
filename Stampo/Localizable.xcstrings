@@ -5245,23 +5245,6 @@
         }
       }
     },
-    "Rotate Canvas" : {
-      "comment" : "Swaps the canvas width and height",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Rotate Canvas"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Повернуть холст"
-          }
-        }
-      }
-    },
     "Rotate Left" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -6559,6 +6542,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Стиль"
+          }
+        }
+      }
+    },
+    "Swap Sides" : {
+      "comment" : "Editor toolbar — turns the page's ratio on its side (the picture's own rotate lives in the row above)",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Swap Sides"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Поменять стороны"
           }
         }
       }

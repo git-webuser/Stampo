@@ -239,15 +239,15 @@ import Testing
     }
 
     @Test func ratioLabelsReduceWhenAPersonWouldSayThem() {
-        #expect(PresentationInspector.ratioLabel(for: CGSize(width: 1600, height: 900)) == "16:9")
-        #expect(PresentationInspector.ratioLabel(for: CGSize(width: 1080, height: 1350)) == "4:5")
-        #expect(PresentationInspector.ratioLabel(for: CGSize(width: 1080, height: 1920)) == "9:16")
+        #expect(CanvasRatio.label(for: CGSize(width: 1600, height: 900)) == "16:9")
+        #expect(CanvasRatio.label(for: CGSize(width: 1080, height: 1350)) == "4:5")
+        #expect(CanvasRatio.label(for: CGSize(width: 1080, height: 1920)) == "9:16")
         // 1200×630 reduces only to 40:21, which nobody says out loud, so the
         // decimal form wins — this is the cutoff the 32-per-side cap draws.
-        #expect(PresentationInspector.ratioLabel(for: CGSize(width: 1200, height: 630)) == "1.90:1")
+        #expect(CanvasRatio.label(for: CGSize(width: 1200, height: 630)) == "1.90:1")
         // A screenshot size that reduces to nothing useful falls back to decimals.
-        #expect(PresentationInspector.ratioLabel(for: CGSize(width: 1237, height: 641)) == "1.93:1")
-        #expect(PresentationInspector.ratioLabel(for: CGSize(width: 0, height: 10)) == "—")
+        #expect(CanvasRatio.label(for: CGSize(width: 1237, height: 641)) == "1.93:1")
+        #expect(CanvasRatio.label(for: CGSize(width: 0, height: 10)) == "—")
     }
 
     // MARK: Gaps are measured, never stored

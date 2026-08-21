@@ -2506,6 +2506,108 @@ nonisolated struct RenderedArtifact: Sendable {
         commitChange()
     }
 
+    /// Puts the page into a ratio, as one undo step.
+    ///
+    /// The page is worked out from what is on screen — see `CanvasRatio.page` —
+    /// so the picture keeps the size it is drawn at and only gains air. A
+    /// format used to be a pixel size, which meant "Instagram 4:5" resampled a
+    /// retina screenshot down to 1080 wide before anyone reached the export.
+    func setCanvasRatio(_ ratio: CanvasRatio) {
+        guard let presentation else { return }
+        let layout = PresentationLayout.resolve(imagePixelSize: pixelSize, presentation)
+        let page = CanvasRatio.page(for: ratio, in: layout)
+        guard page.width > 0, page.height > 0 else { return }
+
+        var updated = presentation
+        updated.canvas = .preset(pixelSize: page)
+        updated.image = CanvasRatio.placement(keepingDrawnSizeOf: layout,
+                                              from: presentation.image,
+                                              imagePixelSize: pixelSize,
+                                              on: page)
+        // A transparent canvas is a deliberate choice, not a starting point:
+        // the first format a picture is given should show it on a real
+        // background. `.fitted` is the placement nobody has touched yet.
+        if presentation.image == .fitted, case .none = presentation.background {
+            updated.background = .solid(.white)
+        }
+        guard updated != presentation else { return }
+        beginChange()
+        self.presentation = updated
+        commitChange()
+    }
+
+    /// Sets one of the page's two numbers, as one undo step.
+    ///
+    /// Moved here from the inspector when the canvas controls went into the
+    /// toolbar's second row; the rule is unchanged. On an auto page the size is
+    /// still yours to set — the margins take up the difference and the picture
+    /// is left alone. On a fixed page it simply sets that page's size.
+    ///
+    /// The equality guard is not an optimisation. A field writes its parsed
+    /// value back as it appears, and without this the canvas changed the moment
+    /// the row was merely drawn — measured, not supposed.
+    func setCanvasDimension(_ dimension: CanvasDimension, to value: Int) {
+        guard let presentation else { return }
+        let safeValue = CGFloat(min(16384, max(1, value)))
+        let live = PresentationLayout.resolve(imagePixelSize: pixelSize, presentation).canvasSize
+        let current = dimension == .width ? live.width : live.height
+        guard safeValue != current.rounded() else { return }
+
+        var updated = presentation
+        if case .auto(var margins, let scale) = presentation.canvas {
+            let delta = safeValue - current
+            if dimension == .width {
+                let split = PresentationLayout.absorb(delta, into: margins.leading,
+                                                      and: margins.trailing)
+                margins.leading = split.near
+                margins.trailing = split.far
+            } else {
+                let split = PresentationLayout.absorb(delta, into: margins.top,
+                                                      and: margins.bottom)
+                margins.top = split.near
+                margins.bottom = split.far
+            }
+            updated.canvas = .auto(margins: margins, scale: scale)
+        } else {
+            var size = live
+            if dimension == .width { size.width = safeValue } else { size.height = safeValue }
+            updated.canvas = .preset(pixelSize: size)
+        }
+        guard updated != presentation else { return }
+        beginChange()
+        self.presentation = updated
+        commitChange()
+    }
+
+    /// Hands the page back to its margins, as one undo step.
+    ///
+    /// Auto takes over exactly what is on screen — the margins *and* the size
+    /// the picture was left at — so nothing moves when the format is dropped;
+    /// ⌘Z is what goes back to the page before it. Rewinding to whatever Auto
+    /// held earlier would move the picture under the cursor for no reason the
+    /// user could see.
+    func setAutoPage() {
+        guard let presentation, case .preset = presentation.canvas else { return }
+        let layout = PresentationLayout.resolve(imagePixelSize: pixelSize, presentation)
+        let gaps = PresentationLayout.gaps(layout)
+        let image = pixelSize
+        guard image.width > 0, layout.imageRect.width > 0 else { return }
+
+        var updated = presentation
+        updated.canvas = .auto(
+            margins: Presentation.Margins(top: gaps.top.rounded(),
+                                          leading: gaps.leading.rounded(),
+                                          bottom: gaps.bottom.rounded(),
+                                          trailing: gaps.trailing.rounded()),
+            scale: layout.imageRect.width / image.width
+        )
+        updated.image = .fitted
+        guard updated != presentation else { return }
+        beginChange()
+        self.presentation = updated
+        commitChange()
+    }
+
     /// Moves the picture on its canvas by a delta in canvas pixels — the same
     /// gesture as dragging an annotation, applied to the one object that is not
     /// one.

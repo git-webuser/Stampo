@@ -50,7 +50,7 @@ struct PresentationInspector: View {
     @State private var selectedStop = 0
 
     private enum Section: Hashable, CaseIterable {
-        case canvas, background, image, shadow
+        case background, image, shadow
 
         /// Kept on the case (and exposed through `sectionSystemImages`) so the
         /// SF Symbol availability test can reach these names.
@@ -59,7 +59,6 @@ struct PresentationInspector: View {
             // Each one its own: the decor button already owns
             // `rectangle.center.inset.filled`, and a section repeating it made
             // the panel look like it was labelled twice.
-            case .canvas:     return "rectangle.dashed"
             case .background: return "paintpalette"
             case .image:      return "photo"
             case .shadow:     return "square.filled.on.square"
@@ -72,44 +71,6 @@ struct PresentationInspector: View {
     }
 
     // MARK: Canvas formats
-
-    /// Formats are listed in one orientation only. Portrait versions are the
-    /// same format turned, which is what the rotate button is for — a separate
-    /// "9:16" tile beside "16:9" would be the same choice twice.
-    /// The formats, and — last — the page that has no fixed format at all.
-    ///
-    /// "Custom" is not here: a size you typed is not a format, it is what the
-    /// width and height fields already say. `auto` is, because it is a real
-    /// choice of page — one whose size follows the margins instead of dictating
-    /// them, which is why its tile shows the size it currently works out to.
-    private enum CanvasChoice: String, CaseIterable, Hashable, Identifiable {
-        case square, threeFour, instagram, twitter, openGraph, auto
-
-        var id: String { rawValue }
-
-        var titleKey: LocalizedStringKey {
-            switch self {
-            case .square:    return "Square"
-            case .threeFour: return "Classic 3:4"
-            case .instagram: return "Instagram 4:5"
-            case .twitter:   return "Twitter / X"
-            case .openGraph: return "Open Graph"
-            case .auto:      return "Auto"
-            }
-        }
-
-        /// nil for `auto`, whose size is worked out rather than chosen.
-        var pixelSize: CGSize? {
-            switch self {
-            case .square:    return CGSize(width: 1080, height: 1080)
-            case .threeFour: return CGSize(width: 1080, height: 1440)
-            case .instagram: return CGSize(width: 1080, height: 1350)
-            case .twitter:   return CGSize(width: 1600, height: 900)
-            case .openGraph: return CGSize(width: 1200, height: 630)
-            case .auto:      return nil
-            }
-        }
-    }
 
     /// Linear and radial are one background with a shape switch, not two
     /// entries in the list — the stops, the palette and the whole editor below
@@ -145,194 +106,6 @@ struct PresentationInspector: View {
             case .radial: return "Radial"
             case .mesh:   return "Mesh"
             }
-        }
-    }
-
-    private enum CanvasDimension {
-        case width, height
-    }
-
-    /// A number field whose value lives in the *placeholder*, so the editable
-    /// text is always empty and typing starts a fresh number.
-    ///
-    /// Three attempts at selecting the text on click failed for the same
-    /// reason: `mouseDown` runs its own tracking loop and sets the selection
-    /// when the button comes back up, after anything the app chose. Rather than
-    /// race that, there is simply nothing to select — the number is drawn as a
-    /// placeholder in the ordinary label colour, so it reads as a value while
-    /// behaving like an empty field. Confirming a number puts it back into the
-    /// placeholder and empties the text again.
-    private struct NumberField: NSViewRepresentable {
-        @Binding var value: Double
-        var alignment: NSTextAlignment = .right
-        var onCommit: (Double) -> Void
-
-        final class Field: NSTextField {
-            /// The number goes the moment editing starts. Overridden on the
-            /// field rather than handled through the delegate: this is the
-            /// control's own hook and it fires whether or not anything else is
-            /// listening — the delegate route left the placeholder standing.
-            /// The number is ordinary text, and taking the keyboard empties it:
-            /// the field editor is installed *after* this, so it starts on an
-            /// empty string and the first keystroke begins a new number. No
-            /// placeholder is involved — a placeholder that survives the click
-            /// looks like text you could edit, and it is not.
-            override func becomeFirstResponder() -> Bool {
-                let accepted = super.becomeFirstResponder()
-                if accepted {
-                    stringValue = ""
-                    watchForClicksOutside()
-                }
-                return accepted
-            }
-
-            /// Editing is over however it ended — Return, Escape, a click
-            /// elsewhere — so this is where the watch stops.
-            override func textDidEndEditing(_ notification: Notification) {
-                super.textDidEndEditing(notification)
-                stopWatchingForClicksOutside()
-            }
-
-            private var clicksOutside: Any?
-
-            /// A click beside the field used to leave it editing: almost
-            /// nothing in a SwiftUI panel takes the keyboard when clicked, so
-            /// nobody took it away from the field and the number stayed
-            /// uncommitted with the field still empty. Watching the window's
-            /// own clicks is the only place that sees all of them — sliders,
-            /// tiles, plain labels and the panel's background alike.
-            private func watchForClicksOutside() {
-                guard clicksOutside == nil else { return }
-                clicksOutside = NSEvent.addLocalMonitorForEvents(
-                    matching: [.leftMouseDown, .rightMouseDown]
-                ) { [weak self] event in
-                    // The event is returned untouched: this ends the editing
-                    // session, it does not swallow the click that ended it.
-                    guard let self, let window = self.window, event.window === window
-                    else { return event }
-                    let point = self.convert(event.locationInWindow, from: nil)
-                    if !self.bounds.contains(point) { window.makeFirstResponder(nil) }
-                    return event
-                }
-            }
-
-            private func stopWatchingForClicksOutside() {
-                if let clicksOutside { NSEvent.removeMonitor(clicksOutside) }
-                clicksOutside = nil
-            }
-
-            func show(_ number: Double) {
-                stringValue = Self.formatter.string(from: NSNumber(value: number))
-                    ?? String(Int(number))
-            }
-
-            static let formatter: NumberFormatter = {
-                let formatter = NumberFormatter()
-                formatter.numberStyle = .none
-                formatter.usesGroupingSeparator = false
-                formatter.maximumFractionDigits = 0
-                return formatter
-            }()
-        }
-
-        final class Coordinator: NSObject, NSTextFieldDelegate {
-            var onCommit: (Double) -> Void = { _ in }
-            var current: Double = 0
-
-            /// An empty field means "unchanged": clicking in clears the number,
-            /// and leaving without typing must not rewrite it.
-            private func commit(_ field: NSTextField) {
-                let typed = field.stringValue
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                if !typed.isEmpty, let value = Double(typed) { onCommit(value) }
-                repaint(field)
-            }
-
-            /// The field goes back to showing the model — one runloop hop later.
-            ///
-            /// `current` is written by `updateNSView`, which runs *after* the
-            /// commit has travelled through the document and back. Drawing it
-            /// inline therefore drew the number from before the edit: that is
-            /// what made Return look like it threw the typed value away, even
-            /// though the model had taken it.
-            private func repaint(_ field: NSTextField) {
-                DispatchQueue.main.async { [weak self, weak field] in
-                    guard let self, let field = field as? Field else { return }
-                    // Not if the keyboard came back in the meantime — the field
-                    // is then showing something the user is in the middle of.
-                    guard field.currentEditor() == nil,
-                          field.window?.firstResponder !== field else { return }
-                    field.show(self.current)
-                }
-            }
-
-            /// Return.
-            @objc func changed(_ sender: NSTextField) {
-                commit(sender)
-                // Give the keyboard back, so the value on screen is the model's
-                // again and the next click starts a fresh number.
-                sender.window?.makeFirstResponder(nil)
-            }
-
-            func controlTextDidEndEditing(_ notification: Notification) {
-                guard let field = notification.object as? NSTextField else { return }
-                commit(field)
-            }
-
-            /// Escape: leave without changing anything.
-            ///
-            /// The field is empty from the moment it takes the keyboard, so
-            /// AppKit's own abort has nothing to put back — the number is
-            /// redrawn from the model here instead. Nothing is committed on
-            /// this path, which is the whole point of Escape.
-            func control(_ control: NSControl, textView: NSTextView,
-                         doCommandBy selector: Selector) -> Bool {
-                guard selector == #selector(NSResponder.cancelOperation(_:)) else { return false }
-                let value = current
-                // Not inside the command: tearing the field editor down while
-                // it is dispatching its own command is how AppKit ends up
-                // waiting on itself.
-                DispatchQueue.main.async { [weak control] in
-                    guard let field = control as? Field else { return }
-                    field.abortEditing()
-                    field.show(value)
-                    field.window?.makeFirstResponder(nil)
-                }
-                return true
-            }
-        }
-
-        func makeCoordinator() -> Coordinator { Coordinator() }
-
-        func makeNSView(context: Context) -> Field {
-            let field = Field()
-            // `isBezeled`, not `isBordered`: a plain border draws the square box
-            // that replaced the panel's rounded fields.
-            field.isBezeled = true
-            field.bezelStyle = .roundedBezel
-            field.focusRingType = .default
-            field.alignment = alignment
-            // Match the rest of the panel's controls, which are all large.
-            field.controlSize = .large
-            field.font = .monospacedDigitSystemFont(
-                ofSize: NSFont.systemFontSize(for: .large), weight: .regular
-            )
-            field.setContentHuggingPriority(.defaultLow, for: .horizontal)
-            field.delegate = context.coordinator
-            field.target = context.coordinator
-            field.action = #selector(Coordinator.changed(_:))
-            return field
-        }
-
-        func updateNSView(_ field: Field, context: Context) {
-            context.coordinator.onCommit = onCommit
-            context.coordinator.current = value
-            field.alignment = alignment
-            // Never disturb a field that has the keyboard — including the
-            // moment after the click when its editor is not installed yet.
-            guard field.currentEditor() == nil,
-                  field.window?.firstResponder !== field else { return }
-            field.show(value)
         }
     }
 
@@ -571,7 +344,6 @@ struct PresentationInspector: View {
         ScrollView {
             VStack(alignment: .leading, spacing: Self.sectionSpacing) {
                 header
-                canvasSection
                 backgroundSection
                 imageSection
                 shadowSection
@@ -594,127 +366,6 @@ struct PresentationInspector: View {
                 .foregroundStyle(.secondary)
         }
         .accessibilityElement(children: .combine)
-    }
-
-    // MARK: Canvas
-
-    private var canvasSection: some View {
-        inspectorGroup("Canvas", section: .canvas) {
-            tileGrid(CanvasChoice.allCases, selected: canvasChoice) { choice in
-                canvasTile(choice)
-            } action: { choice in
-                selectCanvas(choice)
-            }
-
-            // The size fields show the page the document actually has, and
-            // typing in them sets it.
-            HStack(spacing: 8) {
-                // The fields give width back when the panel is narrow; the ×
-                // between them never does. Fixed-width fields squeezed it out
-                // of the row entirely at the panel's minimum width.
-                NumberField(value: .constant(Double(canvasSize.width.rounded()))) { typed in
-                    setCustomDimension(.width, to: Int(typed))
-                }
-                .frame(minWidth: 56, maxWidth: Self.numberFieldWidth)
-                Text(verbatim: "×").foregroundStyle(.secondary).fixedSize()
-                NumberField(value: .constant(Double(canvasSize.height.rounded()))) { typed in
-                    setCustomDimension(.height, to: Int(typed))
-                }
-                .frame(minWidth: 56, maxWidth: Self.numberFieldWidth)
-                Spacer(minLength: 0)
-                // Gone rather than greyed on an auto page. Rotating means
-                // turning a format on its side, and an auto page has no format
-                // to turn — its size follows the picture and the margins. A
-                // permanently dead button in the row says "broken" where the
-                // absence says "not a thing here".
-                if !marginsAreFree {
-                    sectionActionButton("rotate.right", label: "Rotate Canvas") {
-                        rotateCanvas()
-                    }
-                }
-            }
-            .controlSize(.large)
-            .font(.system(size: 13))
-        }
-    }
-
-    /// A proportional plate plus the format's own pixel size: the two things a
-    /// name alone cannot tell you.
-    ///
-    /// Custom shows no numbers. Its size is whatever the fields below say, so
-    /// printing it here only repeats them — and while a preset is active it
-    /// repeats *that* preset, which reads as two tiles claiming the same size.
-    private func canvasTile(_ choice: CanvasChoice) -> some View {
-        let size = tileSize(for: choice)
-        let ratio = size.height > 0 ? size.width / size.height : 1
-        return VStack(spacing: 5) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 3)
-                    .fill(.quaternary)
-                    .overlay(RoundedRectangle(cornerRadius: 3)
-                        .strokeBorder(.tertiary, lineWidth: 1))
-                    .overlay {
-                        // A bare grey plate says nothing a name does not; the
-                        // ratio is the one fact the plate's silhouette only
-                        // hints at. Custom has no ratio to promise — it is
-                        // whatever the fields below say — so it shows a mark.
-                        Text(verbatim: choice.pixelSize == nil
-                             ? "—"
-                             : Self.ratioLabel(for: size))
-                            .font(.system(size: 11, weight: .medium, design: .rounded))
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.7)
-                            .padding(.horizontal, 2)
-                    }
-                    .aspectRatio(max(0.3, min(3, ratio)), contentMode: .fit)
-            }
-            .frame(height: 34)
-            // Two lines rather than one: at the inspector's minimum width a
-            // long localized name ("Классический 3:4") no longer fits on one
-            // line at a readable size, and a wrapped name beats a truncated
-            // one — "Классический…" names nothing.
-            Text(choice.titleKey)
-                .font(.system(size: 11))
-                .multilineTextAlignment(.center)
-                .lineLimit(2)
-                .minimumScaleFactor(0.85)
-            // `verbatim` on purpose: a localized interpolation groups the
-            // digits, and "1 080×1 350" is not how anyone writes a pixel size.
-            // Custom says nothing here: its numbers are the fields below, and
-            // printing them twice is what made the tile look like a duplicate.
-            Text(verbatim: "\(Int(size.width.rounded()))×\(Int(size.height.rounded()))")
-                .font(.system(size: 11, design: .monospaced))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
-        }
-    }
-
-    /// A selected format follows the canvas's current orientation; the others
-    /// stay in their canonical one, so the row does not spin as you rotate.
-    private func tileSize(for choice: CanvasChoice) -> CGSize {
-        guard let preset = choice.pixelSize else { return resolvedLayout.canvasSize }
-        guard canvasChoice == choice, canvasIsPortrait != (preset.height > preset.width)
-        else { return preset }
-        return CGSize(width: preset.height, height: preset.width)
-    }
-
-    /// "16:9" when the sides reduce to something a person would say, otherwise
-    /// a decimal like "1.91:1". Reducing 1600×900 to 16:9 is the point; showing
-    /// "1080:1350" instead of "4:5" would be worse than showing nothing.
-    static func ratioLabel(for size: CGSize) -> String {
-        let w = Int(size.width.rounded()), h = Int(size.height.rounded())
-        guard w > 0, h > 0 else { return "—" }
-        var a = w, b = h
-        while b != 0 { (a, b) = (b, a % b) }
-        let divisor = max(1, a)
-        let rw = w / divisor, rh = h / divisor
-        if rw <= 32 && rh <= 32 { return "\(rw):\(rh)" }
-        let ratio = CGFloat(w) / CGFloat(h)
-        return ratio >= 1
-            ? String(format: "%.2f:1", Double(ratio))
-            : String(format: "1:%.2f", Double(1 / ratio))
     }
 
     // MARK: Background
@@ -1438,52 +1089,6 @@ struct PresentationInspector: View {
         updateImmediately { $0.image = placement }
     }
 
-    /// The one switch that says which of the two numbers is the input.
-    ///
-    /// On: the margins are, and the page size follows them — so all four can be
-    /// whatever you ask, 50 all round included. Off: the page size is, and the
-    /// margins follow it, which on a locked aspect ratio means they cannot all
-    /// be set independently. Flipping it never moves the picture: the state it
-    /// leaves behind is the one you were already looking at.
-    private func setFreeMargins(_ free: Bool) {
-        let layout = resolvedLayout
-        guard free != marginsAreFree else { return }
-        if free {
-            // Auto takes over exactly what is on screen — the margins *and* the
-            // size the picture was left at. Going 1:1, resizing, then back to
-            // Auto must not rewind to whatever Auto held before.
-            let gaps = PresentationLayout.gaps(layout)
-            let margins = Presentation.Margins(top: gaps.top.rounded(),
-                                               leading: gaps.leading.rounded(),
-                                               bottom: gaps.bottom.rounded(),
-                                               trailing: gaps.trailing.rounded())
-            let image = document.pixelSize
-            let scale = image.width > 0 ? layout.imageRect.width / image.width : 1
-            updateImmediately {
-                $0.canvas = .auto(margins: margins, scale: scale)
-                $0.image = .fitted
-            }
-            return
-        }
-        // Freezing the page: keep its current size, and describe the picture's
-        // present rectangle as a placement inside it.
-        let canvas = layout.canvasSize
-        let image = document.pixelSize
-        guard canvas.width > 0, canvas.height > 0, image.width > 0, image.height > 0,
-              layout.imageRect.width > 0 else { return }
-        let fit = min(canvas.width / image.width, canvas.height / image.height)
-        guard fit > 0 else { return }
-        let placement = Presentation.ImagePlacement(
-            center: CGPoint(x: layout.imageRect.midX / canvas.width,
-                            y: layout.imageRect.midY / canvas.height),
-            scale: layout.imageRect.width / (image.width * fit)
-        )
-        updateImmediately {
-            $0.canvas = .preset(pixelSize: canvas)
-            $0.image = placement
-        }
-    }
-
     private var marginsAreFree: Bool {
         if case .auto = draft.canvas { return true }
         return false
@@ -1862,18 +1467,6 @@ struct PresentationInspector: View {
     /// Which format the page currently is — nil when it is a size of your own,
     /// or when the margins are free and there is no fixed size at all. Nothing
     /// is highlighted then, which is the truth.
-    private var canvasChoice: CanvasChoice? {
-        guard case .preset(let pixelSize) = draft.canvas else { return .auto }
-        let turned = CGSize(width: pixelSize.height, height: pixelSize.width)
-        // Either orientation counts: rotating a format does not turn it into a
-        // different one. Nothing matches a size you typed — nothing is
-        // highlighted then, which is the truth.
-        return CanvasChoice.allCases.first {
-            guard let preset = $0.pixelSize else { return false }
-            return preset == pixelSize || preset == turned
-        }
-    }
-
     /// A transparent shadow is a shadow that is not there — the section needs no
     /// separate switch to say so.
     var shadowIsVisible: Bool { draft.shadow.opacity > 0 }
@@ -1919,106 +1512,8 @@ struct PresentationInspector: View {
     }
 
     /// Turns the canvas a quarter, keeping the same format selected.
-    private func rotateCanvas() {
-        let size = canvasSize
-        let turned = CGSize(width: size.height, height: size.width)
-        updateImmediately { $0.canvas = .preset(pixelSize: turned) }
-    }
-
-    private var canvasIsPortrait: Bool {
-        canvasSize.height > canvasSize.width
-    }
-
-    /// Custom keeps whatever size is on screen and simply hands it over to the
-    /// user — it is a mode, not a different number, so it stays selectable even
-    /// when the current size happens to match a preset exactly.
-    /// Choosing a format fixes the page, so free margins switch off with it —
-    /// otherwise the format would mean nothing, the size being derived from the
-    /// margins anyway.
-    private func selectCanvas(_ choice: CanvasChoice) {
-        guard let presetSize = choice.pixelSize else {
-            setFreeMargins(true)
-            return
-        }
-        let canvas: Presentation.Canvas = .preset(pixelSize: presetSize)
-        // Leaving "Original" for a real format is the moment a decoration
-        // starts, so it starts framed rather than edge to edge. Only then:
-        // a padding the user has since chosen (zero included) is theirs.
-        let framesForTheFirstTime = draft.image == .fitted
-        let framed = PresentationLayout.placement(
-            framingWith: Presentation.defaultMargin,
-            imagePixelSize: document.pixelSize,
-            canvasSize: {
-                if case .preset(let size) = canvas { return size }
-                return document.pixelSize
-            }()
-        )
-        updateImmediately {
-            $0.canvas = canvas
-            if framesForTheFirstTime {
-                $0.image = framed
-                // A transparent canvas is a deliberate choice, not a starting
-                // point: the first thing a format should show is a framed shot
-                // on a real background.
-                if case .none = $0.background { $0.background = .solid(.white) }
-            }
-        }
-    }
-
     private var canvasSize: CGSize {
         resolvedLayout.canvasSize
-    }
-
-    /// Shows the size the page *is* — an auto page grows with its margins, and
-    /// a field that kept showing the last custom number instead would be the
-    /// same kind of lie the margins used to tell. Typing is what makes it
-    /// custom.
-    private func customDimensionBinding(_ dimension: CanvasDimension) -> Binding<Int> {
-        Binding(
-            get: {
-                let live = canvasSize
-                let value = dimension == .width ? live.width : live.height
-                return max(1, Int(value.rounded()))
-            },
-            set: { setCustomDimension(dimension, to: $0) }
-        )
-    }
-
-    /// Typing a size is itself the act of going custom, so the fields select
-    /// the Custom tile instead of quietly rewriting the preset that is active.
-    ///
-    /// The equality guard is not an optimisation. A `TextField(value:format:)`
-    /// writes its parsed value back as the field appears, and without this the
-    /// canvas jumped to Custom the moment the inspector was merely opened —
-    /// measured, not supposed. Opening the panel must change nothing.
-    private func setCustomDimension(_ dimension: CanvasDimension, to value: Int) {
-        let safeValue = CGFloat(min(16384, max(1, value)))
-        let live = canvasSize
-        let current = dimension == .width ? live.width : live.height
-        guard safeValue != current.rounded() else { return }
-        // On an auto page the size is still yours to set — the margins take up
-        // the difference and the picture is left alone. Typing a size on a
-        // fixed page simply sets that page's size.
-        if case .auto(var margins, let scale) = draft.canvas {
-            let delta = safeValue - current
-            if dimension == .width {
-                let split = PresentationLayout.absorb(delta, into: margins.leading,
-                                                      and: margins.trailing)
-                margins.leading = split.near
-                margins.trailing = split.far
-            } else {
-                let split = PresentationLayout.absorb(delta, into: margins.top,
-                                                      and: margins.bottom)
-                margins.top = split.near
-                margins.bottom = split.far
-            }
-            updateImmediately { $0.canvas = .auto(margins: margins, scale: scale) }
-            return
-        }
-        var size = live
-        if dimension == .width { size.width = safeValue }
-        else { size.height = safeValue }
-        updateImmediately { $0.canvas = .preset(pixelSize: size) }
     }
 
     // MARK: Background state

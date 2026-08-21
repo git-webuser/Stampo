@@ -148,7 +148,10 @@ import Testing
             return
         }
 
-        #expect(field.stringValue == "440")   // 400 wide picture + 20 either side
+        // The first editable number in the panel is the top margin: the page's
+        // own size moved to the toolbar's second row with the rest of the
+        // canvas controls.
+        #expect(field.stringValue == "20")
 
         // A real mouse-down/up pair: the click is where the problem lived.
         let point = field.convert(CGPoint(x: field.bounds.midX, y: field.bounds.midY), to: nil)
