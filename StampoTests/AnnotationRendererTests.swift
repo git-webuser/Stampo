@@ -299,6 +299,40 @@ enum TestImages {
         #expect(greenAt(50, evenly) > greenAt(15, evenly))
     }
 
+    /// Which mesh colour lands in which corner — measured, because the handles
+    /// on the plate are placed by `MeshCorner` and would sit on the wrong
+    /// colours if this ever turned over. It is not obvious from the renderer:
+    /// `drawMesh` calls its first pair "top", and the presentation space is
+    /// flipped, so index 0 comes out at the bottom.
+    @Test func meshCornersAreWhereTheHandlesSay() {
+        let base = solidImage(width: 4, height: 4, red: 1, green: 1, blue: 1)
+        let red = Presentation.Color(red: 1, green: 0, blue: 0, alpha: 1)
+        let green = Presentation.Color(red: 0, green: 1, blue: 0, alpha: 1)
+        let blue = Presentation.Color(red: 0, green: 0, blue: 1, alpha: 1)
+        let yellow = Presentation.Color(red: 1, green: 1, blue: 0, alpha: 1)
+        let presentation = Presentation(
+            canvas: .preset(pixelSize: CGSize(width: 100, height: 100)),
+            background: .mesh(colors: [red, green, blue, yellow]),
+            image: .init(center: CGPoint(x: 0.5, y: 0.5), scale: 0.04)
+        )
+
+        let rep = AnnotationRenderer.renderBitmap(
+            base: base, annotations: [], presentation: presentation)
+
+        // Bitmap rows count from the top.
+        #expect((rep?.colorAt(x: 2, y: 2)?.blueComponent ?? 0) > 0.9)      // 2: top-left
+        #expect((rep?.colorAt(x: 97, y: 2)?.redComponent ?? 0) > 0.9)      // 3: top-right
+        #expect((rep?.colorAt(x: 97, y: 2)?.greenComponent ?? 0) > 0.9)
+        #expect((rep?.colorAt(x: 2, y: 97)?.redComponent ?? 0) > 0.9)      // 0: bottom-left
+        #expect((rep?.colorAt(x: 2, y: 97)?.blueComponent ?? 1) < 0.1)
+        #expect((rep?.colorAt(x: 97, y: 97)?.greenComponent ?? 0) > 0.9)   // 1: bottom-right
+
+        #expect(MeshCorner.topLeading.rawValue == 2)
+        #expect(MeshCorner.topTrailing.rawValue == 3)
+        #expect(MeshCorner.bottomLeading.rawValue == 0)
+        #expect(MeshCorner.bottomTrailing.rawValue == 1)
+    }
+
     /// The reported bug: `drawLinearGradient` paints the whole clip region, not
     /// the rect it is given, so in the live preview a gradient flooded well past
     /// the canvas it belonged to.

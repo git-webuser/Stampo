@@ -43,6 +43,9 @@ struct PresentationInspector: View {
     /// Whether a number typed into one margin goes to all four. A way of
     /// typing, not a property of the document — see `marginLinkButton`.
     @State private var marginsLinked = false
+    /// Which mesh corner the row below the plate acts on. Four corners, so no
+    /// clamping machinery — just a number between 0 and 3.
+    @State private var selectedCorner = 0
     /// Which gradient stop the row's controls act on. Held loosely: the list
     /// changes under it (a stop is added, removed, dragged elsewhere), so every
     /// read goes through `GradientStops.clampedSelection` rather than trusting
@@ -691,17 +694,30 @@ struct PresentationInspector: View {
     /// ramp itself cannot show: name a colour exactly, and take the stop away.
     /// "+" stays beside them because a bar you cannot click — a keyboard — still
     /// needs a way to add one.
+    /// What the selected colour is, and the two things the plate or the ramp
+    /// cannot show: name it exactly, and hand it to the system panel. Whatever
+    /// else the surface offers — adding and removing stops, and nothing at all
+    /// for a mesh's fixed four — rides along on the right.
+    private func selectedColorRow<Trailing: View>(
+        color: Presentation.Color,
+        onPick: @escaping (Presentation.Color) -> Void,
+        @ViewBuilder trailing: () -> Trailing = { EmptyView() }
+    ) -> some View {
+        HStack(spacing: 8) {
+            ColorChip(color: color, diameter: Self.swatchSize) { onPick($0) }
+                .accessibilityLabel(Text("Color"))
+            HexField(color: color) { onPick($0) }
+            Spacer(minLength: 0)
+            trailing()
+        }
+        .controlSize(.large)
+    }
+
     private func selectedStopRow(stops: [Presentation.Stop], selection: Int) -> some View {
         let color = stops.indices.contains(selection) ? stops[selection].color : .white
-        return HStack(spacing: 8) {
-            ColorChip(color: color, diameter: Self.swatchSize) { picked in
-                setStops(GradientStops.recolored(stops, at: selection, to: picked))
-            }
-            .accessibilityLabel(Text("Stop"))
-            HexField(color: color) { picked in
-                setStops(GradientStops.recolored(stops, at: selection, to: picked))
-            }
-            Spacer(minLength: 0)
+        return selectedColorRow(color: color) { picked in
+            setStops(GradientStops.recolored(stops, at: selection, to: picked))
+        } trailing: {
             Button {
                 // Halfway to the next stop, or halfway to the end when the
                 // selected one is last: the same "add a handle where there is
@@ -858,27 +874,38 @@ struct PresentationInspector: View {
     }
 
 
-    /// A mesh is four corner colours, and now the panel says so. It used to
-    /// offer a single seed that the app spread into four by mixing with white
-    /// and black — which is why choosing one felt like guessing what would come
-    /// out the other end.
+    /// A mesh is four corner colours, and now the panel shows them where they
+    /// are. It began as a single seed the app spread into four by mixing with
+    /// white and black — choosing one felt like guessing what would come out
+    /// the other end — and then as a bare row of four chips, which said the
+    /// colours but not which corner each belonged to, so nothing else in the
+    /// panel could act on "the one you mean". A corner cannot move, so there is
+    /// no dragging and nothing to add or remove; everything else is the stop
+    /// bar's language.
     private var meshCornerEditor: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Corners")
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-            HStack(spacing: Self.swatchGap) {
-                ForEach(0..<4, id: \.self) { index in
-                    ColorChip(color: meshCorners[index], diameter: Self.swatchSize) { picked in
-                        var colors = meshCorners
-                        colors[index] = picked
-                        updateImmediately { $0.background = .mesh(colors: colors) }
-                    }
-                    .accessibilityLabel(Text("Corners"))
-                }
-                Spacer(minLength: 0)
+        let corners = meshCorners
+        let selection = min(max(0, selectedCorner), 3)
+        return VStack(alignment: .leading, spacing: 8) {
+            MeshCornersPlate(colors: corners,
+                             selection: Binding(get: { selection },
+                                                set: { selectedCorner = $0 }),
+                             apply: { setMeshColors($0) })
+            selectedColorRow(color: corners[selection]) { picked in
+                setMeshCorner(picked, at: selection)
             }
+            swatchRow(selected: corners[selection]) { setMeshCorner($0, at: selection) }
         }
+    }
+
+    private func setMeshColors(_ colors: [Presentation.Color]) {
+        updateImmediately { $0.background = .mesh(colors: colors) }
+    }
+
+    private func setMeshCorner(_ color: Presentation.Color, at index: Int) {
+        var colors = meshCorners
+        guard colors.indices.contains(index) else { return }
+        colors[index] = color
+        setMeshColors(colors)
     }
 
     private var meshCorners: [Presentation.Color] {
