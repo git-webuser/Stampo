@@ -18,7 +18,7 @@ nonisolated enum EffectStack {
 
     /// Which of the four stored numbers a kind uses.
     enum Parameter: String, Hashable, Sendable {
-        case amount, scale, angle, color, detail
+        case amount, scale, angle, color, detail, aberration, glyphs
     }
 
     /// A parameter as the panel needs it: what to call it, what to draw beside
@@ -85,10 +85,12 @@ nonisolated enum EffectStack {
                      seed: UInt32 = .random(in: 0...UInt32.max)) -> Effect {
         let ink = background.contrastingInk
         func effect(amount: CGFloat, scale: CGFloat, angle: CGFloat = 0,
-                    color: Presentation.Color = .black, detail: CGFloat = 0) -> Effect {
+                    color: Presentation.Color = .black, detail: CGFloat = 0,
+                    aberration: CGFloat = 0) -> Effect {
             Effect(id: UUID(), kind: kind, isEnabled: true, amount: amount,
                    scale: scale, angleInDegrees: angle, color: color,
-                   detail: detail, seed: seed)
+                   detail: detail, aberration: aberration, glyphs: .classic,
+                   seed: seed)
         }
         switch kind {
         // Defaults are the settings that make the effect *recognisable* on
@@ -106,8 +108,9 @@ nonisolated enum EffectStack {
         // Ribs stand upright, like the panel in a door — angle 0 is a rib
         // along the vertical, and turning it lays them over.
         case .fluted:   return effect(amount: 0.55, scale: 0.05, detail: 0.35)
-        case .glass:    return effect(amount: 0.5, scale: 0.03, detail: 0.5)
-        case .lens:     return effect(amount: 0.5, scale: 0.7, detail: 0.45)
+        case .glass:    return effect(amount: 0.5, scale: 0.03, detail: 0.5,
+                                      aberration: 0.3)
+        case .lens:     return effect(amount: 0.5, scale: 0.7, aberration: 0.45)
         // The letters sit on a darkened page whatever the background was, so
         // they stay light — the veil is what they have to be seen against.
         // The letters take the page's own colours, so there is no ink to
@@ -139,6 +142,9 @@ nonisolated enum EffectStack {
         let levels = ParameterInfo(parameter: .detail, titleKey: "Color Levels",
                                    systemImage: "circle.lefthalf.striped.horizontal",
                                    range: 2...32, step: 1)
+        let aberration = ParameterInfo(parameter: .aberration, titleKey: "Aberration",
+                                       systemImage: "circle.filled.pattern.diagonalline.rectangle",
+                                       range: 0...1, step: 0.01)
         let color = ParameterInfo(parameter: .color, titleKey: "Pattern Color",
                                   systemImage: "paintpalette", range: 0...1, step: 1)
 
@@ -170,18 +176,20 @@ nonisolated enum EffectStack {
             return [strength(), size("Dot Size", 0.002...0.05, step: 0.002,
                                      symbol: "circle.grid.cross"), angle]
         case .glass:
+            // Pryzm's own note on this mode is "pair with Chromatic Aberration
+            // for a frosted look", so the pairing is built in rather than left
+            // as advice nobody reads.
             return [strength(), size("Texture Size", 0.005...0.08, step: 0.005,
                                      symbol: "cube.transparent"),
                     ParameterInfo(parameter: .detail, titleKey: "Bumpiness",
-                                  systemImage: "water.waves", range: 0...1, step: 0.01)]
+                                  systemImage: "water.waves", range: 0...1, step: 0.01),
+                    aberration]
         case .lens:
             // Negative pinches instead of bulging — one dial, both directions,
             // because "inward" is the same gesture read backwards.
             return [strength(-1...1), size("Lens Radius", 0.2...1.5, step: 0.05,
                                            symbol: "dot.circle.viewfinder"),
-                    ParameterInfo(parameter: .detail, titleKey: "Aberration",
-                                  systemImage: "circle.filled.pattern.diagonalline.rectangle",
-                                  range: 0...1, step: 0.01)]
+                    aberration]
         case .ascii:
             return [ParameterInfo(parameter: .amount, titleKey: "Background",
                                   systemImage: "square.fill", range: 0...1, step: 0.01),
@@ -189,7 +197,20 @@ nonisolated enum EffectStack {
                          symbol: "textformat.size"),
                     ParameterInfo(parameter: .detail, titleKey: "Cell Height",
                                   systemImage: "arrow.up.and.down",
-                                  range: 0.8...2.5, step: 0.1)]
+                                  range: 0.8...2.5, step: 0.1),
+                    ParameterInfo(parameter: .glyphs, titleKey: "Characters",
+                                  systemImage: "textformat.abc",
+                                  range: 0...1, step: 1)]
+        }
+    }
+
+    /// What a set of characters is called in the panel.
+    static func title(for glyphs: Presentation.Effect.GlyphSet) -> String {
+        switch glyphs {
+        case .classic: return "Classic"
+        case .blocks:  return "Blocks"
+        case .dots:    return "Dots"
+        case .binary:  return "Binary"
         }
     }
 
@@ -201,6 +222,8 @@ nonisolated enum EffectStack {
         case .scale:  return effect.scale
         case .angle:  return effect.angleInDegrees
         case .detail: return effect.detail
+        case .aberration: return effect.aberration
+        case .glyphs: return 0   // a set of characters is not a number
         case .color:  return 0   // a colour is not a number; the panel edits it directly
         }
     }
@@ -219,6 +242,8 @@ nonisolated enum EffectStack {
         case .scale:  result.scale = clamped
         case .angle:  result.angleInDegrees = clamped
         case .detail: result.detail = clamped
+        case .aberration: result.aberration = clamped
+        case .glyphs: break
         case .color:  break
         }
         return result

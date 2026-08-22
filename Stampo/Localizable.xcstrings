@@ -378,6 +378,7 @@
     },
     "Aberration" : {
       "comment" : "Decor inspector — how far the lens spreads the colour channels",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -956,6 +957,23 @@
         }
       }
     },
+    "Binary" : {
+      "comment" : "Decor inspector — the ASCII character set of ones and zeroes",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Binary"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Двоичный"
+          }
+        }
+      }
+    },
     "Black" : {
       "comment" : "Annotation color name (tooltip on the black swatch).",
       "localizations" : {
@@ -969,6 +987,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Чёрный"
+          }
+        }
+      }
+    },
+    "Blocks" : {
+      "comment" : "Decor inspector — the ASCII character set of shaded blocks",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Blocks"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Блоки"
           }
         }
       }
@@ -1129,6 +1164,7 @@
     },
     "Bumpiness" : {
       "comment" : "Decor inspector — how sharply the frosted glass was poured",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -1289,6 +1325,7 @@
     },
     "Cell Height" : {
       "comment" : "Decor inspector — height of one ASCII cell against its width",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -1352,6 +1389,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Центрировать по вертикали"
+          }
+        }
+      }
+    },
+    "Characters" : {
+      "comment" : "Decor inspector — which set of characters the ASCII effect draws with",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Characters"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Символы"
           }
         }
       }
@@ -1420,6 +1474,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Выбрать…"
+          }
+        }
+      }
+    },
+    "Classic" : {
+      "comment" : "Decor inspector — the ASCII character set of punctuation and letters",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Classic"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Классический"
           }
         }
       }

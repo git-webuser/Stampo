@@ -1021,6 +1021,8 @@ struct PresentationInspector: View {
             ForEach(EffectStack.parameters(for: effect.kind), id: \.parameter) { info in
                 if info.parameter == .color {
                     effectColorRow(effect, info)
+                } else if info.parameter == .glyphs {
+                    effectGlyphRow(effect, info)
                 } else {
                     presentationSlider(
                         LocalizedStringKey(info.titleKey),
@@ -1074,6 +1076,36 @@ struct PresentationInspector: View {
         }
     }
 
+    /// Which characters the page is written in. A choice, so it gets a menu
+    /// rather than a slider — and the menu shows the characters themselves,
+    /// because "@%#*+=-:." says what it will look like and "Classic" does not.
+    private func effectGlyphRow(_ effect: Presentation.Effect,
+                                _ info: EffectStack.ParameterInfo) -> some View {
+        VStack(alignment: .leading, spacing: Self.captionGap) {
+            Text(LocalizedStringKey(info.titleKey))
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+            Picker(selection: Binding(
+                get: { effect.glyphs },
+                set: { set in setEffect(effect) { $0.glyphs = set } }
+            )) {
+                ForEach(Presentation.Effect.GlyphSet.allCases) { set in
+                    HStack(spacing: 6) {
+                        Text(LocalizedStringKey(EffectStack.title(for: set)))
+                        Text(String(set.characters.dropLast().prefix(6)))
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                    }
+                    .tag(set)
+                }
+            } label: {
+                EmptyView()
+            }
+            .labelsHidden()
+            .controlSize(.large)
+        }
+    }
+
     /// The row's own small buttons — plain, because two bordered squares beside
     /// a name read as a toolbar rather than as the ends of a row.
     private func effectRowButton(_ systemImage: String,
@@ -1121,10 +1153,13 @@ struct PresentationInspector: View {
             return .pixels(basis: min(canvasSize.width, canvasSize.height))
         case .angle:
             return .degrees
-        // A count of colours, or a depth — plain numbers, shown as they are.
+        // Told apart by the step, not by the range: a parameter that moves in
+        // whole numbers is a count of something — six colours — and one that
+        // moves in hundredths is a proportion. Reading the range instead made
+        // the ASCII cell height, a ratio of 1.6, show as "2".
         case .detail:
-            return info.range.upperBound > 2 ? .count : .percent
-        case .amount, .color:
+            return info.step >= 1 ? .count : .percent
+        case .amount, .color, .aberration, .glyphs:
             return .percent
         }
     }

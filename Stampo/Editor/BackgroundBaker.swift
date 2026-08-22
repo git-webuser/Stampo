@@ -564,25 +564,30 @@ nonisolated enum BackgroundBaker {
         sharpen.saturation = 0
         guard let texture = sharpen.outputImage?.cropped(to: extent) else { return image }
 
-        let filter = CIFilter.glassDistortion()
-        filter.inputImage = image.clampedToExtent()
-        filter.textureImage = texture
-        filter.center = CGPoint(x: extent.midX, y: extent.midY)
         // Displacement is a fraction of the page, not of the texture — tied to
         // the blob size it came out under two pixels at any sane setting. The
         // multiplier is large because this filter's `scale` is not a distance
         // in pixels: measured on a 400px tile, 24 moved the picture by about
         // half a byte per channel and 200 was the first setting anyone could
         // see.
-        filter.scale = Float(effect.amount * shortSide * 0.5)
+        let displacement = effect.amount * shortSide * 0.5
+        let filter = CIFilter.glassDistortion()
+        filter.inputImage = image.clampedToExtent()
+        filter.textureImage = texture
+        filter.center = CGPoint(x: extent.midX, y: extent.midY)
+        filter.scale = Float(displacement)
         let refracted = filter.outputImage?.cropped(to: extent) ?? image
-        // Refraction moves pixels, and on a smooth page every pixel has the
-        // same neighbours — so displacement alone is invisible there, which is
-        // exactly how this shipped. Real glass is *also* seen by the light its
-        // ripples gather, and the texture that bends the picture is the same
-        // field that lights it.
-        return light(texture, amplitude: effect.amount * 0.18,
-                     over: refracted, extent: extent)
+
+        let lit = light(texture, amplitude: effect.amount * 0.18,
+                        over: refracted, extent: extent)
+        // Thick glass splits the spectrum, and unlike the lens this pane has no
+        // circle to keep the fringe in — the whole page is glass, so the
+        // channels are simply slid apart. Refracting each channel separately
+        // through the same texture was tried first and measured at half a byte
+        // of difference at full strength: this filter's displacement barely
+        // responds to a change in its scale, so three passes cost three times
+        // the work for nothing anyone could see.
+        return dispersed(lit, by: effect.aberration, extent: extent, shortSide: shortSide)
     }
 
     /// A lens over the middle of the page: positive bulges, negative pinches.
@@ -617,8 +622,8 @@ nonisolated enum BackgroundBaker {
         // the whole picture it puts a yellow rim along the frame, where the
         // channels run out of image to borrow. Masked to the lens it is what it
         // should be — colour spreading where the glass is.
-        guard effect.detail > 0,
-              let spread = aberrated(lit, by: effect.detail, extent: extent) as CIImage?,
+        guard effect.aberration > 0,
+              let spread = aberrated(lit, by: effect.aberration, extent: extent) as CIImage?,
               let mask = radialMask(centre: CGPoint(x: extent.midX, y: extent.midY),
                                     radius: radius, extent: extent)
         else { return lit }
@@ -627,6 +632,60 @@ nonisolated enum BackgroundBaker {
         blend.backgroundImage = lit
         blend.maskImage = mask
         return blend.outputImage?.cropped(to: extent) ?? lit
+    }
+
+    /// Chromatic dispersion by sliding the channels apart — red one way, blue
+    /// the other, green where it was.
+    ///
+    /// A fraction of the page rather than a count of pixels, like every other
+    /// size here, so the fringe is the same fringe in the preview and in the
+    /// file.
+    private static func dispersed(_ image: CIImage, by amount: CGFloat,
+                                  extent: CGRect, shortSide: CGFloat) -> CIImage {
+        guard amount > 0 else { return image }
+        // Up to a sixtieth of the page at full strength: measured, a smaller
+        // shift is a dial nobody can see moving, and a larger one stops being
+        // glass and becomes a printing fault.
+        let shift = amount * shortSide * 0.016
+
+        func slid(_ dx: CGFloat, keeping vector: (CGFloat, CGFloat, CGFloat)) -> CIImage? {
+            let moved = image
+                .transformed(by: CGAffineTransform(translationX: dx, y: 0))
+                .clampedToExtent()
+                .cropped(to: extent)
+            return channel(moved, keeping: vector, extent: extent)
+        }
+
+        guard let red = slid(shift, keeping: (1, 0, 0)),
+              let green = slid(0, keeping: (0, 1, 0)),
+              let blue = slid(-shift, keeping: (0, 0, 1))
+        else { return image }
+        let first = CIFilter.maximumCompositing()
+        first.inputImage = green
+        first.backgroundImage = red
+        let second = CIFilter.maximumCompositing()
+        second.inputImage = blue
+        second.backgroundImage = first.outputImage ?? red
+        return second.outputImage?.cropped(to: extent) ?? image
+    }
+
+    /// One channel of an image, with the other two blanked — the piece a
+    /// dispersion is assembled from.
+    ///
+    /// Opaque, always. Colour is stored premultiplied, so a channel image left
+    /// transparent carries no colour at all and a composite keeps only the
+    /// first of them — which turned a whole page red the first time this ran.
+    private static func channel(_ image: CIImage,
+                                keeping vector: (CGFloat, CGFloat, CGFloat),
+                                extent: CGRect) -> CIImage? {
+        let filter = CIFilter.colorMatrix()
+        filter.inputImage = image
+        filter.rVector = CIVector(x: vector.0, y: 0, z: 0, w: 0)
+        filter.gVector = CIVector(x: 0, y: vector.1, z: 0, w: 0)
+        filter.bVector = CIVector(x: 0, y: 0, z: vector.2, w: 0)
+        filter.aVector = CIVector(x: 0, y: 0, z: 0, w: 0)
+        filter.biasVector = CIVector(x: 0, y: 0, z: 0, w: 1)
+        return filter.outputImage?.cropped(to: extent)
     }
 
     /// White where the lens is, black beyond it — the shape of anything that
@@ -656,33 +715,20 @@ nonisolated enum BackgroundBaker {
         // a lens and starts looking like a printing fault.
         let spread = amount * 0.02
 
-        func channel(_ scale: CGFloat,
-                     keeping vector: (CGFloat, CGFloat, CGFloat)) -> CIImage? {
-            let scaled = image
+        func scaled(_ scale: CGFloat) -> CIImage {
+            image
                 .transformed(by: CGAffineTransform(translationX: extent.midX, y: extent.midY)
                     .scaledBy(x: scale, y: scale)
                     .translatedBy(x: -extent.midX, y: -extent.midY))
                 .clampedToExtent()
                 .cropped(to: extent)
-            let filter = CIFilter.colorMatrix()
-            filter.inputImage = scaled
-            filter.rVector = CIVector(x: vector.0, y: 0, z: 0, w: 0)
-            filter.gVector = CIVector(x: 0, y: vector.1, z: 0, w: 0)
-            filter.bVector = CIVector(x: 0, y: 0, z: vector.2, w: 0)
-            filter.aVector = CIVector(x: 0, y: 0, z: 0, w: 0)
-            // Every one opaque. Colour is stored premultiplied, so a channel
-            // image left transparent carries no colour at all and the sum below
-            // keeps only the first — which turned the whole page red the first
-            // time this ran. The same trap the grain fell into.
-            filter.biasVector = CIVector(x: 0, y: 0, z: 0, w: 1)
-            return filter.outputImage?.cropped(to: extent)
         }
 
         // Red spreads outward, blue falls inward, green stays where it is —
         // the ordering of the spectrum through a simple lens.
-        guard let red = channel(1 + spread, keeping: (1, 0, 0)),
-              let green = channel(1, keeping: (0, 1, 0)),
-              let blue = channel(1 - spread, keeping: (0, 0, 1))
+        guard let red = channel(scaled(1 + spread), keeping: (1, 0, 0), extent: extent),
+              let green = channel(scaled(1), keeping: (0, 1, 0), extent: extent),
+              let blue = channel(scaled(1 - spread), keeping: (0, 0, 1), extent: extent)
         else { return image }
 
         // Maximum, not addition. Each of the three carries one channel and
@@ -749,6 +795,7 @@ nonisolated enum BackgroundBaker {
         for row in 0..<rows {
             for column in 0..<columns {
                 let cell = cells[row * columns + column]
+                let ramp = effect.glyphs.characters
                 let character = ramp[min(ramp.count - 1,
                                          Int(cell.level * CGFloat(ramp.count)))]
                 guard character != " " else { continue }
@@ -775,11 +822,6 @@ nonisolated enum BackgroundBaker {
         over.backgroundImage = image
         return over.outputImage ?? image
     }
-
-    /// Darkest character first, so a cell's brightness is an index into it.
-    /// The blank at the end is what gives the picture its highlights: an ASCII
-    /// picture with no empty cells is a solid block of ink.
-    private static let ramp: [Character] = Array("@%#*+=-:. ")
 
     /// One brightness *and one colour* per cell, from a copy of the picture
     /// scaled to exactly that many pixels. Lanczos rather than a plain draw: it
@@ -848,6 +890,8 @@ nonisolated enum BackgroundBaker {
         let angleInDegrees: CGFloat
         let color: Presentation.Color
         let detail: CGFloat
+        let aberration: CGFloat
+        let glyphs: Presentation.Effect.GlyphSet
         let seed: UInt32
 
         /// What the drawing routines want, from what the panel shows.
@@ -860,6 +904,8 @@ nonisolated enum BackgroundBaker {
             angleInDegrees = effect.angleInDegrees
             color = effect.color
             detail = effect.detail
+            aberration = effect.aberration
+            glyphs = effect.glyphs
             seed = effect.seed
         }
     }

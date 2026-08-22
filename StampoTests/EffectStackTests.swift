@@ -1,4 +1,5 @@
 import AppKit
+import CoreText
 import Testing
 @testable import Stampo
 
@@ -80,6 +81,27 @@ import Testing
             #expect(NSImage(systemSymbolName: symbol, accessibilityDescription: nil) != nil,
                     "Missing SF Symbol: \(symbol)")
         }
+    }
+
+    /// A glyph the font does not have draws nothing at all, and an ASCII pass
+    /// made of nothing is a blank page. Menlo has no Braille, which is how this
+    /// test came to exist — that set was dropped rather than shipped empty.
+    @Test func everyGlyphSetIsOneMenloCanDraw() {
+        let font = CTFontCreateWithName("Menlo" as CFString, 24, nil)
+        for set in Presentation.Effect.GlyphSet.allCases {
+            let characters = set.characters
+            #expect(characters.count >= 3, "\(set) is too short to be a ramp")
+            #expect(characters.last == " ", "\(set) must end in a blank for its highlights")
+            for character in characters where character != " " {
+                var utf16 = Array(String(character).utf16)
+                var glyphs = [CGGlyph](repeating: 0, count: utf16.count)
+                let found = CTFontGetGlyphsForCharacters(font, &utf16, &glyphs, utf16.count)
+                #expect(found && !glyphs.contains(0),
+                        "Menlo cannot draw \(character) of \(set)")
+            }
+        }
+        #expect(Set(Presentation.Effect.GlyphSet.allCases.map(EffectStack.title(for:))).count
+                == Presentation.Effect.GlyphSet.allCases.count)
     }
 
     /// A dial the panel shows has to be a dial the effect reads. Ranges are

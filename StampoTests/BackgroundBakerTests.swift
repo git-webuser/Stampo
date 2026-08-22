@@ -223,6 +223,49 @@ import Testing
                 "the colour fringe cost the page its brightness: \(without) → \(with)")
     }
 
+    /// The frosted glass splits the spectrum too, and its dial has to move the
+    /// picture. Refracting each channel separately through the same texture was
+    /// tried first and measured at half a byte of difference at full strength —
+    /// `CIGlassDistortion` barely responds to a change in its scale — so the
+    /// channels are slid apart instead.
+    @Test func theFrostedGlassSpreadsColourAndTheDialSaysHowFar() {
+        func fringe(_ aberration: CGFloat) -> Double {
+            var glass = EffectStack.make(.glass, over: ramp, seed: 5)
+            glass.aberration = aberration
+            BackgroundBaker.emptyCache()
+            let raw = bytes(of: BackgroundBaker.image(background: ramp, effects: [glass],
+                                                      pixelSize: CGSize(width: 300, height: 300)))
+            guard !raw.isEmpty else { return 0 }
+            // How far apart red and blue ended up, which is what a fringe is.
+            var total = 0.0
+            for index in stride(from: 0, to: raw.count, by: 4) {
+                total += abs(Double(raw[index]) - Double(raw[index + 2]))
+            }
+            return total / Double(raw.count / 4)
+        }
+        let none = fringe(0), half = fringe(0.5), full = fringe(1)
+        #expect(half > none + 1, "the aberration dial does nothing: \(none) → \(half)")
+        #expect(full > half, "the dial stops meaning anything past halfway")
+    }
+
+    /// Each set of characters has to make its own picture — otherwise the menu
+    /// offers four names for one look.
+    @Test func everyGlyphSetDrawsItsOwnPicture() {
+        var pictures: [[UInt8]] = []
+        for set in Presentation.Effect.GlyphSet.allCases {
+            var ascii = EffectStack.make(.ascii, over: ramp, seed: 5)
+            ascii.glyphs = set
+            BackgroundBaker.emptyCache()
+            pictures.append(bytes(of: BackgroundBaker.image(
+                background: ramp, effects: [ascii],
+                pixelSize: CGSize(width: 240, height: 240))))
+        }
+        for (first, second) in zip(pictures, pictures.dropFirst()) {
+            #expect(distance(first, second) > 1,
+                    "two glyph sets drew the same page")
+        }
+    }
+
     // MARK: Through the renderer
 
     /// The size is never passed in: it is read from the context, so the canvas

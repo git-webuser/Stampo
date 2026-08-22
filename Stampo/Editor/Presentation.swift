@@ -290,10 +290,36 @@ nonisolated struct Presentation: Equatable, Sendable {
         /// it is rather than for one of its uses, because the alternative was a
         /// fifth slot every time a kind needed a second dial.
         var detail: CGFloat
+        /// How far the colour channels are pulled apart — a lens spreads the
+        /// spectrum, and so does thick glass. Named rather than filed under
+        /// "the second number", because two kinds mean the same thing by it.
+        var aberration: CGFloat
+        /// Which characters an ASCII pass draws with. A choice, not a dial:
+        /// blocks and letters are different pictures, not more or less of one.
+        var glyphs: GlyphSet
         /// Fixes the noise, so the preview and the file get the same one. A
         /// filter reseeded per call would shimmer while the panel redrew and
         /// export something different again.
         let seed: UInt32
+
+        /// The characters a page can be written in, darkest first — the order
+        /// *is* the ramp, so a set is read as a scale of brightness.
+        enum GlyphSet: String, CaseIterable, Identifiable, Sendable {
+            case classic, blocks, dots, binary
+
+            var id: String { rawValue }
+
+            var characters: [Character] {
+                switch self {
+                case .classic: return Array("@%#*+=-:. ")
+                case .blocks:  return Array("█▓▒░ ")
+                case .dots:    return Array("●◉◎○· ")
+                // Two characters and a space: the picture comes out as code
+                // rather than as shading, which is the point of it.
+                case .binary:  return Array("10 ")
+                }
+            }
+        }
 
         /// Only kinds that are actually computed live here. A case that draws
         /// nothing would still be offered in the panel's grid, and a tile that
