@@ -803,6 +803,23 @@
         }
       }
     },
+    "ASCII" : {
+      "comment" : "Decor inspector — effect that redraws the background as characters",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ASCII"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ASCII"
+          }
+        }
+      }
+    },
     "Asks GitHub once a day. No other data is sent" : {
       "comment" : "Description for the update check toggle",
       "localizations" : {
@@ -3808,6 +3825,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Менее минуты назад"
+          }
+        }
+      }
+    },
+    "Letter Color" : {
+      "comment" : "Decor inspector — colour of the characters of the ASCII effect",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Letter Color"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Цвет символов"
           }
         }
       }

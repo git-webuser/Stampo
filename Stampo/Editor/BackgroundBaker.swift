@@ -1,5 +1,6 @@
 import CoreGraphics
 import CoreImage
+import CoreText
 import CoreImage.CIFilterBuiltins
 import Foundation
 
@@ -113,6 +114,8 @@ nonisolated enum BackgroundBaker {
             return glass(effect, over: image, extent: extent, shortSide: shortSide)
         case .lens:
             return lens(effect, over: image, extent: extent, shortSide: shortSide)
+        case .ascii:
+            return ascii(effect, over: image, extent: extent, shortSide: shortSide)
         }
     }
 
@@ -375,6 +378,114 @@ nonisolated enum BackgroundBaker {
         filter.radius = Float(effect.scale * shortSide / 2)
         filter.scale = Float(effect.amount)
         return filter.outputImage?.cropped(to: extent) ?? image
+    }
+
+    /// The page read as characters: one letter per cell, chosen by how bright
+    /// that cell is.
+    ///
+    /// Drawn with Core Text rather than computed by a shader, and that was a
+    /// finding rather than a preference. The Metal-kernel route (a `CIKernel`
+    /// in Metal Shading Language) needs a Metal toolchain this machine does not
+    /// have — `cannot execute tool 'metal' due to missing Metal Toolchain` —
+    /// and adding that dependency for one effect would put the same
+    /// requirement on CI. Letters drawn as letters also spares the shader a
+    /// font atlas, which is the only honest way for a kernel to draw text.
+    ///
+    /// The cell's brightness comes from a copy of the picture scaled down to
+    /// one pixel per cell, which is the same averaging a shader would do by
+    /// sampling, done once instead of per pixel.
+    private static func ascii(_ effect: Recipe, over image: CIImage,
+                              extent: CGRect, shortSide: CGFloat) -> CIImage {
+        let cell = max(4, (effect.scale * shortSide).rounded())
+        let columns = max(1, Int(extent.width / cell))
+        let rows = max(1, Int(extent.height / cell))
+        guard let brightness = luminance(of: image, extent: extent,
+                                         columns: columns, rows: rows),
+              let ctx = CGContext(
+                data: nil, width: Int(extent.width), height: Int(extent.height),
+                bitsPerComponent: 8, bytesPerRow: 0,
+                space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+              ) else { return image }
+
+        // Darkening first: characters on a picture that still shows through
+        // read as a caption over it, not as a picture made of characters.
+        ctx.setFillColor(CGColor(gray: 0, alpha: effect.amount * 0.85))
+        ctx.fill(CGRect(origin: .zero, size: extent.size))
+
+        let font = CTFontCreateWithName("Menlo" as CFString, cell, nil)
+        let ink = CGColor(red: effect.color.red, green: effect.color.green,
+                          blue: effect.color.blue, alpha: effect.color.alpha)
+        for row in 0..<rows {
+            for column in 0..<columns {
+                let level = brightness[row * columns + column]
+                let character = ramp[min(ramp.count - 1, Int(level * CGFloat(ramp.count)))]
+                guard character != " " else { continue }
+                // CoreText's own attribute names, not AppKit's: this file draws
+                // in a detached render and has no business importing AppKit.
+                let attributes: [CFString: Any] = [
+                    kCTFontAttributeName: font,
+                    kCTForegroundColorAttributeName: ink
+                ]
+                let line = CTLineCreateWithAttributedString(CFAttributedStringCreate(
+                    nil, String(character) as CFString, attributes as CFDictionary
+                ))
+                // Row 0 is the top of the picture, and this context counts from
+                // the bottom — the same flip the baked background goes through.
+                ctx.textPosition = CGPoint(x: CGFloat(column) * cell + cell * 0.1,
+                                           y: extent.height - CGFloat(row + 1) * cell + cell * 0.2)
+                CTLineDraw(line, ctx)
+            }
+        }
+
+        guard let drawn = ctx.makeImage() else { return image }
+        let over = CIFilter.sourceOverCompositing()
+        over.inputImage = CIImage(cgImage: drawn)
+        over.backgroundImage = image
+        return over.outputImage ?? image
+    }
+
+    /// Darkest character first, so a cell's brightness is an index into it.
+    /// The blank at the end is what gives the picture its highlights: an ASCII
+    /// picture with no empty cells is a solid block of ink.
+    private static let ramp: [Character] = Array("@%#*+=-:. ")
+
+    /// One brightness per cell, from a copy of the picture scaled to exactly
+    /// that many pixels. Lanczos rather than a plain draw: it averages the
+    /// whole cell instead of taking whatever pixel lands under the sample.
+    private static func luminance(of image: CIImage, extent: CGRect,
+                                  columns: Int, rows: Int) -> [CGFloat]? {
+        let scale = CIFilter.lanczosScaleTransform()
+        scale.inputImage = image
+        scale.scale = Float(CGFloat(rows) / extent.height)
+        scale.aspectRatio = Float((CGFloat(columns) / extent.width)
+                                  / (CGFloat(rows) / extent.height))
+        guard let small = scale.outputImage,
+              let cg = ciContext.createCGImage(
+                small, from: CGRect(x: 0, y: 0, width: columns, height: rows))
+        else { return nil }
+
+        var raw = [UInt8](repeating: 0, count: columns * rows * 4)
+        raw.withUnsafeMutableBytes { buffer in
+            let ctx = CGContext(data: buffer.baseAddress, width: columns, height: rows,
+                                bitsPerComponent: 8, bytesPerRow: columns * 4,
+                                space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+            ctx?.draw(cg, in: CGRect(x: 0, y: 0, width: columns, height: rows))
+        }
+        let levels = (0..<(columns * rows)).map { index -> CGFloat in
+            let red = CGFloat(raw[index * 4]) / 255
+            let green = CGFloat(raw[index * 4 + 1]) / 255
+            let blue = CGFloat(raw[index * 4 + 2]) / 255
+            return 0.299 * red + 0.587 * green + 0.114 * blue
+        }
+        // Stretched to the range the picture actually uses. A gradient spends
+        // its whole life between 0.4 and 0.6, so without this the ramp of ten
+        // characters is spent on two of them — measured, and it looked like a
+        // grid of plus signs.
+        let low = levels.min() ?? 0, high = levels.max() ?? 1
+        guard high - low > 0.01 else { return levels }
+        return levels.map { ($0 - low) / (high - low) }
     }
 
     // MARK: Plumbing

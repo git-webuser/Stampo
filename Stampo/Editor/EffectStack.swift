@@ -49,6 +49,7 @@ nonisolated enum EffectStack {
         case .halftone: return "Halftone"
         case .glass:    return "Glass"
         case .lens:     return "Lens"
+        case .ascii:    return "ASCII"
         }
     }
 
@@ -65,6 +66,7 @@ nonisolated enum EffectStack {
         case .halftone: return "circle.grid.cross"
         case .glass:    return "cube.transparent"
         case .lens:     return "dot.circle.viewfinder"
+        case .ascii:    return "textformat.abc"
         }
     }
 
@@ -93,6 +95,7 @@ nonisolated enum EffectStack {
         case .halftone: return effect(amount: 0.7, scale: 0.012)
         case .glass:    return effect(amount: 0.5, scale: 0.03)
         case .lens:     return effect(amount: 0.5, scale: 0.7)
+        case .ascii:    return effect(amount: 0.9, scale: 0.02, color: .white)
         }
     }
 
@@ -141,6 +144,11 @@ nonisolated enum EffectStack {
             // because "inward" is the same gesture read backwards.
             return [strength(-1...1), size("Lens Radius", 0.2...1.5, step: 0.05,
                                            symbol: "dot.circle.viewfinder")]
+        case .ascii:
+            return [strength(), size("Cell Size", 0.008...0.06, step: 0.002,
+                                     symbol: "textformat.size"),
+                    ParameterInfo(parameter: .color, titleKey: "Letter Color",
+                                  systemImage: "paintpalette", range: 0...1, step: 1)]
         }
     }
 

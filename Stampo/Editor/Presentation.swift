@@ -270,7 +270,7 @@ nonisolated struct Presentation: Equatable, Sendable {
             var id: String { rawValue }
 
             case grain, dots, grid, stripes, vignette, pixelate, dither,
-                 halftone, glass, lens
+                 halftone, glass, lens, ascii
         }
     }
 
