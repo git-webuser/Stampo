@@ -2280,6 +2280,23 @@
         }
       }
     },
+    "Each Side On Its Own" : {
+      "comment" : "Decor inspector — a typed margin sets only its own side",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Each Side On Its Own"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Каждая сторона сама по себе"
+          }
+        }
+      }
+    },
     "Each language is downloaded once by macOS, usually a few hundred megabytes" : {
       "comment" : "Description of the Add language row: what pressing it actually costs",
       "localizations" : {
@@ -3557,19 +3574,36 @@
         }
       }
     },
-    "Link Margins" : {
-      "comment" : "Decor inspector — types one number into all four margins",
+    "Link All Sides" : {
+      "comment" : "Decor inspector — a typed margin sets all four",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Link Margins"
+            "value" : "Link All Sides"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Связать поля"
+            "value" : "Связать все стороны"
+          }
+        }
+      }
+    },
+    "Link Opposite Sides" : {
+      "comment" : "Decor inspector — a typed margin sets its side and the opposite one",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Link Opposite Sides"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Связать противоположные стороны"
           }
         }
       }
@@ -3689,6 +3723,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Управляй файлами"
+          }
+        }
+      }
+    },
+    "Margin Link" : {
+      "comment" : "Decor inspector — the button in the middle of the four margin fields",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Margin Link"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Связь полей"
           }
         }
       }

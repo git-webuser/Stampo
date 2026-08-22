@@ -125,14 +125,14 @@ struct CanvasRatioBar: View {
         let size = canvasSize
         return HStack(spacing: 6) {
             NumberField(value: .constant(Double(max(1, size.width.rounded()))),
-                        alignment: .center) { typed, _ in
+                        alignment: .center) { typed in
                 document.setCanvasDimension(.width, to: Int(typed))
             }
             .frame(width: 70)
             .hoverTip("Width")
             Text(verbatim: "×").foregroundStyle(.secondary).fixedSize()
             NumberField(value: .constant(Double(max(1, size.height.rounded()))),
-                        alignment: .center) { typed, _ in
+                        alignment: .center) { typed in
                 document.setCanvasDimension(.height, to: Int(typed))
             }
             .frame(width: 70)

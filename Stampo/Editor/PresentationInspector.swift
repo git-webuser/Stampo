@@ -40,9 +40,9 @@ struct PresentationInspector: View {
     /// The shadow put aside by the hide button, so showing it again brings back
     /// the one you had rather than a stock one.
     @State private var hiddenShadow: Presentation.Shadow?
-    /// Whether a number typed into one margin goes to all four. A way of
-    /// typing, not a property of the document — see `marginLinkButton`.
-    @State private var marginsLinked = false
+    /// How far a number typed into one margin field reaches — see
+    /// `marginLinkButton`. A way of typing, not a property of the document.
+    @State private var marginSpread = PresentationLayout.MarginSpread.one
     /// What each kind of background held when it was last left. Session-scoped
     /// by design — see `BackgroundDrawers`.
     @State private var drawers = BackgroundDrawers()
@@ -971,13 +971,22 @@ struct PresentationInspector: View {
     /// The picture's stand-in, sized to the gap between the fields so the cross
     /// reads as a frame around it rather than as four controls that happen to
     /// be near each other — and, since it is the one thing in the middle of
-    /// four margins, the switch that ties them together.
+    /// four margins, the switch that says how far one of them reaches.
     ///
-    /// Linking is an input mode, not a state of the document: turning it on
-    /// changes nothing, and the next number typed into any of the four goes to
-    /// all four. Equalizing on the flip would have to pick one of the four
-    /// numbers to win, and there is no reason for the picture to jump because
-    /// the user said how they intend to type.
+    /// Three states, and the glyph is the whole explanation: each side on its
+    /// own, the two axes paired, all four together. It cycles rather than
+    /// toggling because there are three of them, and it says which one it is
+    /// on rather than leaving the user to find out by typing.
+    ///
+    /// This replaced a pair of keyboard modifiers that did the same widening
+    /// invisibly. They were wrong twice: a digit typed with Control held never
+    /// reaches the field at all, and a mode with nothing on screen to show it
+    /// is a mode nobody uses.
+    ///
+    /// Switching does not move anything. The next number typed is what spreads;
+    /// equalizing on the flip would have to pick one of the four to win, and
+    /// there is no reason for the picture to jump because the user said how
+    /// they intend to type.
     ///
     /// Only an auto page can honour it. On a fixed page the four gaps are not
     /// independent — the aspect ratio is locked, so setting one resizes the
@@ -985,24 +994,43 @@ struct PresentationInspector: View {
     /// coincidence of the format, not something to ask for.
     private var marginLinkButton: some View {
         Button {
-            marginsLinked.toggle()
+            marginSpread = marginSpread.next
         } label: {
             RoundedRectangle(cornerRadius: 4)
-                .strokeBorder(marginsLinked ? Color.accentColor : Color(nsColor: .tertiaryLabelColor),
+                .strokeBorder(marginSpread == .one
+                              ? Color(nsColor: .tertiaryLabelColor) : Color.accentColor,
                               style: StrokeStyle(lineWidth: 1,
-                                                 dash: marginsLinked ? [] : [3, 3]))
+                                                 dash: marginSpread == .one ? [3, 3] : []))
                 .frame(width: Self.marginPlateWidth, height: 30)
                 .overlay {
-                    Image(systemName: marginsLinked ? "link" : "link.badge.plus")
+                    Image(systemName: Self.marginSpreadSymbol(marginSpread))
                         .font(.system(size: 11))
-                        .foregroundStyle(marginsLinked ? Color.accentColor : .secondary)
+                        .foregroundStyle(marginSpread == .one ? Color.secondary : Color.accentColor)
                 }
         }
         .buttonStyle(.plain)
         .disabled(!marginsAreFree)
-        .help("Link Margins")
-        .accessibilityLabel(Text("Link Margins"))
-        .accessibilityAddTraits(marginsLinked ? [.isButton, .isSelected] : .isButton)
+        .help(Self.marginSpreadTitle(marginSpread))
+        .accessibilityLabel(Text("Margin Link"))
+        .accessibilityValue(Text(Self.marginSpreadTitle(marginSpread)))
+    }
+
+    /// One glyph per state: a dashed square for four independent sides, both
+    /// axes' arrows for pairs, a link for all four.
+    static func marginSpreadSymbol(_ spread: PresentationLayout.MarginSpread) -> String {
+        switch spread {
+        case .one:  return "square.dashed"
+        case .pair: return "arrow.up.and.down.and.arrow.left.and.right"
+        case .all:  return "link"
+        }
+    }
+
+    static func marginSpreadTitle(_ spread: PresentationLayout.MarginSpread) -> LocalizedStringKey {
+        switch spread {
+        case .one:  return "Each Side On Its Own"
+        case .pair: return "Link Opposite Sides"
+        case .all:  return "Link All Sides"
+        }
     }
 
     private static let marginGap: CGFloat = 6
@@ -1011,8 +1039,8 @@ struct PresentationInspector: View {
 
     private func gapField(_ edge: PresentationLayout.Edge, value: CGFloat) -> some View {
         NumberField(value: .constant(Double(value.rounded())),
-                    alignment: .center) { typed, modifiers in
-            setGap(edge, to: CGFloat(typed), spread: Self.spread(for: modifiers))
+                    alignment: .center) { typed in
+            setGap(edge, to: CGFloat(typed))
         }
         .frame(width: Self.numberFieldWidth)
         // SwiftUI writes the environment's control size onto the wrapped
@@ -1036,27 +1064,13 @@ struct PresentationInspector: View {
         PresentationLayout.resolve(imagePixelSize: document.pixelSize, draft)
     }
 
-    /// How wide a typed number reaches. Control is the only modifier that can
-    /// be held while digits are typed — the system's key bindings give it no
-    /// digit at all, where Option types `∞` and Command hands `0` to the
-    /// editor's zoom — so it carries the first step, and Command (read at the
-    /// commit only) carries the second.
-    static func spread(for modifiers: NSEvent.ModifierFlags) -> PresentationLayout.MarginSpread {
-        guard modifiers.contains(.control) else { return .one }
-        return modifiers.contains(.command) ? .all : .pair
-    }
-
     /// The field's door into `EditorDocument.setGap`. The document owns the
     /// rule — the canvas drags the same sides — and what stays here is what
     /// belongs to the fields alone: how far one typed number reaches.
-    ///
-    /// The switch in the middle of the cross is a mode and the modifier is a
-    /// keystroke, so the switch wins: it already means all four, and a
-    /// modifier that narrowed it would be a control quietly undoing another.
-    private func setGap(_ edge: PresentationLayout.Edge, to value: CGFloat,
-                        spread: PresentationLayout.MarginSpread = .one) {
-        let reach: PresentationLayout.MarginSpread =
-            (marginsLinked && marginsAreFree) ? .all : spread
+    private func setGap(_ edge: PresentationLayout.Edge, to value: CGFloat) {
+        // Only a page that hugs its picture has four free margins to spread a
+        // number across; on a fixed page the gaps are not independent.
+        let reach = marginsAreFree ? marginSpread : .one
         document.beginChange()
         // One Return is one undo step however many edges it reached.
         for target in PresentationLayout.edges(spreading: edge, reach) {
@@ -1433,7 +1447,7 @@ struct PresentationInspector: View {
         case .percent:           shown = (Double(value.wrappedValue) * 100).rounded()
         case .degrees:           shown = Double(value.wrappedValue.rounded())
         }
-        return NumberField(value: .constant(shown)) { typed, _ in
+        return NumberField(value: .constant(shown)) { typed in
             switch unit {
             case .pixels(let basis):
                 guard basis != 0 else { return }

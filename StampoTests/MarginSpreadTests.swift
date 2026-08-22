@@ -16,19 +16,29 @@ import Testing
                 == Set(PresentationLayout.Edge.allCases))
     }
 
-    /// Control is the only modifier that can be held while digits are typed —
-    /// the system binds it to no digit, where Option would type `∞` and Command
-    /// would hand `0` to the editor's zoom. So Control carries the first step
-    /// and Command, read at the commit, the second.
-    @Test func theModifiersReadAsAgreed() {
-        #expect(PresentationInspector.spread(for: []) == .one)
-        #expect(PresentationInspector.spread(for: [.control]) == .pair)
-        #expect(PresentationInspector.spread(for: [.control, .command]) == .all)
-        // Command on its own means nothing here: it is the second half of a
-        // gesture, not a gesture.
-        #expect(PresentationInspector.spread(for: [.command]) == .one)
-        #expect(PresentationInspector.spread(for: [.option]) == .one)
-        #expect(PresentationInspector.spread(for: [.shift, .control]) == .pair)
+    /// The button in the middle of the cross cycles, because there are three
+    /// states and a toggle can only say two.
+    @Test func theButtonCyclesThroughAllThree() {
+        var spread = PresentationLayout.MarginSpread.one
+        spread = spread.next
+        #expect(spread == .pair)
+        spread = spread.next
+        #expect(spread == .all)
+        spread = spread.next
+        #expect(spread == .one)   // and round again
+    }
+
+    /// Each state has its own glyph, and the glyph is the whole explanation —
+    /// the modes had none at all when they lived on modifier keys.
+    @Test func everyStateHasItsOwnSymbol() {
+        let symbols = PresentationLayout.MarginSpread.allCases
+            .map(PresentationInspector.marginSpreadSymbol)
+
+        #expect(Set(symbols).count == symbols.count)
+        for symbol in symbols {
+            #expect(NSImage(systemSymbolName: symbol, accessibilityDescription: nil) != nil,
+                    "Missing SF Symbol: \(symbol)")
+        }
     }
 
     /// However many edges one Return reaches, it is one step to undo.

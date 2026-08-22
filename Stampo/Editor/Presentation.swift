@@ -458,14 +458,28 @@ nonisolated enum PresentationLayout {
         }
     }
 
-    /// How far a single typed number reaches: the edge it was typed into, the
-    /// pair that edge belongs to, or all four.
+    /// How far a number typed into one margin field reaches: that edge alone,
+    /// the pair it belongs to, or all four.
     ///
-    /// A one-off widening, as against the link switch in the middle of the
-    /// cross, which is a *mode*. Both exist because they answer different
-    /// moments: "these two are the same" is usually a decision about the
-    /// picture, "and this one too, just now" is a keystroke.
-    enum MarginSpread: Sendable { case one, pair, all }
+    /// A mode, shown and switched by the button in the middle of the cross.
+    /// It began as a pair of keyboard modifiers instead — hold Control for the
+    /// pair, add Command for all four — and that was wrong twice over: it did
+    /// not work (a digit typed with Control down never reaches the field at
+    /// all, whatever the key-binding table says about Control and digits), and
+    /// nothing on screen said the modes existed. A mode you cannot see is a
+    /// mode nobody uses.
+    enum MarginSpread: CaseIterable, Sendable {
+        case one, pair, all
+
+        /// What the button in the middle switches to next.
+        var next: MarginSpread {
+            switch self {
+            case .one:  return .pair
+            case .pair: return .all
+            case .all:  return .one
+            }
+        }
+    }
 
     /// The edges a number typed into `edge` should reach.
     static func edges(spreading edge: Edge, _ spread: MarginSpread) -> [Edge] {
