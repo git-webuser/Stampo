@@ -11,10 +11,40 @@ import SwiftUI
 /// placeholder in the ordinary label colour, so it reads as a value while
 /// behaving like an empty field. Confirming a number puts it back into the
 /// placeholder and empties the text again.
+///
+/// The field carries a *list* of numbers, because one of its users — the
+/// margins — has fields that stand for two sides at once and must say so when
+/// the two disagree. Everything else asks for one number and gets the
+/// single-value initializer, which is the same field with a list of one.
 struct NumberField: NSViewRepresentable {
-    @Binding var value: Double
+    @Binding var values: [Double]
     var alignment: NSTextAlignment = .right
-    var onCommit: (Double) -> Void
+    /// Every number the text held, in the order it was written. A caller that
+    /// wants one takes the first.
+    var onCommit: ([Double]) -> Void
+    /// Called when the field takes the keyboard and when it gives it back, so
+    /// a caller can show which field is being typed into. The system focus
+    /// ring says it too, but only on the bezel — a glyph *inside* the field is
+    /// what the margin block needs, since its fields differ by glyph alone.
+    var onEditingChange: (Bool) -> Void = { _ in }
+
+    init(values: Binding<[Double]>, alignment: NSTextAlignment = .right,
+         onCommit: @escaping ([Double]) -> Void,
+         onEditingChange: @escaping (Bool) -> Void = { _ in }) {
+        self._values = values
+        self.alignment = alignment
+        self.onCommit = onCommit
+        self.onEditingChange = onEditingChange
+    }
+
+    init(value: Binding<Double>, alignment: NSTextAlignment = .right,
+         onCommit: @escaping (Double) -> Void) {
+        self.init(values: Binding(get: { [value.wrappedValue] },
+                                  set: { value.wrappedValue = $0.first ?? 0 }),
+                  alignment: alignment) { numbers in
+            if let first = numbers.first { onCommit(first) }
+        }
+    }
 
     final class Field: NSTextField {
         /// The number goes the moment editing starts. Overridden on the
@@ -31,6 +61,7 @@ struct NumberField: NSViewRepresentable {
             if accepted {
                 stringValue = ""
                 watchForClicksOutside()
+                onEditingChange(true)
             }
             return accepted
         }
@@ -40,7 +71,10 @@ struct NumberField: NSViewRepresentable {
         override func textDidEndEditing(_ notification: Notification) {
             super.textDidEndEditing(notification)
             stopWatchingForClicksOutside()
+            onEditingChange(false)
         }
+
+        var onEditingChange: (Bool) -> Void = { _ in }
 
         private var clicksOutside: Any?
 
@@ -70,9 +104,10 @@ struct NumberField: NSViewRepresentable {
             clicksOutside = nil
         }
 
-        func show(_ number: Double) {
-            stringValue = Self.formatter.string(from: NSNumber(value: number))
-                ?? String(Int(number))
+        func show(_ numbers: [Double]) {
+            stringValue = numbers
+                .map { Self.formatter.string(from: NSNumber(value: $0)) ?? String(Int($0)) }
+                .joined(separator: " ")
         }
 
         static let formatter: NumberFormatter = {
@@ -85,22 +120,31 @@ struct NumberField: NSViewRepresentable {
     }
 
     final class Coordinator: NSObject, NSTextFieldDelegate {
-        var onCommit: (Double) -> Void = { _ in }
-        var current: Double = 0
+        var onCommit: ([Double]) -> Void = { _ in }
+        var current: [Double] = []
 
         /// An empty field means "unchanged": clicking in clears the number,
         /// and leaving without typing must not rewrite it.
         private func commit(_ field: NSTextField) {
             let typed = field.stringValue
                 .trimmingCharacters(in: .whitespacesAndNewlines)
-            // A decimal comma is what a Russian keyboard produces, and
-            // `Double.init` only reads a point — without this, a fractional
-            // number typed on that layout silently did nothing.
-            if !typed.isEmpty,
-               let value = Double(typed.replacingOccurrences(of: ",", with: ".")) {
-                onCommit(value)
-            }
+            let numbers = Self.numbers(in: typed)
+            if !numbers.isEmpty { onCommit(numbers) }
             repaint(field)
+        }
+
+        /// Space and comma both separate one number from the next. A lone
+        /// comma between digits is a decimal point — that is what a Russian
+        /// keyboard produces, and `Double.init` reads only a point — so
+        /// "1,5" is one number while "10, 84" is two.
+        static func numbers(in text: String) -> [Double] {
+            let separated = text.contains(" ") || text.contains(";") || text.contains("/")
+            let pieces: [Substring] = separated
+                ? text.split(whereSeparator: { " ,;/".contains($0) })
+                : [text[...]]
+            return pieces.compactMap { piece in
+                Double(piece.replacingOccurrences(of: ",", with: "."))
+            }
         }
 
         /// The field goes back to showing the model — one runloop hop later.
@@ -195,12 +239,13 @@ struct NumberField: NSViewRepresentable {
 
     func updateNSView(_ field: Field, context: Context) {
         context.coordinator.onCommit = onCommit
-        context.coordinator.current = value
+        field.onEditingChange = onEditingChange
+        context.coordinator.current = values
         field.alignment = alignment
         // Never disturb a field that has the keyboard — including the
         // moment after the click when its editor is not installed yet.
         guard field.currentEditor() == nil,
               field.window?.firstResponder !== field else { return }
-        field.show(value)
+        field.show(values)
     }
 }

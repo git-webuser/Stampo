@@ -40,9 +40,11 @@ struct PresentationInspector: View {
     /// The shadow put aside by the hide button, so showing it again brings back
     /// the one you had rather than a stock one.
     @State private var hiddenShadow: Presentation.Shadow?
-    /// How far a number typed into one margin field reaches — see
-    /// `marginLinkButton`. A way of typing, not a property of the document.
-    @State private var marginSpread = PresentationLayout.MarginSpread.one
+    /// Whether the margins are shown as four fields or as two. A way of
+    /// looking at them, not a property of the document.
+    @State private var marginsAreSplit = false
+    /// Which margin field has the keyboard, if any.
+    @State private var editedMargin: MarginShorthand.Target?
     /// What each kind of background held when it was last left. Session-scoped
     /// by design — see `BackgroundDrawers`.
     @State private var drawers = BackgroundDrawers()
@@ -942,113 +944,122 @@ struct PresentationInspector: View {
         }
     }
 
-    /// The four margins drawn where they are: around a small stand-in for the
-    /// picture. A column of four labelled fields made the reader work out which
-    /// side each one meant.
+    /// The four margins as two fields — one per axis — with a button that opens
+    /// them into four.
     ///
-    /// The caption carries the unit for all four: four fields with "px" in each
-    /// of them says the same thing four times, in the one place on the panel
-    /// where there is no room to say anything.
+    /// The shape of the fields *is* the explanation: the field you type into is
+    /// the thing you are setting, and the glyph inside it says which sides that
+    /// is. Three earlier tries changed an invisible rule instead and left the
+    /// same four fields standing: a cross around a plate that meant nothing to
+    /// anyone, driven first by keyboard modifiers that could not work at all
+    /// (no modifier can be held while digits are typed) and then by a button in
+    /// the middle whose two states said nothing about what typing would do.
+    ///
+    /// The caption carries the unit for all of them: a "px" in every field says
+    /// the same thing four times, in the one place on the panel where there is
+    /// no room to say anything.
     private var gapGrid: some View {
         let gaps = PresentationLayout.gaps(resolvedLayout)
+        let margins = Presentation.Margins(top: gaps.top, leading: gaps.leading,
+                                           bottom: gaps.bottom, trailing: gaps.trailing)
         return VStack(alignment: .leading, spacing: Self.captionGap) {
             Text("Margins, px")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
-            VStack(spacing: Self.marginGap) {
-                gapField(.top, value: gaps.top)
-                HStack(spacing: Self.marginGap) {
-                    gapField(.leading, value: gaps.leading)
-                    marginLinkButton
-                    gapField(.trailing, value: gaps.trailing)
+            HStack(alignment: .top, spacing: Self.marginGap) {
+                if marginsAreSplit {
+                    VStack(spacing: Self.marginGap) {
+                        HStack(spacing: Self.marginGap) {
+                            gapField(.side(.top), of: margins)
+                            gapField(.side(.bottom), of: margins)
+                        }
+                        HStack(spacing: Self.marginGap) {
+                            gapField(.side(.leading), of: margins)
+                            gapField(.side(.trailing), of: margins)
+                        }
+                    }
+                } else {
+                    HStack(spacing: Self.marginGap) {
+                        gapField(.vertical, of: margins)
+                        gapField(.horizontal, of: margins)
+                    }
                 }
-                gapField(.bottom, value: gaps.bottom)
+                splitMarginsButton
             }
-            .frame(maxWidth: .infinity)
         }
     }
 
-    /// The picture's stand-in, sized to the gap between the fields so the cross
-    /// reads as a frame around it rather than as four controls that happen to
-    /// be near each other — and, since it is the one thing in the middle of
-    /// four margins, the switch that says how far one of them reaches.
-    ///
-    /// Three states, and the glyph is the whole explanation: each side on its
-    /// own, the two axes paired, all four together. It cycles rather than
-    /// toggling because there are three of them, and it says which one it is
-    /// on rather than leaving the user to find out by typing.
-    ///
-    /// This replaced a pair of keyboard modifiers that did the same widening
-    /// invisibly. They were wrong twice: a digit typed with Control held never
-    /// reaches the field at all, and a mode with nothing on screen to show it
-    /// is a mode nobody uses.
-    ///
-    /// Switching does not move anything. The next number typed is what spreads;
-    /// equalizing on the flip would have to pick one of the four to win, and
-    /// there is no reason for the picture to jump because the user said how
-    /// they intend to type.
-    ///
-    /// Only an auto page can honour it. On a fixed page the four gaps are not
-    /// independent — the aspect ratio is locked, so setting one resizes the
-    /// picture against the opposite edge — and four equal margins there are a
-    /// coincidence of the format, not something to ask for.
-    private var marginLinkButton: some View {
+    /// Opens the two axis fields into four, one per side, and closes them
+    /// again. Figma's own control, and for its reason: two fields are what the
+    /// margins usually are, four is what they sometimes need to be, and the
+    /// button is the only thing on screen that has to be learned.
+    private var splitMarginsButton: some View {
         Button {
-            marginSpread = marginSpread.next
+            marginsAreSplit.toggle()
         } label: {
-            RoundedRectangle(cornerRadius: 4)
-                .strokeBorder(marginSpread == .one
-                              ? Color(nsColor: .tertiaryLabelColor) : Color.accentColor,
-                              style: StrokeStyle(lineWidth: 1,
-                                                 dash: marginSpread == .one ? [3, 3] : []))
-                .frame(width: Self.marginPlateWidth, height: 30)
-                .overlay {
-                    Image(systemName: Self.marginSpreadSymbol(marginSpread))
-                        .font(.system(size: 11))
-                        .foregroundStyle(marginSpread == .one ? Color.secondary : Color.accentColor)
-                }
+            Image(systemName: marginsAreSplit
+                  ? "arrow.down.right.and.arrow.up.left"
+                  : "arrow.up.left.and.arrow.down.right")
+                .font(.system(size: 11))
+                .frame(width: 26, height: 30)
+                // The hit area is the frame, not the glyph. A label that is
+                // only a stroked shape takes clicks on the stroke alone, which
+                // is how the last button here came to look broken.
+                .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.borderless)
         .disabled(!marginsAreFree)
-        .help(Self.marginSpreadTitle(marginSpread))
-        .accessibilityLabel(Text("Margin Link"))
-        .accessibilityValue(Text(Self.marginSpreadTitle(marginSpread)))
+        .help(marginsAreSplit ? "Join Margins" : "Split Margins")
+        .accessibilityLabel(Text(marginsAreSplit ? "Join Margins" : "Split Margins"))
     }
 
-    /// One glyph per state: a dashed square for four independent sides, both
-    /// axes' arrows for pairs, a link for all four.
-    static func marginSpreadSymbol(_ spread: PresentationLayout.MarginSpread) -> String {
-        switch spread {
-        case .one:  return "square.dashed"
-        case .pair: return "arrow.up.and.down.and.arrow.left.and.right"
-        case .all:  return "link"
+    private func gapField(_ target: MarginShorthand.Target,
+                          of margins: Presentation.Margins) -> some View {
+        let values = MarginShorthand.values(for: target, of: margins).map { Double($0) }
+        return HStack(spacing: 4) {
+            Image(systemName: Self.marginSymbol(target))
+                .font(.system(size: 10))
+                // The glyph is the only thing that tells these fields apart,
+                // so it is also where the field says it has the keyboard.
+                .foregroundStyle(editedMargin == target ? AnyShapeStyle(.tint)
+                                 : AnyShapeStyle(.secondary))
+            NumberField(values: Binding<[Double]>.constant(values),
+                        alignment: .center,
+                        onCommit: { (typed: [Double]) in
+                setGap(target, to: typed.map { CGFloat($0) }, from: margins)
+            }, onEditingChange: { editing in
+                editedMargin = editing ? target : (editedMargin == target ? nil : editedMargin)
+            })
+            // SwiftUI writes the environment's control size onto the wrapped
+            // NSControl, so a field outside a `.large` container is reset to
+            // the regular one — 22 points against the canvas row's 30.
+            .controlSize(.large)
+        }
+        .frame(maxWidth: .infinity)
+        .help(Self.marginTitle(target))
+        .accessibilityLabel(Self.marginTitle(target))
+    }
+
+    /// A rectangle with the sides the field stands for picked out — the same
+    /// idea as the little squares in Figma's padding fields, and the reason a
+    /// glyph belongs *inside* the field rather than on a button beside it.
+    static func marginSymbol(_ target: MarginShorthand.Target) -> String {
+        switch target {
+        case .vertical:          return "rectangle.split.1x2"
+        case .horizontal:        return "rectangle.split.2x1"
+        case .side(.top):        return "rectangle.tophalf.inset.filled"
+        case .side(.bottom):     return "rectangle.bottomhalf.inset.filled"
+        case .side(.leading):    return "rectangle.lefthalf.inset.filled"
+        case .side(.trailing):   return "rectangle.righthalf.inset.filled"
         }
     }
 
-    static func marginSpreadTitle(_ spread: PresentationLayout.MarginSpread) -> LocalizedStringKey {
-        switch spread {
-        case .one:  return "Each Side On Its Own"
-        case .pair: return "Link Opposite Sides"
-        case .all:  return "Link All Sides"
+    static func marginTitle(_ target: MarginShorthand.Target) -> LocalizedStringKey {
+        switch target {
+        case .vertical:        return "Top and Bottom Margins"
+        case .horizontal:      return "Left and Right Margins"
+        case .side(let edge):  return gapTitle(edge)
         }
-    }
-
-    private static let marginGap: CGFloat = 6
-    /// What is left in the middle once two fields and their gaps are placed.
-    private static let marginPlateWidth: CGFloat = 44
-
-    private func gapField(_ edge: PresentationLayout.Edge, value: CGFloat) -> some View {
-        NumberField(value: .constant(Double(value.rounded())),
-                    alignment: .center) { typed in
-            setGap(edge, to: CGFloat(typed))
-        }
-        .frame(width: Self.numberFieldWidth)
-        // SwiftUI writes the environment's control size onto the wrapped
-        // NSControl, so a field outside a `.large` container is reset to the
-        // regular one — 22 points against the canvas row's 30. Measured.
-        .controlSize(.large)
-        .help(Self.gapTitle(edge))
-        .accessibilityLabel(Self.gapTitle(edge))
     }
 
     private static func gapTitle(_ edge: PresentationLayout.Edge) -> LocalizedStringKey {
@@ -1067,14 +1078,17 @@ struct PresentationInspector: View {
     /// The field's door into `EditorDocument.setGap`. The document owns the
     /// rule — the canvas drags the same sides — and what stays here is what
     /// belongs to the fields alone: how far one typed number reaches.
-    private func setGap(_ edge: PresentationLayout.Edge, to value: CGFloat) {
-        // Only a page that hugs its picture has four free margins to spread a
-        // number across; on a fixed page the gaps are not independent.
-        let reach = marginsAreFree ? marginSpread : .one
+    /// The fields' door into `EditorDocument.setGap`. The document owns the
+    /// rule — the canvas drags the same sides — and what belongs to the fields
+    /// alone is how a typed list maps onto the four margins.
+    private func setGap(_ target: MarginShorthand.Target, to values: [CGFloat],
+                        from margins: Presentation.Margins) {
+        let updated = MarginShorthand.applied(values, from: target, to: margins)
+        guard updated != margins else { return }
         document.beginChange()
-        // One Return is one undo step however many edges it reached.
-        for target in PresentationLayout.edges(spreading: edge, reach) {
-            document.setGap(target, to: value)
+        // One Return is one undo step however many sides it reached.
+        for edge in PresentationLayout.Edge.allCases where updated[edge] != margins[edge] {
+            document.setGap(edge, to: updated[edge])
         }
         document.commitChange()
         draft = document.presentation ?? draft
@@ -1384,6 +1398,9 @@ struct PresentationInspector: View {
     /// "Presets", "Colors", "From Archive", "Corners", "Margins, px" — sits
     /// this far above its controls, and the shadow's colour drifted to the
     /// section's own control spacing until it was given a stack of its own.
+    /// Between the margin fields and the button beside them.
+    private static let marginGap: CGFloat = 6
+
     private static let captionGap: CGFloat = 6
     /// Breathing room inside a section's box, on top of what `GroupBox` gives.
     /// Its own inset is about half of what the app's settings cards use, and

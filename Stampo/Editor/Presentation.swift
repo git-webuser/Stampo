@@ -458,38 +458,6 @@ nonisolated enum PresentationLayout {
         }
     }
 
-    /// How far a number typed into one margin field reaches: that edge alone,
-    /// the pair it belongs to, or all four.
-    ///
-    /// A mode, shown and switched by the button in the middle of the cross.
-    /// It began as a pair of keyboard modifiers instead — hold Control for the
-    /// pair, add Command for all four — and that was wrong twice over: it did
-    /// not work (a digit typed with Control down never reaches the field at
-    /// all, whatever the key-binding table says about Control and digits), and
-    /// nothing on screen said the modes existed. A mode you cannot see is a
-    /// mode nobody uses.
-    enum MarginSpread: CaseIterable, Sendable {
-        case one, pair, all
-
-        /// What the button in the middle switches to next.
-        var next: MarginSpread {
-            switch self {
-            case .one:  return .pair
-            case .pair: return .all
-            case .all:  return .one
-            }
-        }
-    }
-
-    /// The edges a number typed into `edge` should reach.
-    static func edges(spreading edge: Edge, _ spread: MarginSpread) -> [Edge] {
-        switch spread {
-        case .one:  return [edge]
-        case .pair: return [edge, edge.opposite]
-        case .all:  return Edge.allCases
-        }
-    }
-
     /// Splits `delta` between the two margins of one axis, keeping whatever
     /// bias they already have. A picture deliberately pushed left stays pushed
     /// left; only when both sides are zero (or negative) is the delta halved.
