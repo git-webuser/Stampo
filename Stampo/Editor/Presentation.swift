@@ -521,24 +521,45 @@ nonisolated enum EditorCanvasGeometry {
         let imageDrawSize: CGSize
     }
 
-    /// `baseScaleOverride` and `canvasOriginOverride` hold the page still
-    /// while a gesture changes its size.
+    /// `canvasOriginOverride` puts the page somewhere other than the middle —
+    /// see `canvasOrigin(pinning:)`, which is the only thing that asks.
+    /// Where the page has to sit for `edge` to stay under the pointer.
     ///
     /// An auto page has no size of its own — it *is* the picture plus its
-    /// margins — so setting a margin resizes the page, and the page is normally
-    /// both re-fitted and re-centred every pass. Without the scale held, the
-    /// whole scene shrinks on every pointer sample. Without the origin held,
-    /// the page re-centres as it grows, so the edge under the hand moves at
-    /// half the speed of the hand: push the mouse ten points and the edge
-    /// follows five, because the other five went into recentring. Held, the
-    /// page grows away from its anchored corner and the edge tracks the pointer
-    /// exactly, which is what grabbing an edge is supposed to mean.
+    /// margins — so dragging a margin resizes the page, and a page that resizes
+    /// is re-fitted and re-centred on the next pass. Left alone, that moves the
+    /// very edge the hand is holding: it travels at half the speed of the
+    /// mouse, the other half going into recentring, and it slides sideways as
+    /// the fit shrinks.
+    ///
+    /// Holding the fit instead was worse in its own way: the page grew straight
+    /// out of the window and the margin being set could not be seen. So the fit
+    /// is left alone — the whole page stays visible, as everywhere else in this
+    /// editor — and the page is placed so that the edge in hand lands under the
+    /// pointer. Only the axis being dragged is pinned; the other one stays
+    /// centred, since nothing on it changed.
+    static func canvasOrigin(pinning edge: PresentationLayout.Edge,
+                             at viewPoint: CGPoint,
+                             imageRect: CGRect,
+                             canvasScale: CGFloat,
+                             centred: CGPoint) -> CGPoint {
+        switch edge {
+        case .leading:
+            return CGPoint(x: viewPoint.x - imageRect.minX * canvasScale, y: centred.y)
+        case .trailing:
+            return CGPoint(x: viewPoint.x - imageRect.maxX * canvasScale, y: centred.y)
+        case .top:
+            return CGPoint(x: centred.x, y: viewPoint.y - imageRect.minY * canvasScale)
+        case .bottom:
+            return CGPoint(x: centred.x, y: viewPoint.y - imageRect.maxY * canvasScale)
+        }
+    }
+
     static func resolve(viewport: CGSize,
                         imagePixelSize: CGSize,
                         presentation: Presentation?,
                         zoom: CGFloat,
                         pan: CGSize,
-                        baseScaleOverride: CGFloat? = nil,
                         canvasOriginOverride: CGPoint? = nil) -> Resolved {
         let layout = PresentationLayout.resolve(
             imagePixelSize: imagePixelSize,
@@ -549,9 +570,7 @@ nonisolated enum EditorCanvasGeometry {
         let availableHeight = max(1, finite(viewport.height) - edgeInset * 2)
 
         let baseScale: CGFloat
-        if let override = baseScaleOverride, override > 0, override.isFinite {
-            baseScale = override
-        } else if canvasSize.width > 0, canvasSize.height > 0 {
+        if canvasSize.width > 0, canvasSize.height > 0 {
             baseScale = min(min(availableWidth / canvasSize.width,
                                 availableHeight / canvasSize.height), 1)
         } else {

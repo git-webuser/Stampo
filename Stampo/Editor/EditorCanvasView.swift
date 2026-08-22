@@ -364,10 +364,11 @@ struct EditorCanvasView: View {
     }
 
     @State private var dragMode: DragMode?
-    /// The fit *and the anchor* to hold still while a drag changes the page's
-    /// size — see `settingGap`. Nil the rest of the time, when the canvas fits
-    /// and centres itself in the window as it always has.
-    @State private var frozenCanvas: CanvasMapping?
+    /// Where the pointer is during a drag that resizes the page, so the edge
+    /// in hand can be pinned under it — see
+    /// `EditorCanvasGeometry.canvasOrigin(pinning:)`. Nil the rest of the time,
+    /// when the page centres itself in the window as it always has.
+    @State private var gapDragPointer: CGPoint?
     /// Whether the pointer is wearing a cursor we set — see `updateCursor`.
     @State private var cursorIsOurs = false
     /// Whether the pointer is over something it can pick up. Drives both the
@@ -396,15 +397,8 @@ struct EditorCanvasView: View {
             // presentation there keeps the existing crop interaction safe;
             // the styled canvas returns as soon as the crop is committed.
             let renderPresentation = tool == .crop ? nil : document.presentation
-            let geometry = EditorCanvasGeometry.resolve(
-                viewport: geo.size,
-                imagePixelSize: pixel,
-                presentation: renderPresentation,
-                zoom: zoomFactor,
-                pan: panOffset,
-                baseScaleOverride: frozenCanvas?.baseScale,
-                canvasOriginOverride: frozenCanvas?.offset
-            )
+            let geometry = pinnedGeometry(
+                viewport: geo.size, pixel: pixel, presentation: renderPresentation)
             let fitScale = geometry.imageFitScale
             let baseDrawSize = geometry.canvasBaseDrawSize
             let drawSize = geometry.imageDrawSize
@@ -741,6 +735,28 @@ struct EditorCanvasView: View {
             context.fill(Path(ellipseIn: ring), with: .color(.white))
             context.stroke(Path(ellipseIn: ring), with: .color(.accentColor), lineWidth: 1.5)
         }
+    }
+
+    /// The page as it is laid out this pass — centred, except while a margin is
+    /// being dragged, when the edge in hand is pinned under the pointer.
+    ///
+    /// Two resolves rather than one: the pin needs the scale and the centred
+    /// origin the first one works out, and both are pure arithmetic.
+    private func pinnedGeometry(viewport: CGSize, pixel: CGSize,
+                                presentation: Presentation?) -> EditorCanvasGeometry.Resolved {
+        let centred = EditorCanvasGeometry.resolve(
+            viewport: viewport, imagePixelSize: pixel, presentation: presentation,
+            zoom: zoomFactor, pan: panOffset)
+        guard case .settingGap(let edge, _)? = dragMode, let pointer = gapDragPointer
+        else { return centred }
+        let origin = EditorCanvasGeometry.canvasOrigin(
+            pinning: edge, at: pointer,
+            imageRect: centred.presentationLayout.imageRect,
+            canvasScale: centred.canvasScale,
+            centred: centred.canvasOffset)
+        return EditorCanvasGeometry.resolve(
+            viewport: viewport, imagePixelSize: pixel, presentation: presentation,
+            zoom: zoomFactor, pan: panOffset, canvasOriginOverride: origin)
     }
 
     /// The middle of a side, in canvas pixels.
@@ -1420,7 +1436,10 @@ struct EditorCanvasView: View {
 
                 case .settingGap(let edge, let baseline):
                     // Through the mapping the drag started with, never the live
-                    // one — see the case's own note.
+                    // one — see the case's own note. The page is placed so the
+                    // edge stays under the pointer; the number comes from the
+                    // baseline, so it can never chase its own output.
+                    gapDragPointer = value.location
                     document.setGap(edge, to: PresentationLayout.gap(
                         forPointer: baseline.page(value.location), on: edge,
                         canvasSize: baseline.size))
@@ -1551,9 +1570,9 @@ struct EditorCanvasView: View {
                     document.refreshBindingFallbacks()
                     document.commitChange()
                 case .movingImage, .resizingImage, .settingGap, .settingRadius:
-                    // The page fits and centres itself again — once, now,
-                    // rather than on every sample of the drag.
-                    frozenCanvas = nil
+                    // The page centres itself again — once, now, rather than on
+                    // every sample of the drag.
+                    gapDragPointer = nil
                     document.commitChange()
                 case .duplicatePending, .cropCreating, .cropMoving, .cropResizing,
                      .panning, .ignore, nil:
@@ -1899,11 +1918,6 @@ struct EditorCanvasView: View {
                 let m = Self.edgeHandlePoint(edge, in: rect)
                 if hypot(sp.canvas.x - m.x, sp.canvas.y - m.y) <= grab {
                     document.beginChange()
-                    // The page stops re-fitting for the length of the gesture:
-                    // on an auto page it is about to grow, and a scene that
-                    // rescales under the pointer is both the jump and the
-                    // re-render nobody asked for.
-                    frozenCanvas = mapping
                     return .settingGap(edge, baseline: mapping)
                 }
             }

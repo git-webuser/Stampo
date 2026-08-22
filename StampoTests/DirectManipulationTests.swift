@@ -83,73 +83,57 @@ import Testing
     }
 
     /// An auto page has no size of its own — it is the picture plus its
-    /// margins — so setting a margin resizes the page, and the page is normally
-    /// re-fitted *and re-centred* every pass. Both have to be held for the
-    /// length of the gesture, or the edge under the hand does not travel with
-    /// the hand.
-    @Test func aHeldPageDoesNotMoveWhileItGrows() {
+    /// margins — so setting a margin resizes the page, and a resized page is
+    /// re-fitted and re-centred on the next pass. That moves the very edge the
+    /// hand is holding, so the page is placed to keep it under the pointer.
+    @Test func theDraggedEdgeStaysUnderThePointer() {
         let image = CGSize(width: 1200, height: 700)
         let viewport = CGSize(width: 900, height: 620)
         func page(_ margin: CGFloat) -> Presentation {
             Presentation(canvas: .auto(margins: .init(all: margin), scale: 1),
                          background: .solid(.white))
         }
+        let pointer = CGPoint(x: 300, y: 310)
 
-        let before = EditorCanvasGeometry.resolve(viewport: viewport, imagePixelSize: image,
-                                                  presentation: page(40), zoom: 1, pan: .zero)
-        let loose = EditorCanvasGeometry.resolve(viewport: viewport, imagePixelSize: image,
-                                                 presentation: page(400), zoom: 1, pan: .zero)
-        let held = EditorCanvasGeometry.resolve(viewport: viewport, imagePixelSize: image,
-                                                presentation: page(400), zoom: 1, pan: .zero,
-                                                baseScaleOverride: before.canvasScale,
-                                                canvasOriginOverride: before.canvasOffset)
-
-        #expect(loose.canvasScale < before.canvasScale)      // the fit would shrink
-        #expect(loose.canvasOffset != before.canvasOffset)   // and the page would re-centre
-        #expect(held.canvasScale == before.canvasScale)
-        #expect(held.canvasOffset == before.canvasOffset)
-    }
-
-    /// The pointer holds an edge, so the edge has to be where the pointer is —
-    /// at any margin, with the page anchored. Without the anchor the page
-    /// re-centres as it grows and the edge travels at half the speed of the
-    /// hand.
-    @Test func theEdgeTracksThePointerOneToOne() {
-        let image = CGSize(width: 1200, height: 700)
-        let viewport = CGSize(width: 900, height: 620)
-        func page(_ margin: CGFloat) -> Presentation {
-            Presentation(canvas: .auto(margins: .init(all: margin), scale: 1),
-                         background: .solid(.white))
-        }
-        let anchor = EditorCanvasGeometry.resolve(viewport: viewport, imagePixelSize: image,
-                                                  presentation: page(40), zoom: 1, pan: .zero)
-
-        func leftEdgeOnScreen(_ margin: CGFloat) -> CGFloat {
-            let geometry = EditorCanvasGeometry.resolve(
+        for margin in [CGFloat(40), 200, 600] {
+            let centred = EditorCanvasGeometry.resolve(
                 viewport: viewport, imagePixelSize: image, presentation: page(margin),
-                zoom: 1, pan: .zero,
-                baseScaleOverride: anchor.canvasScale,
-                canvasOriginOverride: anchor.canvasOffset)
-            return geometry.imageOffset.x
-        }
+                zoom: 1, pan: .zero)
+            let origin = EditorCanvasGeometry.canvasOrigin(
+                pinning: .leading, at: pointer,
+                imageRect: centred.presentationLayout.imageRect,
+                canvasScale: centred.canvasScale, centred: centred.canvasOffset)
+            let pinned = EditorCanvasGeometry.resolve(
+                viewport: viewport, imagePixelSize: image, presentation: page(margin),
+                zoom: 1, pan: .zero, canvasOriginOverride: origin)
 
-        // 60 canvas points of margin, at the held scale, is 60 × scale on screen.
-        let travelled = leftEdgeOnScreen(100) - leftEdgeOnScreen(40)
-        #expect(abs(travelled - 60 * anchor.canvasScale) < 0.001)
+            // The picture's left edge on screen is where the pointer is, at any
+            // margin — which is what "the hand is holding this edge" means.
+            #expect(abs(pinned.imageOffset.x - pointer.x) < 0.001, "margin \(margin)")
+            // The other axis is untouched: nothing on it changed.
+            #expect(pinned.canvasOffset.y == centred.canvasOffset.y)
+        }
     }
 
-    /// Ten pixels was a thick outline on a retina screenshot, and a fixed
-    /// number lies in both directions — hence a share of the short side, with
-    /// clamps for the extremes.
-    @Test func theStartingMarginFollowsThePicture() {
-        #expect(Presentation.defaultMargin(for: CGSize(width: 2400, height: 1400)) == 168)
-        #expect(Presentation.defaultMargin(for: CGSize(width: 1200, height: 2000)) == 144)
-        #expect(Presentation.defaultMargin(for: CGSize(width: 600, height: 400)) == 48)
-        // A tiny crop keeps a visible frame; a panorama's short side is small,
-        // and a full retina screen's is large.
-        #expect(Presentation.defaultMargin(for: CGSize(width: 200, height: 120)) == 32)
-        #expect(Presentation.defaultMargin(for: CGSize(width: 6000, height: 4000)) == 240)
-        #expect(Presentation.defaultMargin(for: .zero) == 32)
+    /// And the page keeps fitting the window while it grows — holding the fit
+    /// instead was tried and the page walked straight out of the window, taking
+    /// the margin being set with it.
+    @Test func theWholePageStaysVisibleAsItGrows() {
+        let image = CGSize(width: 1200, height: 700)
+        let viewport = CGSize(width: 900, height: 620)
+        func drawn(_ margin: CGFloat) -> CGSize {
+            EditorCanvasGeometry.resolve(
+                viewport: viewport, imagePixelSize: image,
+                presentation: Presentation(canvas: .auto(margins: .init(all: margin), scale: 1),
+                                           background: .solid(.white)),
+                zoom: 1, pan: .zero).canvasDrawSize
+        }
+
+        for margin in [CGFloat(40), 200, 600, 2000] {
+            let size = drawn(margin)
+            #expect(size.width <= viewport.width, "margin \(margin)")
+            #expect(size.height <= viewport.height, "margin \(margin)")
+        }
     }
 
     /// One gesture is one undo step: the document's setters are live, and the
