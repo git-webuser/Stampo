@@ -1890,7 +1890,12 @@ nonisolated struct Annotation: Identifiable, Equatable, Sendable {
 }
 
 /// The four grab points of the picture's frame.
-enum ImageCorner: CaseIterable, Sendable {
+///
+/// `nonisolated`, because it is pure geometry and `PresentationLayout` — which
+/// is nonisolated by design, so preview and export can share it — asks a corner
+/// where it is. The default isolation in this project is the main actor, so
+/// without this the layout maths would be calling into it from outside.
+nonisolated enum ImageCorner: CaseIterable, Sendable {
     case topLeft, topRight, bottomLeft, bottomRight
 
     var isTop: Bool { self == .topLeft || self == .topRight }

@@ -329,12 +329,45 @@ struct EditorCanvasView: View {
         /// Dragging the middle of a side: the gap on that edge follows the
         /// pointer. The same act as typing into that margin field, and it goes
         /// through the same rule.
-        case settingGap(PresentationLayout.Edge)
-        /// Dragging the dot inside the top-left corner.
-        case settingRadius
+        ///
+        /// The mapping from the screen to the page travels with the mode, and
+        /// that is not an optimisation. On an auto page a margin *is* the page
+        /// — set it and the canvas grows — so a gap read from the live mapping
+        /// feeds the gesture its own output: the page grows, the view re-fits
+        /// smaller, the same pointer now sits at a different page coordinate,
+        /// and the margin runs away from the mouse while every frame re-renders
+        /// the whole scene at a new scale. Frozen at the start, ten points of
+        /// mouse are ten points of margin, and the drag is one conversion
+        /// instead of a chase. Same reasoning as `routeSegment`'s baseline.
+        case settingGap(PresentationLayout.Edge, baseline: CanvasMapping)
+        /// Dragging one of the dots inside the corners. Which corner travels
+        /// with the mode: the radius is one number, but it is measured from
+        /// whichever corner the hand is on.
+        case settingRadius(ImageCorner)
         case ignore
     }
+    /// How the screen mapped to the page at some moment — captured when a drag
+    /// that changes the page's own size begins.
+    struct CanvasMapping: Equatable {
+        let baseScale: CGFloat
+        let zoom: CGFloat
+        let offset: CGPoint
+        let size: CGSize
+
+        var scale: CGFloat { baseScale * zoom }
+
+        func page(_ viewPoint: CGPoint) -> CGPoint {
+            guard scale > 0 else { return .zero }
+            return CGPoint(x: (viewPoint.x - offset.x) / scale,
+                           y: (viewPoint.y - offset.y) / scale)
+        }
+    }
+
     @State private var dragMode: DragMode?
+    /// The fit to hold still while a drag changes the page's size — see
+    /// `settingGap`. Nil the rest of the time, when the canvas fits itself to
+    /// the window as it always has.
+    @State private var frozenBaseScale: CGFloat?
     /// Whether the pointer is wearing a cursor we set — see `updateCursor`.
     @State private var cursorIsOurs = false
     /// Whether the pointer is over something it can pick up. Drives both the
@@ -368,7 +401,8 @@ struct EditorCanvasView: View {
                 imagePixelSize: pixel,
                 presentation: renderPresentation,
                 zoom: zoomFactor,
-                pan: panOffset
+                pan: panOffset,
+                baseScaleOverride: frozenBaseScale
             )
             let fitScale = geometry.imageFitScale
             let baseDrawSize = geometry.canvasBaseDrawSize
@@ -694,14 +728,18 @@ struct EditorCanvasView: View {
             context.stroke(Path(roundedRect: box, cornerRadius: 2.5),
                            with: .color(.accentColor), lineWidth: 1.5)
         }
-        // And the radius, as one dot inside the top-left corner: the model
-        // keeps a single radius, so a dot per corner would be four handles for
-        // one number in a frame that already carries eight.
-        let dot = view(Self.radiusHandlePoint(in: rect, cornerRadius: cornerRadius,
-                                              canvasSize: canvasSize))
-        let ring = CGRect(x: dot.x - 4, y: dot.y - 4, width: 8, height: 8)
-        context.fill(Path(ellipseIn: ring), with: .color(.white))
-        context.stroke(Path(ellipseIn: ring), with: .color(.accentColor), lineWidth: 1.5)
+        // And the radius, as a dot inside every corner. One number, four ways
+        // to set it: a person rounds the corner they are looking at, and
+        // having to cross the picture to reach the only handle is a detour
+        // with nothing at the end of it.
+        for corner in ImageCorner.allCases {
+            let dot = view(Self.radiusHandlePoint(corner, in: rect,
+                                                  cornerRadius: cornerRadius,
+                                                  canvasSize: canvasSize))
+            let ring = CGRect(x: dot.x - 4, y: dot.y - 4, width: 8, height: 8)
+            context.fill(Path(ellipseIn: ring), with: .color(.white))
+            context.stroke(Path(ellipseIn: ring), with: .color(.accentColor), lineWidth: 1.5)
+        }
     }
 
     /// The middle of a side, in canvas pixels.
@@ -715,16 +753,19 @@ struct EditorCanvasView: View {
         }
     }
 
-    /// Where the radius dot sits: as far along the top-left corner's two sides
+    /// Where a corner's radius dot sits: as far along that corner's two sides
     /// as the radius reaches, and never closer to the corner than a grab of its
     /// own — at radius 0 a dot exactly on the corner would be the corner
     /// handle, and one of the two would be unreachable.
-    static func radiusHandlePoint(in rect: CGRect, cornerRadius: CGFloat,
+    static func radiusHandlePoint(_ corner: ImageCorner, in rect: CGRect,
+                                  cornerRadius: CGFloat,
                                   canvasSize: CGSize) -> CGPoint {
         let short = min(canvasSize.width, canvasSize.height)
         let radius = min(max(0, cornerRadius) * short, min(rect.width, rect.height) / 2)
         let inset = max(radius, min(14, min(rect.width, rect.height) / 3))
-        return CGPoint(x: rect.minX + inset, y: rect.minY + inset)
+        let anchor = corner.point(in: rect)
+        return CGPoint(x: anchor.x + (corner.isLeading ? inset : -inset),
+                       y: anchor.y + (corner.isTop ? inset : -inset))
     }
 
     private func drawCropOverlay(_ rect: CGRect, context: GraphicsContext,
@@ -1138,7 +1179,13 @@ struct EditorCanvasView: View {
                         // so it works even on an already-selected annotation.
                         dragMode = .ignore
                     } else {
-                        dragMode = beginDrag(at: sp, with: activeTool)
+                        dragMode = beginDrag(
+                            at: sp, with: activeTool,
+                            mapping: CanvasMapping(
+                                baseScale: canvasScale / max(0.0001, zoomFactor),
+                                zoom: zoomFactor,
+                                offset: canvasOffset,
+                                size: canvasSize))
                     }
                 }
 
@@ -1370,15 +1417,19 @@ struct EditorCanvasView: View {
                         imagePixelSize: pixel
                     )
 
-                case .settingGap(let edge):
+                case .settingGap(let edge, let baseline):
+                    // Through the mapping the drag started with, never the live
+                    // one — see the case's own note.
                     document.setGap(edge, to: PresentationLayout.gap(
-                        forPointer: sp.canvas, on: edge, canvasSize: canvasSize))
+                        forPointer: baseline.page(value.location), on: edge,
+                        canvasSize: baseline.size))
 
-                case .settingRadius:
+                case .settingRadius(let corner):
                     let rect = PresentationLayout.resolve(imagePixelSize: pixel,
                                                           document.presentation).imageRect
                     document.setCornerRadius(PresentationLayout.cornerRadius(
-                        forPointer: sp.canvas, in: rect, canvasSize: canvasSize))
+                        forPointer: sp.canvas, from: corner, in: rect,
+                        canvasSize: canvasSize))
 
                 case .panning(let last):
                     // Clamp so the image can't be dragged past its overflow
@@ -1499,6 +1550,9 @@ struct EditorCanvasView: View {
                     document.refreshBindingFallbacks()
                     document.commitChange()
                 case .movingImage, .resizingImage, .settingGap, .settingRadius:
+                    // The page fits itself to the window again — once, now,
+                    // rather than on every sample of the drag.
+                    frozenBaseScale = nil
                     document.commitChange()
                 case .duplicatePending, .cropCreating, .cropMoving, .cropResizing,
                      .panning, .ignore, nil:
@@ -1509,7 +1563,8 @@ struct EditorCanvasView: View {
 
     /// Decides what a fresh mouse-down does, before we know if it's a click
     /// or a drag.
-    private func beginDrag(at sp: SpacedPoint, with gestureTool: EditorTool) -> DragMode {
+    private func beginDrag(at sp: SpacedPoint, with gestureTool: EditorTool,
+                           mapping: CanvasMapping) -> DragMode {
         // Tolerances are in pixels of whichever space the object being tested
         // is measured in, so a grab feels the same distance on screen either way.
         let selectedScale = document.selectedAnnotation.map(sp.scale(for:)) ?? sp.canvasScale
@@ -1572,7 +1627,7 @@ struct EditorCanvasView: View {
             }
             // The picture is the last thing under the pointer: annotations sit
             // on top of it, empty background below.
-            if let mode = beginImageDrag(at: sp) { return mode }
+            if let mode = beginImageDrag(at: sp, mapping: mapping) { return mode }
             // Empty space: a click deselects (in handleClick), a drag pans.
             return .undecided(pixelPoint: toolPoint, tool: gestureTool)
         case .text:
@@ -1810,7 +1865,7 @@ struct EditorCanvasView: View {
     /// sets that margin, the dot inside the top-left corner rounds it, and its
     /// body moves it. Only with a presentation — without one the picture *is*
     /// the canvas and there is nowhere to move it to.
-    private func beginImageDrag(at sp: SpacedPoint) -> DragMode? {
+    private func beginImageDrag(at sp: SpacedPoint, mapping: CanvasMapping) -> DragMode? {
         guard document.presentation != nil else { return nil }
         let layout = PresentationLayout.resolve(imagePixelSize: document.pixelSize,
                                                 document.presentation)
@@ -1826,21 +1881,29 @@ struct EditorCanvasView: View {
                     return .resizingImage(corner)
                 }
             }
-            // The radius dot sits inside the corner, so it is asked about
-            // after the corner itself: at radius 0 the two are only the
+            // The radius dots sit inside the corners, so they are asked about
+            // after the corners themselves: at radius 0 the two are only the
             // dot's inset apart.
-            let dot = Self.radiusHandlePoint(in: rect,
-                                             cornerRadius: document.presentation?.cornerRadius ?? 0,
-                                             canvasSize: layout.canvasSize)
-            if hypot(sp.canvas.x - dot.x, sp.canvas.y - dot.y) <= grab {
-                document.beginChange()
-                return .settingRadius
+            for corner in ImageCorner.allCases {
+                let dot = Self.radiusHandlePoint(
+                    corner, in: rect,
+                    cornerRadius: document.presentation?.cornerRadius ?? 0,
+                    canvasSize: layout.canvasSize)
+                if hypot(sp.canvas.x - dot.x, sp.canvas.y - dot.y) <= grab {
+                    document.beginChange()
+                    return .settingRadius(corner)
+                }
             }
             for edge in PresentationLayout.Edge.allCases {
                 let m = Self.edgeHandlePoint(edge, in: rect)
                 if hypot(sp.canvas.x - m.x, sp.canvas.y - m.y) <= grab {
                     document.beginChange()
-                    return .settingGap(edge)
+                    // The page stops re-fitting for the length of the gesture:
+                    // on an auto page it is about to grow, and a scene that
+                    // rescales under the pointer is both the jump and the
+                    // re-render nobody asked for.
+                    frozenBaseScale = mapping.baseScale
+                    return .settingGap(edge, baseline: mapping)
                 }
             }
         }

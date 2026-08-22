@@ -43,8 +43,24 @@ import Testing
         // 80 points into the corner on both axes, short side 800 → 0.1.
         let corner = CGPoint(x: picture.minX + 80, y: picture.minY + 80)
 
-        #expect(abs(PresentationLayout.cornerRadius(forPointer: corner, in: picture,
+        #expect(abs(PresentationLayout.cornerRadius(forPointer: corner, from: .topLeft,
+                                                    in: picture,
                                                     canvasSize: canvas) - 0.1) < 0.0001)
+    }
+
+    /// One number, four handles: every corner sets the same radius, measured
+    /// from itself. The same pointer offset from any corner is the same answer.
+    @Test func everyCornerSetsTheSameRadius() {
+        for corner in ImageCorner.allCases {
+            let anchor = corner.point(in: picture)
+            let point = CGPoint(x: anchor.x + (corner.isLeading ? 80 : -80),
+                                y: anchor.y + (corner.isTop ? 80 : -80))
+
+            #expect(abs(PresentationLayout.cornerRadius(forPointer: point, from: corner,
+                                                        in: picture,
+                                                        canvasSize: canvas) - 0.1) < 0.0001,
+                    "\(corner)")
+        }
     }
 
     /// The smaller of the two axes wins: a corner arc can only use what both
@@ -52,18 +68,42 @@ import Testing
     @Test func theShorterReachIsTheRadius() {
         let lopsided = CGPoint(x: picture.minX + 200, y: picture.minY + 40)
 
-        #expect(abs(PresentationLayout.cornerRadius(forPointer: lopsided, in: picture,
+        #expect(abs(PresentationLayout.cornerRadius(forPointer: lopsided, from: .topLeft,
+                                                    in: picture,
                                                     canvasSize: canvas) - 0.05) < 0.0001)
     }
 
     @Test func theRadiusStopsAtHalfAndAtZero() {
         let far = CGPoint(x: picture.minX + 900, y: picture.minY + 900)
-        let outside = CGPoint(x: picture.minX - 50, y: picture.minY - 50)
 
-        #expect(PresentationLayout.cornerRadius(forPointer: far, in: picture,
-                                                canvasSize: canvas) == 0.5)
-        #expect(PresentationLayout.cornerRadius(forPointer: outside, in: picture,
-                                                canvasSize: canvas) == 0)
+        #expect(PresentationLayout.cornerRadius(forPointer: far, from: .topLeft,
+                                                in: picture, canvasSize: canvas) == 0.5)
+        #expect(PresentationLayout.cornerRadius(forPointer: picture.origin, from: .topLeft,
+                                                in: picture, canvasSize: canvas) == 0)
+    }
+
+    /// The page is fitted to the window on every layout pass, so a drag that
+    /// changes the page's size would rescale the scene under the pointer —
+    /// which is both a re-render per sample and a picture crawling out from
+    /// under the hand. A held fit is what the gesture drags against.
+    @Test func aHeldFitSurvivesThePageGrowing() {
+        let image = CGSize(width: 1200, height: 700)
+        let small = Presentation(canvas: .auto(margins: .init(all: 40), scale: 1),
+                                 background: .solid(.white))
+        let grown = Presentation(canvas: .auto(margins: .init(all: 400), scale: 1),
+                                 background: .solid(.white))
+        let viewport = CGSize(width: 900, height: 620)
+
+        let before = EditorCanvasGeometry.resolve(viewport: viewport, imagePixelSize: image,
+                                                  presentation: small, zoom: 1, pan: .zero)
+        let after = EditorCanvasGeometry.resolve(viewport: viewport, imagePixelSize: image,
+                                                 presentation: grown, zoom: 1, pan: .zero)
+        let held = EditorCanvasGeometry.resolve(viewport: viewport, imagePixelSize: image,
+                                                presentation: grown, zoom: 1, pan: .zero,
+                                                baseScaleOverride: before.canvasScale)
+
+        #expect(after.canvasScale < before.canvasScale)      // the fit would shrink
+        #expect(held.canvasScale == before.canvasScale)      // held, it does not
     }
 
     /// Ten pixels was a thick outline on a retina screenshot, and a fixed

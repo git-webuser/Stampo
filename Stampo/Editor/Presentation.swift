@@ -376,15 +376,17 @@ nonisolated enum PresentationLayout {
     /// The corner radius a pointer is asking for, as the model keeps it: a
     /// share of the canvas's short side.
     ///
-    /// Measured from the picture's top-left corner along whichever axis the
-    /// pointer travelled less, which is how a rounded corner grows — the
-    /// smaller of the two is what the arc can actually use. Capped at half the
-    /// short side, the same ceiling the renderer applies when it clips.
-    static func cornerRadius(forPointer point: CGPoint, in imageRect: CGRect,
-                             canvasSize: CGSize) -> CGFloat {
+    /// Measured from whichever corner the hand is on, along whichever axis the
+    /// pointer travelled less — that is how a rounded corner grows, since the
+    /// arc can only use what both sides give it. The radius is one number for
+    /// the picture, but every corner can set it. Capped at half the short side,
+    /// the same ceiling the renderer applies when it clips.
+    static func cornerRadius(forPointer point: CGPoint, from corner: ImageCorner,
+                             in imageRect: CGRect, canvasSize: CGSize) -> CGFloat {
         let short = min(canvasSize.width, canvasSize.height)
         guard short > 0 else { return 0 }
-        let reach = min(point.x - imageRect.minX, point.y - imageRect.minY)
+        let anchor = corner.point(in: imageRect)
+        let reach = min(abs(point.x - anchor.x), abs(point.y - anchor.y))
         return min(0.5, max(0, reach / short))
     }
 
@@ -519,11 +521,17 @@ nonisolated enum EditorCanvasGeometry {
         let imageDrawSize: CGSize
     }
 
+    /// `baseScaleOverride` holds the fit still while a gesture changes the
+    /// page's own size. Without it, dragging a margin on an auto page rescales
+    /// the whole scene on every pointer sample — the page grows, the fit
+    /// shrinks, and the picture crawls out from under the hand that is
+    /// resizing it.
     static func resolve(viewport: CGSize,
                         imagePixelSize: CGSize,
                         presentation: Presentation?,
                         zoom: CGFloat,
-                        pan: CGSize) -> Resolved {
+                        pan: CGSize,
+                        baseScaleOverride: CGFloat? = nil) -> Resolved {
         let layout = PresentationLayout.resolve(
             imagePixelSize: imagePixelSize,
             presentation
@@ -533,7 +541,9 @@ nonisolated enum EditorCanvasGeometry {
         let availableHeight = max(1, finite(viewport.height) - edgeInset * 2)
 
         let baseScale: CGFloat
-        if canvasSize.width > 0, canvasSize.height > 0 {
+        if let override = baseScaleOverride, override > 0, override.isFinite {
+            baseScale = override
+        } else if canvasSize.width > 0, canvasSize.height > 0 {
             baseScale = min(min(availableWidth / canvasSize.width,
                                 availableHeight / canvasSize.height), 1)
         } else {
