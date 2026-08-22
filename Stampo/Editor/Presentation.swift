@@ -279,7 +279,11 @@ nonisolated struct Presentation: Equatable, Sendable {
         var amount: CGFloat
         /// Grain, cell, or step — as a fraction of the short side.
         var scale: CGFloat
-        var angle: CGFloat
+        /// In **degrees**, because that is what the panel shows and what a
+        /// person types. Radians here cost a bug: the field printed "1", "2",
+        /// "3" under a label that said degrees. The renderer converts, which is
+        /// one line in one place.
+        var angleInDegrees: CGFloat
         var color: Color
         /// Fixes the noise, so the preview and the file get the same one. A
         /// filter reseeded per call would shimmer while the panel redrew and

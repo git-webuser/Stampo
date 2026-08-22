@@ -85,7 +85,7 @@ nonisolated enum EffectStack {
         func effect(amount: CGFloat, scale: CGFloat, angle: CGFloat = 0,
                     color: Presentation.Color = .black) -> Effect {
             Effect(id: UUID(), kind: kind, isEnabled: true, amount: amount,
-                   scale: scale, angle: angle, color: color, seed: seed)
+                   scale: scale, angleInDegrees: angle, color: color, seed: seed)
         }
         switch kind {
         // Defaults are the settings that make the effect *recognisable* on
@@ -95,9 +95,9 @@ nonisolated enum EffectStack {
         case .dots:     return effect(amount: 0.18, scale: 0.04, color: ink)
         case .grid:     return effect(amount: 0.14, scale: 0.05, color: ink)
         case .stripes:  return effect(amount: 0.12, scale: 0.04,
-                                      angle: .pi / 4, color: ink)
+                                      angle: 45, color: ink)
         case .vignette: return effect(amount: 0.5, scale: 0.8)
-        case .pixelate: return effect(amount: 1, scale: 0.02)
+        case .pixelate: return effect(amount: 0.55, scale: 0.02)
         case .dither:   return effect(amount: 0.6, scale: 0.004)
         case .halftone: return effect(amount: 0.7, scale: 0.012)
         case .glass:    return effect(amount: 0.5, scale: 0.03)
@@ -123,7 +123,7 @@ nonisolated enum EffectStack {
                           systemImage: symbol, range: range, step: step)
         }
         let angle = ParameterInfo(parameter: .angle, titleKey: "Angle",
-                                  systemImage: "angle", range: 0...(.pi), step: .pi / 180)
+                                  systemImage: "angle", range: 0...180, step: 1)
         let color = ParameterInfo(parameter: .color, titleKey: "Pattern Color",
                                   systemImage: "paintpalette", range: 0...1, step: 1)
 
@@ -137,8 +137,8 @@ nonisolated enum EffectStack {
             return [strength(), size("Vignette Radius", 0.2...1.5, step: 0.05,
                                      symbol: "camera.aperture")]
         case .pixelate:
-            return [size("Cell Size", 0.002...0.06, step: 0.002,
-                         symbol: "squareshape.split.2x2")]
+            return [strength(), size("Cell Size", 0.002...0.06, step: 0.002,
+                                     symbol: "squareshape.split.2x2")]
         case .dither:
             return [strength(), size("Cell Size", 0.001...0.02, step: 0.001,
                                      symbol: "squareshape.split.2x2")]
@@ -167,7 +167,7 @@ nonisolated enum EffectStack {
         switch parameter {
         case .amount: return effect.amount
         case .scale:  return effect.scale
-        case .angle:  return effect.angle
+        case .angle:  return effect.angleInDegrees
         case .color:  return 0   // a colour is not a number; the panel edits it directly
         }
     }
@@ -184,7 +184,7 @@ nonisolated enum EffectStack {
         switch parameter {
         case .amount: result.amount = clamped
         case .scale:  result.scale = clamped
-        case .angle:  result.angle = clamped
+        case .angle:  result.angleInDegrees = clamped
         case .color:  break
         }
         return result

@@ -163,31 +163,44 @@ nonisolated enum BackgroundBaker {
         // A sixth of the range either side at full strength: grain is a
         // disturbance of the light, and noise reaching the whole way is static,
         // not film.
-        let swing = effect.amount / 3
+        return light(noise, amplitude: effect.amount / 3, over: image, extent: extent)
+    }
 
-        let grey = CIFilter.colorMatrix()
-        grey.inputImage = noise
-        // Every channel reads the same one, so coloured noise becomes grey —
+    /// A field of light laid over the picture: the field's red channel is read
+    /// as a level where ½ leaves the picture alone, 1 brightens it by
+    /// `amplitude` and 0 darkens it by as much.
+    ///
+    /// Spelled out rather than delegated to a blend mode, because each blend
+    /// mode brings its own opinion about where the light should go: `overlay`
+    /// preserves highlights and so cannot be seen on a light page at all, and
+    /// `linearLight` turned a dark page from 0.12 to a mean of 0.35 — a fog,
+    /// not a grain.
+    private static func light(_ field: CIImage, amplitude: CGFloat,
+                              over image: CIImage, extent: CGRect) -> CIImage {
+        guard amplitude > 0 else { return image }
+        let levelled = CIFilter.colorMatrix()
+        levelled.inputImage = field
+        // Every channel reads the same one, so a coloured field becomes grey —
         // colour speckle reads as a broken screen, not as film.
-        grey.rVector = CIVector(x: swing * 2, y: 0, z: 0, w: 0)
-        grey.gVector = CIVector(x: swing * 2, y: 0, z: 0, w: 0)
-        grey.bVector = CIVector(x: swing * 2, y: 0, z: 0, w: 0)
-        grey.aVector = CIVector(x: 0, y: 0, z: 0, w: 0)
+        levelled.rVector = CIVector(x: amplitude * 2, y: 0, z: 0, w: 0)
+        levelled.gVector = CIVector(x: amplitude * 2, y: 0, z: 0, w: 0)
+        levelled.bVector = CIVector(x: amplitude * 2, y: 0, z: 0, w: 0)
+        levelled.aVector = CIVector(x: 0, y: 0, z: 0, w: 0)
         // Opaque, and that is the trap in this filter: colours are stored
         // premultiplied, so an image with zero alpha carries no colour either —
         // a "transparent" speckle contributes exactly nothing, and it took a
         // measurement reading 0.0000 on both a light and a dark page to see it.
-        // What keeps the noise gentle is its amplitude, not its opacity.
-        grey.biasVector = CIVector(x: 0, y: 0, z: 0, w: 1)
-        guard let speckle = grey.outputImage?.cropped(to: extent) else { return image }
+        // What keeps the light gentle is its amplitude, not its opacity.
+        levelled.biasVector = CIVector(x: 0, y: 0, z: 0, w: 1)
+        guard let added = levelled.outputImage?.cropped(to: extent) else { return image }
 
         let darkened = CIFilter.colorMatrix()
         darkened.inputImage = image
-        darkened.biasVector = CIVector(x: -swing, y: -swing, z: -swing, w: 0)
+        darkened.biasVector = CIVector(x: -amplitude, y: -amplitude, z: -amplitude, w: 0)
         guard let base = darkened.outputImage?.cropped(to: extent) else { return image }
 
         let add = CIFilter.additionCompositing()
-        add.inputImage = speckle
+        add.inputImage = added
         add.backgroundImage = base
         return add.outputImage?.cropped(to: extent) ?? image
     }
@@ -218,7 +231,7 @@ nonisolated enum BackgroundBaker {
         // The pattern turns around the middle, so the angle reads as a rotation
         // of the picture rather than as a slide across it.
         ctx.translateBy(x: extent.midX, y: extent.midY)
-        ctx.rotate(by: effect.angle)
+        ctx.rotate(by: effect.radians)
         // Long enough to still cover the corners once turned.
         let reach = hypot(extent.width, extent.height)
         let from = -reach / 2, to = reach / 2
@@ -274,6 +287,15 @@ nonisolated enum BackgroundBaker {
         return filter.outputImage?.cropped(to: extent) ?? image
     }
 
+    /// Square cells — and, on a smooth page, a colour step to make them
+    /// visible.
+    ///
+    /// Averaging alone is invisible on a gradient by construction: the mean of
+    /// a smooth ramp over a cell is very nearly the ramp itself, and the effect
+    /// measured a flat zero on a solid colour. Fewer colours is what makes the
+    /// cells show: neighbouring cells land in the same band, so the edges
+    /// between bands follow the grid, and the picture reads as pixels rather
+    /// than as a slightly blurred gradient.
     private static func pixelate(_ effect: Recipe, over image: CIImage,
                                  extent: CGRect, shortSide: CGFloat) -> CIImage {
         let filter = CIFilter.pixellate()
@@ -282,7 +304,13 @@ nonisolated enum BackgroundBaker {
         // From a corner, not from the middle: cells anchored at the centre
         // leave a half cell against two edges, which reads as a mistake.
         filter.center = .zero
-        return filter.outputImage?.cropped(to: extent) ?? image
+        guard let blocks = filter.outputImage?.cropped(to: extent) else { return image }
+        guard effect.amount > 0 else { return blocks }
+
+        let posterize = CIFilter.colorPosterize()
+        posterize.inputImage = blocks
+        posterize.levels = Float(levels(effect.amount))
+        return posterize.outputImage?.cropped(to: extent) ?? blocks
     }
 
     /// Ordered noise, then fewer colours — which is what dithering looks like.
@@ -358,7 +386,7 @@ nonisolated enum BackgroundBaker {
         filter.inputImage = (inked.outputImage ?? image).clampedToExtent()
         filter.center = CGPoint(x: extent.midX, y: extent.midY)
         filter.width = Float(max(2, effect.scale * shortSide))
-        filter.angle = Float(effect.angle)
+        filter.angle = Float(effect.radians)
         filter.sharpness = Float(effect.amount)
         filter.grayComponentReplacement = 1
         filter.underColorRemoval = 0.5
@@ -403,19 +431,43 @@ nonisolated enum BackgroundBaker {
         // half a byte per channel and 200 was the first setting anyone could
         // see.
         filter.scale = Float(effect.amount * shortSide * 0.5)
-        return filter.outputImage?.cropped(to: extent) ?? image
+        let refracted = filter.outputImage?.cropped(to: extent) ?? image
+        // Refraction moves pixels, and on a smooth page every pixel has the
+        // same neighbours — so displacement alone is invisible there, which is
+        // exactly how this shipped. Real glass is *also* seen by the light its
+        // ripples gather, and the texture that bends the picture is the same
+        // field that lights it.
+        return light(texture, amplitude: effect.amount * 0.18,
+                     over: refracted, extent: extent)
     }
 
     /// A lens over the middle of the page: positive bulges, negative pinches.
     /// One dial for both, because inward is the same gesture read backwards.
     private static func lens(_ effect: Recipe, over image: CIImage,
                              extent: CGRect, shortSide: CGFloat) -> CIImage {
+        let radius = effect.scale * shortSide / 2
         let filter = CIFilter.bumpDistortion()
         filter.inputImage = image.clampedToExtent()
         filter.center = CGPoint(x: extent.midX, y: extent.midY)
-        filter.radius = Float(effect.scale * shortSide / 2)
+        filter.radius = Float(radius)
         filter.scale = Float(effect.amount)
-        return filter.outputImage?.cropped(to: extent) ?? image
+        let bulged = filter.outputImage?.cropped(to: extent) ?? image
+
+        // A lens is not only a bend, it is a gathering of light — and on a
+        // smooth page the bend has nothing to show, so the light is all there
+        // is. Bright in the middle where it bulges, dark where it pinches.
+        let gradient = CIFilter.radialGradient()
+        gradient.center = CGPoint(x: extent.midX, y: extent.midY)
+        gradient.radius0 = 0
+        gradient.radius1 = Float(radius)
+        let bright = effect.amount >= 0
+        gradient.color0 = CIColor(red: bright ? 1 : 0, green: bright ? 1 : 0,
+                                  blue: bright ? 1 : 0)
+        // Neutral outside the lens, so nothing beyond its edge is touched.
+        gradient.color1 = CIColor(red: 0.5, green: 0.5, blue: 0.5)
+        guard let field = gradient.outputImage?.cropped(to: extent) else { return bulged }
+        return light(field, amplitude: abs(effect.amount) * 0.22,
+                     over: bulged, extent: extent)
     }
 
     /// The page read as characters: one letter per cell, chosen by how bright
@@ -538,15 +590,18 @@ nonisolated enum BackgroundBaker {
         let kind: Presentation.Effect.Kind
         let amount: CGFloat
         let scale: CGFloat
-        let angle: CGFloat
+        let angleInDegrees: CGFloat
         let color: Presentation.Color
         let seed: UInt32
+
+        /// What the drawing routines want, from what the panel shows.
+        var radians: CGFloat { angleInDegrees * .pi / 180 }
 
         init(_ effect: Presentation.Effect) {
             kind = effect.kind
             amount = effect.amount
             scale = effect.scale
-            angle = effect.angle
+            angleInDegrees = effect.angleInDegrees
             color = effect.color
             seed = effect.seed
         }
