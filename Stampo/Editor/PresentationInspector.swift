@@ -48,6 +48,8 @@ struct PresentationInspector: View {
     /// What each kind of background held when it was last left. Session-scoped
     /// by design — see `BackgroundDrawers`.
     @State private var drawers = BackgroundDrawers()
+    /// Whether the grid of effects to choose from is open.
+    @State private var effectPickerIsOpen = false
     /// Which mesh corner the row below the plate acts on. Four corners, so no
     /// clamping machinery — just a number between 0 and 3.
     @State private var selectedCorner = 0
@@ -942,9 +944,57 @@ struct PresentationInspector: View {
                 }
                 Spacer(minLength: 0)
                 sectionActionButton("plus", label: "Add Effect") {
-                    addEffect(.grain)
+                    effectPickerIsOpen = true
+                }
+                .popover(isPresented: $effectPickerIsOpen, arrowEdge: .bottom) {
+                    effectPicker
                 }
             }
+        }
+    }
+
+    /// The grid behind the "+": every kind, drawn on the background it would
+    /// land on, with the stack that is already there underneath it.
+    ///
+    /// That is what makes a tile honest rather than decorative — and it also
+    /// tells the truth about the awkward ones. Pixelate and glass have nothing
+    /// to work on over a bare gradient, so their tiles show almost nothing, and
+    /// so would the page. An effect that needs a texture under it is a fact
+    /// about the effect, not something a stock sample should hide.
+    private var effectPicker: some View {
+        ScrollView {
+            tileGrid(Presentation.Effect.Kind.allCases, selected: nil) { kind in
+                effectTile(kind)
+            } action: { kind in
+                addEffect(kind)
+                effectPickerIsOpen = false
+            }
+            .padding(10)
+        }
+        .frame(width: 300, height: 340)
+    }
+
+    private func effectTile(_ kind: Presentation.Effect.Kind) -> some View {
+        let stack = draft.effects + [EffectStack.make(kind, seed: 5)]
+        return VStack(spacing: 5) {
+            Canvas { context, size in
+                context.withCGContext { cg in
+                    PresentationRenderer.drawBackground(
+                        draft.background, effects: stack,
+                        in: CGRect(origin: .zero, size: size), ctx: cg
+                    )
+                }
+            }
+            .aspectRatio(4.0 / 3.0, contentMode: .fit)
+            .clipShape(RoundedRectangle(cornerRadius: 5))
+            .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(.quaternary, lineWidth: 1))
+            // The name alone: the picture above it already says what the
+            // effect is, and the glyph beside it cost enough width to truncate
+            // "Pixelate" in three columns.
+            Text(LocalizedStringKey(EffectStack.title(for: kind)))
+                .font(.system(size: 11))
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
         }
     }
 

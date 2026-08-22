@@ -266,7 +266,9 @@ nonisolated struct Presentation: Equatable, Sendable {
         /// Only kinds that are actually computed live here. A case that draws
         /// nothing would still be offered in the panel's grid, and a tile that
         /// promises nothing is worse than a missing tile.
-        enum Kind: String, CaseIterable, Sendable {
+        enum Kind: String, CaseIterable, Identifiable, Sendable {
+            var id: String { rawValue }
+
             case grain, dots, grid, stripes, vignette, pixelate, dither,
                  halftone, glass, lens
         }
