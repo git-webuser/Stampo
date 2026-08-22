@@ -521,17 +521,25 @@ nonisolated enum EditorCanvasGeometry {
         let imageDrawSize: CGSize
     }
 
-    /// `baseScaleOverride` holds the fit still while a gesture changes the
-    /// page's own size. Without it, dragging a margin on an auto page rescales
-    /// the whole scene on every pointer sample — the page grows, the fit
-    /// shrinks, and the picture crawls out from under the hand that is
-    /// resizing it.
+    /// `baseScaleOverride` and `canvasOriginOverride` hold the page still
+    /// while a gesture changes its size.
+    ///
+    /// An auto page has no size of its own — it *is* the picture plus its
+    /// margins — so setting a margin resizes the page, and the page is normally
+    /// both re-fitted and re-centred every pass. Without the scale held, the
+    /// whole scene shrinks on every pointer sample. Without the origin held,
+    /// the page re-centres as it grows, so the edge under the hand moves at
+    /// half the speed of the hand: push the mouse ten points and the edge
+    /// follows five, because the other five went into recentring. Held, the
+    /// page grows away from its anchored corner and the edge tracks the pointer
+    /// exactly, which is what grabbing an edge is supposed to mean.
     static func resolve(viewport: CGSize,
                         imagePixelSize: CGSize,
                         presentation: Presentation?,
                         zoom: CGFloat,
                         pan: CGSize,
-                        baseScaleOverride: CGFloat? = nil) -> Resolved {
+                        baseScaleOverride: CGFloat? = nil,
+                        canvasOriginOverride: CGPoint? = nil) -> Resolved {
         let layout = PresentationLayout.resolve(
             imagePixelSize: imagePixelSize,
             presentation
@@ -559,7 +567,7 @@ nonisolated enum EditorCanvasGeometry {
             width: canvasBaseDrawSize.width * zoomScale,
             height: canvasBaseDrawSize.height * zoomScale
         )
-        let canvasOffset = CGPoint(
+        let canvasOffset = canvasOriginOverride ?? CGPoint(
             x: (finite(viewport.width) - canvasDrawSize.width) / 2
                 + finite(pan.width),
             y: (finite(viewport.height) - canvasDrawSize.height) / 2

@@ -82,28 +82,60 @@ import Testing
                                                 in: picture, canvasSize: canvas) == 0)
     }
 
-    /// The page is fitted to the window on every layout pass, so a drag that
-    /// changes the page's size would rescale the scene under the pointer —
-    /// which is both a re-render per sample and a picture crawling out from
-    /// under the hand. A held fit is what the gesture drags against.
-    @Test func aHeldFitSurvivesThePageGrowing() {
+    /// An auto page has no size of its own — it is the picture plus its
+    /// margins — so setting a margin resizes the page, and the page is normally
+    /// re-fitted *and re-centred* every pass. Both have to be held for the
+    /// length of the gesture, or the edge under the hand does not travel with
+    /// the hand.
+    @Test func aHeldPageDoesNotMoveWhileItGrows() {
         let image = CGSize(width: 1200, height: 700)
-        let small = Presentation(canvas: .auto(margins: .init(all: 40), scale: 1),
-                                 background: .solid(.white))
-        let grown = Presentation(canvas: .auto(margins: .init(all: 400), scale: 1),
-                                 background: .solid(.white))
         let viewport = CGSize(width: 900, height: 620)
+        func page(_ margin: CGFloat) -> Presentation {
+            Presentation(canvas: .auto(margins: .init(all: margin), scale: 1),
+                         background: .solid(.white))
+        }
 
         let before = EditorCanvasGeometry.resolve(viewport: viewport, imagePixelSize: image,
-                                                  presentation: small, zoom: 1, pan: .zero)
-        let after = EditorCanvasGeometry.resolve(viewport: viewport, imagePixelSize: image,
-                                                 presentation: grown, zoom: 1, pan: .zero)
+                                                  presentation: page(40), zoom: 1, pan: .zero)
+        let loose = EditorCanvasGeometry.resolve(viewport: viewport, imagePixelSize: image,
+                                                 presentation: page(400), zoom: 1, pan: .zero)
         let held = EditorCanvasGeometry.resolve(viewport: viewport, imagePixelSize: image,
-                                                presentation: grown, zoom: 1, pan: .zero,
-                                                baseScaleOverride: before.canvasScale)
+                                                presentation: page(400), zoom: 1, pan: .zero,
+                                                baseScaleOverride: before.canvasScale,
+                                                canvasOriginOverride: before.canvasOffset)
 
-        #expect(after.canvasScale < before.canvasScale)      // the fit would shrink
-        #expect(held.canvasScale == before.canvasScale)      // held, it does not
+        #expect(loose.canvasScale < before.canvasScale)      // the fit would shrink
+        #expect(loose.canvasOffset != before.canvasOffset)   // and the page would re-centre
+        #expect(held.canvasScale == before.canvasScale)
+        #expect(held.canvasOffset == before.canvasOffset)
+    }
+
+    /// The pointer holds an edge, so the edge has to be where the pointer is —
+    /// at any margin, with the page anchored. Without the anchor the page
+    /// re-centres as it grows and the edge travels at half the speed of the
+    /// hand.
+    @Test func theEdgeTracksThePointerOneToOne() {
+        let image = CGSize(width: 1200, height: 700)
+        let viewport = CGSize(width: 900, height: 620)
+        func page(_ margin: CGFloat) -> Presentation {
+            Presentation(canvas: .auto(margins: .init(all: margin), scale: 1),
+                         background: .solid(.white))
+        }
+        let anchor = EditorCanvasGeometry.resolve(viewport: viewport, imagePixelSize: image,
+                                                  presentation: page(40), zoom: 1, pan: .zero)
+
+        func leftEdgeOnScreen(_ margin: CGFloat) -> CGFloat {
+            let geometry = EditorCanvasGeometry.resolve(
+                viewport: viewport, imagePixelSize: image, presentation: page(margin),
+                zoom: 1, pan: .zero,
+                baseScaleOverride: anchor.canvasScale,
+                canvasOriginOverride: anchor.canvasOffset)
+            return geometry.imageOffset.x
+        }
+
+        // 60 canvas points of margin, at the held scale, is 60 × scale on screen.
+        let travelled = leftEdgeOnScreen(100) - leftEdgeOnScreen(40)
+        #expect(abs(travelled - 60 * anchor.canvasScale) < 0.001)
     }
 
     /// Ten pixels was a thick outline on a retina screenshot, and a fixed

@@ -364,10 +364,10 @@ struct EditorCanvasView: View {
     }
 
     @State private var dragMode: DragMode?
-    /// The fit to hold still while a drag changes the page's size — see
-    /// `settingGap`. Nil the rest of the time, when the canvas fits itself to
-    /// the window as it always has.
-    @State private var frozenBaseScale: CGFloat?
+    /// The fit *and the anchor* to hold still while a drag changes the page's
+    /// size — see `settingGap`. Nil the rest of the time, when the canvas fits
+    /// and centres itself in the window as it always has.
+    @State private var frozenCanvas: CanvasMapping?
     /// Whether the pointer is wearing a cursor we set — see `updateCursor`.
     @State private var cursorIsOurs = false
     /// Whether the pointer is over something it can pick up. Drives both the
@@ -402,7 +402,8 @@ struct EditorCanvasView: View {
                 presentation: renderPresentation,
                 zoom: zoomFactor,
                 pan: panOffset,
-                baseScaleOverride: frozenBaseScale
+                baseScaleOverride: frozenCanvas?.baseScale,
+                canvasOriginOverride: frozenCanvas?.offset
             )
             let fitScale = geometry.imageFitScale
             let baseDrawSize = geometry.canvasBaseDrawSize
@@ -1550,9 +1551,9 @@ struct EditorCanvasView: View {
                     document.refreshBindingFallbacks()
                     document.commitChange()
                 case .movingImage, .resizingImage, .settingGap, .settingRadius:
-                    // The page fits itself to the window again — once, now,
+                    // The page fits and centres itself again — once, now,
                     // rather than on every sample of the drag.
-                    frozenBaseScale = nil
+                    frozenCanvas = nil
                     document.commitChange()
                 case .duplicatePending, .cropCreating, .cropMoving, .cropResizing,
                      .panning, .ignore, nil:
@@ -1902,7 +1903,7 @@ struct EditorCanvasView: View {
                     // on an auto page it is about to grow, and a scene that
                     // rescales under the pointer is both the jump and the
                     // re-render nobody asked for.
-                    frozenBaseScale = mapping.baseScale
+                    frozenCanvas = mapping
                     return .settingGap(edge, baseline: mapping)
                 }
             }
