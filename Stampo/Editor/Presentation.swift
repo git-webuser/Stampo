@@ -523,6 +523,55 @@ nonisolated enum EditorCanvasGeometry {
 
     /// `canvasOriginOverride` puts the page somewhere other than the middle —
     /// see `canvasOrigin(pinning:)`, which is the only thing that asks.
+    /// Where the page has to sit for `edge` to stay under the pointer — as far
+    /// as that is possible without pushing the page out of the window.
+    ///
+    /// An auto page has no size of its own — it *is* the picture plus its
+    /// margins — so dragging a margin resizes the page, and a page that resizes
+    /// is re-fitted and re-centred on the next pass. Left alone, that moves the
+    /// very edge the hand is holding: it travels at half the speed of the
+    /// mouse, the other half going into recentring.
+    ///
+    /// Two things were tried and each broke the other way. Holding the fit made
+    /// the page grow straight out of the window, taking the margin being set
+    /// with it. Pinning the edge without a clamp kept that edge under the hand
+    /// and walked the page out of the *opposite* side. So the pin is clamped:
+    /// the page is placed for the pointer while it can be, and never past the
+    /// point where a side of it would leave the window. Visibility outranks
+    /// tracking, because a page you cannot see is not one you can judge.
+    ///
+    /// Only the axis being dragged is pinned; the other stays centred, since
+    /// nothing on it changed.
+    static func canvasOrigin(pinning edge: PresentationLayout.Edge,
+                             at viewPoint: CGPoint,
+                             imageRect: CGRect,
+                             canvasScale: CGFloat,
+                             canvasDrawSize: CGSize,
+                             viewport: CGSize,
+                             centred: CGPoint) -> CGPoint {
+        func held(_ value: CGFloat, drawn: CGFloat, available: CGFloat) -> CGFloat {
+            let near = edgeInset
+            let far = available - edgeInset - drawn
+            return min(max(value, min(near, far)), max(near, far))
+        }
+        switch edge {
+        case .leading, .trailing:
+            let anchor = edge == .leading ? imageRect.minX : imageRect.maxX
+            return CGPoint(x: held(viewPoint.x - anchor * canvasScale,
+                                   drawn: canvasDrawSize.width,
+                                   available: viewport.width),
+                           y: centred.y)
+        case .top, .bottom:
+            let anchor = edge == .top ? imageRect.minY : imageRect.maxY
+            return CGPoint(x: centred.x,
+                           y: held(viewPoint.y - anchor * canvasScale,
+                                   drawn: canvasDrawSize.height,
+                                   available: viewport.height))
+        }
+    }
+
+    /// `canvasOriginOverride` puts the page somewhere other than the middle —
+    /// see `canvasOrigin(pinning:)`, which is the only thing that asks.
     /// Where the page has to sit for `edge` to stay under the pointer.
     ///
     /// An auto page has no size of its own — it *is* the picture plus its

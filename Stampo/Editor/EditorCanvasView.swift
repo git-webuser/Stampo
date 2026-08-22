@@ -753,6 +753,8 @@ struct EditorCanvasView: View {
             pinning: edge, at: pointer,
             imageRect: centred.presentationLayout.imageRect,
             canvasScale: centred.canvasScale,
+            canvasDrawSize: centred.canvasDrawSize,
+            viewport: viewport,
             centred: centred.canvasOffset)
         return EditorCanvasGeometry.resolve(
             viewport: viewport, imagePixelSize: pixel, presentation: presentation,
