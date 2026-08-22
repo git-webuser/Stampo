@@ -119,14 +119,21 @@ nonisolated enum BackgroundBaker {
         }
     }
 
-    /// Film grain: grey noise laid over the background in overlay blend.
+    /// Film grain: signed noise, added to the picture as light and taken away
+    /// as shadow.
     ///
-    /// Overlay rather than a plain composite because grain is a *disturbance of
-    /// the light*, not a layer of dots — it must darken and lighten around the
-    /// midpoint, leaving the colour underneath recognisable. Mixing the noise
-    /// toward mid-grey is what turns strength into a dial: at 0 the overlay is
-    /// flat grey, which is the identity for this blend, so the background comes
-    /// through untouched.
+    /// The obvious spelling — grey noise in overlay blend — was shipped first
+    /// and is wrong on light pages. Overlay preserves highlights by
+    /// construction, so on a near-white background it has nothing to move:
+    /// measured at a fifth of its strength there against a dark page, which
+    /// reads as an effect that does not work.
+    ///
+    /// What lands instead is spelled out rather than delegated to a blend
+    /// mode: the picture is darkened by the amplitude and twice the amplitude
+    /// of noise is added back, so every pixel moves by `±swing` around where it
+    /// was. Blend modes were tried first and each brought its own opinion about
+    /// where the light should go — `linearLight` turned a dark page from 0.12
+    /// to a mean of 0.35, which is a fog, not a grain.
     private static func grain(_ effect: Recipe, over image: CIImage,
                               extent: CGRect, shortSide: CGFloat) -> CIImage {
         // One noise pixel is `scale` of the short side, so the grain is the
@@ -146,26 +153,43 @@ nonisolated enum BackgroundBaker {
             .samplingNearest()
             .transformed(by: CGAffineTransform(translationX: offsetX, y: offsetY))
             .transformed(by: CGAffineTransform(scaleX: pixel, y: pixel))
+            // The generator's alpha is random too, and colour is stored
+            // premultiplied — so a speckle asked for a tenth of the range came
+            // out at a third, and the picture washed out instead of grained.
+            // Flattening the alpha first makes the numbers mean what they say.
+            .settingAlphaOne(in: extent)
         guard let noise else { return image }
+
+        // A sixth of the range either side at full strength: grain is a
+        // disturbance of the light, and noise reaching the whole way is static,
+        // not film.
+        let swing = effect.amount / 3
 
         let grey = CIFilter.colorMatrix()
         grey.inputImage = noise
         // Every channel reads the same one, so coloured noise becomes grey —
         // colour speckle reads as a broken screen, not as film.
-        let weight = Float(effect.amount)
-        let bias = Float(0.5 * (1 - effect.amount))
-        grey.rVector = CIVector(x: CGFloat(weight), y: 0, z: 0, w: 0)
-        grey.gVector = CIVector(x: CGFloat(weight), y: 0, z: 0, w: 0)
-        grey.bVector = CIVector(x: CGFloat(weight), y: 0, z: 0, w: 0)
+        grey.rVector = CIVector(x: swing * 2, y: 0, z: 0, w: 0)
+        grey.gVector = CIVector(x: swing * 2, y: 0, z: 0, w: 0)
+        grey.bVector = CIVector(x: swing * 2, y: 0, z: 0, w: 0)
         grey.aVector = CIVector(x: 0, y: 0, z: 0, w: 0)
-        grey.biasVector = CIVector(x: CGFloat(bias), y: CGFloat(bias),
-                                   z: CGFloat(bias), w: 1)
-        guard let overlay = grey.outputImage?.cropped(to: extent) else { return image }
+        // Opaque, and that is the trap in this filter: colours are stored
+        // premultiplied, so an image with zero alpha carries no colour either —
+        // a "transparent" speckle contributes exactly nothing, and it took a
+        // measurement reading 0.0000 on both a light and a dark page to see it.
+        // What keeps the noise gentle is its amplitude, not its opacity.
+        grey.biasVector = CIVector(x: 0, y: 0, z: 0, w: 1)
+        guard let speckle = grey.outputImage?.cropped(to: extent) else { return image }
 
-        let blend = CIFilter.overlayBlendMode()
-        blend.inputImage = overlay
-        blend.backgroundImage = image
-        return blend.outputImage ?? image
+        let darkened = CIFilter.colorMatrix()
+        darkened.inputImage = image
+        darkened.biasVector = CIVector(x: -swing, y: -swing, z: -swing, w: 0)
+        guard let base = darkened.outputImage?.cropped(to: extent) else { return image }
+
+        let add = CIFilter.additionCompositing()
+        add.inputImage = speckle
+        add.backgroundImage = base
+        return add.outputImage?.cropped(to: extent) ?? image
     }
 
     /// A regular pattern — dots, a grid or stripes — laid over the background.
@@ -276,6 +300,7 @@ nonisolated enum BackgroundBaker {
             .transformed(by: CGAffineTransform(translationX: CGFloat(effect.seed % 4096),
                                                y: CGFloat((effect.seed / 4096) % 4096)))
             .transformed(by: CGAffineTransform(scaleX: cell, y: cell))
+            .settingAlphaOne(in: extent)
         var speckled = image
         if let noise {
             let grey = CIFilter.colorMatrix()
@@ -315,10 +340,22 @@ nonisolated enum BackgroundBaker {
 
     /// Print-style colour separation. Dramatic by nature, which is why its dot
     /// is the parameter people reach for first.
+    ///
+    /// The page is pulled down a little first, and that is not a flourish: a
+    /// halftone prints ink where there is tone, so on a near-white page it
+    /// prints almost nothing — measured at a seventh of its strength there,
+    /// which on screen is a blank tile. Ink needs something to be made of.
     private static func halftone(_ effect: Recipe, over image: CIImage,
                                  extent: CGRect, shortSide: CGFloat) -> CIImage {
+        let inked = CIFilter.colorMatrix()
+        inked.inputImage = image
+        let level = 1 - 0.35 * effect.amount
+        inked.rVector = CIVector(x: level, y: 0, z: 0, w: 0)
+        inked.gVector = CIVector(x: 0, y: level, z: 0, w: 0)
+        inked.bVector = CIVector(x: 0, y: 0, z: level, w: 0)
+
         let filter = CIFilter.cmykHalftone()
-        filter.inputImage = image.clampedToExtent()
+        filter.inputImage = (inked.outputImage ?? image).clampedToExtent()
         filter.center = CGPoint(x: extent.midX, y: extent.midY)
         filter.width = Float(max(2, effect.scale * shortSide))
         filter.angle = Float(effect.angle)
@@ -345,6 +382,7 @@ nonisolated enum BackgroundBaker {
             .transformed(by: CGAffineTransform(translationX: CGFloat(effect.seed % 4096),
                                                y: CGFloat((effect.seed / 4096) % 4096)))
             .transformed(by: CGAffineTransform(scaleX: blobs, y: blobs))
+            .settingAlphaOne(in: extent)
         else { return image }
         let blur = CIFilter.gaussianBlur()
         blur.inputImage = noise.cropped(to: extent).clampedToExtent()
@@ -568,5 +606,16 @@ nonisolated enum BackgroundBaker {
     /// GPU-backed, and shared for the same reason `AnnotationRenderer` shares
     /// its own: a `CIContext` per call spends more time being built than the
     /// filter spends running.
-    private static let ciContext = CIContext(options: [.useSoftwareRenderer: false])
+    ///
+    /// **Colour management off.** By default Core Image converts everything
+    /// into linear light, where a fixed change is enormous near black and
+    /// invisible near white — the same grain measured ten times stronger on a
+    /// dark page than on a light one, and pattern ink five times. Effects are
+    /// about how a page *looks*, so the filters work directly on the sRGB
+    /// numbers that were painted, and what a filter says it does is what the
+    /// pixels get. Every constant here is written for that space.
+    private static let ciContext = CIContext(options: [
+        .useSoftwareRenderer: false,
+        .workingColorSpace: NSNull()
+    ])
 }

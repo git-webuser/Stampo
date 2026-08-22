@@ -977,7 +977,7 @@ struct PresentationInspector: View {
     }
 
     private func effectTile(_ kind: Presentation.Effect.Kind) -> some View {
-        let stack = draft.effects + [EffectStack.make(kind, seed: 5)]
+        let stack = draft.effects + [EffectStack.make(kind, over: draft.background, seed: 5)]
         return VStack(spacing: 5) {
             Canvas { context, size in
                 context.withCGContext { cg in
@@ -2008,7 +2008,7 @@ struct PresentationInspector: View {
     // MARK: Document mutations
 
     private func addEffect(_ kind: Presentation.Effect.Kind) {
-        updateImmediately { $0.effects.append(EffectStack.make(kind)) }
+        updateImmediately { $0.effects.append(EffectStack.make(kind, over: $0.background)) }
     }
 
     private func removeEffect(_ effect: Presentation.Effect) {

@@ -74,7 +74,14 @@ nonisolated enum EffectStack {
     ///
     /// The seed is drawn once, here, and never again: it is what keeps the
     /// noise in the preview and the noise in the exported file the same noise.
-    static func make(_ kind: Kind, seed: UInt32 = .random(in: 0...UInt32.max)) -> Effect {
+    ///
+    /// The background is asked for its brightness because ink has to be seen:
+    /// white dots on a white page are a control that looks broken, and that is
+    /// exactly how the patterns first shipped — measured at a fortieth of their
+    /// strength on a light background against a dark one.
+    static func make(_ kind: Kind, over background: Presentation.Background = .none,
+                     seed: UInt32 = .random(in: 0...UInt32.max)) -> Effect {
+        let ink = background.contrastingInk
         func effect(amount: CGFloat, scale: CGFloat, angle: CGFloat = 0,
                     color: Presentation.Color = .black) -> Effect {
             Effect(id: UUID(), kind: kind, isEnabled: true, amount: amount,
@@ -85,16 +92,18 @@ nonisolated enum EffectStack {
         // sight, not the mildest ones: a new row that changes nothing reads as
         // a control that does not work.
         case .grain:    return effect(amount: 0.35, scale: 0.0015)
-        case .dots:     return effect(amount: 0.18, scale: 0.04, color: .white)
-        case .grid:     return effect(amount: 0.14, scale: 0.05, color: .white)
+        case .dots:     return effect(amount: 0.18, scale: 0.04, color: ink)
+        case .grid:     return effect(amount: 0.14, scale: 0.05, color: ink)
         case .stripes:  return effect(amount: 0.12, scale: 0.04,
-                                      angle: .pi / 4, color: .white)
+                                      angle: .pi / 4, color: ink)
         case .vignette: return effect(amount: 0.5, scale: 0.8)
         case .pixelate: return effect(amount: 1, scale: 0.02)
         case .dither:   return effect(amount: 0.6, scale: 0.004)
         case .halftone: return effect(amount: 0.7, scale: 0.012)
         case .glass:    return effect(amount: 0.5, scale: 0.03)
         case .lens:     return effect(amount: 0.5, scale: 0.7)
+        // The letters sit on a darkened page whatever the background was, so
+        // they stay light — the veil is what they have to be seen against.
         case .ascii:    return effect(amount: 0.9, scale: 0.02, color: .white)
         }
     }

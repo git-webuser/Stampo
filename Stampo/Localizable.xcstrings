@@ -394,23 +394,6 @@
         }
       }
     },
-    "Add Effect" : {
-      "comment" : "Decor inspector — button that adds an effect to the stack",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Add Effect"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Добавить эффект"
-          }
-        }
-      }
-    },
     "Add ⌘, ⌃ or ⌥ to the shortcut" : {
       "comment" : "Rejection: needs a strong modifier",
       "extractionState" : "stale",
@@ -425,6 +408,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Добавьте ⌘, ⌃ или ⌥ к сочетанию"
+          }
+        }
+      }
+    },
+    "Add Effect" : {
+      "comment" : "Decor inspector — button that adds an effect to the stack",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Add Effect"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Добавить эффект"
           }
         }
       }
@@ -805,6 +805,7 @@
     },
     "ASCII" : {
       "comment" : "Decor inspector — effect that redraws the background as characters",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -1254,6 +1255,7 @@
     },
     "Cell Size" : {
       "comment" : "Decor inspector — size of one cell of the pixelate or dither effect",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -2214,6 +2216,7 @@
     },
     "Dither" : {
       "comment" : "Decor inspector — effect that reduces the background to few colours with speckle",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -2248,6 +2251,7 @@
     },
     "Dot Size" : {
       "comment" : "Decor inspector — size of one halftone dot",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -2265,6 +2269,7 @@
     },
     "Dots" : {
       "comment" : "Decor inspector — effect that lays a grid of dots over the background",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -2923,6 +2928,7 @@
     },
     "Glass" : {
       "comment" : "Decor inspector — effect that refracts the background as through textured glass",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -3025,6 +3031,7 @@
     },
     "Grain" : {
       "comment" : "Decor inspector — name of the film-grain effect",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -3042,6 +3049,7 @@
     },
     "Grain Size" : {
       "comment" : "Decor inspector — size of one grain, as a fraction of the short side",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -3128,6 +3136,7 @@
     },
     "Grid" : {
       "comment" : "Decor inspector — effect that lays a grid of lines over the background",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -3145,6 +3154,7 @@
     },
     "Halftone" : {
       "comment" : "Decor inspector — effect that separates the background into print dots",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -3779,6 +3789,7 @@
     },
     "Lens" : {
       "comment" : "Decor inspector — effect that bulges or pinches the middle of the background",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -3796,6 +3807,7 @@
     },
     "Lens Radius" : {
       "comment" : "Decor inspector — how far the lens effect reaches from the middle",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -3831,6 +3843,7 @@
     },
     "Letter Color" : {
       "comment" : "Decor inspector — colour of the characters of the ASCII effect",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -4864,6 +4877,7 @@
     },
     "Pattern Color" : {
       "comment" : "Decor inspector — colour of the dots or lines of a pattern",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -4881,6 +4895,7 @@
     },
     "Pattern Step" : {
       "comment" : "Decor inspector — distance between the dots or lines of a pattern",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -6998,6 +7013,7 @@
     },
     "Strength" : {
       "comment" : "Decor inspector — how strongly an effect is felt",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -7032,6 +7048,7 @@
     },
     "Stripes" : {
       "comment" : "Decor inspector — effect that lays parallel lines over the background",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -7287,6 +7304,7 @@
     },
     "Texture Size" : {
       "comment" : "Decor inspector — coarseness of the glass texture",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -7918,6 +7936,7 @@
     },
     "Vignette" : {
       "comment" : "Decor inspector — effect that darkens the edges of the page",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -7935,6 +7954,7 @@
     },
     "Vignette Radius" : {
       "comment" : "Decor inspector — how far in from the edges a vignette reaches",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {

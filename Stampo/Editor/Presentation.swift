@@ -121,6 +121,29 @@ nonisolated struct Presentation: Equatable, Sendable {
             return []
         }
 
+        /// How light this background is, 0…1, averaged over the colours it is
+        /// made of.
+        ///
+        /// Rough on purpose: it exists to answer one question — should ink laid
+        /// over this be dark or light — and a gradient that runs from black to
+        /// white has no better answer than "halfway".
+        var luminance: CGFloat {
+            let colors = self.colors
+            guard !colors.isEmpty else { return 1 }
+            let total = colors.reduce(CGFloat.zero) { sum, color in
+                sum + (0.299 * color.red + 0.587 * color.green + 0.114 * color.blue)
+            }
+            return total / CGFloat(colors.count)
+        }
+
+        /// Ink that will be seen on this background: dark on light, light on
+        /// dark. The threshold sits above the middle because ink is laid on at
+        /// low opacity, and a mid-grey background carries dark ink better than
+        /// light.
+        var contrastingInk: Color {
+            luminance > 0.45 ? .black : .white
+        }
+
         /// Every colour this background is made of, wherever it keeps them —
         /// what a switch between kinds carries across.
         var colors: [Color] {

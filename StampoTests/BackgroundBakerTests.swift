@@ -150,6 +150,55 @@ import Testing
         }
     }
 
+    /// The reported bug, kept: white dots on a white page, and a grain that
+    /// could not be seen either.
+    ///
+    /// Two causes, both now closed. Ink took its default from the background's
+    /// brightness — before that, patterns measured a fortieth of their strength
+    /// on a light page. And Core Image was working in linear light, where a
+    /// fixed change is enormous near black and invisible near white; with
+    /// colour management off, an effect is as strong as it says it is wherever
+    /// it lands.
+    ///
+    /// Vignette and halftone are left out on purpose: darkening the edges and
+    /// laying print dots are asymmetric by nature, not by accident.
+    @Test func inkIsAsVisibleOnALightPageAsOnADarkOne() {
+        let light = Presentation.Background.solid(
+            Presentation.Color(red: 0.95, green: 0.95, blue: 0.96, alpha: 1))
+        let dark = Presentation.Background.solid(
+            Presentation.Color(red: 0.12, green: 0.12, blue: 0.14, alpha: 1))
+
+        for kind in [Presentation.Effect.Kind.grain, .dots, .grid, .stripes, .ascii] {
+            func spread(_ background: Presentation.Background) -> Double {
+                BackgroundBaker.emptyCache()
+                return self.spread(of: BackgroundBaker.image(
+                    background: background,
+                    effects: [EffectStack.make(kind, over: background, seed: 5)],
+                    pixelSize: CGSize(width: 300, height: 300)))
+            }
+            let onLight = spread(light), onDark = spread(dark)
+            #expect(onLight > 0.02, "\(kind) is invisible on a light page: \(onLight)")
+            let ratio = onLight / max(onDark, 0.0001)
+            #expect(ratio > 0.4 && ratio < 2.5,
+                    "\(kind) is \(ratio)× as strong on a light page as on a dark one")
+        }
+    }
+
+    /// Ink is chosen for the page it lands on, and only when the effect is
+    /// made: a colour the user picked afterwards is theirs to keep.
+    @Test func newInkIsChosenForTheBackgroundItLandsOn() {
+        let light = Presentation.Background.solid(
+            Presentation.Color(red: 0.95, green: 0.95, blue: 0.96, alpha: 1))
+        let dark = Presentation.Background.solid(
+            Presentation.Color(red: 0.12, green: 0.12, blue: 0.14, alpha: 1))
+        #expect(EffectStack.make(.dots, over: light).color == .black)
+        #expect(EffectStack.make(.dots, over: dark).color == .white)
+        // A gradient answers with its average, which is the only answer it has.
+        let split = Presentation.Background.linearGradient(
+            stops: Presentation.Stop.spread([.black, .black, .white]), angle: 0)
+        #expect(EffectStack.make(.grid, over: split).color == .white)
+    }
+
     // MARK: Through the renderer
 
     /// The size is never passed in: it is read from the context, so the canvas
