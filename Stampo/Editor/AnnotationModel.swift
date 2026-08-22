@@ -2496,7 +2496,8 @@ nonisolated struct RenderedArtifact: Sendable {
     /// fired at editor launch and decorated documents nobody had asked to
     /// decorate (measured: presentation set, document dirty, one undo entry,
     /// without a single click). The button that opens the panel is the event.
-    func startDecorationIfNeeded(margin: CGFloat = Presentation.defaultMargin) {
+    func startDecorationIfNeeded(margin: CGFloat? = nil) {
+        let margin = margin ?? Presentation.defaultMargin(for: pixelSize)
         guard presentation == nil, margin > 0 else { return }
         beginChange()
         // An auto page: the picture keeps every one of its own pixels and the
@@ -2606,6 +2607,42 @@ nonisolated struct RenderedArtifact: Sendable {
         beginChange()
         self.presentation = updated
         commitChange()
+    }
+
+    /// Sets one gap, from wherever the number came from — a field in the panel
+    /// or the side of the picture being dragged on the canvas.
+    ///
+    /// On an auto page the margins *are* the page, so the gap is simply itself.
+    /// On a fixed page there is a size to respect, so the picture resizes
+    /// against the opposite edge — which is what dragging a side looks like
+    /// anyway.
+    ///
+    /// Live, like `moveImage` and `resizeImage`: the undo step belongs to the
+    /// gesture, and opening one here would push an entry per pointer sample.
+    func setGap(_ edge: PresentationLayout.Edge, to value: CGFloat) {
+        guard let presentation else { return }
+        let canvasSize = PresentationLayout.resolve(imagePixelSize: pixelSize,
+                                                    presentation).canvasSize
+        if case .auto(var margins, let scale) = presentation.canvas {
+            guard margins[edge] != value else { return }
+            margins[edge] = value
+            self.presentation?.canvas = .auto(margins: margins, scale: scale)
+            return
+        }
+        let placement = PresentationLayout.placement(
+            presentation.image, settingGap: edge, to: value,
+            imagePixelSize: pixelSize, canvasSize: canvasSize, in: presentation
+        )
+        guard placement != presentation.image else { return }
+        self.presentation?.image = placement
+    }
+
+    /// Live, for the same reason as `setGap`.
+    func setCornerRadius(_ radius: CGFloat) {
+        guard presentation != nil else { return }
+        let clamped = min(0.5, max(0, radius.isFinite ? radius : 0))
+        guard presentation?.cornerRadius != clamped else { return }
+        presentation?.cornerRadius = clamped
     }
 
     /// Moves the picture on its canvas by a delta in canvas pixels — the same

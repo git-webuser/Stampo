@@ -1035,30 +1035,22 @@ struct PresentationInspector: View {
         PresentationLayout.resolve(imagePixelSize: document.pixelSize, draft)
     }
 
+    /// The field's door into `EditorDocument.setGap`. The document owns the
+    /// rule — the canvas drags the same sides — and what stays here is the one
+    /// thing that belongs to the fields alone: linking.
     private func setGap(_ edge: PresentationLayout.Edge, to value: CGFloat) {
-        // On an auto page the margins *are* the page, so each one is simply
-        // itself: 50 on four sides is four numbers. On a fixed page there is a
-        // size to respect, so the picture resizes against the opposite edge.
-        if case .auto(var margins, let scale) = draft.canvas {
+        document.beginChange()
+        if marginsLinked, marginsAreFree {
             // Linked, one number is all four — the whole reason a page that
             // hugs its picture keeps four free margins instead of a placement.
-            if marginsLinked {
-                let all = Presentation.Margins(all: value)
-                guard margins != all else { return }
-                updateImmediately { $0.canvas = .auto(margins: all, scale: scale) }
-                return
+            for linked in PresentationLayout.Edge.allCases {
+                document.setGap(linked, to: value)
             }
-            guard margins[edge] != value else { return }
-            margins[edge] = value
-            updateImmediately { $0.canvas = .auto(margins: margins, scale: scale) }
-            return
+        } else {
+            document.setGap(edge, to: value)
         }
-        let placement = PresentationLayout.placement(
-            draft.image, settingGap: edge, to: value,
-            imagePixelSize: document.pixelSize, canvasSize: canvasSize, in: draft
-        )
-        guard placement != draft.image else { return }
-        updateImmediately { $0.image = placement }
+        document.commitChange()
+        draft = document.presentation ?? draft
     }
 
     private var marginsAreFree: Bool {

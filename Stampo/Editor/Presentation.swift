@@ -193,11 +193,22 @@ nonisolated struct Presentation: Equatable, Sendable {
         }
     }
 
-    /// The margin a picture is framed with the moment a format is chosen — a
-    /// real number of pixels rather than a share of the canvas, so a small
-    /// format and a large one start out looking the same rather than one of
-    /// them swimming in white.
-    static let defaultMargin: CGFloat = 10
+    /// The margin a picture is framed with when a decoration starts.
+    ///
+    /// A share of the picture's short side rather than a fixed number of
+    /// pixels: ten pixels — what this used to be — is a thick outline on a
+    /// 2400-wide screenshot, not a background, and there is nothing to judge a
+    /// background by. An absolute number lies in both directions, though, so it
+    /// cannot simply be raised: 50 is half a 300-pixel crop and still an
+    /// outline on a retina screen. Twelve percent of the short side is a
+    /// seventh of the height on an ordinary window shot, and the clamps keep
+    /// the extremes sane — a panorama's short side is small, a full retina
+    /// screen's is large.
+    static func defaultMargin(for imagePixelSize: CGSize) -> CGFloat {
+        let short = min(imagePixelSize.width, imagePixelSize.height)
+        guard short.isFinite, short > 0 else { return 32 }
+        return min(240, max(32, (short * 0.12).rounded()))
+    }
 
     /// The four gaps between the picture and the canvas edges, in canvas
     /// pixels. Derived, never stored; negative means the picture reaches past
@@ -343,6 +354,38 @@ nonisolated enum PresentationLayout {
             bottom: resolved.canvasSize.height - resolved.imageRect.maxY,
             trailing: resolved.canvasSize.width - resolved.imageRect.maxX
         )
+    }
+
+    /// The gap a pointer is asking for on `edge`, in canvas pixels.
+    ///
+    /// Dragging the middle of a side is the same act as typing into that
+    /// margin field — the distance from the page's edge to the pointer *is* the
+    /// margin — so both doors lead to `placement(_:settingGap:to:)` and neither
+    /// invents a second rule. Negative is allowed and means the picture reaches
+    /// past that edge, exactly as it does when the number is typed.
+    static func gap(forPointer point: CGPoint, on edge: Edge,
+                    canvasSize: CGSize) -> CGFloat {
+        switch edge {
+        case .leading:  return point.x
+        case .top:      return point.y
+        case .trailing: return canvasSize.width - point.x
+        case .bottom:   return canvasSize.height - point.y
+        }
+    }
+
+    /// The corner radius a pointer is asking for, as the model keeps it: a
+    /// share of the canvas's short side.
+    ///
+    /// Measured from the picture's top-left corner along whichever axis the
+    /// pointer travelled less, which is how a rounded corner grows — the
+    /// smaller of the two is what the arc can actually use. Capped at half the
+    /// short side, the same ceiling the renderer applies when it clips.
+    static func cornerRadius(forPointer point: CGPoint, in imageRect: CGRect,
+                             canvasSize: CGSize) -> CGFloat {
+        let short = min(canvasSize.width, canvasSize.height)
+        guard short > 0 else { return 0 }
+        let reach = min(point.x - imageRect.minX, point.y - imageRect.minY)
+        return min(0.5, max(0, reach / short))
     }
 
     /// The placement that puts a given gap at `value` on that edge, **keeping

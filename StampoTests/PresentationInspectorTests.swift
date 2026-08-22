@@ -85,8 +85,9 @@ import Testing
         let gaps = PresentationLayout.gaps(
             PresentationLayout.resolve(imagePixelSize: document.pixelSize, presentation)
         )
-        #expect(abs(gaps.leading - Presentation.defaultMargin) < 0.5)
-        #expect(abs(gaps.trailing - Presentation.defaultMargin) < 0.5)
+        let expected = Presentation.defaultMargin(for: document.pixelSize)
+        #expect(abs(gaps.leading - expected) < 0.5)
+        #expect(abs(gaps.trailing - expected) < 0.5)
         #expect(document.undoStack.count == 1)
 
         // Called again — for instance on a second open — it changes nothing.
@@ -110,7 +111,8 @@ import Testing
             Issue.record("a new decoration should hug the picture")
             return
         }
-        #expect(margins == Presentation.Margins(all: Presentation.defaultMargin))
+        #expect(margins == Presentation.Margins(
+            all: Presentation.defaultMargin(for: document.pixelSize)))
         #expect(scale == 1)   // the picture keeps every pixel it had
     }
 

@@ -391,7 +391,7 @@ import Testing
         let image = CGSize(width: 1600, height: 900)      // same shape as the canvas
         let canvas = CGSize(width: 1600, height: 900)
         let placement = PresentationLayout.placement(
-            framingWith: Presentation.defaultMargin,
+            framingWith: 10,
             imagePixelSize: image, canvasSize: canvas
         )
         let gaps = PresentationLayout.gaps(
@@ -407,7 +407,7 @@ import Testing
         // the axis that binds and more on the other — the aspect is locked, so
         // there is no third option.
         let wide = PresentationLayout.placement(
-            framingWith: Presentation.defaultMargin,
+            framingWith: 10,
             imagePixelSize: CGSize(width: 1600, height: 400),
             canvasSize: canvas
         )

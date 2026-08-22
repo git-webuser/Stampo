@@ -326,6 +326,12 @@ struct EditorCanvasView: View {
         /// else on the canvas, in canvas pixels.
         case movingImage(last: CGPoint)
         case resizingImage(ImageCorner)
+        /// Dragging the middle of a side: the gap on that edge follows the
+        /// pointer. The same act as typing into that margin field, and it goes
+        /// through the same rule.
+        case settingGap(PresentationLayout.Edge)
+        /// Dragging the dot inside the top-left corner.
+        case settingRadius
         case ignore
     }
     @State private var dragMode: DragMode?
@@ -623,7 +629,9 @@ struct EditorCanvasView: View {
             if imageSelected, presentation != nil {
                 drawImageSelection(layout.imageRect, context: context,
                                    fitScale: canvasScale, offset: canvasOffset,
-                                   showsHandles: true)
+                                   showsHandles: true,
+                                   cornerRadius: presentation?.cornerRadius ?? 0,
+                                   canvasSize: layout.canvasSize)
             }
 
             // While dragging an arrow/line endpoint — either resizing an
@@ -655,7 +663,8 @@ struct EditorCanvasView: View {
     /// uses, so it reads as the object it now is.
     private func drawImageSelection(_ rect: CGRect, context: GraphicsContext,
                                     fitScale: CGFloat, offset: CGPoint,
-                                    showsHandles: Bool) {
+                                    showsHandles: Bool,
+                                    cornerRadius: CGFloat, canvasSize: CGSize) {
         func view(_ p: CGPoint) -> CGPoint {
             CGPoint(x: offset.x + p.x * fitScale, y: offset.y + p.y * fitScale)
         }
@@ -671,6 +680,51 @@ struct EditorCanvasView: View {
             context.stroke(Path(roundedRect: box, cornerRadius: 2),
                            with: .color(.accentColor), lineWidth: 1.5)
         }
+        // The sides carry the margins. Bars rather than squares, because they
+        // do a different thing from the corners — a corner resizes the picture,
+        // a side moves the edge and the gap follows.
+        for edge in PresentationLayout.Edge.allCases {
+            let m = view(Self.edgeHandlePoint(edge, in: rect))
+            let horizontal = edge == .top || edge == .bottom
+            let box = CGRect(x: m.x - (horizontal ? 7 : 2.5),
+                             y: m.y - (horizontal ? 2.5 : 7),
+                             width: horizontal ? 14 : 5,
+                             height: horizontal ? 5 : 14)
+            context.fill(Path(roundedRect: box, cornerRadius: 2.5), with: .color(.white))
+            context.stroke(Path(roundedRect: box, cornerRadius: 2.5),
+                           with: .color(.accentColor), lineWidth: 1.5)
+        }
+        // And the radius, as one dot inside the top-left corner: the model
+        // keeps a single radius, so a dot per corner would be four handles for
+        // one number in a frame that already carries eight.
+        let dot = view(Self.radiusHandlePoint(in: rect, cornerRadius: cornerRadius,
+                                              canvasSize: canvasSize))
+        let ring = CGRect(x: dot.x - 4, y: dot.y - 4, width: 8, height: 8)
+        context.fill(Path(ellipseIn: ring), with: .color(.white))
+        context.stroke(Path(ellipseIn: ring), with: .color(.accentColor), lineWidth: 1.5)
+    }
+
+    /// The middle of a side, in canvas pixels.
+    static func edgeHandlePoint(_ edge: PresentationLayout.Edge,
+                                in rect: CGRect) -> CGPoint {
+        switch edge {
+        case .top:      return CGPoint(x: rect.midX, y: rect.minY)
+        case .bottom:   return CGPoint(x: rect.midX, y: rect.maxY)
+        case .leading:  return CGPoint(x: rect.minX, y: rect.midY)
+        case .trailing: return CGPoint(x: rect.maxX, y: rect.midY)
+        }
+    }
+
+    /// Where the radius dot sits: as far along the top-left corner's two sides
+    /// as the radius reaches, and never closer to the corner than a grab of its
+    /// own — at radius 0 a dot exactly on the corner would be the corner
+    /// handle, and one of the two would be unreachable.
+    static func radiusHandlePoint(in rect: CGRect, cornerRadius: CGFloat,
+                                  canvasSize: CGSize) -> CGPoint {
+        let short = min(canvasSize.width, canvasSize.height)
+        let radius = min(max(0, cornerRadius) * short, min(rect.width, rect.height) / 2)
+        let inset = max(radius, min(14, min(rect.width, rect.height) / 3))
+        return CGPoint(x: rect.minX + inset, y: rect.minY + inset)
     }
 
     private func drawCropOverlay(_ rect: CGRect, context: GraphicsContext,
@@ -1316,6 +1370,16 @@ struct EditorCanvasView: View {
                         imagePixelSize: pixel
                     )
 
+                case .settingGap(let edge):
+                    document.setGap(edge, to: PresentationLayout.gap(
+                        forPointer: sp.canvas, on: edge, canvasSize: canvasSize))
+
+                case .settingRadius:
+                    let rect = PresentationLayout.resolve(imagePixelSize: pixel,
+                                                          document.presentation).imageRect
+                    document.setCornerRadius(PresentationLayout.cornerRadius(
+                        forPointer: sp.canvas, in: rect, canvasSize: canvasSize))
+
                 case .panning(let last):
                     // Clamp so the image can't be dragged past its overflow
                     // (and stays centered when it fits — no free-floating).
@@ -1434,7 +1498,7 @@ struct EditorCanvasView: View {
                                           magnet: bindMagnetPt / scaleOf(id))
                     document.refreshBindingFallbacks()
                     document.commitChange()
-                case .movingImage, .resizingImage:
+                case .movingImage, .resizingImage, .settingGap, .settingRadius:
                     document.commitChange()
                 case .duplicatePending, .cropCreating, .cropMoving, .cropResizing,
                      .panning, .ignore, nil:
@@ -1742,7 +1806,8 @@ struct EditorCanvasView: View {
             || imageIsGrabbable(at: sp, for: activeTool)
     }
 
-    /// Grabbing the picture: a corner of the selection frame resizes it, its
+    /// Grabbing the picture: a corner of the selection frame resizes it, a side
+    /// sets that margin, the dot inside the top-left corner rounds it, and its
     /// body moves it. Only with a presentation — without one the picture *is*
     /// the canvas and there is nowhere to move it to.
     private func beginImageDrag(at sp: SpacedPoint) -> DragMode? {
@@ -1759,6 +1824,23 @@ struct EditorCanvasView: View {
                 if hypot(sp.canvas.x - c.x, sp.canvas.y - c.y) <= grab {
                     document.beginChange()
                     return .resizingImage(corner)
+                }
+            }
+            // The radius dot sits inside the corner, so it is asked about
+            // after the corner itself: at radius 0 the two are only the
+            // dot's inset apart.
+            let dot = Self.radiusHandlePoint(in: rect,
+                                             cornerRadius: document.presentation?.cornerRadius ?? 0,
+                                             canvasSize: layout.canvasSize)
+            if hypot(sp.canvas.x - dot.x, sp.canvas.y - dot.y) <= grab {
+                document.beginChange()
+                return .settingRadius
+            }
+            for edge in PresentationLayout.Edge.allCases {
+                let m = Self.edgeHandlePoint(edge, in: rect)
+                if hypot(sp.canvas.x - m.x, sp.canvas.y - m.y) <= grab {
+                    document.beginChange()
+                    return .settingGap(edge)
                 }
             }
         }
