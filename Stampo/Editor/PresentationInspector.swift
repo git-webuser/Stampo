@@ -58,7 +58,7 @@ struct PresentationInspector: View {
     @State private var selectedStop = 0
 
     private enum Section: Hashable, CaseIterable {
-        case background, image, shadow
+        case background, effects, image, shadow
 
         /// Kept on the case (and exposed through `sectionSystemImages`) so the
         /// SF Symbol availability test can reach these names.
@@ -68,6 +68,7 @@ struct PresentationInspector: View {
             // `rectangle.center.inset.filled`, and a section repeating it made
             // the panel look like it was labelled twice.
             case .background: return "paintpalette"
+            case .effects:    return "camera.filters"
             case .image:      return "photo"
             case .shadow:     return "square.filled.on.square"
             }
@@ -355,6 +356,7 @@ struct PresentationInspector: View {
             VStack(alignment: .leading, spacing: Self.sectionSpacing) {
                 header
                 backgroundSection
+                effectsSection
                 imageSection
                 shadowSection
                 removeButton
@@ -913,6 +915,135 @@ struct PresentationInspector: View {
     }
 
 
+
+    // MARK: Effects
+
+    /// The stack, Figma's shape: a row per effect, its parameters beneath it,
+    /// and one button that adds another. Order is meaningful — filters do not
+    /// commute — so rows can be dragged past each other.
+    ///
+    /// The section is deliberately not a switch with one set of controls. Two
+    /// grains of different sizes is a legitimate thing to ask for, and any
+    /// design where an effect is a property rather than a member of a list
+    /// cannot say it.
+    private var effectsSection: some View {
+        inspectorGroup("Effects", section: .effects) {
+            ForEach(draft.effects) { effect in
+                effectRow(effect)
+            }
+            HStack(spacing: 8) {
+                if draft.effects.isEmpty {
+                    // An empty section that says nothing looks broken; this is
+                    // the one line that says what the button is for.
+                    Text("Grain, texture and other treatments of the background")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 0)
+                sectionActionButton("plus", label: "Add Effect") {
+                    addEffect(.grain)
+                }
+            }
+        }
+    }
+
+    private func effectRow(_ effect: Presentation.Effect) -> some View {
+        VStack(alignment: .leading, spacing: Self.captionGap) {
+            HStack(spacing: 8) {
+                effectPreview(effect)
+                Text(LocalizedStringKey(EffectStack.title(for: effect.kind)))
+                    .font(.system(size: 11))
+                Spacer(minLength: 0)
+                // Hide rather than delete, exactly as the shadow does: an
+                // effect switched off keeps its numbers, so turning it back on
+                // returns the one you had.
+                effectRowButton(effect.isEnabled ? "eye" : "eye.slash",
+                                label: effect.isEnabled ? "Hide Effect" : "Show Effect") {
+                    setEffect(effect) { $0.isEnabled.toggle() }
+                }
+                effectRowButton("xmark", label: "Remove Effect") {
+                    removeEffect(effect)
+                }
+            }
+            ForEach(EffectStack.parameters(for: effect.kind), id: \.parameter) { info in
+                presentationSlider(
+                    LocalizedStringKey(info.titleKey),
+                    id: "effect-\(effect.id)-\(info.parameter.rawValue)",
+                    systemImage: info.systemImage,
+                    value: effectBinding(effect, info.parameter),
+                    range: info.range,
+                    step: info.step,
+                    unit: Self.unit(for: info, canvasSize: canvasSize)
+                )
+            }
+        }
+        .opacity(effect.isEnabled ? 1 : 0.5)
+        .padding(.vertical, 2)
+        .contentShape(Rectangle())
+        // Identity, not geometry: a row knows its own index, so dropping on it
+        // needs no arithmetic about row heights — and the rows here are not
+        // even the same height, since each kind brings its own sliders.
+        .draggable(effect.id.uuidString)
+        .dropDestination(for: String.self) { items, _ in
+            guard let dragged = items.first,
+                  let from = draft.effects.firstIndex(where: { $0.id.uuidString == dragged }),
+                  let to = draft.effects.firstIndex(where: { $0.id == effect.id })
+            else { return false }
+            moveEffect(from: from, to: to)
+            return true
+        }
+    }
+
+    /// The row's own small buttons — plain, because two bordered squares beside
+    /// a name read as a toolbar rather than as the ends of a row.
+    private func effectRowButton(_ systemImage: String,
+                                 label: LocalizedStringKey,
+                                 action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 11))
+                .frame(width: 20, height: 20)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.borderless)
+        .help(label)
+        .accessibilityLabel(Text(label))
+    }
+
+    /// The effect on the background it is actually sitting on, drawn by the
+    /// routine that draws the canvas — a swatch that made its own picture could
+    /// promise something the page would not deliver.
+    private func effectPreview(_ effect: Presentation.Effect) -> some View {
+        // Drawn as if switched on, even while it is off: the swatch answers
+        // "what would come back", and a switched-off row whose swatch showed
+        // the plain background said nothing about what it was hiding.
+        var shown = effect
+        shown.isEnabled = true
+        return Canvas { context, size in
+            context.withCGContext { cg in
+                let rect = CGRect(origin: .zero, size: size)
+                PresentationRenderer.drawBackground(draft.background, effects: [shown],
+                                                    in: rect, ctx: cg)
+            }
+        }
+        .frame(width: 28, height: 20)
+        .clipShape(RoundedRectangle(cornerRadius: 4))
+        .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(.separator))
+        .accessibilityHidden(true)
+    }
+
+    /// `scale` is a fraction of the short side, so the field beside the slider
+    /// can show it in the pixels it will actually be.
+    private static func unit(for info: EffectStack.ParameterInfo,
+                             canvasSize: CGSize) -> ValueUnit {
+        switch info.parameter {
+        case .scale:
+            return .pixels(basis: min(canvasSize.width, canvasSize.height))
+        case .amount, .angle, .color:
+            return .percent
+        }
+    }
 
     /// Position is edited on the object, not on a slider: the four fields are
     /// the *measured* gaps between picture and canvas, and the buttons snap it
@@ -1746,6 +1877,48 @@ struct PresentationInspector: View {
     }
 
     // MARK: Document mutations
+
+    private func addEffect(_ kind: Presentation.Effect.Kind) {
+        updateImmediately { $0.effects.append(EffectStack.make(kind)) }
+    }
+
+    private func removeEffect(_ effect: Presentation.Effect) {
+        updateImmediately { $0.effects.removeAll { $0.id == effect.id } }
+    }
+
+    private func moveEffect(from: Int, to: Int) {
+        updateImmediately { $0.effects = EffectStack.moved($0.effects, from: from, to: to).effects }
+    }
+
+    /// One effect changed in place. Discrete, so it is its own undo step —
+    /// unlike a slider, which groups the whole drag.
+    private func setEffect(_ effect: Presentation.Effect,
+                           _ mutation: (inout Presentation.Effect) -> Void) {
+        guard let index = draft.effects.firstIndex(where: { $0.id == effect.id }) else { return }
+        var changed = draft.effects[index]
+        mutation(&changed)
+        updateImmediately { $0.effects[index] = changed }
+    }
+
+    /// A parameter of one effect, live: the slider drags the picture and the
+    /// gesture is one undo step (`sliderEditingChanged`), exactly as the shadow
+    /// sliders do.
+    private func effectBinding(_ effect: Presentation.Effect,
+                               _ parameter: EffectStack.Parameter) -> Binding<CGFloat> {
+        Binding(
+            get: {
+                guard let current = draft.effects.first(where: { $0.id == effect.id })
+                else { return 0 }
+                return EffectStack.value(parameter, of: current)
+            },
+            set: { value in
+                guard let index = draft.effects.firstIndex(where: { $0.id == effect.id })
+                else { return }
+                let updated = EffectStack.setting(parameter, of: draft.effects[index], to: value)
+                updateLive { $0.effects[index] = updated }
+            }
+        )
+    }
 
     private func updateLive(_ mutation: (inout Presentation) -> Void) {
         var next = draft
