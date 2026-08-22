@@ -274,11 +274,33 @@ nonisolated struct Presentation: Equatable, Sendable {
         }
     }
 
+    /// Light spilling out from behind the picture.
+    ///
+    /// A shadow with no offset and a bright colour would look much the same,
+    /// and that is deliberate — it is drawn by the very same routine. It is a
+    /// *second* light rather than a setting of the first because the two are
+    /// wanted together: a dark shadow below for depth, and a coloured halo all
+    /// round for the mood. One value could only ever be one of them.
+    struct Glow: Equatable, Sendable {
+        var radius: CGFloat
+        var opacity: CGFloat
+        var color: Color
+
+        static let none = Glow(radius: 0.06, opacity: 0,
+                               color: Color(red: 0.35, green: 0.6, blue: 1, alpha: 1))
+
+        /// The same thing said as a shadow, which is what the renderer draws.
+        var asShadow: Shadow {
+            Shadow(radius: radius, offset: .zero, opacity: opacity, color: color)
+        }
+    }
+
     var canvas: Canvas
     var background: Background
     var image: ImagePlacement
     var cornerRadius: CGFloat
     var shadow: Shadow
+    var glow: Glow = .none
     /// Applied in order, bottom of the list last: filters do not commute, so
     /// the list is a recipe rather than a set.
     var effects: [Effect] = []

@@ -2921,6 +2921,74 @@
         }
       }
     },
+    "Glow" : {
+      "comment" : "Decor inspector — section for the light spilling from behind the picture",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Glow"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Свечение"
+          }
+        }
+      }
+    },
+    "Glow Color" : {
+      "comment" : "Decor inspector — colour of the glow behind the picture",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Glow Color"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Цвет свечения"
+          }
+        }
+      }
+    },
+    "Glow Opacity" : {
+      "comment" : "Decor inspector — how strong the glow is",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Glow Opacity"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Прозрачность свечения"
+          }
+        }
+      }
+    },
+    "Glow Radius" : {
+      "comment" : "Decor inspector — how far the glow reaches from the picture",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Glow Radius"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Радиус свечения"
+          }
+        }
+      }
+    },
     "Gradient" : {
       "extractionState" : "manual",
       "localizations" : {

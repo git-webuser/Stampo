@@ -209,6 +209,52 @@ import Testing
         #expect(deviation > 0.005, "the exported margin is flat: \(margin.prefix(8))")
     }
 
+    /// The glow is a second light, not a setting of the first: a dark shadow
+    /// below for depth and a coloured halo all round are wanted together, and
+    /// one value could only ever be one of them.
+    @Test func theGlowAndTheShadowBothReachTheFile() {
+        let source = CGContext(data: nil, width: 20, height: 20, bitsPerComponent: 8,
+                               bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                               bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        source.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+        source.fill(CGRect(x: 0, y: 0, width: 20, height: 20))
+        let base = source.makeImage()!
+
+        func render(_ mutate: (inout Presentation) -> Void) -> NSBitmapImageRep? {
+            var presentation = Presentation.identity
+            presentation.canvas = .auto(margins: Presentation.Margins(top: 40, leading: 40,
+                                                                      bottom: 40, trailing: 40),
+                                        scale: 1)
+            presentation.background = .solid(.white)
+            mutate(&presentation)
+            return AnnotationRenderer.renderBitmap(base: base, annotations: [],
+                                                   presentation: presentation)
+        }
+
+        // Just outside the picture, where both lights land.
+        func edge(_ rep: NSBitmapImageRep?) -> (r: Double, b: Double) {
+            let color = rep?.colorAt(x: 35, y: 50)
+            return (Double(color?.redComponent ?? 1), Double(color?.blueComponent ?? 1))
+        }
+
+        let plain = edge(render { _ in })
+        let glowing = edge(render {
+            $0.glow = Presentation.Glow(radius: 0.1, opacity: 0.9,
+                                        color: Presentation.Color(red: 0, green: 0, blue: 1,
+                                                                  alpha: 1))
+        })
+        let shadowed = edge(render {
+            $0.shadow = Presentation.Shadow(radius: 0.1, offset: .zero, opacity: 0.9)
+        })
+
+        // The glow tints: red falls away while blue holds up.
+        #expect(glowing.r < plain.r - 0.05)
+        #expect(glowing.b > glowing.r + 0.1)
+        // The shadow darkens everything alike.
+        #expect(shadowed.b < plain.b - 0.05)
+        #expect(abs(shadowed.b - shadowed.r) < 0.05)
+    }
+
     // MARK: Reading pixels
 
     private let ramp = Presentation.Background.linearGradient(

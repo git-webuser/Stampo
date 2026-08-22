@@ -18,6 +18,13 @@ nonisolated enum PresentationRenderer {
         let canvasRect = CGRect(origin: .zero, size: layout.canvasSize)
         drawBackground(presentation.background, effects: presentation.effects,
                        in: canvasRect, ctx: ctx)
+        // The glow first, so a dark shadow reads *over* the halo rather than
+        // being washed out by it.
+        drawShadow(for: layout.imageRect,
+                   canvasSize: layout.canvasSize,
+                   cornerRadius: presentation.cornerRadius,
+                   shadow: presentation.glow.asShadow,
+                   in: ctx)
         drawShadow(for: layout.imageRect,
                    canvasSize: layout.canvasSize,
                    cornerRadius: presentation.cornerRadius,

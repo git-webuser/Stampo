@@ -60,7 +60,7 @@ struct PresentationInspector: View {
     @State private var selectedStop = 0
 
     private enum Section: Hashable, CaseIterable {
-        case background, effects, image, shadow
+        case background, effects, image, shadow, glow
 
         /// Kept on the case (and exposed through `sectionSystemImages`) so the
         /// SF Symbol availability test can reach these names.
@@ -73,6 +73,7 @@ struct PresentationInspector: View {
             case .effects:    return "camera.filters"
             case .image:      return "photo"
             case .shadow:     return "square.filled.on.square"
+            case .glow:       return "sun.max"
             }
         }
     }
@@ -361,6 +362,7 @@ struct PresentationInspector: View {
                 effectsSection
                 imageSection
                 shadowSection
+                glowSection
                 removeButton
             }
             .padding(16)
@@ -1443,6 +1445,55 @@ struct PresentationInspector: View {
             }
             .font(.system(size: 11))
         }
+    }
+
+    /// Light from behind the picture — the same drawing as the shadow, and a
+    /// section of its own because the two are wanted together: depth below,
+    /// colour all round.
+    private var glowSection: some View {
+        inspectorGroup("Glow", section: .glow) {
+            presentationSlider(
+                "Glow Radius", id: "glowRadius", systemImage: "circle.dotted",
+                value: glowRadiusBinding,
+                range: 0...0.25, step: 0.005,
+                unit: .pixels(basis: max(canvasSize.width, canvasSize.height))
+            )
+            presentationSlider(
+                "Glow Opacity", id: "glowOpacity", systemImage: "circle.lefthalf.filled",
+                value: glowOpacityBinding,
+                range: 0...1, step: 0.01,
+                unit: .percent
+            )
+            VStack(alignment: .leading, spacing: Self.captionGap) {
+                Text("Glow Color")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                HStack(spacing: 8) {
+                    ColorChip(color: draft.glow.color, diameter: Self.swatchSize,
+                              supportsOpacity: false) { color in
+                        updateImmediately { $0.glow.color = color }
+                    }
+                    .accessibilityLabel(Text("Glow Color"))
+                    ColorField(color: draft.glow.color) { color in
+                        updateImmediately { $0.glow.color = color }
+                    }
+                    Spacer(minLength: 0)
+                }
+            }
+            .font(.system(size: 11))
+        }
+    }
+
+    private var glowRadiusBinding: Binding<CGFloat> {
+        Binding(get: { draft.glow.radius }, set: { value in
+            updateLive { $0.glow.radius = value }
+        })
+    }
+
+    private var glowOpacityBinding: Binding<CGFloat> {
+        Binding(get: { draft.glow.opacity }, set: { value in
+            updateLive { $0.glow.opacity = value }
+        })
     }
 
     /// Throwing the decoration away is the one thing in this panel that undoes
