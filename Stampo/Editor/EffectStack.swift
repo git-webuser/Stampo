@@ -39,14 +39,32 @@ nonisolated enum EffectStack {
 
     static func title(for kind: Kind) -> String {
         switch kind {
-        case .grain: return "Grain"
+        case .grain:    return "Grain"
+        case .dots:     return "Dots"
+        case .grid:     return "Grid"
+        case .stripes:  return "Stripes"
+        case .vignette: return "Vignette"
+        case .pixelate: return "Pixelate"
+        case .dither:   return "Dither"
+        case .halftone: return "Halftone"
+        case .glass:    return "Glass"
+        case .lens:     return "Lens"
         }
     }
 
     /// The glyph for the row and for the tile in the grid.
     static func symbol(for kind: Kind) -> String {
         switch kind {
-        case .grain: return "circle.grid.3x3.fill"
+        case .grain:    return "circle.grid.3x3.fill"
+        case .dots:     return "circle.grid.2x2.fill"
+        case .grid:     return "grid"
+        case .stripes:  return "line.3.horizontal"
+        case .vignette: return "camera.aperture"
+        case .pixelate: return "squareshape.split.2x2"
+        case .dither:   return "circle.hexagongrid.fill"
+        case .halftone: return "circle.grid.cross"
+        case .glass:    return "cube.transparent"
+        case .lens:     return "dot.circle.viewfinder"
         }
     }
 
@@ -55,29 +73,74 @@ nonisolated enum EffectStack {
     /// The seed is drawn once, here, and never again: it is what keeps the
     /// noise in the preview and the noise in the exported file the same noise.
     static func make(_ kind: Kind, seed: UInt32 = .random(in: 0...UInt32.max)) -> Effect {
+        func effect(amount: CGFloat, scale: CGFloat, angle: CGFloat = 0,
+                    color: Presentation.Color = .black) -> Effect {
+            Effect(id: UUID(), kind: kind, isEnabled: true, amount: amount,
+                   scale: scale, angle: angle, color: color, seed: seed)
+        }
         switch kind {
-        case .grain:
-            return Effect(id: UUID(), kind: .grain, isEnabled: true,
-                          amount: 0.35, scale: 0.0015, angle: 0,
-                          color: .black, seed: seed)
+        // Defaults are the settings that make the effect *recognisable* on
+        // sight, not the mildest ones: a new row that changes nothing reads as
+        // a control that does not work.
+        case .grain:    return effect(amount: 0.35, scale: 0.0015)
+        case .dots:     return effect(amount: 0.18, scale: 0.04, color: .white)
+        case .grid:     return effect(amount: 0.14, scale: 0.05, color: .white)
+        case .stripes:  return effect(amount: 0.12, scale: 0.04,
+                                      angle: .pi / 4, color: .white)
+        case .vignette: return effect(amount: 0.5, scale: 0.8)
+        case .pixelate: return effect(amount: 1, scale: 0.02)
+        case .dither:   return effect(amount: 0.6, scale: 0.004)
+        case .halftone: return effect(amount: 0.7, scale: 0.012)
+        case .glass:    return effect(amount: 0.5, scale: 0.03)
+        case .lens:     return effect(amount: 0.5, scale: 0.7)
         }
     }
 
     static func parameters(for kind: Kind) -> [ParameterInfo] {
+        // Sizes are fractions of the short side, never pixels: the preview is
+        // baked at screen resolution and the file at its own, and a size in
+        // pixels would be a different size in each. 0.001 of a 1200px canvas is
+        // about one pixel.
+        func strength(_ range: ClosedRange<CGFloat> = 0...1) -> ParameterInfo {
+            ParameterInfo(parameter: .amount, titleKey: "Strength",
+                          systemImage: "dial.medium", range: range, step: 0.01)
+        }
+        func size(_ titleKey: String, _ range: ClosedRange<CGFloat>,
+                  step: CGFloat, symbol: String = "circle.dotted") -> ParameterInfo {
+            ParameterInfo(parameter: .scale, titleKey: titleKey,
+                          systemImage: symbol, range: range, step: step)
+        }
+        let angle = ParameterInfo(parameter: .angle, titleKey: "Angle",
+                                  systemImage: "angle", range: 0...(.pi), step: .pi / 180)
+        let color = ParameterInfo(parameter: .color, titleKey: "Pattern Color",
+                                  systemImage: "paintpalette", range: 0...1, step: 1)
+
         switch kind {
         case .grain:
-            return [
-                ParameterInfo(parameter: .amount, titleKey: "Strength",
-                              systemImage: "dial.medium",
-                              range: 0...1, step: 0.01),
-                // A grain measured in pixels would be a different grain in the
-                // preview and in the file, which is why every size here is a
-                // fraction of the short side. 0.001 of 1200px is about one
-                // pixel; 0.01 is a coarse, deliberate texture.
-                ParameterInfo(parameter: .scale, titleKey: "Grain Size",
-                              systemImage: "circle.dotted",
-                              range: 0.0005...0.01, step: 0.0005)
-            ]
+            return [strength(), size("Grain Size", 0.0005...0.01, step: 0.0005)]
+        case .dots, .grid, .stripes:
+            return [strength(), size("Pattern Step", 0.01...0.2, step: 0.005,
+                                     symbol: "square.grid.3x3"), angle, color]
+        case .vignette:
+            return [strength(), size("Vignette Radius", 0.2...1.5, step: 0.05,
+                                     symbol: "camera.aperture")]
+        case .pixelate:
+            return [size("Cell Size", 0.002...0.06, step: 0.002,
+                         symbol: "squareshape.split.2x2")]
+        case .dither:
+            return [strength(), size("Cell Size", 0.001...0.02, step: 0.001,
+                                     symbol: "squareshape.split.2x2")]
+        case .halftone:
+            return [strength(), size("Dot Size", 0.002...0.05, step: 0.002,
+                                     symbol: "circle.grid.cross"), angle]
+        case .glass:
+            return [strength(), size("Texture Size", 0.005...0.08, step: 0.005,
+                                     symbol: "cube.transparent")]
+        case .lens:
+            // Negative pinches instead of bulging — one dial, both directions,
+            // because "inward" is the same gesture read backwards.
+            return [strength(-1...1), size("Lens Radius", 0.2...1.5, step: 0.05,
+                                           symbol: "dot.circle.viewfinder")]
         }
     }
 
@@ -88,7 +151,7 @@ nonisolated enum EffectStack {
         case .amount: return effect.amount
         case .scale:  return effect.scale
         case .angle:  return effect.angle
-        case .color:  return 0
+        case .color:  return 0   // a colour is not a number; the panel edits it directly
         }
     }
 

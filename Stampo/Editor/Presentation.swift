@@ -267,7 +267,8 @@ nonisolated struct Presentation: Equatable, Sendable {
         /// nothing would still be offered in the panel's grid, and a tile that
         /// promises nothing is worse than a missing tile.
         enum Kind: String, CaseIterable, Sendable {
-            case grain
+            case grain, dots, grid, stripes, vignette, pixelate, dither,
+                 halftone, glass, lens
         }
     }
 

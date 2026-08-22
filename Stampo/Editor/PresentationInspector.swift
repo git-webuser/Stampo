@@ -967,15 +967,19 @@ struct PresentationInspector: View {
                 }
             }
             ForEach(EffectStack.parameters(for: effect.kind), id: \.parameter) { info in
-                presentationSlider(
-                    LocalizedStringKey(info.titleKey),
-                    id: "effect-\(effect.id)-\(info.parameter.rawValue)",
-                    systemImage: info.systemImage,
-                    value: effectBinding(effect, info.parameter),
-                    range: info.range,
-                    step: info.step,
-                    unit: Self.unit(for: info, canvasSize: canvasSize)
-                )
+                if info.parameter == .color {
+                    effectColorRow(effect, info)
+                } else {
+                    presentationSlider(
+                        LocalizedStringKey(info.titleKey),
+                        id: "effect-\(effect.id)-\(info.parameter.rawValue)",
+                        systemImage: info.systemImage,
+                        value: effectBinding(effect, info.parameter),
+                        range: info.range,
+                        step: info.step,
+                        unit: Self.unit(for: info, canvasSize: canvasSize)
+                    )
+                }
             }
         }
         .opacity(effect.isEnabled ? 1 : 0.5)
@@ -992,6 +996,29 @@ struct PresentationInspector: View {
             else { return false }
             moveEffect(from: from, to: to)
             return true
+        }
+    }
+
+    /// A colour is not a number, so it gets the panel's colour controls rather
+    /// than a slider — the same chip and the same typed field as the shadow's
+    /// colour, in the same notation the rest of the app uses.
+    private func effectColorRow(_ effect: Presentation.Effect,
+                                _ info: EffectStack.ParameterInfo) -> some View {
+        VStack(alignment: .leading, spacing: Self.captionGap) {
+            Text(LocalizedStringKey(info.titleKey))
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+            HStack(spacing: 8) {
+                ColorChip(color: effect.color, diameter: Self.swatchSize,
+                          supportsOpacity: false) { color in
+                    setEffect(effect) { $0.color = color }
+                }
+                .accessibilityLabel(Text(LocalizedStringKey(info.titleKey)))
+                ColorField(color: effect.color) { color in
+                    setEffect(effect) { $0.color = color }
+                }
+                Spacer(minLength: 0)
+            }
         }
     }
 
@@ -1040,7 +1067,9 @@ struct PresentationInspector: View {
         switch info.parameter {
         case .scale:
             return .pixels(basis: min(canvasSize.width, canvasSize.height))
-        case .amount, .angle, .color:
+        case .angle:
+            return .degrees
+        case .amount, .color:
             return .percent
         }
     }
@@ -1529,10 +1558,9 @@ struct PresentationInspector: View {
     /// "Presets", "Colors", "From Archive", "Corners", "Margins, px" — sits
     /// this far above its controls, and the shadow's colour drifted to the
     /// section's own control spacing until it was given a stack of its own.
+    private static let captionGap: CGFloat = 6
     /// Between the margin fields and the button beside them.
     private static let marginGap: CGFloat = 6
-
-    private static let captionGap: CGFloat = 6
     /// Breathing room inside a section's box, on top of what `GroupBox` gives.
     /// Its own inset is about half of what the app's settings cards use, and
     /// beside them the panel looked cramped rather than compact.

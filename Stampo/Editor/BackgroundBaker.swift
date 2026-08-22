@@ -99,6 +99,20 @@ nonisolated enum BackgroundBaker {
         switch effect.kind {
         case .grain:
             return grain(effect, over: image, extent: extent, shortSide: shortSide)
+        case .dots, .grid, .stripes:
+            return pattern(effect, over: image, extent: extent, shortSide: shortSide)
+        case .vignette:
+            return vignette(effect, over: image, extent: extent, shortSide: shortSide)
+        case .pixelate:
+            return pixelate(effect, over: image, extent: extent, shortSide: shortSide)
+        case .dither:
+            return dither(effect, over: image, extent: extent, shortSide: shortSide)
+        case .halftone:
+            return halftone(effect, over: image, extent: extent, shortSide: shortSide)
+        case .glass:
+            return glass(effect, over: image, extent: extent, shortSide: shortSide)
+        case .lens:
+            return lens(effect, over: image, extent: extent, shortSide: shortSide)
         }
     }
 
@@ -149,6 +163,218 @@ nonisolated enum BackgroundBaker {
         blend.inputImage = overlay
         blend.backgroundImage = image
         return blend.outputImage ?? image
+    }
+
+    /// A regular pattern — dots, a grid or stripes — laid over the background.
+    ///
+    /// Drawn with Core Graphics rather than assembled from generators: this is
+    /// the one family that is *not* a filter, and a checkerboard generator bent
+    /// into a dot grid would be harder to read than the four lines that draw
+    /// the dots. It goes through the same chain as the rest so that an effect
+    /// added after it still sees it.
+    private static func pattern(_ effect: Recipe, over image: CIImage,
+                                extent: CGRect, shortSide: CGFloat) -> CIImage {
+        let step = max(2, (effect.scale * shortSide).rounded())
+        let width = Int(extent.width), height = Int(extent.height)
+        guard width > 0, height > 0,
+              let ctx = CGContext(
+                data: nil, width: width, height: height,
+                bitsPerComponent: 8, bytesPerRow: 0,
+                space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+              ) else { return image }
+
+        let ink = CGColor(red: effect.color.red, green: effect.color.green,
+                          blue: effect.color.blue, alpha: effect.color.alpha * effect.amount)
+        ctx.setFillColor(ink)
+        ctx.setStrokeColor(ink)
+        // The pattern turns around the middle, so the angle reads as a rotation
+        // of the picture rather than as a slide across it.
+        ctx.translateBy(x: extent.midX, y: extent.midY)
+        ctx.rotate(by: effect.angle)
+        // Long enough to still cover the corners once turned.
+        let reach = hypot(extent.width, extent.height)
+        let from = -reach / 2, to = reach / 2
+
+        switch effect.kind {
+        case .dots:
+            let radius = max(0.5, step / 6)
+            var y = from
+            while y <= to {
+                var x = from
+                while x <= to {
+                    ctx.fillEllipse(in: CGRect(x: x - radius, y: y - radius,
+                                               width: radius * 2, height: radius * 2))
+                    x += step
+                }
+                y += step
+            }
+        case .grid, .stripes:
+            ctx.setLineWidth(max(0.5, step / 12))
+            var offset = from
+            while offset <= to {
+                ctx.move(to: CGPoint(x: from, y: offset))
+                ctx.addLine(to: CGPoint(x: to, y: offset))
+                if effect.kind == .grid {
+                    ctx.move(to: CGPoint(x: offset, y: from))
+                    ctx.addLine(to: CGPoint(x: offset, y: to))
+                }
+                offset += step
+            }
+            ctx.strokePath()
+        default:
+            return image
+        }
+
+        guard let drawn = ctx.makeImage() else { return image }
+        let over = CIFilter.sourceOverCompositing()
+        over.inputImage = CIImage(cgImage: drawn)
+        over.backgroundImage = image
+        return over.outputImage ?? image
+    }
+
+    /// Darkening towards the edges. The radius is a fraction of the short side,
+    /// like every other size here, so the same vignette closes in the same
+    /// place at any resolution.
+    private static func vignette(_ effect: Recipe, over image: CIImage,
+                                 extent: CGRect, shortSide: CGFloat) -> CIImage {
+        let filter = CIFilter.vignetteEffect()
+        filter.inputImage = image.clampedToExtent()
+        filter.center = CGPoint(x: extent.midX, y: extent.midY)
+        filter.radius = Float(effect.scale * shortSide / 2)
+        filter.intensity = Float(effect.amount)
+        filter.falloff = 0.5
+        return filter.outputImage?.cropped(to: extent) ?? image
+    }
+
+    private static func pixelate(_ effect: Recipe, over image: CIImage,
+                                 extent: CGRect, shortSide: CGFloat) -> CIImage {
+        let filter = CIFilter.pixellate()
+        filter.inputImage = image.clampedToExtent()
+        filter.scale = Float(max(2, effect.scale * shortSide))
+        // From a corner, not from the middle: cells anchored at the centre
+        // leave a half cell against two edges, which reads as a mistake.
+        filter.center = .zero
+        return filter.outputImage?.cropped(to: extent) ?? image
+    }
+
+    /// Ordered noise, then fewer colours — which is what dithering looks like.
+    ///
+    /// `CIDither` alone was measured and rejected: it exists to *hide* banding,
+    /// so at any setting it is nearly invisible on a gradient, and an effect
+    /// nobody can see is an effect that looks broken. Posterizing after the
+    /// noise gives the banded, speckled look the name promises, and strength
+    /// decides how few colours are left.
+    private static func dither(_ effect: Recipe, over image: CIImage,
+                               extent: CGRect, shortSide: CGFloat) -> CIImage {
+        let cell = max(1, (effect.scale * shortSide).rounded())
+        let noise = CIFilter.randomGenerator().outputImage?
+            .samplingNearest()
+            .transformed(by: CGAffineTransform(translationX: CGFloat(effect.seed % 4096),
+                                               y: CGFloat((effect.seed / 4096) % 4096)))
+            .transformed(by: CGAffineTransform(scaleX: cell, y: cell))
+        var speckled = image
+        if let noise {
+            let grey = CIFilter.colorMatrix()
+            grey.inputImage = noise
+            // A full step between levels, so the noise reaches across a band
+            // boundary and breaks it. Half a step was measured first and left
+            // the bands perfectly clean — posterizing, not dithering.
+            let weight = CGFloat(1.2 / max(2, levels(effect.amount)))
+            grey.rVector = CIVector(x: weight, y: 0, z: 0, w: 0)
+            grey.gVector = CIVector(x: weight, y: 0, z: 0, w: 0)
+            grey.bVector = CIVector(x: weight, y: 0, z: 0, w: 0)
+            grey.aVector = CIVector(x: 0, y: 0, z: 0, w: 0)
+            // Alpha stays at zero: the noise is *light added* to the picture,
+            // and an opaque noise added to an opaque background saturates every
+            // channel at once — which turned a gradient into confetti the first
+            // time this was rendered.
+            grey.biasVector = CIVector(x: -weight / 2, y: -weight / 2, z: -weight / 2, w: 0)
+            if let overlay = grey.outputImage?.cropped(to: extent) {
+                let add = CIFilter.additionCompositing()
+                add.inputImage = overlay
+                add.backgroundImage = image
+                speckled = add.outputImage ?? image
+            }
+        }
+        let posterize = CIFilter.colorPosterize()
+        posterize.inputImage = speckled
+        posterize.levels = Float(levels(effect.amount))
+        return posterize.outputImage?.cropped(to: extent) ?? speckled
+    }
+
+    /// Strength read backwards: the harder you push, the fewer colours are
+    /// left. Sixteen levels is already a visible banding on a gradient; two is
+    /// the extreme.
+    private static func levels(_ amount: CGFloat) -> CGFloat {
+        (16 - 14 * min(1, max(0, amount))).rounded()
+    }
+
+    /// Print-style colour separation. Dramatic by nature, which is why its dot
+    /// is the parameter people reach for first.
+    private static func halftone(_ effect: Recipe, over image: CIImage,
+                                 extent: CGRect, shortSide: CGFloat) -> CIImage {
+        let filter = CIFilter.cmykHalftone()
+        filter.inputImage = image.clampedToExtent()
+        filter.center = CGPoint(x: extent.midX, y: extent.midY)
+        filter.width = Float(max(2, effect.scale * shortSide))
+        filter.angle = Float(effect.angle)
+        filter.sharpness = Float(effect.amount)
+        filter.grayComponentReplacement = 1
+        filter.underColorRemoval = 0.5
+        return filter.outputImage?.cropped(to: extent) ?? image
+    }
+
+    /// Refraction through textured glass. `CIGlassDistortion` needs a texture
+    /// to refract through, and blurred noise is the classic one: its blobs are
+    /// what become the ripples, so the texture's coarseness *is* the size of
+    /// the distortion.
+    private static func glass(_ effect: Recipe, over image: CIImage,
+                              extent: CGRect, shortSide: CGFloat) -> CIImage {
+        let blobs = max(1, effect.scale * shortSide)
+        // The noise is enlarged *before* it is blurred, and that is the whole
+        // recipe: blurring one-pixel noise by the blob size averages it into a
+        // flat grey, a texture with no slopes — and a glass with no slopes
+        // refracts nothing. Measured: the first version ran the filter and
+        // returned the picture untouched.
+        guard let noise = CIFilter.randomGenerator().outputImage?
+            .samplingNearest()
+            .transformed(by: CGAffineTransform(translationX: CGFloat(effect.seed % 4096),
+                                               y: CGFloat((effect.seed / 4096) % 4096)))
+            .transformed(by: CGAffineTransform(scaleX: blobs, y: blobs))
+        else { return image }
+        let blur = CIFilter.gaussianBlur()
+        blur.inputImage = noise.cropped(to: extent).clampedToExtent()
+        blur.radius = Float(max(1, blobs / 2))
+        // Cropped, and that is not tidiness: an infinite texture asks Core
+        // Image for an infinite render, which it answers with "memory
+        // requirement of -1 too big" and a tile that never appears.
+        guard let texture = blur.outputImage?.cropped(to: extent) else { return image }
+
+        let filter = CIFilter.glassDistortion()
+        filter.inputImage = image.clampedToExtent()
+        filter.textureImage = texture
+        filter.center = CGPoint(x: extent.midX, y: extent.midY)
+        // Displacement is a fraction of the page, not of the texture — tied to
+        // the blob size it came out under two pixels at any sane setting. The
+        // multiplier is large because this filter's `scale` is not a distance
+        // in pixels: measured on a 400px tile, 24 moved the picture by about
+        // half a byte per channel and 200 was the first setting anyone could
+        // see.
+        filter.scale = Float(effect.amount * shortSide * 0.5)
+        return filter.outputImage?.cropped(to: extent) ?? image
+    }
+
+    /// A lens over the middle of the page: positive bulges, negative pinches.
+    /// One dial for both, because inward is the same gesture read backwards.
+    private static func lens(_ effect: Recipe, over image: CIImage,
+                             extent: CGRect, shortSide: CGFloat) -> CIImage {
+        let filter = CIFilter.bumpDistortion()
+        filter.inputImage = image.clampedToExtent()
+        filter.center = CGPoint(x: extent.midX, y: extent.midY)
+        filter.radius = Float(effect.scale * shortSide / 2)
+        filter.scale = Float(effect.amount)
+        return filter.outputImage?.cropped(to: extent) ?? image
     }
 
     // MARK: Plumbing

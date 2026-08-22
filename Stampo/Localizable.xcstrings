@@ -1235,6 +1235,23 @@
         }
       }
     },
+    "Cell Size" : {
+      "comment" : "Decor inspector — size of one cell of the pixelate or dither effect",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cell Size"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Размер клетки"
+          }
+        }
+      }
+    },
     "Center Horizontally" : {
       "comment" : "Aligns the picture inside the canvas",
       "localizations" : {
@@ -2178,6 +2195,23 @@
         }
       }
     },
+    "Dither" : {
+      "comment" : "Decor inspector — effect that reduces the background to few colours with speckle",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dither"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Дизеринг"
+          }
+        }
+      }
+    },
     "Done" : {
       "comment" : "Closing button of the translation setup window",
       "localizations" : {
@@ -2191,6 +2225,40 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Готово"
+          }
+        }
+      }
+    },
+    "Dot Size" : {
+      "comment" : "Decor inspector — size of one halftone dot",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dot Size"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Размер точки"
+          }
+        }
+      }
+    },
+    "Dots" : {
+      "comment" : "Decor inspector — effect that lays a grid of dots over the background",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dots"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Точки"
           }
         }
       }
@@ -2836,6 +2904,23 @@
         }
       }
     },
+    "Glass" : {
+      "comment" : "Decor inspector — effect that refracts the background as through textured glass",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Glass"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Стекло"
+          }
+        }
+      }
+    },
     "Gradient" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2952,6 +3037,40 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Зелёный"
+          }
+        }
+      }
+    },
+    "Grid" : {
+      "comment" : "Decor inspector — effect that lays a grid of lines over the background",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Grid"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сетка"
+          }
+        }
+      }
+    },
+    "Halftone" : {
+      "comment" : "Decor inspector — effect that separates the background into print dots",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Halftone"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Растр"
           }
         }
       }
@@ -3569,6 +3688,40 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Левое поле"
+          }
+        }
+      }
+    },
+    "Lens" : {
+      "comment" : "Decor inspector — effect that bulges or pinches the middle of the background",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lens"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Линза"
+          }
+        }
+      }
+    },
+    "Lens Radius" : {
+      "comment" : "Decor inspector — how far the lens effect reaches from the middle",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lens Radius"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Радиус линзы"
           }
         }
       }
@@ -4603,6 +4756,40 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Вставьте в отчёт об ошибке, чтобы помочь в диагностике проблемы"
+          }
+        }
+      }
+    },
+    "Pattern Color" : {
+      "comment" : "Decor inspector — colour of the dots or lines of a pattern",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pattern Color"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Цвет узора"
+          }
+        }
+      }
+    },
+    "Pattern Step" : {
+      "comment" : "Decor inspector — distance between the dots or lines of a pattern",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pattern Step"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Шаг узора"
           }
         }
       }
@@ -6741,6 +6928,23 @@
         }
       }
     },
+    "Stripes" : {
+      "comment" : "Decor inspector — effect that lays parallel lines over the background",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stripes"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Полосы"
+          }
+        }
+      }
+    },
     "Style" : {
       "comment" : "Label for the filename style picker in capture settings",
       "localizations" : {
@@ -6975,6 +7179,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Размер текста"
+          }
+        }
+      }
+    },
+    "Texture Size" : {
+      "comment" : "Decor inspector — coarseness of the glass texture",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Texture Size"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Размер текстуры"
           }
         }
       }
@@ -7589,6 +7810,40 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Открыть на GitHub"
+          }
+        }
+      }
+    },
+    "Vignette" : {
+      "comment" : "Decor inspector — effect that darkens the edges of the page",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vignette"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Виньетка"
+          }
+        }
+      }
+    },
+    "Vignette Radius" : {
+      "comment" : "Decor inspector — how far in from the edges a vignette reaches",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vignette Radius"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Радиус виньетки"
           }
         }
       }

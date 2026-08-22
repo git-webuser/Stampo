@@ -124,6 +124,32 @@ import Testing
         #expect(BackgroundBaker.bakeCount == 0)
     }
 
+    /// Every kind has to be visible at its own default, and this is the test
+    /// that would have caught three that were not: glass refracted by half a
+    /// byte, dither posterized without a speckle, and a grain that lost a
+    /// quarter of its strength at high resolution.
+    ///
+    /// The ones that *bend* the picture are measured over a texture, because a
+    /// smooth gradient has nothing to bend — that is a property of distortion,
+    /// not a shortcoming of the effect.
+    @Test func everyKindChangesThePictureAtItsDefault() {
+        for kind in Presentation.Effect.Kind.allCases {
+            let needsTexture = ![Presentation.Effect.Kind.dots, .grid, .stripes].contains(kind)
+            let under: [Presentation.Effect] = needsTexture
+                ? [EffectStack.make(.dots, seed: 5)] : []
+            let size = CGSize(width: 300, height: 300)
+            BackgroundBaker.emptyCache()
+            let before = under.isEmpty
+                ? plainPixels(size)
+                : bytes(of: BackgroundBaker.image(background: ramp, effects: under, pixelSize: size))
+            let after = bytes(of: BackgroundBaker.image(background: ramp,
+                                                       effects: under + [EffectStack.make(kind, seed: 5)],
+                                                       pixelSize: size))
+            #expect(distance(before, after) > 0.75,
+                    "\(kind) at its default barely changes anything")
+        }
+    }
+
     // MARK: Through the renderer
 
     /// The size is never passed in: it is read from the context, so the canvas
@@ -184,6 +210,28 @@ import Testing
     }
 
     // MARK: Reading pixels
+
+    private let ramp = Presentation.Background.linearGradient(
+        stops: Presentation.Stop.spread([
+            Presentation.Color(red: 0.2, green: 0.4, blue: 0.9, alpha: 1),
+            Presentation.Color(red: 0.9, green: 0.3, blue: 0.5, alpha: 1)
+        ]), angle: 0.7)
+
+    /// The background with no effects at all, drawn the plain way.
+    private func plainPixels(_ size: CGSize) -> [UInt8] {
+        let ctx = CGContext(data: nil, width: Int(size.width), height: Int(size.height),
+                            bitsPerComponent: 8, bytesPerRow: 0,
+                            space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        PresentationRenderer.drawBackground(ramp, in: CGRect(origin: .zero, size: size), ctx: ctx)
+        return bytes(of: ctx.makeImage())
+    }
+
+    /// Mean absolute difference per byte, 0…255.
+    private func distance(_ a: [UInt8], _ b: [UInt8]) -> Double {
+        guard !a.isEmpty, a.count == b.count else { return 0 }
+        return zip(a, b).reduce(0.0) { $0 + abs(Double($1.0) - Double($1.1)) } / Double(a.count)
+    }
 
     private func bytes(of image: CGImage?) -> [UInt8] {
         guard let image else { return [] }
