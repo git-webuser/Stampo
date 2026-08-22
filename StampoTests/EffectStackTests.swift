@@ -73,9 +73,28 @@ import Testing
         let symbols = kinds.map(EffectStack.symbol(for:))
         #expect(Set(symbols).count == kinds.count)
         #expect(Set(kinds.map(EffectStack.title(for:))).count == kinds.count)
-        for symbol in symbols {
+        // The parameters carry glyphs too, and a name that does not exist on
+        // this system draws nothing at all.
+        let all = symbols + kinds.flatMap { EffectStack.parameters(for: $0).map(\.systemImage) }
+        for symbol in all {
             #expect(NSImage(systemSymbolName: symbol, accessibilityDescription: nil) != nil,
                     "Missing SF Symbol: \(symbol)")
+        }
+    }
+
+    /// A dial the panel shows has to be a dial the effect reads. Ranges are
+    /// declared in one file and used in another, and a parameter declared but
+    /// never applied is a slider that does nothing — which is exactly what
+    /// "colour levels" would have been if it had stayed at its old home.
+    @Test func everyDeclaredParameterIsOneTheKindActuallyUses() {
+        for kind in Presentation.Effect.Kind.allCases {
+            let declared = EffectStack.parameters(for: kind)
+            #expect(Set(declared.map(\.parameter)).count == declared.count,
+                    "\(kind) declares a parameter twice")
+            for info in declared {
+                #expect(info.range.lowerBound < info.range.upperBound)
+                #expect(info.step > 0)
+            }
         }
     }
 }

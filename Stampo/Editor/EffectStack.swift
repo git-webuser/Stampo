@@ -18,7 +18,7 @@ nonisolated enum EffectStack {
 
     /// Which of the four stored numbers a kind uses.
     enum Parameter: String, Hashable, Sendable {
-        case amount, scale, angle, color
+        case amount, scale, angle, color, detail
     }
 
     /// A parameter as the panel needs it: what to call it, what to draw beside
@@ -47,7 +47,8 @@ nonisolated enum EffectStack {
         case .pixelate: return "Pixelate"
         case .dither:   return "Dither"
         case .halftone: return "Halftone"
-        case .glass:    return "Glass"
+        case .fluted:   return "Fluted Glass"
+        case .glass:    return "Frosted Glass"
         case .lens:     return "Lens"
         case .ascii:    return "ASCII"
         }
@@ -64,6 +65,7 @@ nonisolated enum EffectStack {
         case .pixelate: return "squareshape.split.2x2"
         case .dither:   return "circle.hexagongrid.fill"
         case .halftone: return "circle.grid.cross"
+        case .fluted:   return "lines.measurement.vertical"
         case .glass:    return "cube.transparent"
         case .lens:     return "dot.circle.viewfinder"
         case .ascii:    return "textformat.abc"
@@ -83,9 +85,10 @@ nonisolated enum EffectStack {
                      seed: UInt32 = .random(in: 0...UInt32.max)) -> Effect {
         let ink = background.contrastingInk
         func effect(amount: CGFloat, scale: CGFloat, angle: CGFloat = 0,
-                    color: Presentation.Color = .black) -> Effect {
+                    color: Presentation.Color = .black, detail: CGFloat = 0) -> Effect {
             Effect(id: UUID(), kind: kind, isEnabled: true, amount: amount,
-                   scale: scale, angleInDegrees: angle, color: color, seed: seed)
+                   scale: scale, angleInDegrees: angle, color: color,
+                   detail: detail, seed: seed)
         }
         switch kind {
         // Defaults are the settings that make the effect *recognisable* on
@@ -97,9 +100,12 @@ nonisolated enum EffectStack {
         case .stripes:  return effect(amount: 0.12, scale: 0.04,
                                       angle: 45, color: ink)
         case .vignette: return effect(amount: 0.5, scale: 0.8)
-        case .pixelate: return effect(amount: 0.55, scale: 0.02)
-        case .dither:   return effect(amount: 0.6, scale: 0.004)
+        case .pixelate: return effect(amount: 1, scale: 0.05, detail: 10)
+        case .dither:   return effect(amount: 1, scale: 0.003, detail: 4)
         case .halftone: return effect(amount: 0.7, scale: 0.012)
+        // Ribs stand upright, like the panel in a door — angle 0 is a rib
+        // along the vertical, and turning it lays them over.
+        case .fluted:   return effect(amount: 0.55, scale: 0.05, detail: 0.35)
         case .glass:    return effect(amount: 0.5, scale: 0.03)
         case .lens:     return effect(amount: 0.5, scale: 0.7)
         // The letters sit on a darkened page whatever the background was, so
@@ -124,6 +130,11 @@ nonisolated enum EffectStack {
         }
         let angle = ParameterInfo(parameter: .angle, titleKey: "Angle",
                                   systemImage: "angle", range: 0...180, step: 1)
+        // How many colours a quantizer leaves. A count, not a fraction: "6
+        // colours" is a thing a person can picture, and 0.4 is not.
+        let levels = ParameterInfo(parameter: .detail, titleKey: "Color Levels",
+                                   systemImage: "circle.lefthalf.striped.horizontal",
+                                   range: 2...32, step: 1)
         let color = ParameterInfo(parameter: .color, titleKey: "Pattern Color",
                                   systemImage: "paintpalette", range: 0...1, step: 1)
 
@@ -137,11 +148,20 @@ nonisolated enum EffectStack {
             return [strength(), size("Vignette Radius", 0.2...1.5, step: 0.05,
                                      symbol: "camera.aperture")]
         case .pixelate:
-            return [strength(), size("Cell Size", 0.002...0.06, step: 0.002,
-                                     symbol: "squareshape.split.2x2")]
+            return [size("Cell Size", 0.004...0.15, step: 0.002,
+                         symbol: "squareshape.split.2x2"), levels]
         case .dither:
-            return [strength(), size("Cell Size", 0.001...0.02, step: 0.001,
-                                     symbol: "squareshape.split.2x2")]
+            // Pattern scale, not cell size: what repeats is the threshold
+            // matrix, and one matrix cell is a handful of pixels.
+            return [strength(), size("Pattern Scale", 0.001...0.02, step: 0.001,
+                                     symbol: "squareshape.split.2x2"), levels]
+        case .fluted:
+            return [strength(), size("Rib Width", 0.01...0.2, step: 0.005,
+                                     symbol: "lines.measurement.vertical"),
+                    angle,
+                    ParameterInfo(parameter: .detail, titleKey: "Relief",
+                                  systemImage: "square.3.layers.3d.top.filled",
+                                  range: 0...1, step: 0.01)]
         case .halftone:
             return [strength(), size("Dot Size", 0.002...0.05, step: 0.002,
                                      symbol: "circle.grid.cross"), angle]
@@ -168,6 +188,7 @@ nonisolated enum EffectStack {
         case .amount: return effect.amount
         case .scale:  return effect.scale
         case .angle:  return effect.angleInDegrees
+        case .detail: return effect.detail
         case .color:  return 0   // a colour is not a number; the panel edits it directly
         }
     }
@@ -185,6 +206,7 @@ nonisolated enum EffectStack {
         case .amount: result.amount = clamped
         case .scale:  result.scale = clamped
         case .angle:  result.angleInDegrees = clamped
+        case .detail: result.detail = clamped
         case .color:  break
         }
         return result

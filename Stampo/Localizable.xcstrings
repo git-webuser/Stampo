@@ -1575,6 +1575,23 @@
         }
       }
     },
+    "Color Levels" : {
+      "comment" : "Decor inspector — how many colours a quantizing effect leaves",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Color Levels"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Число цветов"
+          }
+        }
+      }
+    },
     "Color picker unavailable" : {
       "comment" : "Title for the NSAlert shown when color picker cannot access screen",
       "extractionState" : "stale",
@@ -2770,6 +2787,23 @@
         }
       }
     },
+    "Fluted Glass" : {
+      "comment" : "Decor inspector — effect that shows the page through vertical ribs of glass",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fluted Glass"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Рифлёное стекло"
+          }
+        }
+      }
+    },
     "Font" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2869,6 +2903,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Из изображения"
+          }
+        }
+      }
+    },
+    "Frosted Glass" : {
+      "comment" : "Decor inspector — effect that refracts the page as through textured glass",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Frosted Glass"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Матовое стекло"
           }
         }
       }
@@ -4893,6 +4944,23 @@
         }
       }
     },
+    "Pattern Scale" : {
+      "comment" : "Decor inspector — size of one cell of the dither pattern",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pattern Scale"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Шаг узора дизеринга"
+          }
+        }
+      }
+    },
     "Pattern Step" : {
       "comment" : "Decor inspector — distance between the dots or lines of a pattern",
       "extractionState" : "stale",
@@ -5508,6 +5576,23 @@
         }
       }
     },
+    "Relief" : {
+      "comment" : "Decor inspector — how deeply the ribs of fluted glass are shaded",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Relief"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Рельеф"
+          }
+        }
+      }
+    },
     "Remove Decor" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -5687,6 +5772,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Восстанавливает все сочетания клавиш до исходных"
+          }
+        }
+      }
+    },
+    "Rib Width" : {
+      "comment" : "Decor inspector — width of one rib of fluted glass",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rib Width"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ширина ребра"
           }
         }
       }

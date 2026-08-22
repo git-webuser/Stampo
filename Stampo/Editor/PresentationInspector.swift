@@ -1121,6 +1121,9 @@ struct PresentationInspector: View {
             return .pixels(basis: min(canvasSize.width, canvasSize.height))
         case .angle:
             return .degrees
+        // A count of colours, or a depth — plain numbers, shown as they are.
+        case .detail:
+            return info.range.upperBound > 2 ? .count : .percent
         case .amount, .color:
             return .percent
         }
@@ -1636,6 +1639,8 @@ struct PresentationInspector: View {
     /// "px" caption pushed each field left by a different amount depending on
     /// the unit's own width.
     private enum ValueUnit {
+        /// A plain number, shown as it stands: six colours is six.
+        case count
         /// A canvas fraction shown as pixels of `basis` — the same length the
         /// renderer multiplies that fraction by.
         case pixels(basis: CGFloat)
@@ -1722,7 +1727,7 @@ struct PresentationInspector: View {
         switch unit {
         case .pixels(let basis): shown = (Double(value.wrappedValue) * Double(basis)).rounded()
         case .percent:           shown = (Double(value.wrappedValue) * 100).rounded()
-        case .degrees:           shown = Double(value.wrappedValue.rounded())
+        case .degrees, .count:   shown = Double(value.wrappedValue.rounded())
         }
         return NumberField(value: .constant(shown)) { typed in
             switch unit {
@@ -1731,7 +1736,7 @@ struct PresentationInspector: View {
                 commit(CGFloat(typed) / basis)
             case .percent:
                 commit(CGFloat(typed) / 100)
-            case .degrees:
+            case .degrees, .count:
                 commit(CGFloat(typed))
             }
         }

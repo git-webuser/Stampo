@@ -110,6 +110,8 @@ nonisolated enum BackgroundBaker {
             return dither(effect, over: image, extent: extent, shortSide: shortSide)
         case .halftone:
             return halftone(effect, over: image, extent: extent, shortSide: shortSide)
+        case .fluted:
+            return fluted(effect, over: image, extent: extent, shortSide: shortSide)
         case .glass:
             return glass(effect, over: image, extent: extent, shortSide: shortSide)
         case .lens:
@@ -287,15 +289,15 @@ nonisolated enum BackgroundBaker {
         return filter.outputImage?.cropped(to: extent) ?? image
     }
 
-    /// Square cells — and, on a smooth page, a colour step to make them
-    /// visible.
+    /// Square cells, big enough to be cells.
     ///
-    /// Averaging alone is invisible on a gradient by construction: the mean of
-    /// a smooth ramp over a cell is very nearly the ramp itself, and the effect
-    /// measured a flat zero on a solid colour. Fewer colours is what makes the
-    /// cells show: neighbouring cells land in the same band, so the edges
-    /// between bands follow the grid, and the picture reads as pixels rather
-    /// than as a slightly blurred gradient.
+    /// Averaging alone is invisible on a gradient by construction: the mean of a
+    /// smooth ramp over a cell is very nearly the ramp itself. So the cells are
+    /// large by default — a twentieth of the short side, where the first version
+    /// used a fiftieth — and the number of colours is a dial of its own rather
+    /// than a hidden fudge. Fewer colours is what makes the grid show: whole
+    /// cells land in the same band, and the edges between bands run along the
+    /// cell boundaries.
     private static func pixelate(_ effect: Recipe, over image: CIImage,
                                  extent: CGRect, shortSide: CGFloat) -> CIImage {
         let filter = CIFilter.pixellate()
@@ -305,66 +307,103 @@ nonisolated enum BackgroundBaker {
         // leave a half cell against two edges, which reads as a mistake.
         filter.center = .zero
         guard let blocks = filter.outputImage?.cropped(to: extent) else { return image }
-        guard effect.amount > 0 else { return blocks }
 
+        let levels = effect.detail.rounded()
+        // The top of the range means "leave the colours alone" — a count high
+        // enough that quantizing to it is invisible, which is a kinder way to
+        // switch something off than a checkbox next to a slider.
+        guard levels >= 2, levels < 32 else { return blocks }
         let posterize = CIFilter.colorPosterize()
         posterize.inputImage = blocks
-        posterize.levels = Float(levels(effect.amount))
+        posterize.levels = Float(levels)
         return posterize.outputImage?.cropped(to: extent) ?? blocks
     }
 
-    /// Ordered noise, then fewer colours — which is what dithering looks like.
+    /// Ordered dithering: fewer colours, with a woven threshold pattern
+    /// deciding which pixel rounds up and which rounds down.
     ///
-    /// `CIDither` alone was measured and rejected: it exists to *hide* banding,
-    /// so at any setting it is nearly invisible on a gradient, and an effect
-    /// nobody can see is an effect that looks broken. Posterizing after the
-    /// noise gives the banded, speckled look the name promises, and strength
-    /// decides how few colours are left.
+    /// The first version used white noise and it was the wrong effect. A random
+    /// threshold gives soft, cloudy banding; what people mean by "dither" is the
+    /// *ordered* kind — a Bayer matrix repeating across the page, which is why
+    /// the result has a weave to it and holds an edge. It is also the only kind
+    /// that survives being scaled up: the pattern is a pattern, not a mist.
     private static func dither(_ effect: Recipe, over image: CIImage,
                                extent: CGRect, shortSide: CGFloat) -> CIImage {
+        let levels = max(2, effect.detail.rounded())
         let cell = max(1, (effect.scale * shortSide).rounded())
-        let noise = CIFilter.randomGenerator().outputImage?
-            .samplingNearest()
-            .transformed(by: CGAffineTransform(translationX: CGFloat(effect.seed % 4096),
-                                               y: CGFloat((effect.seed / 4096) % 4096)))
-            .transformed(by: CGAffineTransform(scaleX: cell, y: cell))
-            .settingAlphaOne(in: extent)
-        var speckled = image
-        if let noise {
-            let grey = CIFilter.colorMatrix()
-            grey.inputImage = noise
-            // A full step between levels, so the noise reaches across a band
-            // boundary and breaks it. Half a step was measured first and left
-            // the bands perfectly clean — posterizing, not dithering.
-            let weight = CGFloat(1.2 / max(2, levels(effect.amount)))
-            grey.rVector = CIVector(x: weight, y: 0, z: 0, w: 0)
-            grey.gVector = CIVector(x: weight, y: 0, z: 0, w: 0)
-            grey.bVector = CIVector(x: weight, y: 0, z: 0, w: 0)
-            grey.aVector = CIVector(x: 0, y: 0, z: 0, w: 0)
-            // Alpha stays at zero: the noise is *light added* to the picture,
-            // and an opaque noise added to an opaque background saturates every
-            // channel at once — which turned a gradient into confetti the first
-            // time this was rendered.
-            grey.biasVector = CIVector(x: -weight / 2, y: -weight / 2, z: -weight / 2, w: 0)
-            if let overlay = grey.outputImage?.cropped(to: extent) {
-                let add = CIFilter.additionCompositing()
-                add.inputImage = overlay
-                add.backgroundImage = image
-                speckled = add.outputImage ?? image
-            }
-        }
+        guard let matrix = bayerTile(cell: cell, extent: extent) else { return image }
+
+        // Half a step either side: exactly enough for a pixel to be carried
+        // across the nearest boundary, and no further — more would be noise on
+        // top of the pattern rather than the pattern itself.
+        let threshold = light(matrix, amplitude: 0.5 / levels, over: image, extent: extent)
+
         let posterize = CIFilter.colorPosterize()
-        posterize.inputImage = speckled
-        posterize.levels = Float(levels(effect.amount))
-        return posterize.outputImage?.cropped(to: extent) ?? speckled
+        posterize.inputImage = threshold
+        posterize.levels = Float(levels)
+        guard let quantized = posterize.outputImage?.cropped(to: extent) else { return image }
+        guard effect.amount < 1 else { return quantized }
+
+        // Strength is a mix with the page as it was, so the dial goes all the
+        // way down to nothing rather than to "eight colours instead of four".
+        let mix = CIFilter.dissolveTransition()
+        mix.inputImage = image
+        mix.targetImage = quantized
+        mix.time = Float(effect.amount)
+        return mix.outputImage?.cropped(to: extent) ?? quantized
     }
 
-    /// Strength read backwards: the harder you push, the fewer colours are
-    /// left. Sixteen levels is already a visible banding on a gradient; two is
-    /// the extreme.
-    private static func levels(_ amount: CGFloat) -> CGFloat {
-        (16 - 14 * min(1, max(0, amount))).rounded()
+    /// The 8×8 Bayer matrix, drawn once as a tiny image and tiled across the
+    /// page with each cell blown up to `cell` pixels.
+    ///
+    /// Tiled rather than generated per pixel because Core Image has no ordered
+    /// noise of its own and this file has no shader: an 8×8 image and an affine
+    /// tile is the whole of it.
+    private static func bayerTile(cell: CGFloat, extent: CGRect) -> CIImage? {
+        guard let base = bayerImage else { return nil }
+        let tile = CIImage(cgImage: base)
+            .samplingNearest()
+            .transformed(by: CGAffineTransform(scaleX: cell, y: cell))
+        return tile
+            .applyingFilter("CIAffineTile", parameters: [
+                kCIInputTransformKey: CGAffineTransform.identity
+            ])
+            .cropped(to: extent)
     }
+
+    /// The classic 8×8 ordered-dither threshold map, as grey levels.
+    private static let bayerImage: CGImage? = {
+        let side = 8
+        // Each entry is its position in the recursive Bayer ordering; dividing
+        // by 64 turns the ordering into thresholds spread evenly over 0…1.
+        let order: [Int] = [
+             0, 32,  8, 40,  2, 34, 10, 42,
+            48, 16, 56, 24, 50, 18, 58, 26,
+            12, 44,  4, 36, 14, 46,  6, 38,
+            60, 28, 52, 20, 62, 30, 54, 22,
+             3, 35, 11, 43,  1, 33,  9, 41,
+            51, 19, 59, 27, 49, 17, 57, 25,
+            15, 47,  7, 39, 13, 45,  5, 37,
+            63, 31, 55, 23, 61, 29, 53, 21
+        ]
+        var pixels = [UInt8](repeating: 0, count: side * side * 4)
+        for index in 0..<(side * side) {
+            let value = UInt8((Double(order[index]) + 0.5) / 64 * 255)
+            pixels[index * 4] = value
+            pixels[index * 4 + 1] = value
+            pixels[index * 4 + 2] = value
+            pixels[index * 4 + 3] = 255
+        }
+        return pixels.withUnsafeMutableBytes { raw -> CGImage? in
+            guard let ctx = CGContext(
+                data: raw.baseAddress, width: side, height: side,
+                bitsPerComponent: 8, bytesPerRow: side * 4,
+                space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            ) else { return nil }
+            return ctx.makeImage()
+        }
+    }()
 
     /// Print-style colour separation. Dramatic by nature, which is why its dot
     /// is the parameter people reach for first.
@@ -391,6 +430,93 @@ nonisolated enum BackgroundBaker {
         filter.grayComponentReplacement = 1
         filter.underColorRemoval = 0.5
         return filter.outputImage?.cropped(to: extent) ?? image
+    }
+
+    /// Fluted glass: the page seen through vertical ribs, each one bending
+    /// what is behind it.
+    ///
+    /// This is the glass people mean — the ribbed panel in a door — and it is a
+    /// different effect from the frosted one below, not a stronger setting of
+    /// it. Each rib shows a *stretched* slice of the page, so a smooth gradient
+    /// breaks into bands that step at every rib: the effect that most needed
+    /// texture underneath now makes its own.
+    ///
+    /// Drawn with Core Graphics because a rib is a piece of geometry, and
+    /// geometry is what a drawing context is for: clip to the rib, draw the
+    /// page magnified about the rib's middle, move on.
+    private static func fluted(_ effect: Recipe, over image: CIImage,
+                               extent: CGRect, shortSide: CGFloat) -> CIImage {
+        let width = Int(extent.width), height = Int(extent.height)
+        guard width > 0, height > 0,
+              let source = ciContext.createCGImage(image.cropped(to: extent), from: extent),
+              let ctx = CGContext(
+                data: nil, width: width, height: height,
+                bitsPerComponent: 8, bytesPerRow: 0,
+                space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+              ) else { return image }
+
+        let rib = max(2, (effect.scale * shortSide).rounded())
+        // Long enough to still cover the corners once the ribs are turned.
+        let reach = hypot(extent.width, extent.height)
+        // How much of the page each rib gathers. At full strength a rib shows a
+        // slice stretched to nearly three times its width, which is about what
+        // a real flute does.
+        let magnification = 1 + effect.amount * 2
+
+        ctx.translateBy(x: extent.midX, y: extent.midY)
+        ctx.rotate(by: effect.radians)
+        ctx.interpolationQuality = .high
+
+        var offset = -reach / 2
+        while offset < reach / 2 {
+            let centre = offset + rib / 2
+            ctx.saveGState()
+            ctx.clip(to: CGRect(x: offset, y: -reach / 2, width: rib, height: reach))
+            ctx.saveGState()
+            // The rib magnifies about its own middle, so what it shows is the
+            // page immediately behind it — not a copy of the page's centre.
+            ctx.translateBy(x: centre, y: 0)
+            ctx.scaleBy(x: magnification, y: 1)
+            ctx.translateBy(x: -centre, y: 0)
+            // Back out of the rotation to draw the page the right way up.
+            ctx.rotate(by: -effect.radians)
+            ctx.translateBy(x: -extent.midX, y: -extent.midY)
+            ctx.draw(source, in: extent)
+            ctx.restoreGState()
+            ctx.restoreGState()
+            offset += rib
+        }
+
+        ctx.resetClip()
+        // The relief: a dark seam where two ribs meet and a highlight just off
+        // the middle, which is where a rib gathers the light. Without them the
+        // ribs read as a cut-up picture rather than as glass.
+        if effect.detail > 0, let seam = CGGradient(
+            colorsSpace: CGColorSpace(name: CGColorSpace.sRGB),
+            colors: [CGColor(gray: 0, alpha: effect.detail * 0.55),
+                     CGColor(gray: 1, alpha: effect.detail * 0.35),
+                     CGColor(gray: 1, alpha: 0),
+                     CGColor(gray: 0, alpha: effect.detail * 0.55)] as CFArray,
+            locations: [0, 0.22, 0.6, 1]
+        ) {
+            var offset = -reach / 2
+            while offset < reach / 2 {
+                ctx.saveGState()
+                ctx.clip(to: CGRect(x: offset, y: -reach / 2, width: rib, height: reach))
+                ctx.drawLinearGradient(
+                    seam,
+                    start: CGPoint(x: offset, y: 0),
+                    end: CGPoint(x: offset + rib, y: 0),
+                    options: []
+                )
+                ctx.restoreGState()
+                offset += rib
+            }
+        }
+
+        guard let drawn = ctx.makeImage() else { return image }
+        return CIImage(cgImage: drawn)
     }
 
     /// Refraction through textured glass. `CIGlassDistortion` needs a texture
@@ -592,6 +718,7 @@ nonisolated enum BackgroundBaker {
         let scale: CGFloat
         let angleInDegrees: CGFloat
         let color: Presentation.Color
+        let detail: CGFloat
         let seed: UInt32
 
         /// What the drawing routines want, from what the panel shows.
@@ -603,6 +730,7 @@ nonisolated enum BackgroundBaker {
             scale = effect.scale
             angleInDegrees = effect.angleInDegrees
             color = effect.color
+            detail = effect.detail
             seed = effect.seed
         }
     }

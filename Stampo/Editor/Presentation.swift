@@ -285,6 +285,11 @@ nonisolated struct Presentation: Equatable, Sendable {
         /// one line in one place.
         var angleInDegrees: CGFloat
         var color: Color
+        /// The one number that is neither a strength nor a size: how many
+        /// colours a quantizer leaves, how deep a relief is cut. Named for what
+        /// it is rather than for one of its uses, because the alternative was a
+        /// fifth slot every time a kind needed a second dial.
+        var detail: CGFloat
         /// Fixes the noise, so the preview and the file get the same one. A
         /// filter reseeded per call would shimmer while the panel redrew and
         /// export something different again.
@@ -297,7 +302,7 @@ nonisolated struct Presentation: Equatable, Sendable {
             var id: String { rawValue }
 
             case grain, dots, grid, stripes, vignette, pixelate, dither,
-                 halftone, glass, lens, ascii
+                 halftone, fluted, glass, lens, ascii
         }
     }
 
