@@ -959,6 +959,7 @@
     },
     "Binary" : {
       "comment" : "Decor inspector — the ASCII character set of ones and zeroes",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -993,6 +994,7 @@
     },
     "Blocks" : {
       "comment" : "Decor inspector — the ASCII character set of shaded blocks",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -1395,6 +1397,7 @@
     },
     "Characters" : {
       "comment" : "Decor inspector — which set of characters the ASCII effect draws with",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -1480,6 +1483,7 @@
     },
     "Classic" : {
       "comment" : "Decor inspector — the ASCII character set of punctuation and letters",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {

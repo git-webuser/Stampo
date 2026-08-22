@@ -1,5 +1,6 @@
 import AppKit
 import CoreGraphics
+import CoreText
 import Testing
 @testable import Stampo
 
@@ -263,6 +264,52 @@ import Testing
         for (first, second) in zip(pictures, pictures.dropFirst()) {
             #expect(distance(first, second) > 1,
                     "two glyph sets drew the same page")
+        }
+    }
+
+    /// Ribs are clipped in a turned frame, so at any angle but zero the strips
+    /// at the corners cover ground the page does not. Drawing only the page
+    /// there left those corners empty — the reported "as if the canvas ran
+    /// out". The source now reaches past the page, and this is what says so.
+    @Test func aTurnedRibStillHasSomethingToDraw() {
+        for angle in [30, 45, 120] as [CGFloat] {
+            var fluted = EffectStack.make(.fluted, over: ramp, seed: 5)
+            fluted.angleInDegrees = angle
+            BackgroundBaker.emptyCache()
+            let raw = bytes(of: BackgroundBaker.image(background: ramp, effects: [fluted],
+                                                      pixelSize: CGSize(width: 240, height: 240)))
+            #expect(!raw.isEmpty)
+            let plain = plainPixels(CGSize(width: 240, height: 240))
+            // The four corners, a couple of pixels in from each edge.
+            for (x, y) in [(3, 3), (236, 3), (3, 236), (236, 236)] {
+                let index = (y * 240 + x) * 4
+                #expect(raw[index + 3] == 255,
+                        "corner (\(x), \(y)) at \(angle)° is transparent")
+                let gap = abs(Int(raw[index]) - Int(plain[index]))
+                    + abs(Int(raw[index + 1]) - Int(plain[index + 1]))
+                    + abs(Int(raw[index + 2]) - Int(plain[index + 2]))
+                #expect(gap < 210,
+                        "corner (\(x), \(y)) at \(angle)° lost the page: \(gap)")
+            }
+        }
+    }
+
+    /// One character is one cell wide, because the point size is worked back
+    /// from the font's measured advance. Guessing it — six tenths of the point
+    /// size — was close enough for letters and wrong for blocks, whose ink is a
+    /// full line box, and they ran into each other.
+    @Test func oneCharacterIsExactlyOneCellWide() {
+        let ratio = BackgroundBaker.advanceRatio
+        #expect(ratio > 0.4 && ratio < 0.8, "an implausible advance: \(ratio)")
+        for cellWidth in [8.0, 17.0, 40.0] as [CGFloat] {
+            let font = CTFontCreateWithName("Menlo" as CFString, cellWidth / ratio, nil)
+            var utf16 = Array("W".utf16)
+            var glyphs = [CGGlyph](repeating: 0, count: 1)
+            #expect(CTFontGetGlyphsForCharacters(font, &utf16, &glyphs, 1))
+            var advance = CGSize.zero
+            CTFontGetAdvancesForGlyphs(font, .horizontal, &glyphs, &advance, 1)
+            #expect(abs(advance.width - cellWidth) < 0.5,
+                    "a \(cellWidth)pt cell holds a \(advance.width)pt character")
         }
     }
 

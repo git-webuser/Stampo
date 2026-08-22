@@ -454,8 +454,14 @@ nonisolated enum BackgroundBaker {
     private static func fluted(_ effect: Recipe, over image: CIImage,
                                extent: CGRect, shortSide: CGFloat) -> CIImage {
         let width = Int(extent.width), height = Int(extent.height)
+        // The source reaches past the page by the amount a turned rib can see.
+        // Ribs are clipped in a rotated frame, so at any angle but zero the
+        // strips at the corners cover ground the page does not — and drawing
+        // only the page there left the corners empty, as if the canvas ran out.
+        let overhang = hypot(extent.width, extent.height) / 2 - min(extent.width, extent.height) / 2
+        let reachRect = extent.insetBy(dx: -overhang, dy: -overhang)
         guard width > 0, height > 0,
-              let source = ciContext.createCGImage(image.cropped(to: extent), from: extent),
+              let source = ciContext.createCGImage(image.clampedToExtent(), from: reachRect),
               let ctx = CGContext(
                 data: nil, width: width, height: height,
                 bitsPerComponent: 8, bytesPerRow: 0,
@@ -489,7 +495,7 @@ nonisolated enum BackgroundBaker {
             // Back out of the rotation to draw the page the right way up.
             ctx.rotate(by: -effect.radians)
             ctx.translateBy(x: -extent.midX, y: -extent.midY)
-            ctx.draw(source, in: extent)
+            ctx.draw(source, in: reachRect)
             ctx.restoreGState()
             ctx.restoreGState()
             offset += rib
@@ -788,10 +794,17 @@ nonisolated enum BackgroundBaker {
         ctx.setFillColor(CGColor(gray: 0, alpha: effect.amount * 0.9))
         ctx.fill(CGRect(origin: .zero, size: extent.size))
 
-        // The glyph is set to the cell's width, not its height: a monospaced
-        // advance is about six tenths of the point size, and letters that
-        // overflow their column smear into their neighbours.
-        let font = CTFontCreateWithName("Menlo" as CFString, cellWidth / 0.6, nil)
+        // The point size is worked back from the font's *measured* advance, so
+        // one glyph is exactly one cell wide. Guessing it (six tenths of the
+        // point size) was close enough for letters and wrong for blocks, whose
+        // ink is a full line box — 1.7 times the advance — and they ran into
+        // each other.
+        let font = CTFontCreateWithName("Menlo" as CFString,
+                                        cellWidth / max(0.1, advanceRatio), nil)
+        // Where the line sits inside the cell: the ink of a capital, centred,
+        // with the baseline pushed down by the descender it stands on.
+        let inkHeight = CTFontGetCapHeight(font)
+        let descender = CTFontGetDescent(font) * 0.25
         for row in 0..<rows {
             for column in 0..<columns {
                 let cell = cells[row * columns + column]
@@ -808,11 +821,20 @@ nonisolated enum BackgroundBaker {
                 ))
                 // Row 0 is the top of the picture, and this context counts from
                 // the bottom — the same flip the baked background goes through.
-                ctx.textPosition = CGPoint(
-                    x: CGFloat(column) * cellWidth,
-                    y: extent.height - CGFloat(row + 1) * cellHeight + cellHeight * 0.22
-                )
+                let box = CGRect(x: CGFloat(column) * cellWidth,
+                                 y: extent.height - CGFloat(row + 1) * cellHeight,
+                                 width: cellWidth, height: cellHeight)
+                ctx.saveGState()
+                // Clipped to its own cell, always. A block glyph is taller than
+                // the cell it belongs to by design, and without this it spills
+                // into the rows above and below — which is how a page of
+                // characters turned into porridge.
+                ctx.clip(to: box)
+                ctx.textPosition = CGPoint(x: box.minX,
+                                           y: box.minY + (cellHeight - inkHeight) / 2
+                                              + descender)
                 CTLineDraw(line, ctx)
+                ctx.restoreGState()
             }
         }
 
@@ -822,6 +844,19 @@ nonisolated enum BackgroundBaker {
         over.backgroundImage = image
         return over.outputImage ?? image
     }
+
+    /// How wide one character is against its point size, measured once from
+    /// the font itself rather than assumed. Monospaced by definition, so any
+    /// glyph answers for all of them.
+    static let advanceRatio: CGFloat = {
+        let font = CTFontCreateWithName("Menlo" as CFString, 100, nil)
+        var utf16 = Array("0".utf16)
+        var glyphs = [CGGlyph](repeating: 0, count: 1)
+        guard CTFontGetGlyphsForCharacters(font, &utf16, &glyphs, 1) else { return 0.6 }
+        var advance = CGSize.zero
+        CTFontGetAdvancesForGlyphs(font, .horizontal, &glyphs, &advance, 1)
+        return advance.width > 0 ? advance.width / 100 : 0.6
+    }()
 
     /// One brightness *and one colour* per cell, from a copy of the picture
     /// scaled to exactly that many pixels. Lanczos rather than a plain draw: it
