@@ -1010,8 +1010,9 @@ struct PresentationInspector: View {
     private static let marginPlateWidth: CGFloat = 44
 
     private func gapField(_ edge: PresentationLayout.Edge, value: CGFloat) -> some View {
-        NumberField(value: .constant(Double(value.rounded())), alignment: .center) { typed in
-            setGap(edge, to: CGFloat(typed))
+        NumberField(value: .constant(Double(value.rounded())),
+                    alignment: .center) { typed, modifiers in
+            setGap(edge, to: CGFloat(typed), spread: Self.spread(for: modifiers))
         }
         .frame(width: Self.numberFieldWidth)
         // SwiftUI writes the environment's control size onto the wrapped
@@ -1035,19 +1036,31 @@ struct PresentationInspector: View {
         PresentationLayout.resolve(imagePixelSize: document.pixelSize, draft)
     }
 
+    /// How wide a typed number reaches. Control is the only modifier that can
+    /// be held while digits are typed — the system's key bindings give it no
+    /// digit at all, where Option types `∞` and Command hands `0` to the
+    /// editor's zoom — so it carries the first step, and Command (read at the
+    /// commit only) carries the second.
+    static func spread(for modifiers: NSEvent.ModifierFlags) -> PresentationLayout.MarginSpread {
+        guard modifiers.contains(.control) else { return .one }
+        return modifiers.contains(.command) ? .all : .pair
+    }
+
     /// The field's door into `EditorDocument.setGap`. The document owns the
-    /// rule — the canvas drags the same sides — and what stays here is the one
-    /// thing that belongs to the fields alone: linking.
-    private func setGap(_ edge: PresentationLayout.Edge, to value: CGFloat) {
+    /// rule — the canvas drags the same sides — and what stays here is what
+    /// belongs to the fields alone: how far one typed number reaches.
+    ///
+    /// The switch in the middle of the cross is a mode and the modifier is a
+    /// keystroke, so the switch wins: it already means all four, and a
+    /// modifier that narrowed it would be a control quietly undoing another.
+    private func setGap(_ edge: PresentationLayout.Edge, to value: CGFloat,
+                        spread: PresentationLayout.MarginSpread = .one) {
+        let reach: PresentationLayout.MarginSpread =
+            (marginsLinked && marginsAreFree) ? .all : spread
         document.beginChange()
-        if marginsLinked, marginsAreFree {
-            // Linked, one number is all four — the whole reason a page that
-            // hugs its picture keeps four free margins instead of a placement.
-            for linked in PresentationLayout.Edge.allCases {
-                document.setGap(linked, to: value)
-            }
-        } else {
-            document.setGap(edge, to: value)
+        // One Return is one undo step however many edges it reached.
+        for target in PresentationLayout.edges(spreading: edge, reach) {
+            document.setGap(target, to: value)
         }
         document.commitChange()
         draft = document.presentation ?? draft
@@ -1420,7 +1433,7 @@ struct PresentationInspector: View {
         case .percent:           shown = (Double(value.wrappedValue) * 100).rounded()
         case .degrees:           shown = Double(value.wrappedValue.rounded())
         }
-        return NumberField(value: .constant(shown)) { typed in
+        return NumberField(value: .constant(shown)) { typed, _ in
             switch unit {
             case .pixels(let basis):
                 guard basis != 0 else { return }

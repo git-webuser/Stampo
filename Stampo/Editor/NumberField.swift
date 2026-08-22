@@ -14,7 +14,10 @@ import SwiftUI
 struct NumberField: NSViewRepresentable {
     @Binding var value: Double
     var alignment: NSTextAlignment = .right
-    var onCommit: (Double) -> Void
+    /// The committed number, and which modifiers were held while it was being
+    /// entered — see `Coordinator.heldModifiers`. Callers that have nothing to
+    /// widen ignore the second half.
+    var onCommit: (Double, NSEvent.ModifierFlags) -> Void
 
     final class Field: NSTextField {
         /// The number goes the moment editing starts. Overridden on the
@@ -85,8 +88,28 @@ struct NumberField: NSViewRepresentable {
     }
 
     final class Coordinator: NSObject, NSTextFieldDelegate {
-        var onCommit: (Double) -> Void = { _ in }
+        var onCommit: (Double, NSEvent.ModifierFlags) -> Void = { _, _ in }
         var current: Double = 0
+
+        /// Modifiers seen while this number was being entered.
+        ///
+        /// Read on every keystroke and again at the commit, and the two are
+        /// unioned so both orders work: hold, type, Return — and type, hold,
+        /// Return. Control is the only modifier that can be held while digits
+        /// are typed at all: the system's key bindings give it letters and
+        /// punctuation but not one digit, where Option would type `∞` and
+        /// Command would hand `0` to the editor's zoom.
+        private var typedWith: NSEvent.ModifierFlags = []
+
+        func controlTextDidChange(_ notification: Notification) {
+            typedWith.formUnion(NSEvent.modifierFlags.intersection([.control]))
+        }
+
+        /// Command counts only at the moment of the commit, never from the
+        /// typing: a digit pressed with Command down never reaches the field.
+        private var heldModifiers: NSEvent.ModifierFlags {
+            typedWith.union(NSEvent.modifierFlags.intersection([.control, .command]))
+        }
 
         /// An empty field means "unchanged": clicking in clears the number,
         /// and leaving without typing must not rewrite it.
@@ -98,8 +121,9 @@ struct NumberField: NSViewRepresentable {
             // number typed on that layout silently did nothing.
             if !typed.isEmpty,
                let value = Double(typed.replacingOccurrences(of: ",", with: ".")) {
-                onCommit(value)
+                onCommit(value, heldModifiers)
             }
+            typedWith = []
             repaint(field)
         }
 
@@ -142,7 +166,22 @@ struct NumberField: NSViewRepresentable {
         /// this path, which is the whole point of Escape.
         func control(_ control: NSControl, textView: NSTextView,
                      doCommandBy selector: Selector) -> Bool {
+            // Return with a modifier held is not `insertNewline:` and so never
+            // reaches the field's action: the system binds ⌃Return to
+            // `insertLineBreak:` and ⌥Return to
+            // `insertNewlineIgnoringFieldEditor:` (measured in
+            // StandardKeyBinding.dict). Without this, holding ⌃ — the one
+            // modifier that can be held while typing digits — and pressing
+            // Return did nothing at all.
+            if selector == #selector(NSResponder.insertLineBreak(_:))
+                || selector == #selector(NSResponder.insertNewlineIgnoringFieldEditor(_:)) {
+                guard let field = control as? NSTextField else { return false }
+                commit(field)
+                field.window?.makeFirstResponder(nil)
+                return true
+            }
             guard selector == #selector(NSResponder.cancelOperation(_:)) else { return false }
+            typedWith = []
             let value = current
             // Not inside the command: tearing the field editor down while
             // it is dispatching its own command is how AppKit ends up

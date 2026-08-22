@@ -444,7 +444,37 @@ nonisolated enum PresentationLayout {
         return moved
     }
 
-    enum Edge: CaseIterable, Sendable { case top, leading, bottom, trailing }
+    enum Edge: CaseIterable, Sendable {
+        case top, leading, bottom, trailing
+
+        /// The edge across the picture from this one.
+        var opposite: Edge {
+            switch self {
+            case .top:      return .bottom
+            case .bottom:   return .top
+            case .leading:  return .trailing
+            case .trailing: return .leading
+            }
+        }
+    }
+
+    /// How far a single typed number reaches: the edge it was typed into, the
+    /// pair that edge belongs to, or all four.
+    ///
+    /// A one-off widening, as against the link switch in the middle of the
+    /// cross, which is a *mode*. Both exist because they answer different
+    /// moments: "these two are the same" is usually a decision about the
+    /// picture, "and this one too, just now" is a keystroke.
+    enum MarginSpread: Sendable { case one, pair, all }
+
+    /// The edges a number typed into `edge` should reach.
+    static func edges(spreading edge: Edge, _ spread: MarginSpread) -> [Edge] {
+        switch spread {
+        case .one:  return [edge]
+        case .pair: return [edge, edge.opposite]
+        case .all:  return Edge.allCases
+        }
+    }
 
     /// Splits `delta` between the two margins of one axis, keeping whatever
     /// bias they already have. A picture deliberately pushed left stays pushed
