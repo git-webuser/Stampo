@@ -199,6 +199,30 @@ import Testing
         #expect(EffectStack.make(.grid, over: split).color == .white)
     }
 
+    /// A filter that rewrites alpha must not darken the page.
+    ///
+    /// Adding two opaque images leaves an alpha of *two* inside Core Image's
+    /// pipeline. It renders the same, so nothing looks wrong — until a later
+    /// filter rewrites the alpha, at which point the premultiplied colour is
+    /// divided by the two it was stored against. The lens does exactly that
+    /// (its colour fringe splits the channels apart), and the whole page came
+    /// out at half brightness.
+    @Test func anEffectThatSplitsChannelsKeepsThePageAsBrightAsItWas() {
+        var plain = EffectStack.make(.lens, over: ramp, seed: 5)
+        plain.detail = 0
+        var fringed = plain
+        fringed.detail = 0.45
+        let size = CGSize(width: 200, height: 200)
+
+        BackgroundBaker.emptyCache()
+        let without = mean(of: BackgroundBaker.image(background: ramp, effects: [plain],
+                                                     pixelSize: size))
+        let with = mean(of: BackgroundBaker.image(background: ramp, effects: [fringed],
+                                                  pixelSize: size))
+        #expect(with > without * 0.9,
+                "the colour fringe cost the page its brightness: \(without) → \(with)")
+    }
+
     // MARK: Through the renderer
 
     /// The size is never passed in: it is read from the context, so the canvas
@@ -320,6 +344,17 @@ import Testing
                             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
         PresentationRenderer.drawBackground(ramp, in: CGRect(origin: .zero, size: size), ctx: ctx)
         return bytes(of: ctx.makeImage())
+    }
+
+    /// Mean brightness, 0…1.
+    private func mean(of image: CGImage?) -> Double {
+        let raw = bytes(of: image)
+        guard !raw.isEmpty else { return 0 }
+        var total = 0.0
+        for index in stride(from: 0, to: raw.count, by: 4) {
+            total += (Double(raw[index]) + Double(raw[index + 1]) + Double(raw[index + 2])) / 3
+        }
+        return total / Double(raw.count / 4) / 255
     }
 
     /// Mean absolute difference per byte, 0…255.

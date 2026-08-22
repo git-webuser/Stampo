@@ -376,6 +376,23 @@
         }
       }
     },
+    "Aberration" : {
+      "comment" : "Decor inspector — how far the lens spreads the colour channels",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aberration"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Аберрация"
+          }
+        }
+      }
+    },
     "About" : {
       "comment" : "Settings tab label — About page",
       "extractionState" : "stale",
@@ -1110,6 +1127,23 @@
         }
       }
     },
+    "Bumpiness" : {
+      "comment" : "Decor inspector — how sharply the frosted glass was poured",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bumpiness"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Бугристость"
+          }
+        }
+      }
+    },
     "Cancel" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1249,6 +1283,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Съёмка"
+          }
+        }
+      }
+    },
+    "Cell Height" : {
+      "comment" : "Decor inspector — height of one ASCII cell against its width",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cell Height"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Высота клетки"
           }
         }
       }
@@ -1577,6 +1628,7 @@
     },
     "Color Levels" : {
       "comment" : "Decor inspector — how many colours a quantizing effect leaves",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -2789,6 +2841,7 @@
     },
     "Fluted Glass" : {
       "comment" : "Decor inspector — effect that shows the page through vertical ribs of glass",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -2909,6 +2962,7 @@
     },
     "Frosted Glass" : {
       "comment" : "Decor inspector — effect that refracts the page as through textured glass",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -3888,24 +3942,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Менее минуты назад"
-          }
-        }
-      }
-    },
-    "Letter Color" : {
-      "comment" : "Decor inspector — colour of the characters of the ASCII effect",
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Letter Color"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Цвет символов"
           }
         }
       }
@@ -4946,6 +4982,7 @@
     },
     "Pattern Scale" : {
       "comment" : "Decor inspector — size of one cell of the dither pattern",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -5578,6 +5615,7 @@
     },
     "Relief" : {
       "comment" : "Decor inspector — how deeply the ribs of fluted glass are shaded",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -5778,6 +5816,7 @@
     },
     "Rib Width" : {
       "comment" : "Decor inspector — width of one rib of fluted glass",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {

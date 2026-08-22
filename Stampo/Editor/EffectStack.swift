@@ -106,11 +106,15 @@ nonisolated enum EffectStack {
         // Ribs stand upright, like the panel in a door — angle 0 is a rib
         // along the vertical, and turning it lays them over.
         case .fluted:   return effect(amount: 0.55, scale: 0.05, detail: 0.35)
-        case .glass:    return effect(amount: 0.5, scale: 0.03)
-        case .lens:     return effect(amount: 0.5, scale: 0.7)
+        case .glass:    return effect(amount: 0.5, scale: 0.03, detail: 0.5)
+        case .lens:     return effect(amount: 0.5, scale: 0.7, detail: 0.45)
         // The letters sit on a darkened page whatever the background was, so
         // they stay light — the veil is what they have to be seen against.
-        case .ascii:    return effect(amount: 0.9, scale: 0.02, color: .white)
+        // The letters take the page's own colours, so there is no ink to
+        // choose; what there is instead is how tall a cell is, because
+        // characters are taller than they are wide and square cells squash the
+        // picture they are made of.
+        case .ascii:    return effect(amount: 0.75, scale: 0.018, detail: 1.6)
         }
     }
 
@@ -167,17 +171,25 @@ nonisolated enum EffectStack {
                                      symbol: "circle.grid.cross"), angle]
         case .glass:
             return [strength(), size("Texture Size", 0.005...0.08, step: 0.005,
-                                     symbol: "cube.transparent")]
+                                     symbol: "cube.transparent"),
+                    ParameterInfo(parameter: .detail, titleKey: "Bumpiness",
+                                  systemImage: "water.waves", range: 0...1, step: 0.01)]
         case .lens:
             // Negative pinches instead of bulging — one dial, both directions,
             // because "inward" is the same gesture read backwards.
             return [strength(-1...1), size("Lens Radius", 0.2...1.5, step: 0.05,
-                                           symbol: "dot.circle.viewfinder")]
+                                           symbol: "dot.circle.viewfinder"),
+                    ParameterInfo(parameter: .detail, titleKey: "Aberration",
+                                  systemImage: "circle.filled.pattern.diagonalline.rectangle",
+                                  range: 0...1, step: 0.01)]
         case .ascii:
-            return [strength(), size("Cell Size", 0.008...0.06, step: 0.002,
-                                     symbol: "textformat.size"),
-                    ParameterInfo(parameter: .color, titleKey: "Letter Color",
-                                  systemImage: "paintpalette", range: 0...1, step: 1)]
+            return [ParameterInfo(parameter: .amount, titleKey: "Background",
+                                  systemImage: "square.fill", range: 0...1, step: 0.01),
+                    size("Cell Size", 0.008...0.06, step: 0.002,
+                         symbol: "textformat.size"),
+                    ParameterInfo(parameter: .detail, titleKey: "Cell Height",
+                                  systemImage: "arrow.up.and.down",
+                                  range: 0.8...2.5, step: 0.1)]
         }
     }
 

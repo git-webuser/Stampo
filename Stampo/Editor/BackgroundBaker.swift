@@ -204,7 +204,14 @@ nonisolated enum BackgroundBaker {
         let add = CIFilter.additionCompositing()
         add.inputImage = added
         add.backgroundImage = base
-        return add.outputImage?.cropped(to: extent) ?? image
+        // Alpha is put back to one, and this is not housekeeping: adding two
+        // opaque images leaves an alpha of *two* inside the pipeline. It renders
+        // the same, so nothing looks wrong — until a later filter rewrites the
+        // alpha, at which point the premultiplied colour is divided by the two
+        // it was stored against and every channel comes out at half. That is
+        // exactly what happened to the lens: its aberration pass turned the
+        // whole page grey.
+        return add.outputImage?.cropped(to: extent).settingAlphaOne(in: extent) ?? image
     }
 
     /// A regular pattern — dots, a grid or stripes — laid over the background.
@@ -540,11 +547,22 @@ nonisolated enum BackgroundBaker {
         else { return image }
         let blur = CIFilter.gaussianBlur()
         blur.inputImage = noise.cropped(to: extent).clampedToExtent()
-        blur.radius = Float(max(1, blobs / 2))
+        // Bumpiness is how sharply the glass was poured: a wide blur leaves a
+        // fog with no slopes to refract through, a narrow one leaves facets.
+        blur.radius = Float(max(1, blobs * (0.7 - 0.5 * effect.detail)))
         // Cropped, and that is not tidiness: an infinite texture asks Core
         // Image for an infinite render, which it answers with "memory
         // requirement of -1 too big" and a tile that never appears.
-        guard let texture = blur.outputImage?.cropped(to: extent) else { return image }
+        guard let blurred = blur.outputImage?.cropped(to: extent) else { return image }
+        // Blurring flattens the field's contrast as well as its edges, and a
+        // flat field refracts nothing — so the contrast is put back, the more
+        // the bumpier.
+        let sharpen = CIFilter.colorControls()
+        sharpen.inputImage = blurred
+        sharpen.contrast = Float(1 + effect.detail * 3)
+        sharpen.brightness = 0
+        sharpen.saturation = 0
+        guard let texture = sharpen.outputImage?.cropped(to: extent) else { return image }
 
         let filter = CIFilter.glassDistortion()
         filter.inputImage = image.clampedToExtent()
@@ -592,12 +610,97 @@ nonisolated enum BackgroundBaker {
         // Neutral outside the lens, so nothing beyond its edge is touched.
         gradient.color1 = CIColor(red: 0.5, green: 0.5, blue: 0.5)
         guard let field = gradient.outputImage?.cropped(to: extent) else { return bulged }
-        return light(field, amplitude: abs(effect.amount) * 0.22,
-                     over: bulged, extent: extent)
+        let lit = light(field, amplitude: abs(effect.amount) * 0.22,
+                        over: bulged, extent: extent)
+
+        // The colour fringe belongs to the lens, not to the page: spread across
+        // the whole picture it puts a yellow rim along the frame, where the
+        // channels run out of image to borrow. Masked to the lens it is what it
+        // should be — colour spreading where the glass is.
+        guard effect.detail > 0,
+              let spread = aberrated(lit, by: effect.detail, extent: extent) as CIImage?,
+              let mask = radialMask(centre: CGPoint(x: extent.midX, y: extent.midY),
+                                    radius: radius, extent: extent)
+        else { return lit }
+        let blend = CIFilter.blendWithMask()
+        blend.inputImage = spread
+        blend.backgroundImage = lit
+        blend.maskImage = mask
+        return blend.outputImage?.cropped(to: extent) ?? lit
+    }
+
+    /// White where the lens is, black beyond it — the shape of anything that
+    /// should happen inside a circle and nowhere else.
+    private static func radialMask(centre: CGPoint, radius: CGFloat,
+                                   extent: CGRect) -> CIImage? {
+        let gradient = CIFilter.radialGradient()
+        gradient.center = centre
+        gradient.radius0 = Float(radius * 0.2)
+        gradient.radius1 = Float(radius)
+        gradient.color0 = CIColor(red: 1, green: 1, blue: 1)
+        gradient.color1 = CIColor(red: 0, green: 0, blue: 0)
+        return gradient.outputImage?.cropped(to: extent)
+    }
+
+    /// Chromatic aberration: the red and blue channels take slightly different
+    /// paths through the lens, exactly as they do through glass.
+    ///
+    /// This is what Pryzm files under Optics, and it is what makes a lens read
+    /// as a lens: a bulge on a smooth page moves colours nobody can tell apart,
+    /// while a colour fringe is visible on any page at all — it *is* colour,
+    /// not displacement.
+    private static func aberrated(_ image: CIImage, by amount: CGFloat,
+                                  extent: CGRect) -> CIImage {
+        guard amount > 0 else { return image }
+        // A few per cent of the page at most: beyond that it stops looking like
+        // a lens and starts looking like a printing fault.
+        let spread = amount * 0.02
+
+        func channel(_ scale: CGFloat,
+                     keeping vector: (CGFloat, CGFloat, CGFloat)) -> CIImage? {
+            let scaled = image
+                .transformed(by: CGAffineTransform(translationX: extent.midX, y: extent.midY)
+                    .scaledBy(x: scale, y: scale)
+                    .translatedBy(x: -extent.midX, y: -extent.midY))
+                .clampedToExtent()
+                .cropped(to: extent)
+            let filter = CIFilter.colorMatrix()
+            filter.inputImage = scaled
+            filter.rVector = CIVector(x: vector.0, y: 0, z: 0, w: 0)
+            filter.gVector = CIVector(x: 0, y: vector.1, z: 0, w: 0)
+            filter.bVector = CIVector(x: 0, y: 0, z: vector.2, w: 0)
+            filter.aVector = CIVector(x: 0, y: 0, z: 0, w: 0)
+            // Every one opaque. Colour is stored premultiplied, so a channel
+            // image left transparent carries no colour at all and the sum below
+            // keeps only the first — which turned the whole page red the first
+            // time this ran. The same trap the grain fell into.
+            filter.biasVector = CIVector(x: 0, y: 0, z: 0, w: 1)
+            return filter.outputImage?.cropped(to: extent)
+        }
+
+        // Red spreads outward, blue falls inward, green stays where it is —
+        // the ordering of the spectrum through a simple lens.
+        guard let red = channel(1 + spread, keeping: (1, 0, 0)),
+              let green = channel(1, keeping: (0, 1, 0)),
+              let blue = channel(1 - spread, keeping: (0, 0, 1))
+        else { return image }
+
+        // Maximum, not addition. Each of the three carries one channel and
+        // zeros elsewhere, so taking the larger value per channel reassembles
+        // the colour exactly — while adding them halved every channel, because
+        // compositing does its arithmetic on premultiplied colour and then
+        // divides by an alpha that summed past one.
+        let first = CIFilter.maximumCompositing()
+        first.inputImage = green
+        first.backgroundImage = red
+        let second = CIFilter.maximumCompositing()
+        second.inputImage = blue
+        second.backgroundImage = first.outputImage ?? red
+        return second.outputImage?.cropped(to: extent) ?? image
     }
 
     /// The page read as characters: one letter per cell, chosen by how bright
-    /// that cell is.
+    /// that cell is and painted in that cell's own colour.
     ///
     /// Drawn with Core Text rather than computed by a shader, and that was a
     /// finding rather than a preference. The Metal-kernel route (a `CIKernel`
@@ -607,16 +710,24 @@ nonisolated enum BackgroundBaker {
     /// requirement on CI. Letters drawn as letters also spares the shader a
     /// font atlas, which is the only honest way for a kernel to draw text.
     ///
-    /// The cell's brightness comes from a copy of the picture scaled down to
-    /// one pixel per cell, which is the same averaging a shader would do by
+    /// Two things learned from Pryzm's own ASCII pass, which offers "Color:
+    /// Luma / RGB" and a separate cell height. Letters in **one flat colour**
+    /// throw the page's colours away, and what makes terminal art read as a
+    /// picture is that each glyph keeps the colour of what it stands for. And
+    /// square cells squash that picture, because characters are half again as
+    /// tall as they are wide.
+    ///
+    /// The cell's colour comes from a copy of the picture scaled down to one
+    /// pixel per cell, which is the same averaging a shader would do by
     /// sampling, done once instead of per pixel.
     private static func ascii(_ effect: Recipe, over image: CIImage,
                               extent: CGRect, shortSide: CGFloat) -> CIImage {
-        let cell = max(4, (effect.scale * shortSide).rounded())
-        let columns = max(1, Int(extent.width / cell))
-        let rows = max(1, Int(extent.height / cell))
-        guard let brightness = luminance(of: image, extent: extent,
-                                         columns: columns, rows: rows),
+        let cellWidth = max(3, (effect.scale * shortSide).rounded())
+        let cellHeight = max(4, (cellWidth * max(0.5, effect.detail)).rounded())
+        let columns = max(1, Int(extent.width / cellWidth))
+        let rows = max(1, Int(extent.height / cellHeight))
+        guard let cells = cellColors(of: image, extent: extent,
+                                     columns: columns, rows: rows),
               let ctx = CGContext(
                 data: nil, width: Int(extent.width), height: Int(extent.height),
                 bitsPerComponent: 8, bytesPerRow: 0,
@@ -624,32 +735,36 @@ nonisolated enum BackgroundBaker {
                 bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
               ) else { return image }
 
-        // Darkening first: characters on a picture that still shows through
-        // read as a caption over it, not as a picture made of characters.
-        ctx.setFillColor(CGColor(gray: 0, alpha: effect.amount * 0.85))
+        // Darkening first, and by how much is now a dial rather than a
+        // constant: characters on a picture that still shows through read as a
+        // caption over it, not as a picture made of characters — but a page
+        // blacked out at a fixed 85% could never be the gentle version.
+        ctx.setFillColor(CGColor(gray: 0, alpha: effect.amount * 0.9))
         ctx.fill(CGRect(origin: .zero, size: extent.size))
 
-        let font = CTFontCreateWithName("Menlo" as CFString, cell, nil)
-        let ink = CGColor(red: effect.color.red, green: effect.color.green,
-                          blue: effect.color.blue, alpha: effect.color.alpha)
+        // The glyph is set to the cell's width, not its height: a monospaced
+        // advance is about six tenths of the point size, and letters that
+        // overflow their column smear into their neighbours.
+        let font = CTFontCreateWithName("Menlo" as CFString, cellWidth / 0.6, nil)
         for row in 0..<rows {
             for column in 0..<columns {
-                let level = brightness[row * columns + column]
-                let character = ramp[min(ramp.count - 1, Int(level * CGFloat(ramp.count)))]
+                let cell = cells[row * columns + column]
+                let character = ramp[min(ramp.count - 1,
+                                         Int(cell.level * CGFloat(ramp.count)))]
                 guard character != " " else { continue }
-                // CoreText's own attribute names, not AppKit's: this file draws
-                // in a detached render and has no business importing AppKit.
                 let attributes: [CFString: Any] = [
                     kCTFontAttributeName: font,
-                    kCTForegroundColorAttributeName: ink
+                    kCTForegroundColorAttributeName: cell.ink
                 ]
                 let line = CTLineCreateWithAttributedString(CFAttributedStringCreate(
                     nil, String(character) as CFString, attributes as CFDictionary
                 ))
                 // Row 0 is the top of the picture, and this context counts from
                 // the bottom — the same flip the baked background goes through.
-                ctx.textPosition = CGPoint(x: CGFloat(column) * cell + cell * 0.1,
-                                           y: extent.height - CGFloat(row + 1) * cell + cell * 0.2)
+                ctx.textPosition = CGPoint(
+                    x: CGFloat(column) * cellWidth,
+                    y: extent.height - CGFloat(row + 1) * cellHeight + cellHeight * 0.22
+                )
                 CTLineDraw(line, ctx)
             }
         }
@@ -666,11 +781,13 @@ nonisolated enum BackgroundBaker {
     /// picture with no empty cells is a solid block of ink.
     private static let ramp: [Character] = Array("@%#*+=-:. ")
 
-    /// One brightness per cell, from a copy of the picture scaled to exactly
-    /// that many pixels. Lanczos rather than a plain draw: it averages the
-    /// whole cell instead of taking whatever pixel lands under the sample.
-    private static func luminance(of image: CIImage, extent: CGRect,
-                                  columns: Int, rows: Int) -> [CGFloat]? {
+    /// One brightness *and one colour* per cell, from a copy of the picture
+    /// scaled to exactly that many pixels. Lanczos rather than a plain draw: it
+    /// averages the whole cell instead of taking whatever pixel lands under the
+    /// sample.
+    private static func cellColors(of image: CIImage, extent: CGRect,
+                                   columns: Int, rows: Int)
+        -> [(level: CGFloat, ink: CGColor)]? {
         let scale = CIFilter.lanczosScaleTransform()
         scale.inputImage = image
         scale.scale = Float(CGFloat(rows) / extent.height)
@@ -689,19 +806,31 @@ nonisolated enum BackgroundBaker {
                                 bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
             ctx?.draw(cg, in: CGRect(x: 0, y: 0, width: columns, height: rows))
         }
-        let levels = (0..<(columns * rows)).map { index -> CGFloat in
+
+        let colors = (0..<(columns * rows)).map { index -> (CGFloat, CGFloat, CGFloat, CGFloat) in
             let red = CGFloat(raw[index * 4]) / 255
             let green = CGFloat(raw[index * 4 + 1]) / 255
             let blue = CGFloat(raw[index * 4 + 2]) / 255
-            return 0.299 * red + 0.587 * green + 0.114 * blue
+            return (red, green, blue, 0.299 * red + 0.587 * green + 0.114 * blue)
         }
-        // Stretched to the range the picture actually uses. A gradient spends
-        // its whole life between 0.4 and 0.6, so without this the ramp of ten
-        // characters is spent on two of them — measured, and it looked like a
-        // grid of plus signs.
+        // Stretched to the range the picture actually uses. A gradient lives
+        // between 0.4 and 0.6, and without this the ramp of ten characters is
+        // spent on two of them — measured, and it looked like a grid of plus
+        // signs.
+        let levels = colors.map(\.3)
         let low = levels.min() ?? 0, high = levels.max() ?? 1
-        guard high - low > 0.01 else { return levels }
-        return levels.map { ($0 - low) / (high - low) }
+        let span = high - low
+
+        return colors.map { red, green, blue, level in
+            let stretched = span > 0.01 ? (level - low) / span : level
+            // The letter keeps the cell's hue and is lifted to a brightness
+            // that reads against the darkened page: colour alone would leave
+            // half the picture in letters nobody can see.
+            let lift = max(1, 0.9 / max(0.08, level))
+            let ink = CGColor(red: min(1, red * lift), green: min(1, green * lift),
+                              blue: min(1, blue * lift), alpha: 1)
+            return (stretched, ink)
+        }
     }
 
     // MARK: Plumbing
