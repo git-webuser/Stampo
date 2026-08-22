@@ -164,7 +164,10 @@ nonisolated enum AnnotationRenderer {
     /// transform that would mirror them. Un-flip locally around the full
     /// canvas: correct everywhere, including inside clip regions (the clip
     /// stays fixed in device space).
-    private static func drawImageInFlippedSpace(_ image: CGImage, in rect: CGRect, ctx: CGContext) {
+    /// Not private: `PresentationRenderer` draws its baked background through
+    /// this same helper, so a bitmap and the picture land in the flipped space
+    /// by one rule rather than two.
+    static func drawImageInFlippedSpace(_ image: CGImage, in rect: CGRect, ctx: CGContext) {
         ctx.saveGState()
         ctx.translateBy(x: 0, y: rect.maxY)
         ctx.scaleBy(x: 1, y: -1)

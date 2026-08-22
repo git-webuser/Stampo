@@ -1,4 +1,5 @@
 import CoreGraphics
+import Foundation
 
 /// Immutable, renderable dressing for an editor document.
 ///
@@ -44,7 +45,7 @@ nonisolated struct Presentation: Equatable, Sendable {
 
     /// A color value safe to carry through a detached render without bringing
     /// `NSColor` or `CGColor` into the document model.
-    struct Color: Equatable, Sendable {
+    struct Color: Equatable, Hashable, Sendable {
         var red: CGFloat
         var green: CGFloat
         var blue: CGFloat
@@ -61,7 +62,7 @@ nonisolated struct Presentation: Equatable, Sendable {
     /// orderable: without it the stops are spread evenly and the only thing a
     /// person can change is which comes first, so "this colour holds to the
     /// middle and then falls away" cannot be said at all.
-    struct Stop: Equatable, Sendable {
+    struct Stop: Equatable, Hashable, Sendable {
         var color: Color
         /// 0 at the start of the ramp, 1 at its end.
         var location: CGFloat
@@ -90,7 +91,7 @@ nonisolated struct Presentation: Equatable, Sendable {
     /// two stops is the ordinary gradient and three or more is the layered one,
     /// so the renderer, the inspector and the model need no separate case for
     /// "complex". Each stop carries its own position; the list is never empty.
-    enum Background: Equatable, Sendable {
+    enum Background: Equatable, Hashable, Sendable {
         /// Nothing is painted, so the canvas around the image stays
         /// transparent and PNG export carries that transparency through.
         case none
@@ -235,11 +236,49 @@ nonisolated struct Presentation: Equatable, Sendable {
         static let none = Shadow(radius: 0, offset: .zero, opacity: 0)
     }
 
+    /// One treatment laid over the background, and how strongly.
+    ///
+    /// The parameters are a small fixed set rather than a payload per kind, and
+    /// each kind says which of them it actually has (`EffectStack.parameters`).
+    /// That keeps the panel general — a slider per declared parameter — where a
+    /// case with its own associated values would need a form per case and a
+    /// switch in every place that touches one.
+    ///
+    /// Sizes are **fractions of the short side**, never pixels. The preview is
+    /// baked at screen resolution and the export at the file's, so a grain
+    /// measured in pixels would be a different grain in the two — the same
+    /// mistake the margins made before they became 12%.
+    struct Effect: Identifiable, Equatable, Hashable, Sendable {
+        let id: UUID
+        var kind: Kind
+        var isEnabled: Bool
+        /// How strongly the effect is felt, 0…1.
+        var amount: CGFloat
+        /// Grain, cell, or step — as a fraction of the short side.
+        var scale: CGFloat
+        var angle: CGFloat
+        var color: Color
+        /// Fixes the noise, so the preview and the file get the same one. A
+        /// filter reseeded per call would shimmer while the panel redrew and
+        /// export something different again.
+        let seed: UInt32
+
+        /// Only kinds that are actually computed live here. A case that draws
+        /// nothing would still be offered in the panel's grid, and a tile that
+        /// promises nothing is worse than a missing tile.
+        enum Kind: String, CaseIterable, Sendable {
+            case grain
+        }
+    }
+
     var canvas: Canvas
     var background: Background
     var image: ImagePlacement
     var cornerRadius: CGFloat
     var shadow: Shadow
+    /// Applied in order, bottom of the list last: filters do not commute, so
+    /// the list is a recipe rather than a set.
+    var effects: [Effect] = []
 
     /// The identity value used when an optional presentation is absent.
     /// A plain white page is the neutral starting point; transparency is a

@@ -16,7 +16,8 @@ nonisolated enum PresentationRenderer {
         skipping skippedID: UUID? = nil
     ) {
         let canvasRect = CGRect(origin: .zero, size: layout.canvasSize)
-        drawBackground(presentation.background, in: canvasRect, ctx: ctx)
+        drawBackground(presentation.background, effects: presentation.effects,
+                       in: canvasRect, ctx: ctx)
         drawShadow(for: layout.imageRect,
                    canvasSize: layout.canvasSize,
                    cornerRadius: presentation.cornerRadius,
@@ -165,9 +166,27 @@ nonisolated enum PresentationRenderer {
     /// same routine, so a tile can never promise a background the export would
     /// paint differently.
     static func drawBackground(_ background: Presentation.Background,
+                               effects: [Presentation.Effect] = [],
                                in rect: CGRect,
                                ctx: CGContext) {
         guard rect.width > 0, rect.height > 0 else { return }
+        // Effects are pixel work, so they are baked into a bitmap and drawn.
+        // The size comes from the context itself: on the canvas that is screen
+        // pixels, in an export it is the pixels of the file, and neither has to
+        // be told which it is. A nil answer — no effects, or a size nobody can
+        // hold — falls through to the plain drawing below, unchanged.
+        if !EffectStack.active(effects).isEmpty {
+            let deviceRect = ctx.convertToDeviceSpace(rect)
+            if let baked = BackgroundBaker.image(
+                background: background,
+                effects: effects,
+                pixelSize: CGSize(width: abs(deviceRect.width),
+                                  height: abs(deviceRect.height))
+            ) {
+                AnnotationRenderer.drawImageInFlippedSpace(baked, in: rect, ctx: ctx)
+                return
+            }
+        }
         switch background {
         case .none:
             return
