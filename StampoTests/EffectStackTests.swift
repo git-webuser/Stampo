@@ -128,10 +128,37 @@ import Testing
         #expect(replaced.first?.kind == .halftone)
         #expect(replaced.last?.kind == .vignette)
 
-        // A row that is not there changes nothing at all.
+        // A row that is not there changes the kinds of nothing at all.
         #expect(EffectStack.stack([first], choosing: .halftone,
                                   over: page, replacing: second.id).map(\.kind)
                 == [.grain])
+    }
+
+    /// A tile is a piece of background with no picture in it, so everything it
+    /// draws is drawn on the background layer — an effect switched to the page
+    /// would have nothing to lie over and the tile would come out blank, which
+    /// is exactly what the grid did when opened from a page-layer row. And the
+    /// candidate is drawn switched on even when the row it replaces is off:
+    /// the tile answers "what is this effect", not "what is showing".
+    @Test func aTileDrawsEveryEffectAsIfItWereOnTheBackground() {
+        var page = EffectStack.make(.halftone, seed: 1)
+        page.layer = .page
+        page.isEnabled = false
+        var neighbour = EffectStack.make(.grain, seed: 2)
+        neighbour.layer = .page
+
+        let replaced = EffectStack.stack([page, neighbour], choosing: .dither,
+                                         over: .solid(.white), replacing: page.id)
+        #expect(replaced.allSatisfy { $0.layer == .background })
+        #expect(replaced.first?.isEnabled == true)   // the candidate, shown
+
+        let added = EffectStack.stack([page], choosing: .dither,
+                                      over: .solid(.white), replacing: nil)
+        #expect(added.allSatisfy { $0.layer == .background })
+        #expect(added.last?.isEnabled == true)
+        // A neighbour that is switched off stays off: it really does add
+        // nothing to the page.
+        #expect(added.first?.isEnabled == false)
     }
 
     /// Both layers have a name and a glyph, since the row shows them side by

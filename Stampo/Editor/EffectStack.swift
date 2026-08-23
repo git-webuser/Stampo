@@ -145,14 +145,32 @@ nonisolated enum EffectStack {
     /// one row when it was opened by that row's name. The panel's rule is that
     /// a tile promises exactly what the export will draw, so the preview cannot
     /// be "this effect on its own" — it has to be this effect *here*.
+    ///
+    /// Two things are forced, and both because a tile is a piece of background
+    /// with no picture in it. Everything is drawn on the **background layer**:
+    /// a tile has nothing to lay a page effect *over*, so an effect switched to
+    /// the page would simply vanish — which is exactly how the grid came out
+    /// blank when it was opened from a page-layer row. And the candidate is
+    /// drawn switched **on**, even when the row it replaces is switched off,
+    /// because the question the tile answers is "what is this effect", not
+    /// "what is showing right now".
     static func stack(_ effects: [Effect], choosing kind: Kind,
                       over background: Presentation.Background,
                       replacing id: UUID?) -> [Effect] {
+        func shown(_ effect: Effect, isCandidate: Bool) -> Effect {
+            var result = effect
+            result.layer = .background
+            if isCandidate { result.isEnabled = true }
+            return result
+        }
         guard let id else {
-            return effects + [make(kind, over: background, seed: previewSeed)]
+            return effects.map { shown($0, isCandidate: false) }
+                + [shown(make(kind, over: background, seed: previewSeed), isCandidate: true)]
         }
         return effects.map { effect in
-            effect.id == id ? changing(effect, to: kind, over: background) : effect
+            effect.id == id
+                ? shown(changing(effect, to: kind, over: background), isCandidate: true)
+                : shown(effect, isCandidate: false)
         }
     }
 
