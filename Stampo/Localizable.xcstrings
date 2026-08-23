@@ -1044,23 +1044,6 @@
         }
       }
     },
-    "Blur and dim it with the effects below" : {
-      "comment" : "Decor inspector — where to soften a background picture",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Blur and dim it with the effects below"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Размыть и затемнить её можно эффектами ниже"
-          }
-        }
-      }
-    },
     "Blur Style" : {
       "comment" : "Tooltip for the blur/pixelate style picker.",
       "extractionState" : "stale",
@@ -1516,19 +1499,19 @@
         }
       }
     },
-    "Choose Picture…" : {
-      "comment" : "Decor inspector — opens the file dialog for a background picture",
+    "Choose Picture" : {
+      "comment" : "Decor inspector — the button that opens a file for the background picture",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Choose Picture…"
+            "value" : "Choose Picture"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Выбрать картинку…"
+            "value" : "Выбрать картинку"
           }
         }
       }
@@ -2394,6 +2377,7 @@
     },
     "Dim" : {
       "comment" : "Decor inspector — effect that lays shade over the background",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -6718,6 +6702,7 @@
     },
     "Shade Color" : {
       "comment" : "Decor inspector — colour of the shade the dim effect lays down",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -7287,6 +7272,7 @@
     },
     "Stampo couldn't read that file as an image. Try a PNG, JPEG or HEIC." : {
       "comment" : "Alert body — the chosen background file could not be read",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -7693,6 +7679,7 @@
     },
     "That picture can't be used" : {
       "comment" : "Alert title — the chosen background file could not be read",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {

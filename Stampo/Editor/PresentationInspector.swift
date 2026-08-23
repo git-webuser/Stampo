@@ -438,7 +438,9 @@ struct PresentationInspector: View {
 
     private var backgroundSection: some View {
         inspectorGroup("Background", section: .background) {
-            tileGrid(BackgroundKind.allCases, selected: backgroundKind) { kind in
+            // Four kinds, four columns — the same row the preset gallery
+            // below is built on, rather than three and a straggler.
+            tileGrid(BackgroundKind.allCases, selected: backgroundKind, columns: 4) { kind in
                 backgroundTile(kind)
             } action: { kind in
                 setBackgroundKind(kind)
@@ -672,6 +674,16 @@ struct PresentationInspector: View {
                     }
                 }
             }
+            // A page of pictures with no picture yet has nothing to show, so
+            // it shows what it is *for*. Every other tile is a picture of
+            // itself; this is the one kind that has to be asked for first.
+            .overlay {
+                if kind == .picture, document.backgroundPicture(for: sample.pictureID) == nil {
+                    Image(systemName: "photo.badge.plus")
+                        .font(.system(size: 15))
+                        .foregroundStyle(.secondary)
+                }
+            }
             // 4:3 rather than a thin strip: a gradient's direction and a mesh's
             // spread are not readable in 30 points of height.
             .aspectRatio(4.0 / 3.0, contentMode: .fit)
@@ -711,42 +723,33 @@ struct PresentationInspector: View {
         }
     }
 
-    /// What the picture background offers once it is chosen: the file it came
-    /// from, and the way to another one.
+    /// What the picture background offers: a row of buttons, shaped like the
+    /// alignment row above it.
     ///
-    /// Deliberately nothing else. Dimming and blurring a background are what
-    /// the effects stack already does — and does for gradients too — so a
-    /// second pair of sliders here would be the same two dials in a second
-    /// place, disagreeing sooner or later.
+    /// One button for now — choose a file — and it is a glyph rather than a
+    /// labelled button because the rest of this row is already spoken for: how
+    /// the picture meets the page (fill, fit, tile) belongs here, and a row of
+    /// icons takes them without reflowing. The tile above says what the section
+    /// is; a sentence under it saying "blur and dim with the effects below"
+    /// said what the panel already shows.
+    ///
+    /// Dimming and blurring stay in the effects stack — they work on gradients
+    /// too, and a second pair of the same dials here would disagree with the
+    /// first sooner or later.
     private var pictureRow: some View {
-        VStack(alignment: .leading, spacing: Self.captionGap) {
-            HStack(spacing: 8) {
-                picturePreview
-                Button("Choose Picture…") { chooseBackgroundPicture() }
-                    .controlSize(.large)
-                Spacer(minLength: 0)
+        HStack(spacing: 6) {
+            Button { chooseBackgroundPicture() } label: {
+                Image(systemName: "photo.badge.plus")
+                    .frame(width: 28)
             }
-            Text("Blur and dim it with the effects below")
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+            .controlSize(.large)
+            .help("Choose Picture")
+            .accessibilityLabel(Text("Choose Picture"))
+            // The row is one button wide until the ways of meeting the page
+            // join it; stretching a single glyph across the panel would make
+            // one control look like a bar.
+            Spacer(minLength: 0)
         }
-    }
-
-    private var picturePreview: some View {
-        Canvas { context, size in
-            context.withCGContext { cg in
-                PresentationRenderer.drawBackground(
-                    draft.background,
-                    picture: document.backgroundPicture(for: draft.background.pictureID),
-                    in: CGRect(origin: .zero, size: size), ctx: cg
-                )
-            }
-        }
-        .frame(width: 44, height: 33)
-        .clipShape(RoundedRectangle(cornerRadius: 5))
-        .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(.quaternary, lineWidth: 1))
-        .accessibilityHidden(true)
     }
 
     /// The preview values for each tile. They are deliberately built from the
@@ -1839,14 +1842,21 @@ struct PresentationInspector: View {
         }
     }
 
+    /// A row of choices drawn as pictures of themselves.
+    ///
+    /// The column count is the caller's, because the two users of this grid are
+    /// counting different things: the four kinds of background are a row, like
+    /// the gallery of presets under them, while the effects are a list of
+    /// twelve that reads better three abreast.
     private func tileGrid<Choice: Identifiable & Hashable, Tile: View>(
         _ choices: [Choice],
         selected: Choice?,
+        columns: Int = 3,
         @ViewBuilder tile: @escaping (Choice) -> Tile,
         action: @escaping (Choice) -> Void
     ) -> some View {
         LazyVGrid(
-            columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3),
+            columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: columns),
             spacing: 8
         ) {
             ForEach(choices) { choice in
