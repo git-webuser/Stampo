@@ -106,6 +106,34 @@ import Testing
         #expect(EffectStack.clamped(pixelate) == pixelate)
     }
 
+    /// What a tile in the grid draws: the page as it would be after the
+    /// choice, not the effect in the abstract. Adding puts the candidate at the
+    /// end; changing a row puts it in that row's place, and leaves the rest of
+    /// the stack exactly where it was.
+    @Test func aTileDrawsThePageThatChoosingItWouldMake() {
+        let first = EffectStack.make(.grain, seed: 1)
+        let second = EffectStack.make(.vignette, seed: 2)
+        let page = Presentation.Background.solid(.white)
+
+        let added = EffectStack.stack([first, second], choosing: .halftone,
+                                      over: page, replacing: nil)
+        #expect(added.count == 3)
+        #expect(added.dropLast().map(\.id) == [first.id, second.id])
+        #expect(added.last?.kind == .halftone)
+
+        let replaced = EffectStack.stack([first, second], choosing: .halftone,
+                                         over: page, replacing: first.id)
+        #expect(replaced.count == 2)
+        #expect(replaced.map(\.id) == [first.id, second.id])
+        #expect(replaced.first?.kind == .halftone)
+        #expect(replaced.last?.kind == .vignette)
+
+        // A row that is not there changes nothing at all.
+        #expect(EffectStack.stack([first], choosing: .halftone,
+                                  over: page, replacing: second.id).map(\.kind)
+                == [.grain])
+    }
+
     /// Both layers have a name and a glyph, since the row shows them side by
     /// side and a segment with a missing symbol is a blank button.
     @Test func bothLayersAreNamedAndDrawn() {

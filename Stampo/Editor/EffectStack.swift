@@ -138,6 +138,28 @@ nonisolated enum EffectStack {
         return result
     }
 
+    /// The stack a tile in the grid should draw: what the page would look like
+    /// if this kind were chosen.
+    ///
+    /// Appended when the grid was opened by the "+", and standing in place of
+    /// one row when it was opened by that row's name. The panel's rule is that
+    /// a tile promises exactly what the export will draw, so the preview cannot
+    /// be "this effect on its own" — it has to be this effect *here*.
+    static func stack(_ effects: [Effect], choosing kind: Kind,
+                      over background: Presentation.Background,
+                      replacing id: UUID?) -> [Effect] {
+        guard let id else {
+            return effects + [make(kind, over: background, seed: previewSeed)]
+        }
+        return effects.map { effect in
+            effect.id == id ? changing(effect, to: kind, over: background) : effect
+        }
+    }
+
+    /// Every tile is drawn with the same noise, so the grid differs by kind and
+    /// by nothing else.
+    static let previewSeed: UInt32 = 5
+
     static func parameters(for kind: Kind) -> [ParameterInfo] {
         // Sizes are fractions of the short side, never pixels: the preview is
         // baked at screen resolution and the file at its own, and a size in

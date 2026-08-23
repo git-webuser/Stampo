@@ -48,8 +48,17 @@ struct PresentationInspector: View {
     /// What each kind of background held when it was last left. Session-scoped
     /// by design — see `BackgroundDrawers`.
     @State private var drawers = BackgroundDrawers()
-    /// Whether the grid of effects to choose from is open.
-    @State private var effectPickerIsOpen = false
+    /// What the grid of effects is open *for*: adding one to the end of the
+    /// stack, or making an existing row into another kind. One grid answers
+    /// both, because both ask the same question — which effect?
+    @State private var effectPicker: PickerTarget?
+
+    enum PickerTarget: Hashable, Identifiable {
+        case add
+        case replace(UUID)
+
+        var id: Self { self }
+    }
     /// Which mesh corner the row below the plate acts on. Four corners, so no
     /// clamping machinery — just a number between 0 and 3.
     @State private var selectedCorner = 0
@@ -961,38 +970,60 @@ struct PresentationInspector: View {
                 }
                 Spacer(minLength: 0)
                 sectionActionButton("plus", label: "Add Effect") {
-                    effectPickerIsOpen = true
+                    effectPicker = .add
                 }
-                .popover(isPresented: $effectPickerIsOpen, arrowEdge: .bottom) {
-                    effectPicker
+                .popover(isPresented: showingPicker(.add), arrowEdge: .bottom) {
+                    effectGrid(.add)
                 }
             }
         }
     }
 
-    /// The grid behind the "+": every kind, drawn on the background it would
-    /// land on, with the stack that is already there underneath it.
+    /// The grid behind the "+" and behind an effect's own name: every kind,
+    /// drawn on the background it would land on, with the stack that is already
+    /// there underneath it.
     ///
     /// That is what makes a tile honest rather than decorative — and it also
     /// tells the truth about the awkward ones. Pixelate and glass have nothing
     /// to work on over a bare gradient, so their tiles show almost nothing, and
     /// so would the page. An effect that needs a texture under it is a fact
     /// about the effect, not something a stock sample should hide.
-    private var effectPicker: some View {
-        ScrollView {
-            tileGrid(Presentation.Effect.Kind.allCases, selected: nil) { kind in
-                effectTile(kind)
+    private func effectGrid(_ target: PickerTarget) -> some View {
+        let current: Presentation.Effect.Kind? = {
+            guard case .replace(let id) = target else { return nil }
+            return draft.effects.first { $0.id == id }?.kind
+        }()
+        return ScrollView {
+            tileGrid(Presentation.Effect.Kind.allCases, selected: current) { kind in
+                effectTile(kind, target)
             } action: { kind in
-                addEffect(kind)
-                effectPickerIsOpen = false
+                switch target {
+                case .add:
+                    addEffect(kind)
+                case .replace(let id):
+                    if let effect = draft.effects.first(where: { $0.id == id }) {
+                        setEffectKind(effect, to: kind)
+                    }
+                }
+                effectPicker = nil
             }
             .padding(10)
         }
         .frame(width: 300, height: 340)
     }
 
-    private func effectTile(_ kind: Presentation.Effect.Kind) -> some View {
-        let stack = draft.effects + [EffectStack.make(kind, over: draft.background, seed: 5)]
+    /// The tile shows the page as it would be *after the choice* — with the
+    /// candidate appended, or standing in for the row being changed. Anything
+    /// else would be a picture of an effect in the abstract, and the panel's
+    /// rule is that a tile promises exactly what the export will draw.
+    private func effectTile(_ kind: Presentation.Effect.Kind,
+                            _ target: PickerTarget) -> some View {
+        let replacing: UUID? = {
+            if case .replace(let id) = target { return id }
+            return nil
+        }()
+        let stack = EffectStack.stack(draft.effects, choosing: kind,
+                                      over: draft.background, replacing: replacing)
         return VStack(spacing: 5) {
             Canvas { context, size in
                 context.withCGContext { cg in
@@ -1101,29 +1132,33 @@ struct PresentationInspector: View {
     /// own — a menu that sizes itself to "Fluted Glass" would set the width of
     /// the whole inspector.
     private func effectKindMenu(_ effect: Presentation.Effect) -> some View {
-        Menu {
-            ForEach(Presentation.Effect.Kind.allCases) { kind in
-                Button {
-                    setEffectKind(effect, to: kind)
-                } label: {
-                    // Only a Label with this style keeps its icon in a macOS
-                    // menu; a plain systemImage argument arrives with no image
-                    // at all.
-                    Label(LocalizedStringKey(EffectStack.title(for: kind)),
-                          systemImage: EffectStack.symbol(for: kind))
-                        .labelStyle(.titleAndIcon)
-                }
-            }
+        Button {
+            effectPicker = .replace(effect.id)
         } label: {
-            Text(LocalizedStringKey(EffectStack.title(for: effect.kind)))
-                .font(.system(size: 11))
-                .lineLimit(1)
+            HStack(spacing: 3) {
+                Text(LocalizedStringKey(EffectStack.title(for: effect.kind)))
+                    .font(.system(size: 11))
+                    .lineLimit(1)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 8, weight: .semibold))
+                    .foregroundStyle(.secondary)
+            }
+            .contentShape(Rectangle())
         }
-        // The style draws its own arrow, on the leading side; a second one
-        // added by hand simply sat beside it.
-        .menuStyle(.borderlessButton)
-        .fixedSize()
+        .buttonStyle(.plain)
         .help("Change Effect")
+        // Anchored to the row it will change, so the grid opens beside the
+        // thing it is about rather than beside the "+" at the bottom.
+        .popover(isPresented: showingPicker(.replace(effect.id)), arrowEdge: .bottom) {
+            effectGrid(.replace(effect.id))
+        }
+    }
+
+    /// One state, several anchors: the grid belongs to whichever control asked
+    /// for it, and closing it from anywhere clears the same value.
+    private func showingPicker(_ target: PickerTarget) -> Binding<Bool> {
+        Binding(get: { effectPicker == target },
+                set: { shown in effectPicker = shown ? target : nil })
     }
 
     /// Behind the picture, or over everything.
