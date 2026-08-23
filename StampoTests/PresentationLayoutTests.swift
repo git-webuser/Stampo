@@ -632,6 +632,9 @@ import Testing
             case .linearGradient, .radialGradient: return "gradient"
             case .mesh: return "mesh"
             case .none: return "none"
+            // A picture is nobody's preset: the gallery is made of colours the
+            // app ships, and the user's own file is not one of them.
+            case .picture: return "picture"
             }
         }
         #expect(kinds.filter { $0 == "solid" }.count >= 4)

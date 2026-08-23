@@ -1044,6 +1044,23 @@
         }
       }
     },
+    "Blur and dim it with the effects below" : {
+      "comment" : "Decor inspector — where to soften a background picture",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Blur and dim it with the effects below"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Размыть и затемнить её можно эффектами ниже"
+          }
+        }
+      }
+    },
     "Blur Style" : {
       "comment" : "Tooltip for the blur/pixelate style picker.",
       "extractionState" : "stale",
@@ -1495,6 +1512,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Выбрать"
+          }
+        }
+      }
+    },
+    "Choose Picture…" : {
+      "comment" : "Decor inspector — opens the file dialog for a background picture",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choose Picture…"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Выбрать картинку…"
           }
         }
       }
@@ -2354,6 +2388,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Диагностика"
+          }
+        }
+      }
+    },
+    "Dim" : {
+      "comment" : "Decor inspector — effect that lays shade over the background",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dim"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Затемнение"
           }
         }
       }
@@ -5230,6 +5281,23 @@
         }
       }
     },
+    "Picture" : {
+      "comment" : "Decor inspector — a background made of the user's own image",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Picture"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Картинка"
+          }
+        }
+      }
+    },
     "Pill" : {
       "comment" : "Panel shape option: floating rounded \"pill\" below the menu bar",
       "localizations" : {
@@ -6648,6 +6716,23 @@
         }
       }
     },
+    "Shade Color" : {
+      "comment" : "Decor inspector — colour of the shade the dim effect lays down",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Shade Color"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Цвет затемнения"
+          }
+        }
+      }
+    },
     "Shadow" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -7200,6 +7285,23 @@
         }
       }
     },
+    "Stampo couldn't read that file as an image. Try a PNG, JPEG or HEIC." : {
+      "comment" : "Alert body — the chosen background file could not be read",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stampo couldn't read that file as an image. Try a PNG, JPEG or HEIC."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stampo не смог прочитать этот файл как изображение. Попробуйте PNG, JPEG или HEIC."
+          }
+        }
+      }
+    },
     "Star" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -7585,6 +7687,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Размер текстуры"
+          }
+        }
+      }
+    },
+    "That picture can't be used" : {
+      "comment" : "Alert title — the chosen background file could not be read",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "That picture can't be used"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Эту картинку не получится использовать"
           }
         }
       }
@@ -8098,6 +8217,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Обновления"
+          }
+        }
+      }
+    },
+    "Use as Background" : {
+      "comment" : "Open panel — the button that accepts the chosen file",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Use as Background"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сделать фоном"
           }
         }
       }

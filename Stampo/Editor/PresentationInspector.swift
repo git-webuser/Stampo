@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// Native trailing properties for the document's non-destructive decoration.
 ///
@@ -134,9 +135,9 @@ struct PresentationInspector: View {
     /// are identical, and giving them separate tiles made the panel reflow for
     /// what is really one choice.
     private enum BackgroundKind: String, CaseIterable, Hashable, Identifiable {
-        // Order is the order of the tiles: the two backgrounds you pick from
+        // Order is the order of the tiles: the backgrounds you pick from
         // first, then the way out of having one at all.
-        case solid, gradient, none
+        case solid, gradient, picture, none
 
         var id: String { rawValue }
 
@@ -145,6 +146,7 @@ struct PresentationInspector: View {
             case .solid:    return "Solid"
             case .none:     return "No Background"
             case .gradient: return "Gradient"
+            case .picture:  return "Picture"
             }
         }
     }
@@ -285,6 +287,7 @@ struct PresentationInspector: View {
             switch background {
             case .none:                            return .none
             case .solid:                           return .solid
+            case .picture:                         return .picture
             case .linearGradient, .radialGradient,
                  .mesh:                            return .gradient
             }
@@ -456,6 +459,8 @@ struct PresentationInspector: View {
                     saveToArchiveButton(color: solidColor)
                 }
                 swatchRow(selected: solidColor) { setSolidColor($0) }
+            case .picture:
+                pictureRow
             case .gradient:
                 if gradientShape == .mesh {
                     meshCornerEditor
@@ -660,6 +665,7 @@ struct PresentationInspector: View {
                     context.withCGContext { cg in
                         PresentationRenderer.drawBackground(
                             sample,
+                            picture: document.backgroundPicture(for: sample.pictureID),
                             in: CGRect(origin: .zero, size: size),
                             ctx: cg
                         )
@@ -705,6 +711,44 @@ struct PresentationInspector: View {
         }
     }
 
+    /// What the picture background offers once it is chosen: the file it came
+    /// from, and the way to another one.
+    ///
+    /// Deliberately nothing else. Dimming and blurring a background are what
+    /// the effects stack already does — and does for gradients too — so a
+    /// second pair of sliders here would be the same two dials in a second
+    /// place, disagreeing sooner or later.
+    private var pictureRow: some View {
+        VStack(alignment: .leading, spacing: Self.captionGap) {
+            HStack(spacing: 8) {
+                picturePreview
+                Button("Choose Picture…") { chooseBackgroundPicture() }
+                    .controlSize(.large)
+                Spacer(minLength: 0)
+            }
+            Text("Blur and dim it with the effects below")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var picturePreview: some View {
+        Canvas { context, size in
+            context.withCGContext { cg in
+                PresentationRenderer.drawBackground(
+                    draft.background,
+                    picture: document.backgroundPicture(for: draft.background.pictureID),
+                    in: CGRect(origin: .zero, size: size), ctx: cg
+                )
+            }
+        }
+        .frame(width: 44, height: 33)
+        .clipShape(RoundedRectangle(cornerRadius: 5))
+        .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(.quaternary, lineWidth: 1))
+        .accessibilityHidden(true)
+    }
+
     /// The preview values for each tile. They are deliberately built from the
     /// current colors when the kind is already selected, so the tile doubles as
     /// a live thumbnail of what the user has configured.
@@ -723,6 +767,12 @@ struct PresentationInspector: View {
                 }
             }
             return .linearGradient(stops: previewStops(for: .gradient), angle: .pi / 2)
+        case .picture:
+            // The tile shows the picture the page has; with none yet it shows
+            // the colour that would back one, so the tile is never a blank.
+            return backgroundKind == .picture
+                ? draft.background
+                : .picture(id: UUID(), backing: .init(red: 0.82, green: 0.84, blue: 0.88, alpha: 1))
         }
     }
 
@@ -1067,6 +1117,7 @@ struct PresentationInspector: View {
                 context.withCGContext { cg in
                     PresentationRenderer.drawBackground(
                         draft.background, effects: stack,
+                        picture: document.backgroundPicture(for: draft.background.pictureID),
                         in: CGRect(origin: .zero, size: size), ctx: cg
                     )
                 }
@@ -1999,6 +2050,7 @@ struct PresentationInspector: View {
         switch draft.background {
         case .none:           return .none
         case .solid:          return .solid
+        case .picture:        return .picture
         case .linearGradient,
              .radialGradient,
              .mesh:           return .gradient
@@ -2016,6 +2068,38 @@ struct PresentationInspector: View {
             // Back to the gradient you were last in, not to a linear one you
             // may never have chosen.
             switchBackground(to: drawers.lastGradient)
+        case .picture:
+            switchBackground(to: .picture)
+            // A page of pictures with no picture yet asks for one straight
+            // away: the tile is the question, and the file dialog is where it
+            // is answered. Coming back to a picture already chosen asks
+            // nothing.
+            if document.backgroundPicture(for: draft.background.pictureID) == nil {
+                chooseBackgroundPicture()
+            }
+        }
+    }
+
+    /// The file dialog behind the picture tile.
+    private func chooseBackgroundPicture() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.image]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.prompt = String(localized: "Use as Background")
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        loadBackgroundPicture(from: url)
+    }
+
+    private func loadBackgroundPicture(from url: URL) {
+        guard let picture = EditorDocument.picture(at: url) else {
+            UserFacingError.present(.backgroundPictureUnreadable)
+            return
+        }
+        let id = UUID()
+        document.setBackgroundPicture(picture, id: id)
+        updateImmediately {
+            $0.background = .picture(id: id, backing: $0.background.colors.first ?? .white)
         }
     }
 

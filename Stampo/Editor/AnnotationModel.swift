@@ -1941,6 +1941,11 @@ struct DocumentSnapshot: Equatable, Sendable {
 nonisolated struct EditorRenderSnapshot: Sendable {
     let baseImage: CGImage
     let blurSources: [BlurSource: CGImage]
+    /// The user's own background, if the page is made of one — carried by the
+    /// snapshot for the same reason the blurred copies are: the presentation
+    /// names it, the document holds it, and the export task gets neither unless
+    /// it is handed over.
+    let backgroundPicture: CGImage?
     let annotations: [Annotation]
     let revision: UInt64
     let format: String
@@ -2035,6 +2040,7 @@ nonisolated struct RenderedArtifact: Sendable {
         EditorRenderSnapshot(
             baseImage: baseImage,
             blurSources: blurSources,
+            backgroundPicture: backgroundPicture(for: presentation?.background.pictureID),
             annotations: annotations,
             revision: revision,
             format: format,
@@ -2510,6 +2516,35 @@ nonisolated struct RenderedArtifact: Sendable {
         presentation = Presentation(canvas: .auto(margins: .init(all: margin), scale: 1),
                                     background: .solid(.white))
         commitChange()
+    }
+
+    // MARK: Background pictures
+
+    /// The user's own backgrounds, by the name the presentation calls them.
+    ///
+    /// Beside the picture rather than inside it, exactly as the blurred copies
+    /// of the screenshot are: `Presentation` is a value that crosses into the
+    /// export task and is compared on every undo step, and an image in it would
+    /// be neither cheap to compare nor pleasant to carry. Undo therefore takes
+    /// the *name* back and the pixels stay — which is what makes undoing a
+    /// change of background instant rather than a second trip to the disk.
+    private(set) var backgroundPictures: [UUID: CGImage] = [:]
+
+    func backgroundPicture(for id: UUID?) -> CGImage? {
+        guard let id else { return nil }
+        return backgroundPictures[id]
+    }
+
+    func setBackgroundPicture(_ picture: CGImage, id: UUID) {
+        backgroundPictures[id] = picture
+    }
+
+    /// A picture read from a file, in the form the renderer draws.
+    nonisolated static func picture(at url: URL) -> CGImage? {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let image = CGImageSourceCreateImageAtIndex(source, 0, nil)
+        else { return nil }
+        return image
     }
 
     /// A decor control was used, so there is a decoration.

@@ -665,6 +665,7 @@ nonisolated enum AnnotationRenderer {
     nonisolated static func renderBitmap(
         base: CGImage,
         blurSources: [BlurSource: CGImage] = [:],
+        backgroundPicture: CGImage? = nil,
         annotations: [Annotation],
         presentation: Presentation? = nil
     ) -> NSBitmapImageRep? {
@@ -699,6 +700,7 @@ nonisolated enum AnnotationRenderer {
         PresentationRenderer.draw(in: ctx,
                                   base: base,
                                   blurSources: blurSources,
+                                  backgroundPicture: backgroundPicture,
                                   annotations: annotations,
                                   presentation: resolvedPresentation,
                                   layout: layout)
@@ -714,6 +716,7 @@ nonisolated enum AnnotationRenderer {
         guard let rep = renderBitmap(
             base: snapshot.baseImage,
             blurSources: snapshot.blurSources,
+            backgroundPicture: snapshot.backgroundPicture,
             annotations: snapshot.annotations,
             presentation: snapshot.presentation
         ) else { return nil }

@@ -614,6 +614,8 @@ struct EditorCanvasView: View {
                         in: cg,
                         base: document.baseImage,
                         blurSources: document.blurSources,
+                        backgroundPicture: document.backgroundPicture(
+                            for: presentation.background.pictureID),
                         annotations: document.annotations,
                         presentation: presentation,
                         layout: layout,

@@ -55,6 +55,7 @@ nonisolated enum EffectBaker {
     /// the path it was on before effects existed.
     static func image(background: Presentation.Background,
                       effects: [Presentation.Effect],
+                      picture: CGImage? = nil,
                       pixelSize: CGSize) -> CGImage? {
         // Only what belongs to this layer. The panel keeps one list, and which
         // pass an effect lands in is the effect's own business.
@@ -65,10 +66,14 @@ nonisolated enum EffectBaker {
         guard width > 0, height > 0,
               width <= maximumSide, height <= maximumSide else { return nil }
 
+        // The picture is part of the key by identity, not by pixels: the
+        // background already names it, and two pages naming the same picture
+        // are the same bake. A page whose picture has not arrived yet is a
+        // different bake from the same page once it has.
         let key = Key(background: background, effects: active.map(Recipe.init),
-                      width: width, height: height)
+                      hasPicture: picture != nil, width: width, height: height)
         if let cached = cache.value(for: key) { return cached }
-        guard let baked = bake(key) else { return nil }
+        guard let baked = bake(key, picture: picture) else { return nil }
         cache.store(baked, for: key)
         return baked
     }
@@ -87,9 +92,9 @@ nonisolated enum EffectBaker {
 
     // MARK: Baking
 
-    private static func bake(_ key: Key) -> CGImage? {
+    private static func bake(_ key: Key, picture: CGImage?) -> CGImage? {
         counter.value += 1
-        guard let flat = paint(key) else { return nil }
+        guard let flat = paint(key, picture: picture) else { return nil }
         var image = CIImage(cgImage: flat)
         let extent = image.extent
         let shortSide = CGFloat(min(key.width, key.height))
@@ -108,7 +113,7 @@ nonisolated enum EffectBaker {
     /// The context is flipped into the renderer's top-left space first, exactly
     /// as the export bitmap is, so what comes back is oriented like everything
     /// else the renderer produces.
-    private static func paint(_ key: Key) -> CGImage? {
+    private static func paint(_ key: Key, picture: CGImage?) -> CGImage? {
         guard let ctx = CGContext(
             data: nil, width: key.width, height: key.height,
             bitsPerComponent: 8, bytesPerRow: 0,
@@ -118,7 +123,7 @@ nonisolated enum EffectBaker {
         ctx.translateBy(x: 0, y: CGFloat(key.height))
         ctx.scaleBy(x: 1, y: -1)
         PresentationRenderer.drawBackground(
-            key.background,
+            key.background, picture: picture,
             in: CGRect(x: 0, y: 0, width: CGFloat(key.width), height: CGFloat(key.height)),
             ctx: ctx
         )
@@ -128,6 +133,10 @@ nonisolated enum EffectBaker {
     private static func apply(_ effect: Recipe, to image: CIImage,
                               extent: CGRect, shortSide: CGFloat) -> CIImage {
         switch effect.kind {
+        case .blur:
+            return blurred(effect, image, extent: extent, shortSide: shortSide)
+        case .dim:
+            return dimmed(effect, over: image, extent: extent)
         case .grain:
             return grain(effect, over: image, extent: extent, shortSide: shortSide)
         case .dots, .grid, .stripes:
@@ -149,6 +158,36 @@ nonisolated enum EffectBaker {
         case .ascii:
             return ascii(effect, over: image, extent: extent, shortSide: shortSide)
         }
+    }
+
+    /// A plain blur, in fractions of the page like every other size here — the
+    /// first thing a picture behind a screenshot needs, because detail behind
+    /// text is what makes the text hard to read.
+    private static func blurred(_ effect: Recipe, _ image: CIImage,
+                                extent: CGRect, shortSide: CGFloat) -> CIImage {
+        guard effect.amount > 0 else { return image }
+        let filter = CIFilter.gaussianBlur()
+        // Clamped first: a blur reads past the edges, and without this the page
+        // fades out towards transparent at its own border.
+        filter.inputImage = image.clampedToExtent()
+        filter.radius = Float(effect.amount * shortSide * 0.08)
+        return filter.outputImage?.cropped(to: extent) ?? image
+    }
+
+    /// Shade laid over the page, in the colour of the user's choosing — the
+    /// second thing a picture needs, so the screenshot sits on top of it rather
+    /// than in it.
+    private static func dimmed(_ effect: Recipe, over image: CIImage,
+                               extent: CGRect) -> CIImage {
+        guard effect.amount > 0 else { return image }
+        let shade = CIImage(color: CIColor(red: effect.color.red, green: effect.color.green,
+                                           blue: effect.color.blue,
+                                           alpha: effect.amount * effect.color.alpha))
+            .cropped(to: extent)
+        let over = CIFilter.sourceOverCompositing()
+        over.inputImage = shade
+        over.backgroundImage = image
+        return over.outputImage?.cropped(to: extent) ?? image
     }
 
     /// Film grain: signed noise, added to the picture as light and taken away
@@ -1002,6 +1041,7 @@ nonisolated enum EffectBaker {
     private struct Key: Hashable {
         let background: Presentation.Background
         let effects: [Recipe]
+        let hasPicture: Bool
         let width: Int
         let height: Int
     }

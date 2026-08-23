@@ -24,6 +24,8 @@ enum UserFacingError {
 
         /// ScreenCaptureKit could not enumerate or sample a display.
         case colorPickerUnavailable(reason: String?)
+        /// A file chosen as a background that Core Graphics cannot read.
+        case backgroundPictureUnreadable
 
         /// Security-scoped bookmark for the user-chosen save directory could
         /// not be resolved or access was denied.
@@ -36,7 +38,7 @@ enum UserFacingError {
             switch self {
             case .screenCaptureFailed, .colorPickerUnavailable:
                 return true
-            case .saveDirectoryInaccessible:
+            case .saveDirectoryInaccessible, .backgroundPictureUnreadable:
                 return false
             }
         }
@@ -47,6 +49,7 @@ enum UserFacingError {
             case .screenCaptureFailed:       return "screenCaptureFailed"
             case .colorPickerUnavailable:    return "colorPickerUnavailable"
             case .saveDirectoryInaccessible: return "saveDirectoryInaccessible"
+            case .backgroundPictureUnreadable: return "backgroundPictureUnreadable"
             }
         }
 
@@ -59,6 +62,8 @@ enum UserFacingError {
                 return lm.string("Color picker unavailable")
             case .saveDirectoryInaccessible:
                 return lm.string("Save folder is not accessible")
+            case .backgroundPictureUnreadable:
+                return lm.string("That picture can't be used")
             }
         }
 
@@ -79,6 +84,8 @@ enum UserFacingError {
                 return base
             case .saveDirectoryInaccessible(let url):
                 return String(format: lm.string("Stampo can't write screenshots to \"%@\". The folder may have been moved, renamed, or access was revoked. Choose a new save folder in Settings \u{2192} Capture."), url.lastPathComponent)
+            case .backgroundPictureUnreadable:
+                return lm.string("Stampo couldn't read that file as an image. Try a PNG, JPEG or HEIC.")
             }
         }
 
@@ -90,6 +97,9 @@ enum UserFacingError {
                 return .openScreenRecordingSettings
             case .saveDirectoryInaccessible:
                 return .openAppSettings
+            // Nothing to open: the answer is another file.
+            case .backgroundPictureUnreadable:
+                return nil
             }
         }
     }

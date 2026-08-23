@@ -1,4 +1,5 @@
 import CoreGraphics
+import Foundation
 
 /// What each kind of background held when it was last left.
 ///
@@ -17,9 +18,9 @@ import CoreGraphics
 /// anywhere.
 nonisolated struct BackgroundDrawers: Sendable {
     enum Drawer: Hashable, Sendable {
-        case solid, linear, radial, mesh
+        case solid, linear, radial, mesh, picture
 
-        var isGradient: Bool { self != .solid }
+        var isGradient: Bool { self == .linear || self == .radial || self == .mesh }
     }
 
     private var remembered: [Drawer: Presentation.Background] = [:]
@@ -38,6 +39,7 @@ nonisolated struct BackgroundDrawers: Sendable {
         case .linearGradient:  return .linear
         case .radialGradient:  return .radial
         case .mesh:            return .mesh
+        case .picture:         return .picture
         }
     }
 
@@ -82,6 +84,12 @@ nonisolated struct BackgroundDrawers: Sendable {
             // do not — a mesh's corners sit in a square, and there is no line
             // for them to sit along.
             return .mesh(colors: meshCorners(from: stops.map(\.color)))
+        case .picture:
+            // A picture has no colour to carry across — it has a picture, and
+            // there is none yet. The drawer opens on the page it had before,
+            // backed by whatever colour was on screen, and the panel asks for a
+            // file.
+            return .picture(id: UUID(), backing: colors.first ?? .white)
         }
     }
 

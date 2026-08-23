@@ -39,6 +39,8 @@ nonisolated enum EffectStack {
 
     static func title(for kind: Kind) -> String {
         switch kind {
+        case .blur:     return "Blur"
+        case .dim:      return "Dim"
         case .grain:    return "Grain"
         case .dots:     return "Dots"
         case .grid:     return "Grid"
@@ -57,6 +59,8 @@ nonisolated enum EffectStack {
     /// The glyph for the row and for the tile in the grid.
     static func symbol(for kind: Kind) -> String {
         switch kind {
+        case .blur:     return "drop.halffull"
+        case .dim:      return "moon.fill"
         case .grain:    return "circle.grid.3x3.fill"
         case .dots:     return "circle.grid.2x2.fill"
         case .grid:     return "grid"
@@ -96,6 +100,11 @@ nonisolated enum EffectStack {
         // Defaults are the settings that make the effect *recognisable* on
         // sight, not the mildest ones: a new row that changes nothing reads as
         // a control that does not work.
+        // The two a picture behind a screenshot almost always needs: enough
+        // blur to stop the detail competing, enough shade to keep the shot on
+        // top of it.
+        case .blur:     return effect(amount: 0.35, scale: 0)
+        case .dim:      return effect(amount: 0.4, scale: 0, color: .black)
         case .grain:    return effect(amount: 0.35, scale: 0.0015)
         case .dots:     return effect(amount: 0.18, scale: 0.04, color: ink)
         case .grid:     return effect(amount: 0.14, scale: 0.05, color: ink)
@@ -206,6 +215,12 @@ nonisolated enum EffectStack {
                                   systemImage: "paintpalette", range: 0...1, step: 1)
 
         switch kind {
+        case .blur:
+            return [strength()]
+        case .dim:
+            return [strength(),
+                    ParameterInfo(parameter: .color, titleKey: "Shade Color",
+                                  systemImage: "paintpalette", range: 0...1, step: 1)]
         case .grain:
             return [strength(), size("Grain Size", 0.0005...0.01, step: 0.0005)]
         case .dots, .grid, .stripes:

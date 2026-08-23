@@ -57,6 +57,10 @@ nonisolated enum PresentationRenderer {
         in ctx: CGContext,
         base: CGImage,
         blurSources: [BlurSource: CGImage],
+        /// The user's own background, if the page is made of one. Carried
+        /// beside the presentation for the same reason the blurred copies are:
+        /// the value model names an image, the document holds it.
+        backgroundPicture: CGImage? = nil,
         annotations: [Annotation],
         presentation: Presentation,
         layout: PresentationLayout.Resolved,
@@ -65,6 +69,7 @@ nonisolated enum PresentationRenderer {
     ) {
         guard !EffectStack.page(presentation.effects).isEmpty else {
             drawContents(in: ctx, base: base, blurSources: blurSources,
+                         backgroundPicture: backgroundPicture,
                          annotations: annotations, presentation: presentation,
                          layout: layout, skipping: skippedID)
             return
@@ -84,6 +89,7 @@ nonisolated enum PresentationRenderer {
               )
         else {
             drawContents(in: ctx, base: base, blurSources: blurSources,
+                         backgroundPicture: backgroundPicture,
                          annotations: annotations, presentation: presentation,
                          layout: layout, skipping: skippedID)
             return
@@ -95,6 +101,7 @@ nonisolated enum PresentationRenderer {
         offscreen.scaleBy(x: CGFloat(width) / canvasRect.width,
                           y: CGFloat(height) / canvasRect.height)
         drawContents(in: offscreen, base: base, blurSources: blurSources,
+                     backgroundPicture: backgroundPicture,
                      annotations: annotations, presentation: presentation,
                      layout: layout, skipping: skippedID)
 
@@ -102,6 +109,7 @@ nonisolated enum PresentationRenderer {
               let filtered = EffectBaker.page(presentation.effects, over: rendered)
         else {
             drawContents(in: ctx, base: base, blurSources: blurSources,
+                         backgroundPicture: backgroundPicture,
                          annotations: annotations, presentation: presentation,
                          layout: layout, skipping: skippedID)
             return
@@ -113,6 +121,7 @@ nonisolated enum PresentationRenderer {
         in ctx: CGContext,
         base: CGImage,
         blurSources: [BlurSource: CGImage],
+        backgroundPicture: CGImage?,
         annotations: [Annotation],
         presentation: Presentation,
         layout: PresentationLayout.Resolved,
@@ -120,7 +129,7 @@ nonisolated enum PresentationRenderer {
     ) {
         let canvasRect = CGRect(origin: .zero, size: layout.canvasSize)
         drawBackground(presentation.background, effects: presentation.effects,
-                       in: canvasRect, ctx: ctx)
+                       picture: backgroundPicture, in: canvasRect, ctx: ctx)
         // The glow first, so a dark shadow reads *over* the halo rather than
         // being washed out by it.
         drawShadow(for: layout.imageRect,
@@ -277,6 +286,7 @@ nonisolated enum PresentationRenderer {
     /// paint differently.
     static func drawBackground(_ background: Presentation.Background,
                                effects: [Presentation.Effect] = [],
+                               picture: CGImage? = nil,
                                in rect: CGRect,
                                ctx: CGContext) {
         guard rect.width > 0, rect.height > 0 else { return }
@@ -290,6 +300,7 @@ nonisolated enum PresentationRenderer {
             if let baked = EffectBaker.image(
                 background: background,
                 effects: effects,
+                picture: picture,
                 pixelSize: CGSize(width: abs(deviceRect.width),
                                   height: abs(deviceRect.height))
             ) {
@@ -309,7 +320,34 @@ nonisolated enum PresentationRenderer {
             drawRadialGradient(stops: stops, in: rect, ctx: ctx)
         case .mesh(let colors):
             drawMesh(colors: colors, in: rect, ctx: ctx)
+        case .picture(_, let backing):
+            // The colour first, so a page whose picture is missing — still
+            // loading, or gone from a document that outlived it — is a page and
+            // not a hole.
+            ctx.setFillColor(cgColor(backing))
+            ctx.fill(rect)
+            guard let picture else { return }
+            drawFilling(picture, in: rect, ctx: ctx)
         }
+    }
+
+    /// The picture covering the rect, cropped rather than squashed.
+    ///
+    /// Fill and nothing else: a background is the one thing that must reach
+    /// every corner, and "fit" would leave bars of another colour around it —
+    /// which is a second background, not a setting of this one.
+    private static func drawFilling(_ picture: CGImage, in rect: CGRect, ctx: CGContext) {
+        let size = CGSize(width: picture.width, height: picture.height)
+        guard size.width > 0, size.height > 0 else { return }
+        let scale = max(rect.width / size.width, rect.height / size.height)
+        let drawn = CGRect(x: rect.midX - size.width * scale / 2,
+                           y: rect.midY - size.height * scale / 2,
+                           width: size.width * scale, height: size.height * scale)
+        ctx.saveGState()
+        ctx.clip(to: rect)
+        ctx.interpolationQuality = .high
+        AnnotationRenderer.drawImageInFlippedSpace(picture, in: drawn, ctx: ctx)
+        ctx.restoreGState()
     }
 
     /// A gradient of `stops` spread evenly from 0 to 1. One stop degenerates to

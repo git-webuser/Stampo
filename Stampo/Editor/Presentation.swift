@@ -102,6 +102,15 @@ nonisolated struct Presentation: Equatable, Sendable {
         /// the user — is not the model's business; a separate "sampled" case
         /// only meant the same drawing twice.
         case mesh(colors: [Color])
+        /// A picture of the user's own, held by name rather than by bytes.
+        ///
+        /// The presentation is a value that crosses into the export task and is
+        /// compared on every undo step, so it carries an identifier and the
+        /// document carries the pixels — exactly as the base screenshot and its
+        /// blurred copies are carried. The colour travels with it as what to
+        /// paint while the picture is not there: a page mid-load, or one whose
+        /// image the document no longer has.
+        case picture(id: UUID, backing: Color)
 
         /// The stops a user-facing editor works with. Empty for the cases that
         /// have no ramp — the mesh included: its four corners are colours in a
@@ -109,10 +118,16 @@ nonisolated struct Presentation: Equatable, Sendable {
         /// what made one accessor mean two different things.
         var stops: [Stop] {
             switch self {
-            case .none, .solid, .mesh:           return []
+            case .none, .solid, .mesh, .picture: return []
             case .linearGradient(let stops, _):  return stops
             case .radialGradient(let stops):     return stops
             }
+        }
+
+        /// The picture this background is made of, if it is made of one.
+        var pictureID: UUID? {
+            if case .picture(let id, _) = self { return id }
+            return nil
         }
 
         /// The four corners of a mesh, or nothing.
@@ -148,9 +163,10 @@ nonisolated struct Presentation: Equatable, Sendable {
         /// what a switch between kinds carries across.
         var colors: [Color] {
             switch self {
-            case .none:              return []
-            case .solid(let color):  return [color]
-            case .mesh(let colors):  return colors
+            case .none:                  return []
+            case .solid(let color):      return [color]
+            case .mesh(let colors):      return colors
+            case .picture(_, let color): return [color]
             case .linearGradient(let stops, _), .radialGradient(let stops):
                 return stops.map(\.color)
             }
@@ -345,8 +361,8 @@ nonisolated struct Presentation: Equatable, Sendable {
         enum Kind: String, CaseIterable, Identifiable, Sendable {
             var id: String { rawValue }
 
-            case grain, dots, grid, stripes, vignette, pixelate, dither,
-                 halftone, fluted, glass, lens, ascii
+            case blur, dim, grain, dots, grid, stripes, vignette, pixelate,
+                 dither, halftone, fluted, glass, lens, ascii
         }
     }
 
