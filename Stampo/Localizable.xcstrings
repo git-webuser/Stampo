@@ -1363,6 +1363,7 @@
     },
     "Cell Width" : {
       "comment" : "Decor inspector — width of one ASCII cell, in pixels",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
