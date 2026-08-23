@@ -272,7 +272,7 @@ nonisolated struct Presentation: Equatable, Sendable {
     /// measured in pixels would be a different grain in the two — the same
     /// mistake the margins made before they became 12%.
     struct Effect: Identifiable, Equatable, Hashable, Sendable {
-        let id: UUID
+        var id: UUID
         var kind: Kind
         var isEnabled: Bool
         /// How strongly the effect is felt, 0…1.

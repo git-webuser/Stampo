@@ -504,9 +504,24 @@ struct PresentationInspector: View {
     }
 
     private var gradientShapePicker: some View {
-        Picker("", selection: gradientShapeBinding) {
-            ForEach(GradientShape.allCases) { shape in
-                Text(shape.titleKey).tag(shape)
+        segments(selection: gradientShapeBinding, of: GradientShape.allCases) { $0.titleKey }
+    }
+
+    /// The panel's one segmented control.
+    ///
+    /// Text, full width, `.large` — the same as every other control in here.
+    /// Written once because it was written twice: the layer switch first
+    /// borrowed `IconSegmentedPicker` from the toolbar, which is an AppKit
+    /// control that measures itself against its own content, so it stood taller
+    /// than the shape switch above it *and* pushed the whole inspector wider.
+    private func segments<Value: Identifiable & Hashable>(
+        selection: Binding<Value>,
+        of values: [Value],
+        title: @escaping (Value) -> LocalizedStringKey
+    ) -> some View {
+        Picker("", selection: selection) {
+            ForEach(values) { value in
+                Text(title(value)).tag(value)
             }
         }
         .pickerStyle(.segmented)
@@ -1004,8 +1019,7 @@ struct PresentationInspector: View {
         VStack(alignment: .leading, spacing: Self.captionGap) {
             HStack(spacing: 8) {
                 effectPreview(effect)
-                Text(LocalizedStringKey(EffectStack.title(for: effect.kind)))
-                    .font(.system(size: 11))
+                effectKindMenu(effect)
                 Spacer(minLength: 0)
                 // Hide rather than delete, exactly as the shadow does: an
                 // effect switched off keeps its numbers, so turning it back on
@@ -1077,6 +1091,41 @@ struct PresentationInspector: View {
         }
     }
 
+    /// The row's name, and the way to change what the effect *is*.
+    ///
+    /// Swapping a kind through the menu beats deleting the row and adding
+    /// another: the row keeps its place in the stack, its layer and its switch,
+    /// which is what a person means by "make this one a halftone instead".
+    ///
+    /// The label takes the room that is left rather than asking for room of its
+    /// own — a menu that sizes itself to "Fluted Glass" would set the width of
+    /// the whole inspector.
+    private func effectKindMenu(_ effect: Presentation.Effect) -> some View {
+        Menu {
+            ForEach(Presentation.Effect.Kind.allCases) { kind in
+                Button {
+                    setEffectKind(effect, to: kind)
+                } label: {
+                    // Only a Label with this style keeps its icon in a macOS
+                    // menu; a plain systemImage argument arrives with no image
+                    // at all.
+                    Label(LocalizedStringKey(EffectStack.title(for: kind)),
+                          systemImage: EffectStack.symbol(for: kind))
+                        .labelStyle(.titleAndIcon)
+                }
+            }
+        } label: {
+            Text(LocalizedStringKey(EffectStack.title(for: effect.kind)))
+                .font(.system(size: 11))
+                .lineLimit(1)
+        }
+        // The style draws its own arrow, on the leading side; a second one
+        // added by hand simply sat beside it.
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .help("Change Effect")
+    }
+
     /// Behind the picture, or over everything.
     ///
     /// Every effect carries it, because every effect can be read either way: a
@@ -1085,19 +1134,13 @@ struct PresentationInspector: View {
     /// the effect rather than the last, since it changes what the sliders below
     /// are doing.
     private func effectLayerRow(_ effect: Presentation.Effect) -> some View {
-        IconSegmentedPicker(
-            segments: [
-                .init("Background Only", systemImage: EffectStack.symbol(for: .background),
-                      value: Presentation.Effect.Layer.background),
-                .init("Whole Page", systemImage: EffectStack.symbol(for: .page),
-                      value: Presentation.Effect.Layer.page)
-            ],
+        segments(
             selection: Binding(
                 get: { effect.layer },
                 set: { layer in setEffect(effect) { $0.layer = layer } }
-            )
-        )
-        .frame(maxWidth: .infinity)
+            ),
+            of: Presentation.Effect.Layer.allCases
+        ) { LocalizedStringKey(EffectStack.title(for: $0)) }
     }
 
     /// Which characters the page is written in. A choice, so it gets a menu
@@ -2084,6 +2127,16 @@ struct PresentationInspector: View {
 
     private func moveEffect(from: Int, to: Int) {
         updateImmediately { $0.effects = EffectStack.moved($0.effects, from: from, to: to).effects }
+    }
+
+    /// The same row, made into another kind of effect.
+    private func setEffectKind(_ effect: Presentation.Effect,
+                               to kind: Presentation.Effect.Kind) {
+        guard kind != effect.kind else { return }
+        updateImmediately {
+            guard let index = $0.effects.firstIndex(where: { $0.id == effect.id }) else { return }
+            $0.effects[index] = EffectStack.changing(effect, to: kind, over: $0.background)
+        }
     }
 
     /// One effect changed in place. Discrete, so it is its own undo step —

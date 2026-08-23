@@ -121,6 +121,23 @@ nonisolated enum EffectStack {
         }
     }
 
+    /// The same effect made into another kind.
+    ///
+    /// What the row *is* — where it sits in the stack, whether it is on, which
+    /// layer it works on, and the noise it was seeded with — survives; every
+    /// number starts again from the new kind's own defaults. Carrying the old
+    /// ones across would be arithmetic without meaning: a grain of 0.0015 is a
+    /// fine speckle, and the same number as a pixelate cell is a quarter of a
+    /// pixel.
+    static func changing(_ effect: Effect, to kind: Kind,
+                         over background: Presentation.Background) -> Effect {
+        var result = make(kind, over: background, seed: effect.seed)
+        result.id = effect.id
+        result.isEnabled = effect.isEnabled
+        result.layer = effect.layer
+        return result
+    }
+
     static func parameters(for kind: Kind) -> [ParameterInfo] {
         // Sizes are fractions of the short side, never pixels: the preview is
         // baked at screen resolution and the file at its own, and a size in
@@ -297,8 +314,8 @@ nonisolated enum EffectStack {
     /// What a layer is called in the panel.
     static func title(for layer: Presentation.Effect.Layer) -> String {
         switch layer {
-        case .background: return "Background Only"
-        case .page:       return "Whole Page"
+        case .background: return "Background"
+        case .page:       return "Page"
         }
     }
 

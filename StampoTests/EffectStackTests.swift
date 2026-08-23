@@ -79,6 +79,33 @@ import Testing
         #expect(EffectStack.page(stack).map(\.seed) == [2, 3])
     }
 
+    /// Swapping a kind keeps the row and drops the numbers.
+    ///
+    /// What the row *is* survives — its place, its switch, its layer, its noise
+    /// — while every parameter starts from the new kind's defaults. Carrying
+    /// the old numbers across would be arithmetic without meaning: a grain of
+    /// 0.0015 is a fine speckle, and the same number as a pixelate cell is a
+    /// quarter of a pixel.
+    @Test func changingTheKindKeepsTheRowAndNotTheNumbers() {
+        var grain = EffectStack.make(.grain, seed: 9)
+        grain.isEnabled = false
+        grain.layer = .page
+        grain.amount = 0.9
+
+        let pixelate = EffectStack.changing(grain, to: .pixelate, over: .solid(.white))
+
+        #expect(pixelate.id == grain.id)
+        #expect(pixelate.seed == grain.seed)
+        #expect(pixelate.isEnabled == false)
+        #expect(pixelate.layer == .page)
+        #expect(pixelate.kind == .pixelate)
+        // The new kind's own defaults, and inside its own limits.
+        let fresh = EffectStack.make(.pixelate, over: .solid(.white), seed: grain.seed)
+        #expect(pixelate.scale == fresh.scale)
+        #expect(pixelate.detail == fresh.detail)
+        #expect(EffectStack.clamped(pixelate) == pixelate)
+    }
+
     /// Both layers have a name and a glyph, since the row shows them side by
     /// side and a segment with a missing symbol is a blank button.
     @Test func bothLayersAreNamedAndDrawn() {
