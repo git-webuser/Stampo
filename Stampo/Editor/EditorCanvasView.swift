@@ -291,6 +291,8 @@ struct EditorCanvasView: View {
     @State private var magnificationStart: CGFloat?
     @State private var magnificationStartPan: CGSize?
     @State private var isSpaceHeld = false
+    /// A picture is being dragged over the canvas right now.
+    @State private var pictureIsOverTheCanvas = false
     /// Whether ⌘ is down — see `isCommandHeld`. Held in state rather than read
     /// live so pressing it redraws the canvas and repaints the cursor.
     @State private var isCommandDown = false
@@ -478,6 +480,28 @@ struct EditorCanvasView: View {
                 .position(x: offset.x + drawSize.width / 2,
                           y: offset.y + drawSize.height / 2)
                 .allowsHitTesting(false)
+            }
+            // A picture dropped on the canvas becomes the page's background —
+            // the shortest way there is, and the reason the panel's file dialog
+            // is at the *end* of its row rather than the start. Only files the
+            // system can read as images are taken; anything else is left for
+            // whoever else wants it.
+            .dropDestination(for: URL.self) { urls, _ in
+                guard let url = urls.first(where: { EditorDocument.picture(at: $0) != nil })
+                else { return false }
+                return document.useBackgroundPicture(at: url)
+            } isTargeted: { targeted in
+                pictureIsOverTheCanvas = targeted
+            }
+            .overlay {
+                // Said on the canvas, because that is what the drop will change
+                // — a highlight around the window would be about the window.
+                if pictureIsOverTheCanvas {
+                    RoundedRectangle(cornerRadius: 6)
+                        .strokeBorder(Color.accentColor, lineWidth: 3)
+                        .padding(4)
+                        .allowsHitTesting(false)
+                }
             }
             .gesture(dragGesture(fitScale: fitScale, offset: offset, pixel: pixel,
                                  annotationBounds: annotationBounds,

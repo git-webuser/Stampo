@@ -743,9 +743,9 @@ struct PresentationInspector: View {
     /// first sooner or later.
     private var pictureRow: some View {
         HStack(spacing: 6) {
-            panelIconButton("photo.badge.plus", stretch: true, label: "Choose Picture") {
-                chooseBackgroundPicture()
-            }
+            // The four ways first, the file last: the ways are what you come
+            // back to, and replacing the picture is the once-in-a-while act at
+            // the end of the row.
             ForEach(Presentation.Background.PictureFit.allCases) { fit in
                 panelIconButton(Self.symbol(for: fit), stretch: true,
                                 label: Self.title(for: fit)) {
@@ -753,15 +753,22 @@ struct PresentationInspector: View {
                 }
                 .activeToolChrome(draft.background.pictureFit == fit)
             }
+            panelIconButton("photo.badge.plus", stretch: true, label: "Choose Picture") {
+                chooseBackgroundPicture()
+            }
         }
     }
 
     /// How a picture meets the page, as a glyph and a name.
+    /// The four read as a set rather than as four separate pictures: filled to
+    /// the edge against sitting inside a frame is the whole difference between
+    /// the first two, and it is legible at 13pt where a pair of symbols that
+    /// differ only by an arrow's direction is not.
     static func symbol(for fit: Presentation.Background.PictureFit) -> String {
         switch fit {
-        case .fill:    return "aspectratio.fill"
-        case .fit:     return "aspectratio"
-        case .stretch: return "arrow.up.and.down.and.arrow.left.and.right"
+        case .fill:    return "rectangle.fill"
+        case .fit:     return "rectangle.inset.filled"
+        case .stretch: return "arrow.left.and.right.square"
         case .tile:    return "square.grid.3x3.fill"
         }
     }
@@ -2135,19 +2142,11 @@ struct PresentationInspector: View {
     }
 
     private func loadBackgroundPicture(from url: URL) {
-        guard let picture = EditorDocument.picture(at: url) else {
+        guard document.useBackgroundPicture(at: url) else {
             UserFacingError.present(.backgroundPictureUnreadable)
             return
         }
-        let id = UUID()
-        document.setBackgroundPicture(picture, id: id)
-        updateImmediately {
-            // A new picture keeps however the last one met the page: a person
-            // who tiles textures is usually about to tile another.
-            $0.background = .picture(id: id,
-                                     backing: $0.background.colors.first ?? .white,
-                                     fit: $0.background.pictureFit)
-        }
+        draft = document.presentation ?? draft
     }
 
     /// Moving between the four drawers puts back what was in the one you are

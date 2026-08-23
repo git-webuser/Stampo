@@ -151,6 +151,47 @@ import Testing
                 "fill should reach the corners")
     }
 
+    /// One road in, used by the panel's file dialog and by a file dropped on
+    /// the canvas alike: the pixels are kept, the presentation names them, and
+    /// the page appears if there was none — all in one press of ⌘Z.
+    @Test func takingAPictureAsTheBackgroundIsOneStep() throws {
+        let ctx = CGContext(data: nil, width: 60, height: 40, bitsPerComponent: 8,
+                            bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        let document = EditorDocument(baseImage: ctx.makeImage()!,
+                                      sourceURL: URL(fileURLWithPath: "/tmp/drop-host.png"))
+        let rep = NSBitmapImageRep(cgImage: picture(width: 80, height: 80))
+        let url = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("dropped-background.png")
+        try rep.representation(using: .png, properties: [:])!.write(to: url)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        #expect(document.presentation == nil)
+        let steps = document.undoStack.count
+        #expect(document.useBackgroundPicture(at: url))
+
+        // The page exists, it is made of the picture, and the pixels are here.
+        let id = document.presentation?.background.pictureID
+        #expect(id != nil)
+        #expect(document.backgroundPicture(for: id) != nil)
+        #expect(document.undoStack.count == steps + 1)
+
+        // However the last one met the page, the next one meets it the same.
+        document.presentation?.background = document.presentation!.background
+            .settingPictureFit(.tile)
+        #expect(document.useBackgroundPicture(at: url))
+        #expect(document.presentation?.background.pictureFit == .tile)
+
+        // A file nobody can read as an image changes nothing.
+        let notAnImage = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("dropped-background.txt")
+        try Data("not a picture".utf8).write(to: notAnImage)
+        defer { try? FileManager.default.removeItem(at: notAnImage) }
+        let before = document.presentation
+        #expect(document.useBackgroundPicture(at: notAnImage) == false)
+        #expect(document.presentation == before)
+    }
+
     /// The bake is keyed on whether the picture is there, so the page drawn
     /// while a file is still being read is not the one kept for afterwards.
     @Test func aPageWaitingForItsPictureIsNotTheBakedOne() {

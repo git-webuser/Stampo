@@ -2539,6 +2539,31 @@ nonisolated struct RenderedArtifact: Sendable {
         backgroundPictures[id] = picture
     }
 
+    /// Takes the file as the page's background, in one undo step.
+    ///
+    /// The one road in, used by the panel's file dialog and by a file dropped
+    /// on the canvas alike: loading, keeping the pixels and naming them in the
+    /// presentation are three things that must happen together or not at all.
+    /// Returns false when the file is not an image anyone can read, which is
+    /// the caller's cue to say so.
+    @discardableResult
+    func useBackgroundPicture(at url: URL) -> Bool {
+        guard let picture = Self.picture(at: url) else { return false }
+        beginChange()
+        // Dropping a picture on an undecorated shot is a decision to decorate,
+        // exactly as touching any other decor control is.
+        startDecorationForEditing()
+        let id = UUID()
+        setBackgroundPicture(picture, id: id)
+        // However the last picture met the page, this one meets it the same:
+        // somebody who tiles textures is usually about to tile another.
+        presentation?.background = .picture(id: id,
+                                            backing: presentation?.background.colors.first ?? .white,
+                                            fit: presentation?.background.pictureFit ?? .fill)
+        commitChange()
+        return true
+    }
+
     /// A picture read from a file, in the form the renderer draws.
     nonisolated static func picture(at url: URL) -> CGImage? {
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
@@ -2559,7 +2584,7 @@ nonisolated struct RenderedArtifact: Sendable {
     /// No undo step of its own: each caller either wraps one or is part of a
     /// gesture that does, and a second step here would make one action take two
     /// presses of ⌘Z.
-    private func startDecorationForEditing() {
+    func startDecorationForEditing() {
         guard presentation == nil else { return }
         let margin = Presentation.defaultMargin(for: pixelSize)
         guard margin > 0 else { return }
