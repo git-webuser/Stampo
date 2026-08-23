@@ -393,8 +393,9 @@ struct PresentationInspector: View {
     /// One row of eight, never two. Sized together with `contentMinimumWidth`.
     private static let swatchSize: CGFloat = 22
     private static let swatchGap: CGFloat = 6
-    /// The square inside a section's action button.
-    private static let sectionActionSize: CGFloat = 22
+    /// The square every glyph button in the panel occupies — see
+    /// `panelIconButton`.
+    private static let buttonSide: CGFloat = 28
 
     init(document: EditorDocument, colorShelf: (any PresentationColorShelf)? = nil) {
         self.document = document
@@ -738,13 +739,9 @@ struct PresentationInspector: View {
     /// first sooner or later.
     private var pictureRow: some View {
         HStack(spacing: 6) {
-            Button { chooseBackgroundPicture() } label: {
-                Image(systemName: "photo.badge.plus")
-                    .frame(width: 28)
+            panelIconButton("photo.badge.plus", label: "Choose Picture") {
+                chooseBackgroundPicture()
             }
-            .controlSize(.large)
-            .help("Choose Picture")
-            .accessibilityLabel(Text("Choose Picture"))
             // The row is one button wide until the ways of meeting the page
             // join it; stretching a single glyph across the panel would make
             // one control look like a bar.
@@ -843,29 +840,21 @@ struct PresentationInspector: View {
         return selectedColorRow(color: color) { picked in
             setStops(GradientStops.recolored(stops, at: selection, to: picked))
         } trailing: {
-            Button {
+            panelIconButton("plus", label: "Add Stop") {
                 // Halfway to the next stop, or halfway to the end when the
                 // selected one is last: the same "add a handle where there is
                 // room" the ramp does under the pointer.
                 setStops(GradientStops.inserted(into: stops, at: nextGap(in: stops, after: selection)))
                 selectedStop = selection + 1
-            } label: {
-                Image(systemName: "plus")
             }
             .disabled(stops.count >= GradientStops.maximum)
-            .help("Add Stop")
-            .accessibilityLabel(Text("Add Stop"))
-            Button {
+            panelIconButton("minus", label: "Remove Stop") {
                 let remaining = GradientStops.removed(from: stops, at: selection)
                 guard remaining != stops else { return }
                 setStops(remaining)
                 selectedStop = GradientStops.clampedSelection(selection, in: remaining)
-            } label: {
-                Image(systemName: "minus")
             }
             .disabled(stops.count <= GradientStops.minimum)
-            .help("Remove Stop")
-            .accessibilityLabel(Text("Remove Stop"))
         }
         .controlSize(.large)
     }
@@ -976,14 +965,10 @@ struct PresentationInspector: View {
     /// is — the swatch and the hex field — so the button needs no label of its
     /// own, and it sits on the right edge like every other action here.
     private func saveToArchiveButton(color: Presentation.Color) -> some View {
-        Button {
+        panelIconButton("plus", label: "Save Color to Archive") {
             colorShelf?.addShelfColor(color)
-        } label: {
-            Image(systemName: "plus")
         }
         .disabled(colorShelf == nil)
-        .help("Save Color to Archive")
-        .accessibilityLabel(Text("Save Color to Archive"))
     }
 
 
@@ -1305,15 +1290,7 @@ struct PresentationInspector: View {
     private func effectRowButton(_ systemImage: String,
                                  label: LocalizedStringKey,
                                  action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: systemImage)
-                .font(.system(size: 11))
-                .frame(width: 20, height: 20)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.borderless)
-        .help(label)
-        .accessibilityLabel(Text(label))
+        panelIconButton(systemImage, role: .quiet, label: label, action: action)
     }
 
     /// The effect on the background it is actually sitting on, drawn by the
@@ -1331,8 +1308,10 @@ struct PresentationInspector: View {
         return Canvas { context, size in
             context.withCGContext { cg in
                 let rect = CGRect(origin: .zero, size: size)
-                PresentationRenderer.drawBackground(draft.background, effects: [shown],
-                                                    in: rect, ctx: cg)
+                PresentationRenderer.drawBackground(
+                    draft.background, effects: [shown],
+                    picture: document.backgroundPicture(for: draft.background.pictureID),
+                    in: rect, ctx: cg)
             }
         }
         .frame(width: 28, height: 20)
@@ -1392,13 +1371,9 @@ struct PresentationInspector: View {
     private var alignmentRow: some View {
         HStack(spacing: 6) {
             ForEach(Alignment.allCases) { item in
-                Button { align(item) } label: {
-                    Image(systemName: item.systemImage)
-                        .frame(maxWidth: .infinity)
+                panelIconButton(item.systemImage, stretch: true, label: item.titleKey) {
+                    align(item)
                 }
-                .controlSize(.large)
-                .help(item.titleKey)
-                .accessibilityLabel(item.titleKey)
             }
         }
     }
@@ -1453,23 +1428,15 @@ struct PresentationInspector: View {
     /// margins usually are, four is what they sometimes need to be, and the
     /// button is the only thing on screen that has to be learned.
     private var splitMarginsButton: some View {
-        Button {
+        panelIconButton(
+            marginsAreSplit ? "arrow.down.right.and.arrow.up.left"
+                            : "arrow.up.left.and.arrow.down.right",
+            role: .quiet,
+            label: marginsAreSplit ? "Join Margins" : "Split Margins"
+        ) {
             marginsAreSplit.toggle()
-        } label: {
-            Image(systemName: marginsAreSplit
-                  ? "arrow.down.right.and.arrow.up.left"
-                  : "arrow.up.left.and.arrow.down.right")
-                .font(.system(size: 11))
-                .frame(width: 26, height: 30)
-                // The hit area is the frame, not the glyph. A label that is
-                // only a stroked shape takes clicks on the stroke alone, which
-                // is how the last button here came to look broken.
-                .contentShape(Rectangle())
         }
-        .buttonStyle(.borderless)
         .disabled(!marginsAreFree)
-        .help(marginsAreSplit ? "Join Margins" : "Split Margins")
-        .accessibilityLabel(Text(marginsAreSplit ? "Join Margins" : "Split Margins"))
     }
 
     private func gapField(_ target: MarginShorthand.Target,
@@ -1765,25 +1732,63 @@ struct PresentationInspector: View {
 
     // MARK: Building blocks
 
+    /// Every glyph button in the panel, from one place.
+    ///
+    /// They were written five times over and came out five sizes: a 13pt glyph
+    /// in 22×22 for a section's action, an 11pt one in 20×20 on an effect row,
+    /// another 11pt in 26×30 beside the margins, a bare 28-wide one under the
+    /// picture, and the alignment row with no size of its own at all. Nothing
+    /// chose those numbers; they were each written where they were needed.
+    ///
+    /// One square, one glyph size, one control size. What a caller still
+    /// chooses is how loud the button is — `bordered` for an action that stands
+    /// on its own, `quiet` for one that lives inside a row it must not shout
+    /// over — and whether it stretches, which is how a row of them divides the
+    /// panel evenly.
+    private func panelIconButton(
+        _ systemImage: String,
+        role: PanelButtonRole = .bordered,
+        stretch: Bool = false,
+        label: LocalizedStringKey,
+        action: @escaping () -> Void
+    ) -> some View {
+        // Two branches rather than one erased style: `buttonStyle` takes a
+        // concrete type, and the two SwiftUI offers here share no box.
+        Group {
+            if role == .bordered {
+                Button(action: action) { panelButtonLabel(systemImage, stretch: stretch) }
+                    .buttonStyle(.bordered)
+            } else {
+                Button(action: action) { panelButtonLabel(systemImage, stretch: stretch) }
+                    .buttonStyle(.borderless)
+            }
+        }
+        .controlSize(.large)
+        .help(label)
+        .accessibilityLabel(Text(label))
+    }
+
+    private func panelButtonLabel(_ systemImage: String, stretch: Bool) -> some View {
+        Image(systemName: systemImage)
+            .font(.system(size: 13))
+            .frame(width: stretch ? nil : Self.buttonSide, height: Self.buttonSide)
+            .frame(maxWidth: stretch ? .infinity : nil)
+            // The frame is the target, not the glyph: a label that is only a
+            // stroked shape takes clicks on the stroke alone, which is how a
+            // button here once came to look broken.
+            .contentShape(Rectangle())
+    }
+
+    enum PanelButtonRole { case bordered, quiet }
+
     /// A section's one whole-block action, in the trailing corner of its last
-    /// row: rotate for the canvas, hide/show for the shadow. One builder, so
-    /// the two are the same button rather than two buttons that happen to look
-    /// alike — they sit in rows with different fonts, and inheriting those made
-    /// them different sizes.
+    /// row: the "+" for effects, hide/show for the shadow.
     private func sectionActionButton(
         _ systemImage: String,
         label: LocalizedStringKey,
         action: @escaping () -> Void
     ) -> some View {
-        Button(action: action) {
-            Image(systemName: systemImage)
-                .font(.system(size: 13))
-                .frame(width: Self.sectionActionSize, height: Self.sectionActionSize)
-        }
-        .buttonStyle(.bordered)
-        .controlSize(.large)
-        .help(label)
-        .accessibilityLabel(Text(label))
+        panelIconButton(systemImage, label: label, action: action)
     }
 
     /// The group's own title is the only title: the controls inside carry no
