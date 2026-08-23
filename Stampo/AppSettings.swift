@@ -9,6 +9,22 @@ import ServiceManagement
 /// SwiftUI views use @AppStorage(AppSettings.Keys.xxx) for two-way bindings.
 enum AppSettings {
 
+    /// Where preferences live.
+    ///
+    /// The app's own domain, except under tests, where it is a scratch suite
+    /// wiped on the way in. The test bundle is hosted *by the app*, so
+    /// `UserDefaults.standard` there is the user's real preferences file:
+    /// a suite that opens the decor panel and clicks in it left the user's
+    /// folded-sections preference rewritten, which is a test changing the
+    /// settings of the person running it.
+    static let store: UserDefaults = {
+        guard ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil,
+              let scratch = UserDefaults(suiteName: "com.hex000.Stampo.tests")
+        else { return .standard }
+        scratch.removePersistentDomain(forName: "com.hex000.Stampo.tests")
+        return scratch
+    }()
+
     /// UserDefaults reads/writes are individually thread-safe, but the
     /// read-modify-write counter operation is not. Keep this lock local to
     /// the counter so concurrent captures cannot reuse a number.
@@ -49,6 +65,11 @@ enum AppSettings {
         static let persistTray           = "persistTray"
         static let trayPersistedData     = "trayPersistedData"
         static let defaultColorFormat    = "defaultColorFormat"
+        /// Which sections of the decor inspector the user keeps folded, as a
+        /// comma-separated list. A preference rather than document state: it
+        /// is about how a person likes to work, and it outlives the picture
+        /// they were working on.
+        static let decorFoldedSections   = "decorFoldedSections"
         /// Space-to-preview over an archive cell. Off means the key is never
         /// claimed at all — see `TransientHotkeyCenter`.
         static let archiveSpacePreview   = "archiveSpacePreview"

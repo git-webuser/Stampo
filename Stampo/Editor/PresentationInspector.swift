@@ -36,11 +36,43 @@ struct PresentationInspector: View {
     /// Which groups the user has folded away. Sections are identified by a
     /// stable case rather than by their title, which is a localized key and
     /// therefore not a usable dictionary key.
+    /// Which sections are folded, kept across openings and across launches.
+    ///
+    /// A preference, not document state: folding the shadow away is a statement
+    /// about how someone likes to work, and it would be a poor one if it had to
+    /// be made again every time the panel opened.
+    ///
     /// Shadow and glow start folded. They are the two sections a page usually
     /// does without, they are the tallest — four sliders and three — and the
-    /// panel pays for what it builds: folding them takes about 30 ms off every
-    /// opening, of the 80 the panel costs.
-    @State private var collapsed: Set<Section> = [.shadow, .glow]
+    /// panel pays for what it builds: folding them takes about 25 ms off every
+    /// opening, of the 80 the panel used to cost.
+    /// Through `AppSettings.store`, not straight to `.standard`: the test
+    /// bundle is hosted by the app, so a test that opens this panel and clicks
+    /// in it would otherwise rewrite the preferences of whoever ran it — and
+    /// one did, leaving the shadow section unfolded for good.
+    @AppStorage(AppSettings.Keys.decorFoldedSections, store: AppSettings.store)
+    private var foldedSections: String = Self.folded(Self.foldedByDefault)
+
+    static let foldedByDefault: Set<Section> = [.shadow, .glow]
+
+    private var collapsed: Set<Section> {
+        get { Self.sections(folded: foldedSections) }
+        nonmutating set { foldedSections = Self.folded(newValue) }
+    }
+
+    /// The stored spelling, and back. Sorted so the same set is always the
+    /// same string — a value that rewrites itself in a different order on every
+    /// launch looks like a setting that keeps changing.
+    static func folded(_ sections: Set<Section>) -> String {
+        sections.map(\.rawValue).sorted().joined(separator: ",")
+    }
+
+    /// Anything unreadable is simply not folded. A section renamed in a later
+    /// version leaves a word nobody claims, and the worst that may come of it
+    /// is a panel that opens with one section more than the user left.
+    static func sections(folded value: String) -> Set<Section> {
+        Set(value.split(separator: ",").compactMap { Section(rawValue: String($0)) })
+    }
     /// The shadow put aside by the hide button, so showing it again brings back
     /// the one you had rather than a stock one.
     @State private var hiddenShadow: Presentation.Shadow?
@@ -72,7 +104,7 @@ struct PresentationInspector: View {
     /// the number.
     @State private var selectedStop = 0
 
-    private enum Section: Hashable, CaseIterable {
+    enum Section: String, Hashable, CaseIterable {
         case background, image, effects, shadow, glow
 
         /// Kept on the case (and exposed through `sectionSystemImages`) so the

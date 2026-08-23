@@ -424,6 +424,33 @@ import Testing
         }
     }
 
+    /// Folding a section is a preference, so it has to survive a round trip
+    /// through a string in the defaults — and survive whatever it finds there.
+    @Test func theFoldedSectionsSurviveTheRoundTrip() {
+        typealias Section = PresentationInspector.Section
+
+        #expect(PresentationInspector.sections(
+            folded: PresentationInspector.folded(PresentationInspector.foldedByDefault))
+            == PresentationInspector.foldedByDefault)
+
+        for sections in [Set<Section>(), Set(Section.allCases), [Section.background]] {
+            #expect(PresentationInspector.sections(
+                folded: PresentationInspector.folded(sections)) == sections)
+        }
+
+        // Always the same spelling for the same set: a value that rewrites
+        // itself in a new order every launch reads as a setting that keeps
+        // changing.
+        #expect(PresentationInspector.folded([.glow, .shadow])
+                == PresentationInspector.folded([.shadow, .glow]))
+
+        // A word nobody claims — a section renamed in a later version — leaves
+        // that section unfolded rather than throwing the whole preference away.
+        #expect(PresentationInspector.sections(folded: "shadow,gloww,,glow")
+                == [.shadow, .glow])
+        #expect(PresentationInspector.sections(folded: "").isEmpty)
+    }
+
     /// The panel is built once offscreen when the editor opens, so the first
     /// press of the decor button does not pay for it — measured, 140 ms cold
     /// against 80 ms warm, and a primer of plain sliders and fields does not
