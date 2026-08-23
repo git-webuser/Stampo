@@ -60,6 +60,37 @@ import Testing
         #expect(EffectStack.moved(effects, from: 7, to: 0).effects.map(\.seed) == [1, 2])
     }
 
+    /// One list, two passes. The order inside each layer is the list's order,
+    /// because filters do not commute — and a switched-off effect belongs to
+    /// neither.
+    @Test func theStackSplitsIntoItsTwoLayers() {
+        var behind = EffectStack.make(.grain, seed: 1)
+        behind.layer = .background
+        var over = EffectStack.make(.dither, seed: 2)
+        over.layer = .page
+        var second = EffectStack.make(.halftone, seed: 3)
+        second.layer = .page
+        var off = EffectStack.make(.vignette, seed: 4)
+        off.layer = .page
+        off.isEnabled = false
+
+        let stack = [over, behind, off, second]
+        #expect(EffectStack.background(stack).map(\.seed) == [1])
+        #expect(EffectStack.page(stack).map(\.seed) == [2, 3])
+    }
+
+    /// Both layers have a name and a glyph, since the row shows them side by
+    /// side and a segment with a missing symbol is a blank button.
+    @Test func bothLayersAreNamedAndDrawn() {
+        let layers = Presentation.Effect.Layer.allCases
+        #expect(Set(layers.map(EffectStack.title(for:))).count == layers.count)
+        for layer in layers {
+            let symbol = EffectStack.symbol(for: layer)
+            #expect(NSImage(systemSymbolName: symbol, accessibilityDescription: nil) != nil,
+                    "Missing SF Symbol: \(symbol)")
+        }
+    }
+
     @Test func onlyEnabledEffectsAreActive() {
         var off = EffectStack.make(.grain)
         off.isEnabled = false

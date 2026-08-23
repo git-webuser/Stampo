@@ -1018,6 +1018,7 @@ struct PresentationInspector: View {
                     removeEffect(effect)
                 }
             }
+            effectLayerRow(effect)
             ForEach(EffectStack.parameters(for: effect.kind), id: \.parameter) { info in
                 if info.parameter == .color {
                     effectColorRow(effect, info)
@@ -1076,6 +1077,29 @@ struct PresentationInspector: View {
         }
     }
 
+    /// Behind the picture, or over everything.
+    ///
+    /// Every effect carries it, because every effect can be read either way: a
+    /// grain behind the screenshot is a paper the picture sits on, and the same
+    /// grain over it is film the whole page was shot on. It is the first row of
+    /// the effect rather than the last, since it changes what the sliders below
+    /// are doing.
+    private func effectLayerRow(_ effect: Presentation.Effect) -> some View {
+        IconSegmentedPicker(
+            segments: [
+                .init("Background Only", systemImage: EffectStack.symbol(for: .background),
+                      value: Presentation.Effect.Layer.background),
+                .init("Whole Page", systemImage: EffectStack.symbol(for: .page),
+                      value: Presentation.Effect.Layer.page)
+            ],
+            selection: Binding(
+                get: { effect.layer },
+                set: { layer in setEffect(effect) { $0.layer = layer } }
+            )
+        )
+        .frame(maxWidth: .infinity)
+    }
+
     /// Which characters the page is written in. A choice, so it gets a menu
     /// rather than a slider — and the menu shows the characters themselves,
     /// because "@%#*+=-:." says what it will look like and "Classic" does not.
@@ -1126,11 +1150,14 @@ struct PresentationInspector: View {
     /// routine that draws the canvas — a swatch that made its own picture could
     /// promise something the page would not deliver.
     private func effectPreview(_ effect: Presentation.Effect) -> some View {
-        // Drawn as if switched on, even while it is off: the swatch answers
-        // "what would come back", and a switched-off row whose swatch showed
-        // the plain background said nothing about what it was hiding.
+        // Drawn as if switched on and as if it were a background effect, even
+        // when it is neither: the swatch answers "what does this effect do",
+        // and a row showing the plain background — because it was switched off,
+        // or because its effect belongs to the whole page and this swatch is
+        // only a background — said nothing about what it was hiding.
         var shown = effect
         shown.isEnabled = true
+        shown.layer = .background
         return Canvas { context, size in
             context.withCGContext { cg in
                 let rect = CGRect(origin: .zero, size: size)

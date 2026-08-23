@@ -940,6 +940,23 @@
         }
       }
     },
+    "Background Only" : {
+      "comment" : "Decor inspector — the effect is laid on the background, behind the picture",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Background Only"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Только фон"
+          }
+        }
+      }
+    },
     "Behavior" : {
       "comment" : "Settings section header for capture behavior toggles",
       "localizations" : {
@@ -8217,6 +8234,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Белый"
+          }
+        }
+      }
+    },
+    "Whole Page" : {
+      "comment" : "Decor inspector — the effect is laid over everything, the picture included",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Whole Page"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Вся страница"
           }
         }
       }

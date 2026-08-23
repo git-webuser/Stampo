@@ -89,8 +89,8 @@ nonisolated enum EffectStack {
                     aberration: CGFloat = 0) -> Effect {
             Effect(id: UUID(), kind: kind, isEnabled: true, amount: amount,
                    scale: scale, angleInDegrees: angle, color: color,
-                   detail: detail, aberration: aberration, glyphs: .classic,
-                   seed: seed)
+                   detail: detail, aberration: aberration, layer: .background,
+                   glyphs: .classic, seed: seed)
         }
         switch kind {
         // Defaults are the settings that make the effect *recognisable* on
@@ -281,5 +281,31 @@ nonisolated enum EffectStack {
     /// so a stack of switched-off effects costs exactly nothing.
     static func active(_ effects: [Effect]) -> [Effect] {
         effects.filter(\.isEnabled)
+    }
+
+    /// The two layers, each in the order the list gives them. One stack, two
+    /// passes: what lands on the background is baked and kept, what lands on
+    /// the whole page is computed again every frame.
+    static func background(_ effects: [Effect]) -> [Effect] {
+        active(effects).filter { $0.layer == .background }
+    }
+
+    static func page(_ effects: [Effect]) -> [Effect] {
+        active(effects).filter { $0.layer == .page }
+    }
+
+    /// What a layer is called in the panel.
+    static func title(for layer: Presentation.Effect.Layer) -> String {
+        switch layer {
+        case .background: return "Background Only"
+        case .page:       return "Whole Page"
+        }
+    }
+
+    static func symbol(for layer: Presentation.Effect.Layer) -> String {
+        switch layer {
+        case .background: return "square.on.square.dashed"
+        case .page:       return "square.fill.on.square.fill"
+        }
     }
 }

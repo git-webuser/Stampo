@@ -6,7 +6,71 @@ import Foundation
 /// one scale/translation and share every background, shadow and clipping rule
 /// with encoded exports.
 nonisolated enum PresentationRenderer {
+    /// Draws the whole page: background, lights, picture, annotations — and,
+    /// when the stack carries effects for the *page* layer, through an
+    /// offscreen so those effects can be laid over the finished thing.
+    ///
+    /// The offscreen is the price of that layer. A background effect is baked
+    /// once and kept, because the background is the one part that holds still
+    /// while the picture is dragged; over the whole page there is nothing to
+    /// keep, so every frame renders the page into a bitmap and filters it.
+    /// That is why the two layers are a choice a person makes, not a detail.
     static func draw(
+        in ctx: CGContext,
+        base: CGImage,
+        blurSources: [BlurSource: CGImage],
+        annotations: [Annotation],
+        presentation: Presentation,
+        layout: PresentationLayout.Resolved,
+        skipping skippedID: UUID? = nil
+    ) {
+        guard !EffectStack.page(presentation.effects).isEmpty else {
+            drawContents(in: ctx, base: base, blurSources: blurSources,
+                         annotations: annotations, presentation: presentation,
+                         layout: layout, skipping: skippedID)
+            return
+        }
+
+        let canvasRect = CGRect(origin: .zero, size: layout.canvasSize)
+        // The same rule as the background bake: the size comes from the context
+        // itself, so the canvas gets screen pixels and the export the file's.
+        let device = ctx.convertToDeviceSpace(canvasRect)
+        let width = Int(abs(device.width).rounded()), height = Int(abs(device.height).rounded())
+        guard width > 0, height > 0, canvasRect.width > 0, canvasRect.height > 0,
+              let offscreen = CGContext(
+                data: nil, width: width, height: height,
+                bitsPerComponent: 8, bytesPerRow: 0,
+                space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+              )
+        else {
+            drawContents(in: ctx, base: base, blurSources: blurSources,
+                         annotations: annotations, presentation: presentation,
+                         layout: layout, skipping: skippedID)
+            return
+        }
+
+        // Into the renderer's own space: top-left, one unit per canvas pixel.
+        offscreen.translateBy(x: 0, y: CGFloat(height))
+        offscreen.scaleBy(x: 1, y: -1)
+        offscreen.scaleBy(x: CGFloat(width) / canvasRect.width,
+                          y: CGFloat(height) / canvasRect.height)
+        drawContents(in: offscreen, base: base, blurSources: blurSources,
+                     annotations: annotations, presentation: presentation,
+                     layout: layout, skipping: skippedID)
+
+        guard let rendered = offscreen.makeImage(),
+              let filtered = EffectBaker.page(presentation.effects, over: rendered)
+        else {
+            drawContents(in: ctx, base: base, blurSources: blurSources,
+                         annotations: annotations, presentation: presentation,
+                         layout: layout, skipping: skippedID)
+            return
+        }
+        AnnotationRenderer.drawImageInFlippedSpace(filtered, in: canvasRect, ctx: ctx)
+    }
+
+    private static func drawContents(
         in ctx: CGContext,
         base: CGImage,
         blurSources: [BlurSource: CGImage],
@@ -184,7 +248,7 @@ nonisolated enum PresentationRenderer {
         // hold — falls through to the plain drawing below, unchanged.
         if !EffectStack.active(effects).isEmpty {
             let deviceRect = ctx.convertToDeviceSpace(rect)
-            if let baked = BackgroundBaker.image(
+            if let baked = EffectBaker.image(
                 background: background,
                 effects: effects,
                 pixelSize: CGSize(width: abs(deviceRect.width),

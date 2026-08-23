@@ -21,7 +21,31 @@ import Foundation
 /// change while the picture is being dragged around on top of it. That is also
 /// why effects over the *whole page* are a separate job: there the picture
 /// moves, so there is nothing to keep.
-nonisolated enum BackgroundBaker {
+nonisolated enum EffectBaker {
+
+    /// The finished page with its own effects laid over it — the picture, its
+    /// annotations and all.
+    ///
+    /// Nothing is cached here, and that is the difference between the two
+    /// layers rather than an omission: the background holds still while the
+    /// picture is dragged about, so its bake is worth keeping, while a page
+    /// that moves with every sample has nothing to keep. Each frame pays.
+    static func page(_ effects: [Presentation.Effect], over rendered: CGImage) -> CGImage? {
+        let active = EffectStack.page(effects)
+        guard !active.isEmpty else { return nil }
+        let width = rendered.width, height = rendered.height
+        guard width > 0, height > 0,
+              width <= maximumSide, height <= maximumSide else { return nil }
+
+        counter.value += 1
+        let extent = CGRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height))
+        var image = CIImage(cgImage: rendered)
+        let shortSide = CGFloat(min(width, height))
+        for recipe in active.map(Recipe.init) {
+            image = apply(recipe, to: image, extent: extent, shortSide: shortSide)
+        }
+        return ciContext.createCGImage(image.cropped(to: extent), from: extent)
+    }
 
     /// The baked background, or nil when there is nothing to bake — no active
     /// effects, no background, or a degenerate size. A nil answer means "draw
@@ -30,7 +54,9 @@ nonisolated enum BackgroundBaker {
     static func image(background: Presentation.Background,
                       effects: [Presentation.Effect],
                       pixelSize: CGSize) -> CGImage? {
-        let active = EffectStack.active(effects)
+        // Only what belongs to this layer. The panel keeps one list, and which
+        // pass an effect lands in is the effect's own business.
+        let active = EffectStack.background(effects)
         guard !active.isEmpty, background != .none else { return nil }
         let width = Int(pixelSize.width.rounded())
         let height = Int(pixelSize.height.rounded())

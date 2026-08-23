@@ -294,6 +294,14 @@ nonisolated struct Presentation: Equatable, Sendable {
         /// spectrum, and so does thick glass. Named rather than filed under
         /// "the second number", because two kinds mean the same thing by it.
         var aberration: CGFloat
+        /// What the effect is laid over.
+        ///
+        /// Two layers, and the difference is not a matter of taste: the
+        /// background is the one thing that holds still while the picture is
+        /// dragged about, so its effects are baked once and kept. Over the whole
+        /// page there is nothing to keep — the picture moves — and every frame
+        /// pays for the pass.
+        var layer: Layer
         /// Which characters an ASCII pass draws with. A choice, not a dial:
         /// blocks and letters are different pictures, not more or less of one.
         var glyphs: GlyphSet
@@ -301,6 +309,16 @@ nonisolated struct Presentation: Equatable, Sendable {
         /// filter reseeded per call would shimmer while the panel redrew and
         /// export something different again.
         let seed: UInt32
+
+        /// Which of the two layers an effect works on.
+        enum Layer: String, CaseIterable, Identifiable, Sendable {
+            /// Behind the picture: only what the page is painted with.
+            case background
+            /// Over everything, the screenshot included.
+            case page
+
+            var id: String { rawValue }
+        }
 
         /// The characters a page can be written in, darkest first — the order
         /// *is* the ramp, so a set is read as a scale of brightness.

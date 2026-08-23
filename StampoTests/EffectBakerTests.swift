@@ -11,7 +11,7 @@ import Testing
 ///
 /// Serialized because the cache and the bake counter are shared by the whole
 /// app, which is exactly the property being tested.
-@MainActor @Suite(.serialized) struct BackgroundBakerTests {
+@MainActor @Suite(.serialized) struct EffectBakerTests {
 
     private let grey = Presentation.Background.solid(
         Presentation.Color(red: 0.5, green: 0.5, blue: 0.5, alpha: 1)
@@ -26,8 +26,8 @@ import Testing
     }
 
     private func fresh() {
-        BackgroundBaker.emptyCache()
-        BackgroundBaker.resetBakeCount()
+        EffectBaker.emptyCache()
+        EffectBaker.resetBakeCount()
     }
 
     /// Nothing to apply means nothing is computed — the old path, untouched.
@@ -37,44 +37,44 @@ import Testing
         fresh()
         var off = grain()
         off.isEnabled = false
-        #expect(BackgroundBaker.image(background: grey, effects: [],
+        #expect(EffectBaker.image(background: grey, effects: [],
                                       pixelSize: CGSize(width: 40, height: 40)) == nil)
-        #expect(BackgroundBaker.image(background: grey, effects: [off],
+        #expect(EffectBaker.image(background: grey, effects: [off],
                                       pixelSize: CGSize(width: 40, height: 40)) == nil)
         // A transparent page has no pixels to disturb.
-        #expect(BackgroundBaker.image(background: .none, effects: [grain()],
+        #expect(EffectBaker.image(background: .none, effects: [grain()],
                                       pixelSize: CGSize(width: 40, height: 40)) == nil)
-        #expect(BackgroundBaker.bakeCount == 0)
+        #expect(EffectBaker.bakeCount == 0)
     }
 
     @Test func theSameRequestIsBakedOnceAndThenRemembered() {
         fresh()
         let size = CGSize(width: 80, height: 60)
-        let first = BackgroundBaker.image(background: grey, effects: [grain()], pixelSize: size)
-        let second = BackgroundBaker.image(background: grey, effects: [grain()], pixelSize: size)
+        let first = EffectBaker.image(background: grey, effects: [grain()], pixelSize: size)
+        let second = EffectBaker.image(background: grey, effects: [grain()], pixelSize: size)
         #expect(first != nil)
-        #expect(BackgroundBaker.bakeCount == 1)
+        #expect(EffectBaker.bakeCount == 1)
         #expect(first === second)
     }
 
     @Test func changingAnythingMissesTheCache() {
         fresh()
         let size = CGSize(width: 80, height: 60)
-        _ = BackgroundBaker.image(background: grey, effects: [grain()], pixelSize: size)
-        _ = BackgroundBaker.image(background: grey, effects: [grain(amount: 0.2)], pixelSize: size)
-        _ = BackgroundBaker.image(background: grey, effects: [grain(scale: 0.008)], pixelSize: size)
-        _ = BackgroundBaker.image(background: .solid(.white), effects: [grain()], pixelSize: size)
-        _ = BackgroundBaker.image(background: grey, effects: [grain()],
+        _ = EffectBaker.image(background: grey, effects: [grain()], pixelSize: size)
+        _ = EffectBaker.image(background: grey, effects: [grain(amount: 0.2)], pixelSize: size)
+        _ = EffectBaker.image(background: grey, effects: [grain(scale: 0.008)], pixelSize: size)
+        _ = EffectBaker.image(background: .solid(.white), effects: [grain()], pixelSize: size)
+        _ = EffectBaker.image(background: grey, effects: [grain()],
                                   pixelSize: CGSize(width: 81, height: 60))
-        #expect(BackgroundBaker.bakeCount == 5)
+        #expect(EffectBaker.bakeCount == 5)
     }
 
     @Test func grainDisturbsTheBackgroundAndStrengthDecidesHowMuch() {
         fresh()
         let size = CGSize(width: 120, height: 120)
-        let weak = BackgroundBaker.image(background: grey, effects: [grain(amount: 0.1)],
+        let weak = EffectBaker.image(background: grey, effects: [grain(amount: 0.1)],
                                          pixelSize: size)
-        let strong = BackgroundBaker.image(background: grey, effects: [grain(amount: 0.9)],
+        let strong = EffectBaker.image(background: grey, effects: [grain(amount: 0.9)],
                                            pixelSize: size)
         #expect(spread(of: weak) > 0.001)                 // it is doing something
         #expect(spread(of: strong) > spread(of: weak) * 2) // and the dial means something
@@ -86,12 +86,12 @@ import Testing
     @Test func theSeedFixesTheNoise() {
         fresh()
         let size = CGSize(width: 60, height: 60)
-        let once = BackgroundBaker.image(background: grey, effects: [grain(seed: 3)],
+        let once = EffectBaker.image(background: grey, effects: [grain(seed: 3)],
                                          pixelSize: size)
-        BackgroundBaker.emptyCache()
-        let again = BackgroundBaker.image(background: grey, effects: [grain(seed: 3)],
+        EffectBaker.emptyCache()
+        let again = EffectBaker.image(background: grey, effects: [grain(seed: 3)],
                                           pixelSize: size)
-        let other = BackgroundBaker.image(background: grey, effects: [grain(seed: 4)],
+        let other = EffectBaker.image(background: grey, effects: [grain(seed: 4)],
                                           pixelSize: size)
         #expect(bytes(of: once) == bytes(of: again))
         #expect(bytes(of: once) != bytes(of: other))
@@ -104,9 +104,9 @@ import Testing
     /// in pixels, where four times the resolution is four times finer.
     @Test func theSameStackIsTheSameGrainAtAnyResolution() {
         fresh()
-        let small = BackgroundBaker.image(background: grey, effects: [grain()],
+        let small = EffectBaker.image(background: grey, effects: [grain()],
                                           pixelSize: CGSize(width: 200, height: 200))
-        let large = BackgroundBaker.image(background: grey, effects: [grain()],
+        let large = EffectBaker.image(background: grey, effects: [grain()],
                                           pixelSize: CGSize(width: 800, height: 800))
         let ratio = spread(of: large) / max(spread(of: small), 0.0001)
         #expect(ratio > 0.75 && ratio < 1.35,
@@ -116,13 +116,13 @@ import Testing
     /// A canvas nobody can hold is drawn plainly rather than slowly.
     @Test func anImpossibleSizeIsRefusedRatherThanAttempted() {
         fresh()
-        #expect(BackgroundBaker.image(background: grey, effects: [grain()],
+        #expect(EffectBaker.image(background: grey, effects: [grain()],
                                       pixelSize: CGSize(width: 0, height: 100)) == nil)
-        #expect(BackgroundBaker.image(
+        #expect(EffectBaker.image(
             background: grey, effects: [grain()],
-            pixelSize: CGSize(width: CGFloat(BackgroundBaker.maximumSide + 1), height: 100)
+            pixelSize: CGSize(width: CGFloat(EffectBaker.maximumSide + 1), height: 100)
         ) == nil)
-        #expect(BackgroundBaker.bakeCount == 0)
+        #expect(EffectBaker.bakeCount == 0)
     }
 
     /// Every kind has to be visible at its own default, and this is the test
@@ -139,11 +139,11 @@ import Testing
             let under: [Presentation.Effect] = needsTexture
                 ? [EffectStack.make(.dots, seed: 5)] : []
             let size = CGSize(width: 300, height: 300)
-            BackgroundBaker.emptyCache()
+            EffectBaker.emptyCache()
             let before = under.isEmpty
                 ? plainPixels(size)
-                : bytes(of: BackgroundBaker.image(background: ramp, effects: under, pixelSize: size))
-            let after = bytes(of: BackgroundBaker.image(background: ramp,
+                : bytes(of: EffectBaker.image(background: ramp, effects: under, pixelSize: size))
+            let after = bytes(of: EffectBaker.image(background: ramp,
                                                        effects: under + [EffectStack.make(kind, seed: 5)],
                                                        pixelSize: size))
             #expect(distance(before, after) > 0.75,
@@ -171,8 +171,8 @@ import Testing
 
         for kind in [Presentation.Effect.Kind.grain, .dots, .grid, .stripes, .ascii] {
             func spread(_ background: Presentation.Background) -> Double {
-                BackgroundBaker.emptyCache()
-                return self.spread(of: BackgroundBaker.image(
+                EffectBaker.emptyCache()
+                return self.spread(of: EffectBaker.image(
                     background: background,
                     effects: [EffectStack.make(kind, over: background, seed: 5)],
                     pixelSize: CGSize(width: 300, height: 300)))
@@ -215,10 +215,10 @@ import Testing
         fringed.detail = 0.45
         let size = CGSize(width: 200, height: 200)
 
-        BackgroundBaker.emptyCache()
-        let without = mean(of: BackgroundBaker.image(background: ramp, effects: [plain],
+        EffectBaker.emptyCache()
+        let without = mean(of: EffectBaker.image(background: ramp, effects: [plain],
                                                      pixelSize: size))
-        let with = mean(of: BackgroundBaker.image(background: ramp, effects: [fringed],
+        let with = mean(of: EffectBaker.image(background: ramp, effects: [fringed],
                                                   pixelSize: size))
         #expect(with > without * 0.9,
                 "the colour fringe cost the page its brightness: \(without) → \(with)")
@@ -233,8 +233,8 @@ import Testing
         func fringe(_ aberration: CGFloat) -> Double {
             var glass = EffectStack.make(.glass, over: ramp, seed: 5)
             glass.aberration = aberration
-            BackgroundBaker.emptyCache()
-            let raw = bytes(of: BackgroundBaker.image(background: ramp, effects: [glass],
+            EffectBaker.emptyCache()
+            let raw = bytes(of: EffectBaker.image(background: ramp, effects: [glass],
                                                       pixelSize: CGSize(width: 300, height: 300)))
             guard !raw.isEmpty else { return 0 }
             // How far apart red and blue ended up, which is what a fringe is.
@@ -256,8 +256,8 @@ import Testing
         for set in Presentation.Effect.GlyphSet.allCases {
             var ascii = EffectStack.make(.ascii, over: ramp, seed: 5)
             ascii.glyphs = set
-            BackgroundBaker.emptyCache()
-            pictures.append(bytes(of: BackgroundBaker.image(
+            EffectBaker.emptyCache()
+            pictures.append(bytes(of: EffectBaker.image(
                 background: ramp, effects: [ascii],
                 pixelSize: CGSize(width: 240, height: 240))))
         }
@@ -275,8 +275,8 @@ import Testing
         for angle in [30, 45, 120] as [CGFloat] {
             var fluted = EffectStack.make(.fluted, over: ramp, seed: 5)
             fluted.angleInDegrees = angle
-            BackgroundBaker.emptyCache()
-            let raw = bytes(of: BackgroundBaker.image(background: ramp, effects: [fluted],
+            EffectBaker.emptyCache()
+            let raw = bytes(of: EffectBaker.image(background: ramp, effects: [fluted],
                                                       pixelSize: CGSize(width: 240, height: 240)))
             #expect(!raw.isEmpty)
             let plain = plainPixels(CGSize(width: 240, height: 240))
@@ -299,7 +299,7 @@ import Testing
     /// size — was close enough for letters and wrong for blocks, whose ink is a
     /// full line box, and they ran into each other.
     @Test func oneCharacterIsExactlyOneCellWide() {
-        let ratio = BackgroundBaker.advanceRatio
+        let ratio = EffectBaker.advanceRatio
         #expect(ratio > 0.4 && ratio < 0.8, "an implausible advance: \(ratio)")
         for cellWidth in [8.0, 17.0, 40.0] as [CGFloat] {
             let font = CTFontCreateWithName("Menlo" as CFString, cellWidth / ratio, nil)
@@ -328,7 +328,7 @@ import Testing
         PresentationRenderer.drawBackground(grey, effects: [grain()],
                                             in: CGRect(x: 0, y: 0, width: 200, height: 200),
                                             ctx: ctx)
-        #expect(BackgroundBaker.bakeCount == 1)
+        #expect(EffectBaker.bakeCount == 1)
         #expect(spread(of: ctx.makeImage()) > 0.001)
 
         // And the same background at the same device size is not baked again,
@@ -336,7 +336,7 @@ import Testing
         PresentationRenderer.drawBackground(grey, effects: [grain()],
                                             in: CGRect(x: 0, y: 0, width: 200, height: 200),
                                             ctx: ctx)
-        #expect(BackgroundBaker.bakeCount == 1)
+        #expect(EffectBaker.bakeCount == 1)
     }
 
     /// The export path, end to end: what the panel promises has to reach the
@@ -361,7 +361,7 @@ import Testing
                                                   annotations: [],
                                                   presentation: presentation)
         #expect(rep != nil)
-        #expect(BackgroundBaker.bakeCount == 1)
+        #expect(EffectBaker.bakeCount == 1)
         // A margin pixel, well away from the picture in the middle: flat grey
         // would have no spread at all, so any wandering here is the grain.
         let margin = (0..<40).map { offset -> Double in
@@ -416,6 +416,77 @@ import Testing
         // The shadow darkens everything alike.
         #expect(shadowed.b < plain.b - 0.05)
         #expect(abs(shadowed.b - shadowed.r) < 0.05)
+    }
+
+    /// The whole point of the layer switch: the same effect either stops at the
+    /// picture or runs over it.
+    @Test func theLayerDecidesWhetherThePictureIsTouched() {
+        let source = CGContext(data: nil, width: 40, height: 40, bitsPerComponent: 8,
+                               bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                               bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        source.setFillColor(CGColor(gray: 0.5, alpha: 1))
+        source.fill(CGRect(x: 0, y: 0, width: 40, height: 40))
+        let base = source.makeImage()!
+
+        func render(_ effects: [Presentation.Effect]) -> NSBitmapImageRep? {
+            var presentation = Presentation.identity
+            presentation.canvas = .auto(margins: Presentation.Margins(top: 30, leading: 30,
+                                                                      bottom: 30, trailing: 30),
+                                        scale: 1)
+            presentation.background = ramp
+            presentation.effects = effects
+            EffectBaker.emptyCache()
+            return AnnotationRenderer.renderBitmap(base: base, annotations: [],
+                                                   presentation: presentation)
+        }
+        // The middle of the canvas is the middle of the picture: 40 + 20.
+        func middle(_ rep: NSBitmapImageRep?) -> (Double, Double, Double) {
+            let color = rep?.colorAt(x: 50, y: 50)
+            return (Double(color?.redComponent ?? 0), Double(color?.greenComponent ?? 0),
+                    Double(color?.blueComponent ?? 0))
+        }
+
+        var behind = EffectStack.make(.dither, seed: 5)
+        behind.layer = .background
+        var over = behind
+        over.layer = .page
+
+        let plain = middle(render([]))
+        let withBackground = middle(render([behind]))
+        let withPage = middle(render([over]))
+
+        func gap(_ a: (Double, Double, Double), _ b: (Double, Double, Double)) -> Double {
+            abs(a.0 - b.0) + abs(a.1 - b.1) + abs(a.2 - b.2)
+        }
+        #expect(gap(plain, withBackground) < 0.01,
+                "a background effect reached the picture: \(plain) vs \(withBackground)")
+        #expect(gap(plain, withPage) > 0.05,
+                "a page effect left the picture alone: \(plain) vs \(withPage)")
+    }
+
+    /// The page pass is deliberately not cached, and that is the difference
+    /// between the layers rather than an oversight: a page that moves with the
+    /// picture has nothing worth keeping.
+    @Test func thePagePassIsComputedEveryTime() {
+        fresh()
+        let rendered = CGContext(data: nil, width: 60, height: 60, bitsPerComponent: 8,
+                                 bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                 bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        rendered.setFillColor(CGColor(gray: 0.4, alpha: 1))
+        rendered.fill(CGRect(x: 0, y: 0, width: 60, height: 60))
+        let page = rendered.makeImage()!
+
+        var effect = EffectStack.make(.halftone, seed: 5)
+        effect.layer = .page
+        #expect(EffectBaker.page([effect], over: page) != nil)
+        #expect(EffectBaker.page([effect], over: page) != nil)
+        #expect(EffectBaker.bakeCount == 2)
+
+        // A stack with nothing on this layer does not reach the pass at all.
+        var behind = effect
+        behind.layer = .background
+        #expect(EffectBaker.page([behind], over: page) == nil)
+        #expect(EffectBaker.bakeCount == 2)
     }
 
     // MARK: Reading pixels
