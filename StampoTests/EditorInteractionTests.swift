@@ -35,6 +35,29 @@ import Testing
         #expect(EditorCanvasView.actingTool(.crop, commandHeld: true) == .crop)
     }
 
+    // MARK: The tracked ⌘ flag
+
+    /// The bug this pins: pressing the colour picker's ⌃⌥⌘C inside the editor
+    /// hands the key window to the picker's overlay, so the release of the chord
+    /// is never heard by the editor. A mirror that kept saying "down" borrowed
+    /// Select from every tool afterwards, and no tool could make an annotation
+    /// again — on a decorated page each press grabbed the picture instead.
+    @Test func aModifierChangeSeenWhileAnotherWindowIsKeyReleasesTheBorrow() {
+        #expect(!EditorCanvasView.trackedCommand(eventSaysDown: true,
+                                                 editorIsKey: false))
+        #expect(!EditorCanvasView.trackedCommand(eventSaysDown: false,
+                                                 editorIsKey: false))
+    }
+
+    /// And the ordinary case still tracks the key: the mirror is what repaints
+    /// the cursor on the press itself.
+    @Test func theBorrowIsTrackedWhileTheEditorIsKey() {
+        #expect(EditorCanvasView.trackedCommand(eventSaysDown: true,
+                                                editorIsKey: true))
+        #expect(!EditorCanvasView.trackedCommand(eventSaysDown: false,
+                                                 editorIsKey: true))
+    }
+
     // MARK: What the pointer picks up
 
     /// Touching existing ink *is* the eraser's gesture, so ink that caught its

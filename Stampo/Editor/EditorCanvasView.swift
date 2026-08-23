@@ -554,6 +554,19 @@ struct EditorCanvasView: View {
             .clipped()
         }
         .onAppear { installKeyMonitor() }
+        // Keys that are only ever *held* have to be let go when the window they
+        // were pressed in stops being the key one. The colour picker is the
+        // case that shipped: its ⌃⌥⌘C puts a fullscreen overlay in front of the
+        // editor, the release of the chord lands there, and a ⌘ still counted as
+        // down borrows Select from every tool — on a decorated page each press
+        // then grabbed the picture instead of drawing on it. Space (the pan) is
+        // held the same way and latches the same way.
+        .onReceive(NotificationCenter.default.publisher(
+            for: NSWindow.didResignKeyNotification
+        )) { _ in
+            guard !EditorWindowController.shared.isKeyWindow else { return }
+            releaseHeldKeys()
+        }
         .onDisappear {
             removeKeyMonitor()
             restoreCursor()
@@ -2092,10 +2105,15 @@ struct EditorCanvasView: View {
     }
 
     private var isCommandHeld: Bool {
-        // The tracked flag is what makes the view redraw on the press itself;
-        // the live read covers a press that arrived while another window was
-        // key, so a gesture is never wrong about it even if the monitor was.
-        isCommandDown || NSEvent.modifierFlags.contains(.command)
+        // The hardware answers this, on its own. The tracked flag exists to
+        // redraw the canvas on the press itself and is allowed to be wrong,
+        // because the monitor only listens while the editor is the key window:
+        // a chord that takes that window away between its press and its release
+        // — the colour picker's ⌃⌥⌘C, whose overlay becomes key the moment the
+        // hotkey fires — is never heard letting go. ORing the two made that miss
+        // permanent: the borrow stayed latched, every tool acted as Select, and
+        // the canvas could not make anything until ⌘ was tapped again.
+        NSEvent.modifierFlags.contains(.command)
     }
 
     /// The tool a fresh mouse-down acts with.
@@ -2193,26 +2211,47 @@ struct EditorCanvasView: View {
         }
     }
 
+    /// What the tracked ⌘ flag reads after a `.flagsChanged`.
+    ///
+    /// A window that is not key holds no modifier. The mirror is read while
+    /// deciding what the canvas draws, and a press whose release lands on
+    /// another window — the colour picker's overlay takes the key window mid
+    /// chord — would otherwise leave it saying "⌘ is down" for the rest of the
+    /// session. Mirroring the release even when it arrives elsewhere, and
+    /// treating "not ours" as "not held", is what lets the borrow go.
+    static func trackedCommand(eventSaysDown: Bool, editorIsKey: Bool) -> Bool {
+        eventSaysDown && editorIsKey
+    }
+
     private func installKeyMonitor() {
         guard keyMonitor == nil else { return }
         keyMonitor = NSEvent.addLocalMonitorForEvents(
             matching: [.keyDown, .keyUp, .flagsChanged]
         ) { event in
-            guard EditorWindowController.shared.isKeyWindow else { return event }
-
             // A modifier arrives as `.flagsChanged` and never as a keyDown, so
             // holding ⌘ changed nothing until the mouse moved: the ring stayed
             // lit, the hand never appeared, and a borrow that says nothing when
             // you press it cannot be learned. Mirroring it into state is what
             // redraws the canvas and repaints the cursor on the press itself.
+            //
+            // Mirrored before the key-window guard below, not after it: the
+            // release of a chord that opened another window is exactly the
+            // event this has to hear, and only the repaint is the key window's
+            // business.
             if event.type == .flagsChanged {
-                let down = event.modifierFlags.contains(.command)
+                let isKey = EditorWindowController.shared.isKeyWindow
+                let down = Self.trackedCommand(
+                    eventSaysDown: event.modifierFlags.contains(.command),
+                    editorIsKey: isKey
+                )
                 if down != self.isCommandDown {
                     self.isCommandDown = down
-                    self.refreshCursor()
+                    if isKey { self.refreshCursor() }
                 }
                 return event
             }
+
+            guard EditorWindowController.shared.isKeyWindow else { return event }
 
             let commandModifiers = event.modifierFlags
                 .intersection([.command, .control, .option, .shift])
@@ -2393,6 +2432,19 @@ struct EditorCanvasView: View {
     private func removeKeyMonitor() {
         if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
         keyMonitor = nil
+        releaseHeldKeys()
+    }
+
+    /// Drops the state of every key that is only meaningful while held: the ⌘
+    /// borrow and the space pan. Both are mirrored from a monitor that acts only
+    /// for the key window, so both have to be released when that window is no
+    /// longer ours — a release that arrives somewhere else is a release the
+    /// monitor never hears.
+    ///
+    /// The cursor is deliberately left alone: it belongs to whatever took the
+    /// focus (the colour picker paints its own crosshair), and the canvas
+    /// re-decides it on the next hover anyway.
+    private func releaseHeldKeys() {
         isSpaceHeld = false
         isCommandDown = false
     }
