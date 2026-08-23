@@ -130,6 +130,59 @@ final class EditorWindowController: NSObject, NSWindowDelegate {
         // Mandatory for an LSUIElement app: without activation the window
         // never becomes key and the text tool can't take keyboard focus.
         NSApp.activate(ignoringOtherApps: true)
+        warmDecorInspector(for: document)
+    }
+
+    /// Builds the decor inspector once, offscreen, so the first press of the
+    /// button does not pay for it.
+    ///
+    /// Measured: the panel takes about 140 ms to build the first time in a
+    /// process and 80 ms every time after — the extra is the machinery behind
+    /// its own view types, which no generic warm-up reaches (a primer of plain
+    /// sliders and fields was tried and left the first build at 139 ms). The
+    /// only thing that warms this panel is this panel.
+    ///
+    /// Safe to build and throw away because the inspector is documented never
+    /// to write on appear: it copies the presentation into a local draft and
+    /// waits to be told something. The colour shelf is left out so no archive
+    /// is touched.
+    ///
+    /// Half a second after the editor opens, so the cost lands while the user
+    /// is still looking at their screenshot rather than while the window is
+    /// coming up.
+    private func warmDecorInspector(for document: EditorDocument) {
+        guard !Self.decorInspectorWarmed else { return }
+        Self.decorInspectorWarmed = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            let view = NSHostingView(
+                rootView: PresentationInspector(document: document, colorShelf: nil)
+                    .frame(width: EditorView.presentationInspectorIdealWidth)
+            )
+            // Offscreen and never ordered in: laying out is the whole point,
+            // and a window that is never shown cannot flash.
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 900),
+                                  styleMask: [.borderless], backing: .buffered, defer: true)
+            window.contentView = view
+            view.layoutSubtreeIfNeeded()
+            window.contentView = nil
+        }
+    }
+
+    /// Once per launch: the machinery it warms belongs to the process, not to
+    /// the document.
+    private static var decorInspectorWarmed = false
+
+    /// The same warm-up, without the delay — for measuring it.
+    static func warmDecorInspectorForTesting(document: EditorDocument) {
+        let view = NSHostingView(
+            rootView: PresentationInspector(document: document, colorShelf: nil)
+                .frame(width: EditorView.presentationInspectorIdealWidth)
+        )
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 900),
+                              styleMask: [.borderless], backing: .buffered, defer: true)
+        window.contentView = view
+        view.layoutSubtreeIfNeeded()
+        window.contentView = nil
     }
 
     /// Keeps the window wide enough for the editor and the inspector's

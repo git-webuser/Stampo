@@ -424,6 +424,38 @@ import Testing
         }
     }
 
+    /// The panel is built once offscreen when the editor opens, so the first
+    /// press of the decor button does not pay for it — measured, 140 ms cold
+    /// against 80 ms warm, and a primer of plain sliders and fields does not
+    /// help because what is slow is the panel's own view types.
+    ///
+    /// The whole trick rests on the inspector never writing on appear. This is
+    /// the test that keeps that true: build it, throw it away, and the document
+    /// must not have moved — no presentation conjured, no undo step pushed.
+    @Test func warmingTheInspectorLeavesTheDocumentAlone() {
+        let ctx = CGContext(data: nil, width: 60, height: 40, bitsPerComponent: 8,
+                            bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        let document = EditorDocument(baseImage: ctx.makeImage()!,
+                                      sourceURL: URL(fileURLWithPath: "/tmp/warm.png"))
+        let before = document.presentation
+        let steps = document.undoStack.count
+
+        EditorWindowController.warmDecorInspectorForTesting(document: document)
+
+        #expect(document.presentation == before)
+        #expect(document.presentation == nil, "an untouched document must stay undecorated")
+        #expect(document.undoStack.count == steps)
+
+        // And a decorated one is left exactly as it was.
+        document.startDecorationIfNeeded()
+        let decorated = document.presentation
+        let decoratedSteps = document.undoStack.count
+        EditorWindowController.warmDecorInspectorForTesting(document: document)
+        #expect(document.presentation == decorated)
+        #expect(document.undoStack.count == decoratedSteps)
+    }
+
     /// The gallery is a shortcut and the palette is a vocabulary; a tile that
     /// is pixel-for-pixel the circle below it makes them read as one list
     /// drawn twice.
