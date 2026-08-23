@@ -760,13 +760,17 @@ struct PresentationInspector: View {
     }
 
     /// How a picture meets the page, as a glyph and a name.
-    /// The four read as a set rather than as four separate pictures: filled to
-    /// the edge against sitting inside a frame is the whole difference between
-    /// the first two, and it is legible at 13pt where a pair of symbols that
-    /// differ only by an arrow's direction is not.
+    /// The four read as a set rather than as four separate pictures.
+    ///
+    /// Filling is corners pushed outward — "grow until nothing is left over" —
+    /// against a picture sitting inside a frame, and that pair is legible at
+    /// 13pt where symbols differing only by an arrow's direction are not.
+    /// Rejected on sight, drawn at button size: the vertical compress/expand
+    /// pair speaks about height alone, and the four-quadrant inset reads as
+    /// tiles rather than as an inset, which is the *other* button.
     static func symbol(for fit: Presentation.Background.PictureFit) -> String {
         switch fit {
-        case .fill:    return "rectangle.fill"
+        case .fill:    return "rectangle.expand.diagonal"
         case .fit:     return "rectangle.inset.filled"
         case .stretch: return "arrow.left.and.right.square"
         case .tile:    return "square.grid.3x3.fill"
