@@ -680,9 +680,13 @@ struct PresentationInspector: View {
             // itself; this is the one kind that has to be asked for first.
             .overlay {
                 if kind == .picture, document.backgroundPicture(for: sample.pictureID) == nil {
+                    // Read against the tile it sits on, not against the panel:
+                    // `.secondary` over a pale backing was a grey glyph on a
+                    // grey square. The same rule the pattern effects use for
+                    // their ink — dark on light, light on dark.
                     Image(systemName: "photo.badge.plus")
-                        .font(.system(size: 15))
-                        .foregroundStyle(.secondary)
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundStyle(swiftUIColor(sample.contrastingInk))
                 }
             }
             // 4:3 rather than a thin strip: a gradient's direction and a mesh's
@@ -739,13 +743,35 @@ struct PresentationInspector: View {
     /// first sooner or later.
     private var pictureRow: some View {
         HStack(spacing: 6) {
-            panelIconButton("photo.badge.plus", label: "Choose Picture") {
+            panelIconButton("photo.badge.plus", stretch: true, label: "Choose Picture") {
                 chooseBackgroundPicture()
             }
-            // The row is one button wide until the ways of meeting the page
-            // join it; stretching a single glyph across the panel would make
-            // one control look like a bar.
-            Spacer(minLength: 0)
+            ForEach(Presentation.Background.PictureFit.allCases) { fit in
+                panelIconButton(Self.symbol(for: fit), stretch: true,
+                                label: Self.title(for: fit)) {
+                    updateImmediately { $0.background = $0.background.settingPictureFit(fit) }
+                }
+                .activeToolChrome(draft.background.pictureFit == fit)
+            }
+        }
+    }
+
+    /// How a picture meets the page, as a glyph and a name.
+    static func symbol(for fit: Presentation.Background.PictureFit) -> String {
+        switch fit {
+        case .fill:    return "aspectratio.fill"
+        case .fit:     return "aspectratio"
+        case .stretch: return "arrow.up.and.down.and.arrow.left.and.right"
+        case .tile:    return "square.grid.3x3.fill"
+        }
+    }
+
+    static func title(for fit: Presentation.Background.PictureFit) -> LocalizedStringKey {
+        switch fit {
+        case .fill:    return "Fill"
+        case .fit:     return "Fit"
+        case .stretch: return "Stretch"
+        case .tile:    return "Tile"
         }
     }
 
@@ -772,7 +798,9 @@ struct PresentationInspector: View {
             // the colour that would back one, so the tile is never a blank.
             return backgroundKind == .picture
                 ? draft.background
-                : .picture(id: UUID(), backing: .init(red: 0.82, green: 0.84, blue: 0.88, alpha: 1))
+                : .picture(id: UUID(),
+                           backing: .init(red: 0.82, green: 0.84, blue: 0.88, alpha: 1),
+                           fit: .fill)
         }
     }
 
@@ -2114,7 +2142,11 @@ struct PresentationInspector: View {
         let id = UUID()
         document.setBackgroundPicture(picture, id: id)
         updateImmediately {
-            $0.background = .picture(id: id, backing: $0.background.colors.first ?? .white)
+            // A new picture keeps however the last one met the page: a person
+            // who tiles textures is usually about to tile another.
+            $0.background = .picture(id: id,
+                                     backing: $0.background.colors.first ?? .white,
+                                     fit: $0.background.pictureFit)
         }
     }
 

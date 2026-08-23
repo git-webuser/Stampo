@@ -2041,25 +2041,4 @@ private enum ToolButtonMetrics {
 /// accent colour in front.
 ///
 /// The tool picker's buttons are built by one function and wore this already.
-/// Crop and Scan are toggles rather than picker entries, so they build their
-/// own buttons — and had only half of it, colouring the icon while staying
-/// flat. "This tool is on" has to look the same wherever it is said, so the
-/// look lives here and all three ask for it.
-private struct ActiveToolChrome: ViewModifier {
-    let isActive: Bool
 
-    func body(content: Content) -> some View {
-        content
-            .background(
-                RoundedRectangle(cornerRadius: 5, style: .continuous)
-                    .fill(isActive ? Color.accentColor.opacity(0.22) : .clear)
-            )
-            .foregroundStyle(isActive ? Color.accentColor : Color.primary)
-    }
-}
-
-private extension View {
-    func activeToolChrome(_ isActive: Bool) -> some View {
-        modifier(ActiveToolChrome(isActive: isActive))
-    }
-}

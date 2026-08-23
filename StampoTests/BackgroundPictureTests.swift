@@ -51,7 +51,7 @@ import Testing
     /// rather than a hole.
     @Test func aPageWithNoPictureYetIsStillAPage() {
         let backing = Presentation.Color(red: 0.2, green: 0.4, blue: 0.8, alpha: 1)
-        let rep = drawn(.picture(id: UUID(), backing: backing), picture: nil,
+        let rep = drawn(.picture(id: UUID(), backing: backing, fit: .fill), picture: nil,
                         size: CGSize(width: 40, height: 40))
         let color = rep.colorAt(x: 20, y: 20)
         #expect(abs(Double(color?.redComponent ?? 0) - 0.2) < 0.05)
@@ -65,7 +65,7 @@ import Testing
     @Test func thePictureFillsThePageAndKeepsItsShape() {
         // A wide picture on a tall page: the sides are cropped away, the top
         // and bottom halves still divide the page in the middle.
-        let rep = drawn(.picture(id: UUID(), backing: .black),
+        let rep = drawn(.picture(id: UUID(), backing: .black, fit: .fill),
                         picture: picture(width: 400, height: 100),
                         size: CGSize(width: 100, height: 200))
         func hue(_ x: Int, _ y: Int) -> (Double, Double, Double) {
@@ -83,9 +83,10 @@ import Testing
         // Nothing of the backing shows: every corner is picture.
         for (x, y) in [(1, 1), (98, 1), (1, 198), (98, 198)] {
             let color = rep.colorAt(x: x, y: y)
-            #expect(Double(color?.redComponent ?? 0) + Double(color?.greenComponent ?? 0)
-                    + Double(color?.blueComponent ?? 0) > 0.5,
-                    "the backing shows through at (\(x), \(y))")
+            let red = Double(color?.redComponent ?? 0)
+            let green = Double(color?.greenComponent ?? 0)
+            let blue = Double(color?.blueComponent ?? 0)
+            #expect(red + green + blue > 0.5, "the backing shows through at (\(x), \(y))")
         }
     }
 
@@ -103,7 +104,7 @@ import Testing
         presentation.canvas = .auto(margins: Presentation.Margins(top: 30, leading: 30,
                                                                   bottom: 30, trailing: 30),
                                     scale: 1)
-        presentation.background = .picture(id: UUID(), backing: .black)
+        presentation.background = .picture(id: UUID(), backing: .black, fit: .fill)
 
         let withPicture = AnnotationRenderer.renderBitmap(
             base: shot.makeImage()!, backgroundPicture: picture(width: 80, height: 80),
@@ -118,12 +119,44 @@ import Testing
         #expect(Double(blank?.redComponent ?? 1) < 0.1, "a missing picture should leave the backing")
     }
 
+    /// Four ways for a picture to meet the page, and each has to be a
+    /// different page. "Fill" crops to reach every corner, "fit" shows the
+    /// whole picture against the backing, "stretch" squashes, "tile" repeats.
+    @Test func everyFitMeetsThePageItsOwnWay() {
+        let size = CGSize(width: 120, height: 60)
+        // A wide picture with a red top-left quadrant, so cropping, letterboxing
+        // and squashing are told apart by where the colours land.
+        let wide = picture(width: 400, height: 100)
+        func page(_ fit: Presentation.Background.PictureFit) -> NSBitmapImageRep {
+            drawn(.picture(id: UUID(), backing: .black, fit: fit), picture: wide, size: size)
+        }
+        func bytes(_ rep: NSBitmapImageRep) -> Data { rep.representation(using: .png, properties: [:])! }
+
+        let pages = Presentation.Background.PictureFit.allCases.map { bytes(page($0)) }
+        for (first, second) in zip(pages, pages.dropFirst()) {
+            #expect(first != second, "two fits drew the same page")
+        }
+
+        // Fit leaves the backing showing at the sides of a wide picture on a
+        // narrower page; fill never does.
+        let fitted = page(.fit)
+        let corner = fitted.colorAt(x: 2, y: 2)
+        #expect(Double(corner?.redComponent ?? 1) < 0.1
+                && Double(corner?.greenComponent ?? 1) < 0.1,
+                "fit should leave the backing at the corners")
+        let filledCorner = page(.fill).colorAt(x: 2, y: 2)
+        #expect(Double(filledCorner?.redComponent ?? 0)
+                + Double(filledCorner?.greenComponent ?? 0)
+                + Double(filledCorner?.blueComponent ?? 0) > 0.5,
+                "fill should reach the corners")
+    }
+
     /// The bake is keyed on whether the picture is there, so the page drawn
     /// while a file is still being read is not the one kept for afterwards.
     @Test func aPageWaitingForItsPictureIsNotTheBakedOne() {
         EffectBaker.emptyCache()
         EffectBaker.resetBakeCount()
-        let background = Presentation.Background.picture(id: UUID(), backing: .white)
+        let background = Presentation.Background.picture(id: UUID(), backing: .white, fit: .fill)
         let effects = [EffectStack.make(.grain, seed: 5)]
         let size = CGSize(width: 60, height: 60)
 

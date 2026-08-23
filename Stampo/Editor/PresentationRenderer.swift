@@ -320,34 +320,82 @@ nonisolated enum PresentationRenderer {
             drawRadialGradient(stops: stops, in: rect, ctx: ctx)
         case .mesh(let colors):
             drawMesh(colors: colors, in: rect, ctx: ctx)
-        case .picture(_, let backing):
+        case .picture(_, let backing, let fit):
             // The colour first, so a page whose picture is missing — still
             // loading, or gone from a document that outlived it — is a page and
-            // not a hole.
+            // not a hole. It is also what shows through around a picture that
+            // was asked to fit rather than fill.
             ctx.setFillColor(cgColor(backing))
             ctx.fill(rect)
             guard let picture else { return }
-            drawFilling(picture, in: rect, ctx: ctx)
+            drawPicture(picture, fit: fit, in: rect, ctx: ctx)
         }
     }
 
-    /// The picture covering the rect, cropped rather than squashed.
+    /// The picture, met with the page the way the user asked.
     ///
-    /// Fill and nothing else: a background is the one thing that must reach
-    /// every corner, and "fit" would leave bars of another colour around it —
-    /// which is a second background, not a setting of this one.
-    private static func drawFilling(_ picture: CGImage, in rect: CGRect, ctx: CGContext) {
+    /// Filling is the default and the one a photograph almost always wants: a
+    /// background has to reach every corner, and the crop is the price. The
+    /// others exist because a background is not always a photograph — a whole
+    /// picture with air around it, a deliberately squashed one, a texture meant
+    /// to repeat.
+    private static func drawPicture(_ picture: CGImage,
+                                    fit: Presentation.Background.PictureFit,
+                                    in rect: CGRect, ctx: CGContext) {
         let size = CGSize(width: picture.width, height: picture.height)
-        guard size.width > 0, size.height > 0 else { return }
-        let scale = max(rect.width / size.width, rect.height / size.height)
-        let drawn = CGRect(x: rect.midX - size.width * scale / 2,
-                           y: rect.midY - size.height * scale / 2,
-                           width: size.width * scale, height: size.height * scale)
+        guard size.width > 0, size.height > 0, rect.width > 0, rect.height > 0 else { return }
         ctx.saveGState()
         ctx.clip(to: rect)
         ctx.interpolationQuality = .high
-        AnnotationRenderer.drawImageInFlippedSpace(picture, in: drawn, ctx: ctx)
+
+        func centred(_ scale: CGFloat) -> CGRect {
+            CGRect(x: rect.midX - size.width * scale / 2,
+                   y: rect.midY - size.height * scale / 2,
+                   width: size.width * scale, height: size.height * scale)
+        }
+
+        switch fit {
+        case .fill:
+            AnnotationRenderer.drawImageInFlippedSpace(
+                picture, in: centred(max(rect.width / size.width, rect.height / size.height)),
+                ctx: ctx)
+        case .fit:
+            AnnotationRenderer.drawImageInFlippedSpace(
+                picture, in: centred(min(rect.width / size.width, rect.height / size.height)),
+                ctx: ctx)
+        case .stretch:
+            AnnotationRenderer.drawImageInFlippedSpace(picture, in: rect, ctx: ctx)
+        case .tile:
+            drawTiled(picture, size: size, in: rect, ctx: ctx)
+        }
         ctx.restoreGState()
+    }
+
+    /// The picture repeated at its own size, from the top-left corner.
+    ///
+    /// Scaled up first if it would otherwise repeat more times than anyone
+    /// could see: a 16-pixel texture on a 4000-pixel page is a quarter of a
+    /// million draws and a grey haze, so the tile is grown until the page holds
+    /// at most this many of it. A picture already big enough tiles at its own
+    /// pixels, which is what "repeat" means everywhere else.
+    private static func drawTiled(_ picture: CGImage, size: CGSize,
+                                  in rect: CGRect, ctx: CGContext) {
+        let mostTiles: CGFloat = 24
+        let scale = max(1, max(rect.width / (size.width * mostTiles),
+                               rect.height / (size.height * mostTiles)))
+        let tile = CGSize(width: size.width * scale, height: size.height * scale)
+        var y = rect.minY
+        while y < rect.maxY {
+            var x = rect.minX
+            while x < rect.maxX {
+                AnnotationRenderer.drawImageInFlippedSpace(
+                    picture,
+                    in: CGRect(x: x, y: y, width: tile.width, height: tile.height),
+                    ctx: ctx)
+                x += tile.width
+            }
+            y += tile.height
+        }
     }
 
     /// A gradient of `stops` spread evenly from 0 to 1. One stop degenerates to

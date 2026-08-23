@@ -110,7 +110,7 @@ nonisolated struct Presentation: Equatable, Sendable {
         /// blurred copies are carried. The colour travels with it as what to
         /// paint while the picture is not there: a page mid-load, or one whose
         /// image the document no longer has.
-        case picture(id: UUID, backing: Color)
+        case picture(id: UUID, backing: Color, fit: PictureFit)
 
         /// The stops a user-facing editor works with. Empty for the cases that
         /// have no ramp — the mesh included: its four corners are colours in a
@@ -124,10 +124,37 @@ nonisolated struct Presentation: Equatable, Sendable {
             }
         }
 
+        /// How a picture meets the page it is the background of.
+        enum PictureFit: String, CaseIterable, Identifiable, Sendable {
+            /// Covers the page and is cropped: the default, because a
+            /// background has to reach every corner.
+            case fill
+            /// Whole picture, letterboxed against the backing colour.
+            case fit
+            /// Covers the page by being squashed into it.
+            case stretch
+            /// Repeated at its own size, for a texture rather than a photo.
+            case tile
+
+            var id: String { rawValue }
+        }
+
         /// The picture this background is made of, if it is made of one.
         var pictureID: UUID? {
-            if case .picture(let id, _) = self { return id }
+            if case .picture(let id, _, _) = self { return id }
             return nil
+        }
+
+        /// How that picture meets the page.
+        var pictureFit: PictureFit {
+            if case .picture(_, _, let fit) = self { return fit }
+            return .fill
+        }
+
+        /// The same background with its picture fitted another way.
+        func settingPictureFit(_ fit: PictureFit) -> Background {
+            guard case .picture(let id, let backing, _) = self else { return self }
+            return .picture(id: id, backing: backing, fit: fit)
         }
 
         /// The four corners of a mesh, or nothing.
@@ -166,7 +193,7 @@ nonisolated struct Presentation: Equatable, Sendable {
             case .none:                  return []
             case .solid(let color):      return [color]
             case .mesh(let colors):      return colors
-            case .picture(_, let color): return [color]
+            case .picture(_, let color, _): return [color]
             case .linearGradient(let stops, _), .radialGradient(let stops):
                 return stops.map(\.color)
             }

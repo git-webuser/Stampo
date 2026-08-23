@@ -89,7 +89,7 @@ nonisolated struct BackgroundDrawers: Sendable {
             // there is none yet. The drawer opens on the page it had before,
             // backed by whatever colour was on screen, and the panel asks for a
             // file.
-            return .picture(id: UUID(), backing: colors.first ?? .white)
+            return .picture(id: UUID(), backing: colors.first ?? .white, fit: .fill)
         }
     }
 
