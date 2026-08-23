@@ -2512,6 +2512,26 @@ nonisolated struct RenderedArtifact: Sendable {
         commitChange()
     }
 
+    /// A decor control was used, so there is a decoration.
+    ///
+    /// «Remove Decor» leaves the document undecorated with the panel still
+    /// open, and every setter below used to answer that state by doing nothing:
+    /// margins took a number and dropped it, the canvas size could not be set
+    /// at all, and the only way out was to close the panel and open it again.
+    /// Touching one of these controls *is* the decision to decorate, exactly as
+    /// pressing the decor button is.
+    ///
+    /// No undo step of its own: each caller either wraps one or is part of a
+    /// gesture that does, and a second step here would make one action take two
+    /// presses of ⌘Z.
+    private func startDecorationForEditing() {
+        guard presentation == nil else { return }
+        let margin = Presentation.defaultMargin(for: pixelSize)
+        guard margin > 0 else { return }
+        presentation = Presentation(canvas: .auto(margins: .init(all: margin), scale: 1),
+                                    background: .solid(.white))
+    }
+
     /// Puts the page into a ratio, as one undo step.
     ///
     /// The page is worked out from what is on screen — see `CanvasRatio.page` —
@@ -2519,6 +2539,7 @@ nonisolated struct RenderedArtifact: Sendable {
     /// format used to be a pixel size, which meant "Instagram 4:5" resampled a
     /// retina screenshot down to 1080 wide before anyone reached the export.
     func setCanvasRatio(_ ratio: CanvasRatio) {
+        startDecorationForEditing()
         guard let presentation else { return }
         let layout = PresentationLayout.resolve(imagePixelSize: pixelSize, presentation)
         let page = CanvasRatio.page(for: ratio, in: layout)
@@ -2553,6 +2574,7 @@ nonisolated struct RenderedArtifact: Sendable {
     /// value back as it appears, and without this the canvas changed the moment
     /// the row was merely drawn — measured, not supposed.
     func setCanvasDimension(_ dimension: CanvasDimension, to value: Int) {
+        startDecorationForEditing()
         guard let presentation else { return }
         let safeValue = CGFloat(min(16384, max(1, value)))
         let live = PresentationLayout.resolve(imagePixelSize: pixelSize, presentation).canvasSize
@@ -2625,6 +2647,7 @@ nonisolated struct RenderedArtifact: Sendable {
     /// Live, like `moveImage` and `resizeImage`: the undo step belongs to the
     /// gesture, and opening one here would push an entry per pointer sample.
     func setGap(_ edge: PresentationLayout.Edge, to value: CGFloat) {
+        startDecorationForEditing()
         guard let presentation else { return }
         let canvasSize = PresentationLayout.resolve(imagePixelSize: pixelSize,
                                                     presentation).canvasSize
@@ -2644,6 +2667,7 @@ nonisolated struct RenderedArtifact: Sendable {
 
     /// Live, for the same reason as `setGap`.
     func setCornerRadius(_ radius: CGFloat) {
+        startDecorationForEditing()
         guard presentation != nil else { return }
         let clamped = min(0.5, max(0, radius.isFinite ? radius : 0))
         guard presentation?.cornerRadius != clamped else { return }
