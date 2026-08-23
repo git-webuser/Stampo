@@ -25,11 +25,69 @@ struct EditorScanTranslation {
     let language: Locale.Language?
 }
 
-/// One shared editor window, one document at a time. Pattern:
-/// FirstLaunchWindowController's singleton + SettingsWindowController's
-/// resizable NSHostingController window.
+/// One editor window per document.
+///
+/// It began as a singleton that swapped its document, which meant a second
+/// screenshot could not be opened without settling the first — the editor
+/// locked the capture behind whatever was already in it. A window per document
+/// removes that, and hands over the system's own window tabs while it is at it.
+///
+/// The type keeps the list of open editors, because the questions that used to
+/// go to a singleton — "open this file", "is anything unsaved" — are still
+/// questions about *all* of them, and there is nowhere else that knows.
 final class EditorWindowController: NSObject, NSWindowDelegate {
-    static let shared = EditorWindowController()
+    /// Every open editor, in the order they were opened.
+    private static var editors: [EditorWindowController] = []
+
+    /// The app's colour list, shared by every editor — see
+    /// `PresentationColorShelf`. Weak, and on the type rather than on an
+    /// instance: the archive belongs to the panel controller and outlives every
+    /// window, but no editor should be the reason it stays alive.
+    static weak var colorShelf: (any PresentationColorShelf)?
+
+    /// Opens the file, or brings its editor forward if it is already open.
+    ///
+    /// One window per file, keyed by URL: opening the same shot twice used to
+    /// mean two windows racing to save over each other.
+    static func open(url: URL) {
+        if let existing = editors.first(where: { $0.document?.sourceURL == url }) {
+            existing.window?.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+        let editor = EditorWindowController()
+        editors.append(editor)
+        editor.open(url: url)
+        // A window that failed to open leaves nothing to keep.
+        if editor.window == nil { editors.removeAll { $0 === editor } }
+    }
+
+    /// True when every open editor is either clean or has been settled by the
+    /// user. Asked before quitting and before the first-launch window takes
+    /// over: with several windows the question is about all of them, and the
+    /// first dirty one that is not settled ends the walk.
+    static func confirmDiscardingUnsavedWork(afterSave: @escaping () -> Void) -> Bool {
+        for editor in editors where editor.document?.isDirty == true {
+            guard editor.confirmDiscardingUnsavedWork(afterSave: afterSave) else { return false }
+        }
+        return true
+    }
+
+    /// How many editors are open. The window per document is the feature, so
+    /// the count is worth being able to ask about — the menu will want it, and
+    /// a test does now.
+    static var openCount: Int { editors.count }
+
+    /// Closes every editor without asking, for tests that opened them.
+    static func closeAllForTesting() {
+        for editor in editors { editor.window?.close() }
+        editors.removeAll()
+    }
+
+    /// The editor that has the keyboard, if any is up.
+    static var keyEditor: EditorWindowController? {
+        editors.first { $0.window?.isKeyWindow == true }
+    }
 
     private var window: NSWindow?
     private var document: EditorDocument?
@@ -37,45 +95,31 @@ final class EditorWindowController: NSObject, NSWindowDelegate {
     /// Alive only while its sheet is up — it owns the format popup's target.
     private var saveAsPanel: EditorSaveAsPanel?
 
-    /// The app's colour list, handed to the editor by whoever owns it — see
-    /// `PresentationColorShelf`. Weak: the archive belongs to the panel
-    /// controller and outlives every editor window, but the editor must not be
-    /// the reason it stays alive.
-    weak var colorShelf: (any PresentationColorShelf)?
-
     /// Toast for editor action and OCR/scan outcomes, shared with the notch
     /// capture flows so the editor and hotkey paths confirm results identically.
     /// Owned here because the panel must outlive EditorView's value-type updates.
     let captureHUD = TextCaptureHUD()
 
-    var isKeyWindow: Bool { window?.isKeyWindow == true }
-    /// Screen hosting the editor window; the HUD is centered on it.
-    var screen: NSScreen? { window?.screen }
-    /// Parent for a window-bound child panel — the scanner's overlay. As narrow
-    /// as `screen` above and for the same reason: callers get the one thing
-    /// they need, and the window stays private.
-    var overlayParentWindow: NSWindow? { window }
+    /// What this editor's views may ask about its window, and nothing more —
+    /// see `EditorWindowContext`. Read through closures so the answers follow
+    /// the window rather than being snapshotted before it exists.
+    private var windowContext: EditorWindowContext {
+        EditorWindowContext(
+            isKeyWindow: { [weak self] in self?.window?.isKeyWindow == true },
+            overlayParent: { [weak self] in self?.window },
+            showCaptureOutcome: { [weak self] outcome in
+                guard let self else { return }
+                self.captureHUD.show(outcome, on: self.window?.screen)
+            }
+        )
+    }
 
     /// True while a render-and-write is in flight. See `performSave`.
     private var isSaving = false
 
     // MARK: Open
 
-    func open(url: URL) {
-        // Same file already open — just come forward.
-        if let document, document.sourceURL == url, let window {
-            window.makeKeyAndOrderFront(nil)
-            NSApp.activate(ignoringOtherApps: true)
-            return
-        }
-
-        // A dirty document is open: settle it before replacing.
-        if let existing = document, existing.isDirty {
-            guard resolveUnsavedChanges(existing, afterSave: { [weak self] in
-                self?.open(url: url)
-            }) else { return }
-        }
-
+    private func open(url: URL) {
         guard let image = Self.loadFullResImage(at: url) else {
             Log.capture.error("editor: failed to load image")
             return
@@ -87,6 +131,7 @@ final class EditorWindowController: NSObject, NSWindowDelegate {
 
         let root = EditorView(
             document: document,
+            windowContext: windowContext,
             saveHandler: { [weak self] doc in
                 guard let self else { return false }
                 return await self.performSave(doc)
@@ -104,29 +149,36 @@ final class EditorWindowController: NSObject, NSWindowDelegate {
                     self?.updateEditorMinimumSize(inspectorPresented: isPresented)
                 }
             },
-            colorShelf: colorShelf
+            colorShelf: Self.colorShelf
         )
         .managedLocale()
 
-        if let window {
-            window.contentViewController = NSHostingController(rootView: root)
-            window.contentMinSize = EditorView.minimumContentSize
-            window.title = url.lastPathComponent
-            window.makeKeyAndOrderFront(nil)
+        let hosting = NSHostingController(rootView: root)
+        let window = NSWindow(contentViewController: hosting)
+        window.styleMask = [.titled, .closable, .resizable, .miniaturizable]
+        window.title = url.lastPathComponent
+        window.isReleasedWhenClosed = false
+        window.contentMinSize = EditorView.minimumContentSize
+        window.setContentSize(Self.initialContentSize(for: image))
+        // One identifier for all of them, so the system's own tabs work: drag
+        // one editor onto another and they become tabs, with no code of ours in
+        // the way. The autosave name is deliberately *not* set any more — one
+        // frame remembered for every window put each new editor exactly on top
+        // of the last.
+        window.tabbingIdentifier = "StampoEditor"
+        window.delegate = self
+        self.window = window
+        if let previous = Self.editors.last(where: { $0 !== self })?.window {
+            // Stepped down from the editor before it, the way documents open
+            // everywhere else, rather than centred on top of it.
+            window.setFrameTopLeftPoint(
+                previous.cascadeTopLeft(from: NSPoint(x: previous.frame.minX,
+                                                      y: previous.frame.maxY))
+            )
         } else {
-            let hosting = NSHostingController(rootView: root)
-            let window = NSWindow(contentViewController: hosting)
-            window.styleMask = [.titled, .closable, .resizable, .miniaturizable]
-            window.title = url.lastPathComponent
-            window.isReleasedWhenClosed = false
-            window.contentMinSize = EditorView.minimumContentSize
-            window.setContentSize(Self.initialContentSize(for: image))
-            window.setFrameAutosaveName("EditorWindow")
-            window.delegate = self
             window.center()
-            self.window = window
-            window.makeKeyAndOrderFront(nil)
         }
+        window.makeKeyAndOrderFront(nil)
         // Mandatory for an LSUIElement app: without activation the window
         // never becomes key and the text tool can't take keyboard focus.
         NSApp.activate(ignoringOtherApps: true)
@@ -291,7 +343,7 @@ final class EditorWindowController: NSObject, NSWindowDelegate {
                     }.value
                     if document.revision == artifact.revision { document.markSaved() }
                     NotificationCenter.default.post(name: .editorDidSaveImage, object: url)
-                    self.captureHUD.show(.saved, on: self.screen)
+                    self.captureHUD.show(.saved, on: self.window?.screen)
                 } catch {
                     self.presentSaveError(error)
                 }
@@ -410,6 +462,7 @@ final class EditorWindowController: NSObject, NSWindowDelegate {
     func windowWillClose(_ notification: Notification) {
         document = nil
         window = nil
+        Self.editors.removeAll { $0 === self }
     }
 
     // MARK: Helpers

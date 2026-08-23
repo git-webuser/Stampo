@@ -146,7 +146,7 @@ final class FirstLaunchWindowController: NSObject, NSWindowDelegate {
         // answers false — the write is asynchronous — so it hands us back the
         // relaunch to re-run once the document is clean, and that second pass
         // sails through the guard.
-        guard EditorWindowController.shared.confirmDiscardingUnsavedWork(afterSave: {
+        guard EditorWindowController.confirmDiscardingUnsavedWork(afterSave: {
             relaunch()
         }) else {
             return false

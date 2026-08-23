@@ -438,7 +438,7 @@ struct NotchArchiveView: View {
                 // an unsaved document, but neither outcome should lose the drop.
                 keep(urls)
                 if let url = urls.first {
-                    EditorWindowController.shared.open(url: url)
+                    EditorWindowController.open(url: url)
                 }
             }
         }
@@ -1930,7 +1930,7 @@ private struct ArchiveScreenshotCell: View {
             accessibilityHintText: Text("Tap to open, hold to delete"),
             menu: {
                 MenuCommandButton("Edit", icon: .edit) {
-                    EditorWindowController.shared.open(url: shot.url)
+                    EditorWindowController.open(url: shot.url)
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { onOpen() }
                 }
                 MenuCommandButton("Open", icon: .open) { open() }
@@ -2411,7 +2411,7 @@ private struct StackMemberCell: View {
                 // the dropped original is never touched.
                 if ArchiveFileKind.isEditableImage(url) {
                     MenuCommandButton("Edit", icon: .edit) {
-                        EditorWindowController.shared.open(url: url)
+                        EditorWindowController.open(url: url)
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { onOpen() }
                     }
                 }

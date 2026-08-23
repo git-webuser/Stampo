@@ -21,6 +21,8 @@ struct EditorView: View {
     static let presentationInspectorMaximumWidth: CGFloat = 460
 
     var document: EditorDocument
+    /// What this editor's own window can answer. See `EditorWindowContext`.
+    var windowContext: EditorWindowContext = .detached
     /// Wired by EditorWindowController in the save/copy commit; nil disables Save.
     var saveHandler: ((EditorDocument) async -> Bool)?
     /// Save As: runs a save panel, so it reports back through its own sheet
@@ -78,7 +80,8 @@ struct EditorView: View {
                 cropRect: $cropRect,
                 onCropApply: applyCrop,
                 onCropCancel: cancelCrop,
-                imageScreenGeometry: $imageScreenGeometry
+                imageScreenGeometry: $imageScreenGeometry,
+                windowContext: windowContext
             )
             .background(Color(nsColor: .underPageBackgroundColor))
         }
@@ -1840,7 +1843,7 @@ struct EditorView: View {
         scanOverlayActive = true
         scanOverlay.start(over: geometry.visibleScreenRect,
                           on: screen,
-                          parent: EditorWindowController.shared.overlayParentWindow)
+                          parent: windowContext.overlayParent())
     }
 
     private func scanRegion(_ pixelRect: CGRect,
@@ -1883,8 +1886,7 @@ struct EditorView: View {
     /// Routes recognition outcomes through the same toast the notch flows use,
     /// on the screen hosting the editor window.
     private func showCaptureHUD(_ outcome: TextCaptureHUD.Outcome) {
-        let controller = EditorWindowController.shared
-        controller.captureHUD.show(outcome, on: controller.screen)
+        windowContext.showCaptureOutcome(outcome)
     }
 
     /// Crops the base image to an image-pixel rect (top-left origin, matching

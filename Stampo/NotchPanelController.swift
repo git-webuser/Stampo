@@ -843,7 +843,7 @@ final class NotchPanelController: NSObject {
         // The archive is the app's list of colours, and the decor inspector
         // paints from it. Handed over here because the archive is owned here;
         // the editor only ever sees the two members of `PresentationColorShelf`.
-        EditorWindowController.shared.colorShelf = archiveModel
+        EditorWindowController.colorShelf = archiveModel
         colorPicker.hidePanel = { [weak self] completion in self?.hideAnimated(reason: .colorPickerStart, completion: completion) }
         colorPicker.addColor  = { [weak self] color in self?.archiveModel.add(color: color) }
         colorPicker.resetRoute = { [weak self] in

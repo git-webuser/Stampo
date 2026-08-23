@@ -281,6 +281,11 @@ struct EditorCanvasView: View {
     /// Where the fitted image currently sits on screen. The scanner opens its
     /// overlay over exactly this rect, so it follows zoom and pan for free.
     @Binding var imageScreenGeometry: ImageScreenGeometry?
+    /// What this canvas's own window can answer — chiefly whether it has the
+    /// keyboard. The key monitor is a *local* one, so with a window per
+    /// document every editor hears every key: acting on them belongs to the
+    /// window that is key, and each canvas has to ask about its own.
+    var windowContext: EditorWindowContext = .detached
 
     @FocusState private var textFieldFocused: Bool
     @State private var magnificationStart: CGFloat?
@@ -564,7 +569,7 @@ struct EditorCanvasView: View {
         .onReceive(NotificationCenter.default.publisher(
             for: NSWindow.didResignKeyNotification
         )) { _ in
-            guard !EditorWindowController.shared.isKeyWindow else { return }
+            guard !windowContext.isKeyWindow() else { return }
             releaseHeldKeys()
         }
         .onDisappear {
@@ -2249,7 +2254,7 @@ struct EditorCanvasView: View {
             // event this has to hear, and only the repaint is the key window's
             // business.
             if event.type == .flagsChanged {
-                let isKey = EditorWindowController.shared.isKeyWindow
+                let isKey = windowContext.isKeyWindow()
                 let down = Self.trackedCommand(
                     eventSaysDown: event.modifierFlags.contains(.command),
                     editorIsKey: isKey
@@ -2261,7 +2266,7 @@ struct EditorCanvasView: View {
                 return event
             }
 
-            guard EditorWindowController.shared.isKeyWindow else { return event }
+            guard windowContext.isKeyWindow() else { return event }
 
             let commandModifiers = event.modifierFlags
                 .intersection([.command, .control, .option, .shift])
