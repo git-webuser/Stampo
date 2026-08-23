@@ -617,7 +617,15 @@ struct EditorCanvasView: View {
                         annotations: document.annotations,
                         presentation: presentation,
                         layout: layout,
-                        skipping: skipID
+                        skipping: skipID,
+                        // While something is being dragged, a page-layer effect
+                        // is recomputed on every pointer sample and nothing
+                        // caches it, so the canvas asks for half the side. It
+                        // buys less than the pixel count suggests — measured,
+                        // fluted glass 38 ms to 19, ASCII 38 to 30 — because
+                        // ribs and character cells are counted in fractions of
+                        // the page and there are just as many of them.
+                        pageQuality: dragMode == nil ? .full : .interactive
                     )
                     // Editor only: show what the canvas cropped away, so it can
                     // still be selected and moved back in.

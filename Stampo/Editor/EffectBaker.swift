@@ -39,11 +39,13 @@ nonisolated enum EffectBaker {
 
         counter.value += 1
         let extent = CGRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height))
-        var image = CIImage(cgImage: rendered)
+        let source = CIImage(cgImage: rendered)
+        var image = source
         let shortSide = CGFloat(min(width, height))
         for recipe in active.map(Recipe.init) {
             image = apply(recipe, to: image, extent: extent, shortSide: shortSide)
         }
+        image = keepingTheShapeOf(source, in: image, extent: extent)
         return ciContext.createCGImage(image.cropped(to: extent), from: extent)
     }
 
@@ -91,9 +93,11 @@ nonisolated enum EffectBaker {
         var image = CIImage(cgImage: flat)
         let extent = image.extent
         let shortSide = CGFloat(min(key.width, key.height))
+        let source = image
         for recipe in key.effects {
             image = apply(recipe, to: image, extent: extent, shortSide: shortSide)
         }
+        image = keepingTheShapeOf(source, in: image, extent: extent)
         return ciContext.createCGImage(image.cropped(to: extent), from: extent)
     }
 
@@ -192,6 +196,26 @@ nonisolated enum EffectBaker {
         // disturbance of the light, and noise reaching the whole way is static,
         // not film.
         return light(noise, amplitude: effect.amount / 3, over: image, extent: extent)
+    }
+
+    /// The page's own silhouette, put back over whatever the effects did to it.
+    ///
+    /// An effect may change the colours of a page; it may not change its shape.
+    /// Several of them would: everything built on `light` ends by forcing alpha
+    /// to one, and the ASCII pass lays a veil over the whole rectangle — so on
+    /// a transparent page (`Background.none`, whose whole promise is that PNG
+    /// export carries the transparency through) a grain switched to the page
+    /// layer came back with an opaque rectangle where the margins had been.
+    /// Measured: corner alpha 0.00 on the background layer, 1.00 on the page.
+    /// The mask is the page as it was drawn: `blendWithAlphaMask` reads only
+    /// its alpha, which is precisely the shape being restored.
+    private static func keepingTheShapeOf(_ source: CIImage, in image: CIImage,
+                                          extent: CGRect) -> CIImage {
+        let blend = CIFilter.blendWithAlphaMask()
+        blend.inputImage = image
+        blend.backgroundImage = CIImage.empty().cropped(to: extent)
+        blend.maskImage = source
+        return blend.outputImage?.cropped(to: extent) ?? image
     }
 
     /// A field of light laid over the picture: the field's red channel is read
@@ -982,13 +1006,20 @@ nonisolated enum EffectBaker {
         let height: Int
     }
 
-    /// Small and last-used-first. Eight is enough for the canvas, the export
-    /// and a screenful of preview tiles at once; more would keep whole
-    /// backgrounds alive for a panel nobody is looking at any more.
+    /// Last-used-first, and measured in **pixels rather than entries**.
+    ///
+    /// Counting entries was wrong the moment the panel grew a grid: eight slots
+    /// against twelve tiles meant opening the picker evicted the canvas's own
+    /// full-size bake — the expensive one — while none of the tiles ever hit
+    /// either. A budget in pixels keeps whole rooms of tiny tiles for the price
+    /// of a corner of one canvas, and still refuses to hold a heap of
+    /// full-resolution pages.
     private final class Cache: @unchecked Sendable {
         private let lock = NSLock()
         private var entries: [(key: Key, image: CGImage)] = []
-        private let limit = 8
+        /// Sixteen megapixels, about sixty megabytes: room for a 4K page and a
+        /// preview of it, or for hundreds of tiles.
+        private let budget = 16_000_000
 
         func value(for key: Key) -> CGImage? {
             lock.lock(); defer { lock.unlock() }
@@ -1002,7 +1033,13 @@ nonisolated enum EffectBaker {
             lock.lock(); defer { lock.unlock() }
             entries.removeAll { $0.key == key }
             entries.append((key, image))
-            if entries.count > limit { entries.removeFirst(entries.count - limit) }
+            // The newest entry always stays, however big it is: dropping the
+            // thing just asked for would mean baking it again immediately.
+            var total = entries.reduce(0) { $0 + $1.image.width * $1.image.height }
+            while entries.count > 1, total > budget {
+                total -= entries[0].image.width * entries[0].image.height
+                entries.removeFirst()
+            }
         }
 
         func removeAll() {

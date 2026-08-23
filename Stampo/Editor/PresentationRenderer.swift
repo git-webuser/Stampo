@@ -15,6 +15,44 @@ nonisolated enum PresentationRenderer {
     /// while the picture is dragged; over the whole page there is nothing to
     /// keep, so every frame renders the page into a bitmap and filters it.
     /// That is why the two layers are a choice a person makes, not a detail.
+    /// How much the page-layer pass is allowed to cost right now.
+    ///
+    /// The pass is not cached — a page that moves with the picture has nothing
+    /// worth keeping — so a gesture pays for it on every pointer sample.
+    /// Measured on a 1200×900 page: ASCII 38 ms, fluted glass 38 ms, dither
+    /// 14 ms.
+    ///
+    /// Halving the side leaves a quarter of the pixels, and the look survives
+    /// the trip because every size in an effect is a fraction of the short side
+    /// rather than a count of pixels — a half-size bake is the same picture,
+    /// drawn softer. The saving is **not** a quarter, though, and the first
+    /// version of this comment claimed it was: measured, fluted glass falls
+    /// from 38 ms to 19, ASCII only from 38 to 30, dither from 14 to 12. Work
+    /// that is counted in ribs or in character cells does not shrink with the
+    /// canvas, because the number of ribs and cells is a fraction of the page
+    /// too.
+    enum PageQuality {
+        /// What the file gets, and what the canvas shows when nothing moves.
+        case full
+        /// While a gesture is running.
+        case interactive
+
+        var divisor: CGFloat {
+            switch self {
+            case .full:        return 1
+            case .interactive: return 2
+            }
+        }
+    }
+
+    /// The bitmap the page pass renders into. Pulled out of `draw` so the rule
+    /// can be read — and tested — without an offscreen.
+    static func pageBitmapSize(device: CGSize, quality: PageQuality) -> (width: Int, height: Int) {
+        let divisor = quality.divisor
+        return (max(1, Int((abs(device.width) / divisor).rounded())),
+                max(1, Int((abs(device.height) / divisor).rounded())))
+    }
+
     static func draw(
         in ctx: CGContext,
         base: CGImage,
@@ -22,7 +60,8 @@ nonisolated enum PresentationRenderer {
         annotations: [Annotation],
         presentation: Presentation,
         layout: PresentationLayout.Resolved,
-        skipping skippedID: UUID? = nil
+        skipping skippedID: UUID? = nil,
+        pageQuality: PageQuality = .full
     ) {
         guard !EffectStack.page(presentation.effects).isEmpty else {
             drawContents(in: ctx, base: base, blurSources: blurSources,
@@ -35,8 +74,8 @@ nonisolated enum PresentationRenderer {
         // The same rule as the background bake: the size comes from the context
         // itself, so the canvas gets screen pixels and the export the file's.
         let device = ctx.convertToDeviceSpace(canvasRect)
-        let width = Int(abs(device.width).rounded()), height = Int(abs(device.height).rounded())
-        guard width > 0, height > 0, canvasRect.width > 0, canvasRect.height > 0,
+        let (width, height) = pageBitmapSize(device: device.size, quality: pageQuality)
+        guard canvasRect.width > 0, canvasRect.height > 0,
               let offscreen = CGContext(
                 data: nil, width: width, height: height,
                 bitsPerComponent: 8, bytesPerRow: 0,

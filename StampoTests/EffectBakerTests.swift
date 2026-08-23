@@ -489,6 +489,60 @@ import Testing
         #expect(EffectBaker.bakeCount == 2)
     }
 
+    /// An effect may change the colours of a page; it may not change its shape.
+    ///
+    /// `Background.none` promises that PNG export carries the transparency
+    /// through, and the page layer broke that promise: everything built on the
+    /// light helper forces alpha to one, and ASCII lays a veil over the whole
+    /// rectangle. Measured before the fix — corner alpha 0.00 with the effect
+    /// on the background and 1.00 with the same effect on the page.
+    @Test func noEffectFillsInATransparentPage() {
+        let source = CGContext(data: nil, width: 40, height: 40, bitsPerComponent: 8,
+                               bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                               bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        source.setFillColor(CGColor(gray: 0.5, alpha: 1))
+        source.fill(CGRect(x: 0, y: 0, width: 40, height: 40))
+        let base = source.makeImage()!
+
+        for kind in Presentation.Effect.Kind.allCases {
+            for layer in Presentation.Effect.Layer.allCases {
+                var effect = EffectStack.make(kind, seed: 5)
+                effect.layer = layer
+                var presentation = Presentation.identity
+                presentation.canvas = .auto(
+                    margins: Presentation.Margins(top: 30, leading: 30,
+                                                  bottom: 30, trailing: 30), scale: 1)
+                presentation.background = .none
+                presentation.effects = [effect]
+                EffectBaker.emptyCache()
+                let rep = AnnotationRenderer.renderBitmap(base: base, annotations: [],
+                                                          presentation: presentation)
+                let alpha = Double(rep?.colorAt(x: 2, y: 2)?.alphaComponent ?? -1)
+                #expect(alpha == 0, "\(kind) on the \(layer) layer filled the margin: \(alpha)")
+            }
+        }
+    }
+
+    /// The cache is measured in pixels, not in entries — counting entries meant
+    /// a grid of twelve tiles evicted the canvas's own full-size bake, the one
+    /// worth keeping, and none of the tiles ever hit either.
+    @Test func aScreenfulOfTilesDoesNotEvictThePage() {
+        fresh()
+        let size = CGSize(width: 900, height: 600)
+        _ = EffectBaker.image(background: ramp, effects: [grain()], pixelSize: size)
+        #expect(EffectBaker.bakeCount == 1)
+
+        // Every kind, at the size the picker's tiles are drawn.
+        for kind in Presentation.Effect.Kind.allCases {
+            _ = EffectBaker.image(background: ramp,
+                                  effects: [EffectStack.make(kind, over: ramp, seed: 5)],
+                                  pixelSize: CGSize(width: 90, height: 68))
+        }
+        _ = EffectBaker.image(background: ramp, effects: [grain()], pixelSize: size)
+        #expect(EffectBaker.bakeCount == 1 + Presentation.Effect.Kind.allCases.count,
+                "the page was baked again after the tiles went through the cache")
+    }
+
     // MARK: Reading pixels
 
     private let ramp = Presentation.Background.linearGradient(

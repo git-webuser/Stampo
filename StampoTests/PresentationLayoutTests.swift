@@ -668,4 +668,24 @@ import Testing
         }
         #expect(PresentationInspector.backgroundPresetsForTesting.count == 32)
     }
+
+    /// The page-layer pass is not cached, so a gesture pays for it on every
+    /// pointer sample. While something is being dragged the canvas asks for
+    /// half the side, which is a quarter of the pixels — though not a quarter
+    /// of the time, since ribs and character cells are counted in fractions of
+    /// the page and there are just as many of them at any size.
+    @Test func aGestureRendersThePageAtHalfTheSide() {
+        let device = CGSize(width: 1200, height: 800)
+        let full = PresentationRenderer.pageBitmapSize(device: device, quality: .full)
+        let moving = PresentationRenderer.pageBitmapSize(device: device, quality: .interactive)
+
+        #expect(full.width == 1200 && full.height == 800)
+        #expect(moving.width == 600 && moving.height == 400)
+        #expect(full.width * full.height == moving.width * moving.height * 4)
+
+        // A page too small to halve still has a bitmap to draw into.
+        let tiny = PresentationRenderer.pageBitmapSize(device: CGSize(width: 1, height: 1),
+                                                       quality: .interactive)
+        #expect(tiny.width == 1 && tiny.height == 1)
+    }
 }
