@@ -390,6 +390,40 @@ import Testing
         #expect(shown.shadow.radius == 0.08)
     }
 
+    /// Every number in an effect row is printed in the unit it is *stored* in,
+    /// or converted to one that can be compared with its neighbours.
+    ///
+    /// Both bugs in this class were reported by hand. The angle was kept in
+    /// radians under a label saying degrees, so the field read "1", "2", "3".
+    /// The ASCII cell height is a multiple of the cell's width and was printed
+    /// as a percentage, so a width of 19 pixels sat beside a height of "160" —
+    /// two numbers about one cell that could not be compared.
+    @Test func everyEffectParameterIsPrintedInAUsableUnit() {
+        let canvas = CGSize(width: 1200, height: 900)
+        for kind in Presentation.Effect.Kind.allCases {
+            let effect = EffectStack.make(kind, seed: 5)
+            for info in EffectStack.parameters(for: kind) {
+                let unit = PresentationInspector.unit(for: info, of: effect,
+                                                      canvasSize: canvas)
+                switch info.parameter {
+                case .scale:
+                    // A fraction of the short side, shown as the pixels it is.
+                    #expect(unit == .pixels(basis: 900), "\(kind).scale")
+                case .angle:
+                    #expect(unit == .degrees, "\(kind).angle")
+                case .detail where kind == .ascii:
+                    // A line height, in the same unit as the width it belongs
+                    // to: 0.018 × 900 = 16.2 pixels of cell.
+                    #expect(unit == .pixels(basis: effect.scale * 900), "ascii.detail")
+                case .detail:
+                    #expect(unit == (info.step >= 1 ? .count : .percent), "\(kind).detail")
+                case .amount, .aberration, .color, .glyphs:
+                    #expect(unit == .percent, "\(kind).\(info.parameter)")
+                }
+            }
+        }
+    }
+
     /// The gallery is a shortcut and the palette is a vocabulary; a tile that
     /// is pixel-for-pixel the circle below it makes them read as one list
     /// drawn twice.

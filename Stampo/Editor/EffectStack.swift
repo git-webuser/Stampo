@@ -101,7 +101,7 @@ nonisolated enum EffectStack {
         case .grid:     return effect(amount: 0.14, scale: 0.05, color: ink)
         case .stripes:  return effect(amount: 0.12, scale: 0.04,
                                       angle: 45, color: ink)
-        case .vignette: return effect(amount: 0.5, scale: 0.8)
+        case .vignette: return effect(amount: 0.5, scale: 0.4)
         case .pixelate: return effect(amount: 1, scale: 0.05, detail: 10)
         case .dither:   return effect(amount: 1, scale: 0.003, detail: 4)
         case .halftone: return effect(amount: 0.7, scale: 0.012)
@@ -110,7 +110,7 @@ nonisolated enum EffectStack {
         case .fluted:   return effect(amount: 0.55, scale: 0.05, detail: 0.35)
         case .glass:    return effect(amount: 0.5, scale: 0.03, detail: 0.5,
                                       aberration: 0.3)
-        case .lens:     return effect(amount: 0.5, scale: 0.7, aberration: 0.45)
+        case .lens:     return effect(amount: 0.5, scale: 0.35, aberration: 0.45)
         // The letters sit on a darkened page whatever the background was, so
         // they stay light — the veil is what they have to be seen against.
         // The letters take the page's own colours, so there is no ink to
@@ -212,7 +212,7 @@ nonisolated enum EffectStack {
             return [strength(), size("Pattern Step", 0.01...0.2, step: 0.005,
                                      symbol: "square.grid.3x3"), angle, color]
         case .vignette:
-            return [strength(), size("Vignette Radius", 0.2...1.5, step: 0.05,
+            return [strength(), size("Vignette Radius", 0.1...0.75, step: 0.025,
                                      symbol: "camera.aperture")]
         case .pixelate:
             return [size("Cell Size", 0.004...0.15, step: 0.002,
@@ -244,14 +244,19 @@ nonisolated enum EffectStack {
         case .lens:
             // Negative pinches instead of bulging — one dial, both directions,
             // because "inward" is the same gesture read backwards.
-            return [strength(-1...1), size("Lens Radius", 0.2...1.5, step: 0.05,
+            return [strength(-1...1), size("Lens Radius", 0.1...0.75, step: 0.025,
                                            symbol: "dot.circle.viewfinder"),
                     aberration]
         case .ascii:
             return [ParameterInfo(parameter: .amount, titleKey: "Background",
                                   systemImage: "square.fill", range: 0...1, step: 0.01),
-                    size("Cell Size", 0.008...0.06, step: 0.002,
+                    size("Cell Width", 0.008...0.06, step: 0.002,
                          symbol: "textformat.size"),
+                    // Kept as a multiple of the cell's width — a line height,
+                    // in other words — so a wider cell keeps its proportions.
+                    // The panel prints it in pixels all the same, because a
+                    // height beside a width in different units is two numbers
+                    // nobody can compare.
                     ParameterInfo(parameter: .detail, titleKey: "Cell Height",
                                   systemImage: "arrow.up.and.down",
                                   range: 0.8...2.5, step: 0.1),

@@ -316,7 +316,11 @@ nonisolated enum EffectBaker {
         let filter = CIFilter.vignetteEffect()
         filter.inputImage = image.clampedToExtent()
         filter.center = CGPoint(x: extent.midX, y: extent.midY)
-        filter.radius = Float(effect.scale * shortSide / 2)
+        // The whole fraction, not half of it. Every size in this file is a
+        // fraction of the short side, and the panel prints it as pixels on that
+        // basis — a quiet halving here made the field say 960 where the drawing
+        // used 480, the same class of lie the angle told in radians.
+        filter.radius = Float(effect.scale * shortSide)
         filter.intensity = Float(effect.amount)
         filter.falloff = 0.5
         return filter.outputImage?.cropped(to: extent) ?? image
@@ -626,7 +630,7 @@ nonisolated enum EffectBaker {
     /// One dial for both, because inward is the same gesture read backwards.
     private static func lens(_ effect: Recipe, over image: CIImage,
                              extent: CGRect, shortSide: CGFloat) -> CIImage {
-        let radius = effect.scale * shortSide / 2
+        let radius = effect.scale * shortSide
         let filter = CIFilter.bumpDistortion()
         filter.inputImage = image.clampedToExtent()
         filter.center = CGPoint(x: extent.midX, y: extent.midY)

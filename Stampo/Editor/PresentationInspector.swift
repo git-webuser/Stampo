@@ -1077,7 +1077,7 @@ struct PresentationInspector: View {
                         value: effectBinding(effect, info.parameter),
                         range: info.range,
                         step: info.step,
-                        unit: Self.unit(for: info, canvasSize: canvasSize)
+                        unit: Self.unit(for: info, of: effect, canvasSize: canvasSize)
                     )
                 }
             }
@@ -1249,19 +1249,31 @@ struct PresentationInspector: View {
         .accessibilityHidden(true)
     }
 
-    /// `scale` is a fraction of the short side, so the field beside the slider
-    /// can show it in the pixels it will actually be.
-    private static func unit(for info: EffectStack.ParameterInfo,
-                             canvasSize: CGSize) -> ValueUnit {
+    /// What a parameter is *measured in*, which is not always what it is stored
+    /// as.
+    ///
+    /// Every mismatch here has cost a bug report. The angle was kept in radians
+    /// and printed under a label saying degrees, so the field read "1", "2",
+    /// "3". The ASCII cell height is a multiple of the cell's width and was
+    /// printed as a percentage, so a width of 19 pixels sat beside a height of
+    /// "160" — two numbers about the same cell that could not be compared.
+    static func unit(for info: EffectStack.ParameterInfo,
+                     of effect: Presentation.Effect,
+                     canvasSize: CGSize) -> ValueUnit {
+        let shortSide = min(canvasSize.width, canvasSize.height)
         switch info.parameter {
         case .scale:
-            return .pixels(basis: min(canvasSize.width, canvasSize.height))
+            return .pixels(basis: shortSide)
         case .angle:
             return .degrees
-        // Told apart by the step, not by the range: a parameter that moves in
-        // whole numbers is a count of something — six colours — and one that
-        // moves in hundredths is a proportion. Reading the range instead made
-        // the ASCII cell height, a ratio of 1.6, show as "2".
+        case .detail where effect.kind == .ascii:
+            // A line height, shown the way a line height is: in the same unit
+            // as the size it belongs to.
+            return .pixels(basis: max(1, effect.scale * shortSide))
+        // Otherwise told apart by the step, not by the range: a parameter that
+        // moves in whole numbers is a count of something — six colours — and
+        // one that moves in hundredths is a proportion. Reading the range
+        // instead made that same cell height show as "2".
         case .detail:
             return info.step >= 1 ? .count : .percent
         case .amount, .color, .aberration, .glyphs:
@@ -1778,7 +1790,7 @@ struct PresentationInspector: View {
     /// the panel is the same width and their right edges line up. A trailing
     /// "px" caption pushed each field left by a different amount depending on
     /// the unit's own width.
-    private enum ValueUnit {
+    enum ValueUnit: Equatable {
         /// A plain number, shown as it stands: six colours is six.
         case count
         /// A canvas fraction shown as pixels of `basis` — the same length the

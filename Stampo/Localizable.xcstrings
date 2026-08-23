@@ -1361,6 +1361,23 @@
         }
       }
     },
+    "Cell Width" : {
+      "comment" : "Decor inspector — width of one ASCII cell, in pixels",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cell Width"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ширина клетки"
+          }
+        }
+      }
+    },
     "Center Horizontally" : {
       "comment" : "Aligns the picture inside the canvas",
       "localizations" : {
