@@ -1894,93 +1894,114 @@ struct PresentationInspector: View {
     /// and the section above is already called Image.
     private func objectSection(_ picture: Annotation, number: Int) -> some View {
         let isOpen = openObjects.contains(picture.id) || document.selectedID == picture.id
-        return VStack(alignment: .leading, spacing: 6) {
-            Button {
-                withAnimation(.easeInOut(duration: 0.16)) {
-                    if isOpen {
-                        openObjects.remove(picture.id)
-                        if document.selectedID == picture.id { document.selectedID = nil }
-                    } else {
-                        openObjects.insert(picture.id)
-                        // Opening a section is a way of pointing at the object,
-                        // so the canvas points at it too.
-                        document.selectedID = picture.id
-                    }
+        let fold = {
+            withAnimation(.easeInOut(duration: 0.16)) {
+                if isOpen {
+                    openObjects.remove(picture.id)
+                    if document.selectedID == picture.id { document.selectedID = nil }
+                } else {
+                    openObjects.insert(picture.id)
+                    // Opening a section is a way of pointing at the object, so
+                    // the canvas points at it too.
+                    document.selectedID = picture.id
                 }
-            } label: {
+            }
+        }
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+            Button(action: fold) {
                 HStack(spacing: 8) {
                     objectThumbnail(picture)
+                    // The name asks for no width of its own — an ideal of
+                    // zero, a maximum of everything — so a long one in any
+                    // language takes the room that is there and truncates
+                    // rather than adding to what the panel says it needs.
                     Text(String(format: String(localized: "Image %lld"), number))
                         .font(.headline)
-                    Spacer(minLength: 0)
-                    Image(systemName: "chevron.forward")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(.tertiary)
-                        .rotationEffect(.degrees(isOpen ? 90 : 0))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .frame(minWidth: 0, idealWidth: 0, maxWidth: .infinity,
+                               alignment: .leading)
                 }
                 .frame(minHeight: 28)
-                .padding(.horizontal, 6)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
 
+            // Where a light's switch sits in every other header: the one thing
+            // this block can be told to do as a whole. A picture is thrown away
+            // by a cross rather than by a button at the foot of its settings —
+            // that button could only be reached past everything the picture
+            // has, and only with the section open. A misclick is one ⌘Z.
+            panelIconButton("xmark", role: .quiet, label: "Remove Image") {
+                document.delete(id: picture.id)
+            }
+
+            Button(action: fold) {
+                Image(systemName: "chevron.forward")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.tertiary)
+                    .rotationEffect(.degrees(isOpen ? 90 : 0))
+                    .frame(minHeight: 28)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 6)
+
             if isOpen {
-                GroupBox {
-                    VStack(alignment: .leading, spacing: Self.controlSpacing) {
-                        // Four blocks, and rules between them: how big it is
-                        // and how round, then each of its two lights, then its
-                        // effects, then the way to be rid of it. Without the
-                        // rules the section is a column of a dozen controls
-                        // where only the reading order says which belongs to
-                        // which — and the two lights are made of the same three
-                        // controls, so they run together worst of all.
-                        objectSizeRow(picture)
-                        presentationSlider(
-                            "Corner Radius", id: "object-radius-\(picture.id)",
-                            systemImage: "rectangle",
-                            value: objectBinding(picture.id, \.pictureCornerRadius),
-                            range: 0...0.5, step: 0.01,
-                            unit: .pixels(basis: min(picture.rect.width, picture.rect.height))
-                        )
-                        Divider()
-                        objectLight(
-                            picture, "Shadow", systemImage: "square.filled.on.square",
-                            id: "object-shadow-\(picture.id)",
-                            amount: \.pictureShadow,
-                            colorTitle: "Shadow Color", color: picture.pictureShadowColor,
-                            show: "Show Shadow", hide: "Hide Shadow",
-                            setColor: { $0.pictureShadowColor = $1 }
-                        )
-                        Divider()
-                        objectLight(
-                            picture, "Glow", systemImage: "sun.max",
-                            id: "object-glow-\(picture.id)",
-                            amount: \.pictureGlow,
-                            colorTitle: "Glow Color", color: picture.pictureGlowColor,
-                            show: "Show Glow", hide: "Hide Glow",
-                            setColor: { $0.pictureGlowColor = $1 }
-                        )
-
-                        Divider()
-                        objectEffects(picture)
-                        Divider()
-
-                        // Its own row, and the section's last word. Beside the
-                        // colour field it read as "delete the colour", which is
-                        // a bad thing for a button to be misread as when what
-                        // it really throws away is the picture. Small, and a
-                        // picture with a minus on it rather than a bin: the bin
-                        // at the foot of the panel means something larger —
-                        // every bit of decoration, gone — and two identical
-                        // glyphs a finger apart is how the wrong one is pressed.
-                        removeButton("Remove Image", systemImage: "rectangle.badge.minus") {
-                            document.delete(id: picture.id)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(Self.groupPadding)
+                // Four boxes rather than one box with rules in it. Every block
+                // is a heading and then its own controls — how big the picture
+                // is and how round, then each of its two lights, then its
+                // effects — and a box says where one ends and the next begins
+                // better than a line inside a single box can. The two lights
+                // are made of the same three controls, so run together they
+                // were the hardest of all to tell apart.
+                objectBlock {
+                    objectSizeRow(picture)
+                    presentationSlider(
+                        "Corner Radius", id: "object-radius-\(picture.id)",
+                        systemImage: "rectangle",
+                        value: objectBinding(picture.id, \.pictureCornerRadius),
+                        range: 0...0.5, step: 0.01,
+                        unit: .pixels(basis: min(picture.rect.width, picture.rect.height))
+                    )
+                }
+                objectBlock {
+                    objectLight(
+                        picture, "Shadow", systemImage: "square.filled.on.square",
+                        id: "object-shadow-\(picture.id)",
+                        amount: \.pictureShadow,
+                        colorTitle: "Shadow Color", color: picture.pictureShadowColor,
+                        show: "Show Shadow", hide: "Hide Shadow",
+                        setColor: { $0.pictureShadowColor = $1 }
+                    )
+                }
+                objectBlock {
+                    objectLight(
+                        picture, "Glow", systemImage: "sun.max",
+                        id: "object-glow-\(picture.id)",
+                        amount: \.pictureGlow,
+                        colorTitle: "Glow Color", color: picture.pictureGlowColor,
+                        show: "Show Glow", hide: "Hide Glow",
+                        setColor: { $0.pictureGlowColor = $1 }
+                    )
+                }
+                objectBlock {
+                    objectEffects(picture)
                 }
             }
+        }
+    }
+
+    /// One block of a picture's settings, in a box of its own.
+    private func objectBlock<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        GroupBox {
+            VStack(alignment: .leading, spacing: Self.controlSpacing) {
+                content()
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(Self.groupPadding)
         }
     }
 
@@ -2090,7 +2111,8 @@ struct PresentationInspector: View {
                         updateObject(picture.id) { setColor(&$0, picked) }
                     }
                     Spacer(minLength: 4)
-                    valueField(value: value, range: 0...1, unit: .percent, id: id)
+                    valueField(value: value, range: 0...1, unit: .percent, id: id,
+                               width: Self.shortFieldWidth)
                 }
                 }
             }
@@ -2444,6 +2466,11 @@ struct PresentationInspector: View {
     /// width: the canvas row carries two of them plus the × and the rotate
     /// button, and the margins carry two plus the picture's stand-in.
     private static let numberFieldWidth: CGFloat = 100
+    /// For a number that shares its row with the colour field: the two of them
+    /// at full width asked for 326 points where the panel's own minimum is 320,
+    /// and the inspector column grew by the difference the moment a picture was
+    /// placed. A percentage never needs more than three digits.
+    private static let shortFieldWidth: CGFloat = 62
     /// The panel's rhythm, in one place: between sections, and between the
     /// controls inside one.
     private static let sectionSpacing: CGFloat = 16
@@ -2510,7 +2537,8 @@ struct PresentationInspector: View {
     private func valueField(value: Binding<CGFloat>,
                             range: ClosedRange<CGFloat>,
                             unit: ValueUnit,
-                            id: String) -> some View {
+                            id: String,
+                            width: CGFloat = numberFieldWidth) -> some View {
         let commit: (CGFloat) -> Void = { fraction in
             let clamped = min(range.upperBound, max(range.lowerBound, fraction))
             guard clamped != value.wrappedValue else { return }
@@ -2536,7 +2564,7 @@ struct PresentationInspector: View {
             }
         }
         .controlSize(.large)
-        .frame(width: Self.numberFieldWidth)
+        .frame(width: width)
     }
 
     private func sliderEditingChanged(_ editing: Bool) {
