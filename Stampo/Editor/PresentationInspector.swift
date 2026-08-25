@@ -1136,7 +1136,14 @@ struct PresentationInspector: View {
     /// cannot say it.
     private var effectsSection: some View {
         inspectorGroup("Effects", section: .effects) {
-            ForEach(draft.effects) { effect in
+            // A rule between the rows, not around them. Every row is the same
+            // three controls and then a handful of sliders whose number changes
+            // with the kind, so two of them in a column read as one long effect
+            // with too many dials — the first thing anybody asked about this
+            // section. The first row needs none: the section's own header is
+            // already the line above it.
+            ForEach(Array(draft.effects.enumerated()), id: \.element.id) { index, effect in
+                if index > 0 { Divider() }
                 effectRow(effect, of: .page)
             }
             HStack(spacing: 8) {
@@ -2115,7 +2122,8 @@ struct PresentationInspector: View {
                     effectGrid(.add(owner))
                 }
             }
-            ForEach(picture.pictureEffects) { effect in
+            ForEach(Array(picture.pictureEffects.enumerated()), id: \.element.id) { index, effect in
+                if index > 0 { Divider() }
                 effectRow(effect, of: owner)
             }
         }
