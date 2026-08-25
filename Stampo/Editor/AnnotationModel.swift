@@ -422,12 +422,25 @@ nonisolated struct Annotation: Identifiable, Equatable, Sendable {
     /// than four: a picture on a page wants the same shadow the screenshot has,
     /// only more or less of it, and the radius and offset follow from its size.
     var pictureShadow: CGFloat = 0
+    /// What colour that shadow is. Black by default, as a shadow is, but a
+    /// coloured one is how a picture is bedded into a coloured page instead of
+    /// looking cut out and dropped onto it.
+    var pictureShadowColor: Presentation.Color = Presentation.Shadow.none.color
     /// How strong the light behind a placed picture is, 0…1, and its colour.
     /// Its own rather than the page's: giving every object the same glow is a
     /// blunt rule, and a second picture is often placed precisely because it
     /// should read differently from the first.
     var pictureGlow: CGFloat = 0
     var pictureGlowColor: Presentation.Color = Presentation.Glow.none.color
+    /// The picture's own stack of effects, run over its pixels alone.
+    ///
+    /// Its own rather than the page's, for the reason the user gave when the
+    /// page-wide treatment was turned down: a page has one background and one
+    /// screenshot, but it may have any number of pictures, and grain that
+    /// belongs to all of them is a different request from grain that belongs to
+    /// this one. `Effect.layer` means nothing here — an object has one layer,
+    /// itself — so every switched-on effect in the list is applied.
+    var pictureEffects: [Presentation.Effect] = []
     /// Number of sides of a `.polygon` (ShapeCounts.polygonSides).
     var polygonSides: Int = ShapeCounts.defaultPolygonSides
     /// Number of points of a `.star` (ShapeCounts.starPoints).
@@ -1639,6 +1652,28 @@ nonisolated struct Annotation: Identifiable, Equatable, Sendable {
         guard side > 0 else { return point }
         return CGPoint(x: from.x + (dx < 0 ? -side : side),
                        y: from.y + (dy < 0 ? -side : side))
+    }
+
+    /// A rectangle given a new width, a new height, or both, from its
+    /// top-left corner — what the size fields in the panel do.
+    ///
+    /// `keepingRatio` is the fields' chain, and it is the same promise Shift
+    /// makes on the canvas: whichever number was typed leads, and the other
+    /// follows it. Nothing may collapse to nothing, so both sides keep at
+    /// least a pixel.
+    static func resized(_ rect: CGRect, width: CGFloat? = nil, height: CGFloat? = nil,
+                        keepingRatio: Bool) -> CGRect {
+        let ratio = rect.width > 0 ? rect.height / rect.width : 1
+        var size = CGSize(width: max(1, width ?? rect.width),
+                          height: max(1, height ?? rect.height))
+        if keepingRatio, ratio > 0 {
+            if width != nil, height == nil {
+                size.height = max(1, size.width * ratio)
+            } else if height != nil, width == nil {
+                size.width = max(1, size.height / ratio)
+            }
+        }
+        return CGRect(origin: rect.origin, size: size)
     }
 
     /// The corner that keeps a given height-to-width ratio, in whichever

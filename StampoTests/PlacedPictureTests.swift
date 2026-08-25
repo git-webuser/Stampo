@@ -225,4 +225,109 @@ import Testing
                       to: CGPoint(x: corner.x + 300, y: corner.y + 20))
         #expect(abs(picture.rect.height - 20) < 1)
     }
+
+    /// A picture's own effects are its own: baked over its pixels alone, so
+    /// they follow it wherever it is put and leave the page under it untouched.
+    @Test func aPicturesEffectsAreBakedIntoItAndNothingElse() throws {
+        let document = document()
+        let url = try writePNG("placed-effects.png", width: 60, height: 60)
+        defer { try? FileManager.default.removeItem(at: url) }
+        document.startDecorationIfNeeded()
+        #expect(document.placePicture(at: url, centredOn: CGPoint(x: 40, y: 40),
+                                      canvasSize: CGSize(width: 400, height: 300)))
+        let id = try #require(document.annotations.last?.id)
+        let name = try #require(document.annotations.last?.pictureID)
+        let picture = try #require(document.picture(for: name))
+
+        // An empty stack is not a bake at all — the old path, byte for byte.
+        EffectBaker.emptyCache()
+        EffectBaker.resetBakeCount()
+        #expect(EffectBaker.object([], over: picture, named: name) == nil)
+        #expect(EffectBaker.bakeCount == 0)
+
+        // Layer means nothing inside an object: a "page" effect still applies,
+        // because an object is one layer, itself.
+        var dim = EffectStack.make(.dim)
+        dim.layer = .page
+        dim.amount = 1
+        let treated = try #require(EffectBaker.object([dim], over: picture, named: name))
+        #expect(EffectBaker.bakeCount == 1)
+        #expect(treated.width == picture.width && treated.height == picture.height)
+        // …and the second identical request is the cache's, not the GPU's.
+        _ = EffectBaker.object([dim], over: picture, named: name)
+        #expect(EffectBaker.bakeCount == 1)
+
+        // Switched off is not applied.
+        dim.isEnabled = false
+        #expect(EffectBaker.object([dim], over: picture, named: name) == nil)
+
+        // And it reaches the page: the picture goes dark where it is drawn.
+        let plain = AnnotationRenderer.renderBitmap(base: document.baseImage,
+                                                    pictures: document.pictures,
+                                                    annotations: document.annotations,
+                                                    presentation: document.presentation)?
+            .colorAt(x: 40, y: 40)
+        document.annotations[document.annotations.count - 1].pictureEffects = [
+            EffectStack.setting(.amount, of: EffectStack.make(.dim), to: 1)
+        ]
+        #expect(document.annotations.first { $0.id == id }?.pictureEffects.count == 1)
+        let dimmed = AnnotationRenderer.renderBitmap(base: document.baseImage,
+                                                      pictures: document.pictures,
+                                                      annotations: document.annotations,
+                                                      presentation: document.presentation)?
+            .colorAt(x: 40, y: 40)
+        #expect(Double(dimmed?.brightnessComponent ?? 1)
+                < Double(plain?.brightnessComponent ?? 0) - 0.05,
+                "the picture's own effect did not reach the page")
+    }
+
+    /// The size fields, and the chain between them.
+    @Test func typedSizeKeepsTheCornerAndOptionallyTheShape() {
+        let rect = CGRect(x: 20, y: 30, width: 200, height: 100)
+
+        let wider = Annotation.resized(rect, width: 400, keepingRatio: true)
+        #expect(wider.origin == rect.origin, "the picture moved when it was resized")
+        #expect(wider.size == CGSize(width: 400, height: 200))
+
+        let taller = Annotation.resized(rect, height: 50, keepingRatio: true)
+        #expect(taller.size == CGSize(width: 100, height: 50))
+
+        // Unchained, the other number stays where it was.
+        let squashed = Annotation.resized(rect, width: 400, keepingRatio: false)
+        #expect(squashed.size == CGSize(width: 400, height: 100))
+
+        // Both at once is not a request to guess which one leads.
+        let both = Annotation.resized(rect, width: 300, height: 300, keepingRatio: true)
+        #expect(both.size == CGSize(width: 300, height: 300))
+
+        // Nothing collapses to nothing.
+        #expect(Annotation.resized(rect, width: -8, keepingRatio: true).width == 1)
+    }
+
+    /// The radius dot on a placed picture measures against the picture's own
+    /// short side, not the canvas — which is what lets a small picture and a
+    /// large one look equally rounded at the same number.
+    @Test func theRadiusDotMeasuresAgainstThePictureItself() {
+        var picture = Annotation(kind: .picture,
+                                 start: CGPoint(x: 100, y: 100),
+                                 end: CGPoint(x: 300, y: 200),   // 200 × 100
+                                 color: .blue, lineWidth: 2)
+
+        let asked = EditorCanvasView.pictureCornerRadius(
+            forPointer: CGPoint(x: 125, y: 125), from: .topLeft, of: picture.rect)
+        #expect(abs(asked - 0.25) < 0.001)      // 25 of the 100 short side
+
+        // Never past half, however far the pointer is dragged.
+        #expect(EditorCanvasView.pictureCornerRadius(
+            forPointer: CGPoint(x: 900, y: 900), from: .topLeft, of: picture.rect) == 0.5)
+
+        // The dot sits at the radius, and never closer in than the minimum
+        // inset that keeps it grabbable at zero.
+        picture.pictureCornerRadius = 0.25
+        let dot = EditorCanvasView.pictureRadiusHandlePoint(.topLeft, of: picture)
+        #expect(dot == CGPoint(x: 125, y: 125))
+        picture.pictureCornerRadius = 0
+        let atZero = EditorCanvasView.pictureRadiusHandlePoint(.topLeft, of: picture)
+        #expect(atZero.x > 100 && atZero.x <= 114)
+    }
 }

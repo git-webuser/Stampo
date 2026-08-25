@@ -204,7 +204,10 @@ nonisolated enum AnnotationRenderer {
             let strength = min(1, a.pictureShadow)
             castLight(under: path, blur: short * 0.06 * strength,
                       offset: CGSize(width: 0, height: -short * 0.02 * strength),
-                      color: CGColor(gray: 0, alpha: 0.55 * strength), ctx: ctx)
+                      color: CGColor(srgbRed: a.pictureShadowColor.red,
+                                     green: a.pictureShadowColor.green,
+                                     blue: a.pictureShadowColor.blue,
+                                     alpha: 0.55 * strength), ctx: ctx)
         }
 
         ctx.saveGState()
@@ -213,7 +216,13 @@ nonisolated enum AnnotationRenderer {
             ctx.addPath(path)
             ctx.clip()
         }
-        drawImageInFlippedSpace(picture, in: rect, ctx: ctx)
+        // The picture's own effects are pixel work on the picture alone, so
+        // they are baked into it before it is drawn — the same arrangement the
+        // background uses, and cached the same way, keyed on the pixels rather
+        // than on where they happen to sit. That is what lets a picture with
+        // grain on it be dragged about without re-baking on every frame.
+        let treated = EffectBaker.object(a.pictureEffects, over: picture, named: id) ?? picture
+        drawImageInFlippedSpace(treated, in: rect, ctx: ctx)
         ctx.restoreGState()
     }
 

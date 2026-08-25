@@ -77,6 +77,9 @@ struct PresentationInspector: View {
     /// The shadow put aside by the hide button, so showing it again brings back
     /// the one you had rather than a stock one.
     @State private var hiddenShadow: Presentation.Shadow?
+    /// The same, for the glow: the two sections do the same thing and should
+    /// have the same button.
+    @State private var hiddenGlow: Presentation.Glow?
     /// Whether the margins are shown as four fields or as two. A way of
     /// looking at them, not a property of the document.
     @State private var marginsAreSplit = false
@@ -89,6 +92,14 @@ struct PresentationInspector: View {
     /// a preference: it is about the objects of this document, which outlive
     /// neither it nor the panel.
     @State private var openObjects: Set<UUID> = []
+    /// Which objects have their two size fields untied. Linked is the default,
+    /// and the exception is the one worth remembering — for this session only,
+    /// like every other way of *looking* at the panel.
+    @State private var unlinkedObjects: Set<UUID> = []
+    /// What a light was worth before its eye was closed, so opening it again
+    /// returns the one you had rather than a stock one — exactly what the
+    /// page's shadow does.
+    @State private var hiddenObjectLights: [String: CGFloat] = [:]
     /// A picture is being dragged over the background section right now.
     @State private var pictureIsOverTheBackground = false
     /// What the grid of effects is open *for*: adding one to the end of the
@@ -97,10 +108,29 @@ struct PresentationInspector: View {
     @State private var effectPicker: PickerTarget?
 
     enum PickerTarget: Hashable, Identifiable {
-        case add
-        case replace(UUID)
+        case add(EffectOwner)
+        case replace(EffectOwner, UUID)
 
         var id: Self { self }
+
+        /// Whose stack the grid is about — the one thing every use of it needs.
+        var owner: EffectOwner {
+            switch self {
+            case .add(let owner):          return owner
+            case .replace(let owner, _):   return owner
+            }
+        }
+    }
+
+    /// Whose stack a row belongs to: the page's, or one placed picture's.
+    ///
+    /// The whole effects UI is written once and pointed at either. What differs
+    /// is only what a tile draws and whether the layer switch is there at all —
+    /// an object has one layer, itself, so asking "background or page" inside
+    /// its section would be asking about somebody else.
+    enum EffectOwner: Hashable {
+        case page
+        case object(UUID)
     }
     /// Which mesh corner the row below the plate acts on. Four corners, so no
     /// clamping machinery — just a number between 0 and 3.
@@ -722,8 +752,8 @@ struct PresentationInspector: View {
             // 4:3 rather than a thin strip: a gradient's direction and a mesh's
             // spread are not readable in 30 points of height.
             .aspectRatio(4.0 / 3.0, contentMode: .fit)
-            .clipShape(RoundedRectangle(cornerRadius: 5))
-            .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(.quaternary, lineWidth: 1))
+                .clipShape(RoundedRectangle(cornerRadius: 5))
+                .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(.quaternary, lineWidth: 1))
             Text(kind.titleKey)
                 .font(.system(size: 11))
                 .lineLimit(1)
@@ -1107,7 +1137,7 @@ struct PresentationInspector: View {
     private var effectsSection: some View {
         inspectorGroup("Effects", section: .effects) {
             ForEach(draft.effects) { effect in
-                effectRow(effect)
+                effectRow(effect, of: .page)
             }
             HStack(spacing: 8) {
                 if draft.effects.isEmpty {
@@ -1120,10 +1150,10 @@ struct PresentationInspector: View {
                 }
                 Spacer(minLength: 0)
                 sectionActionButton("plus", label: "Add Effect") {
-                    effectPicker = .add
+                    effectPicker = .add(.page)
                 }
-                .popover(isPresented: showingPicker(.add), arrowEdge: .bottom) {
-                    effectGrid(.add)
+                .popover(isPresented: showingPicker(.add(.page)), arrowEdge: .bottom) {
+                    effectGrid(.add(.page))
                 }
             }
         }
@@ -1139,9 +1169,10 @@ struct PresentationInspector: View {
     /// so would the page. An effect that needs a texture under it is a fact
     /// about the effect, not something a stock sample should hide.
     private func effectGrid(_ target: PickerTarget) -> some View {
+        let owner = target.owner
         let current: Presentation.Effect.Kind? = {
-            guard case .replace(let id) = target else { return nil }
-            return draft.effects.first { $0.id == id }?.kind
+            guard case .replace(_, let id) = target else { return nil }
+            return effects(of: owner).first { $0.id == id }?.kind
         }()
         return ScrollView {
             tileGrid(Presentation.Effect.Kind.allCases, selected: current) { kind in
@@ -1149,10 +1180,10 @@ struct PresentationInspector: View {
             } action: { kind in
                 switch target {
                 case .add:
-                    addEffect(kind)
-                case .replace(let id):
-                    if let effect = draft.effects.first(where: { $0.id == id }) {
-                        setEffectKind(effect, to: kind)
+                    addEffect(kind, to: owner)
+                case .replace(_, let id):
+                    if let effect = effects(of: owner).first(where: { $0.id == id }) {
+                        setEffectKind(effect, to: kind, of: owner)
                     }
                 }
                 effectPicker = nil
@@ -1168,25 +1199,18 @@ struct PresentationInspector: View {
     /// rule is that a tile promises exactly what the export will draw.
     private func effectTile(_ kind: Presentation.Effect.Kind,
                             _ target: PickerTarget) -> some View {
+        let owner = target.owner
         let replacing: UUID? = {
-            if case .replace(let id) = target { return id }
+            if case .replace(_, let id) = target { return id }
             return nil
         }()
-        let stack = EffectStack.stack(draft.effects, choosing: kind,
+        let stack = EffectStack.stack(effects(of: owner), choosing: kind,
                                       over: draft.background, replacing: replacing)
         return VStack(spacing: 5) {
-            Canvas { context, size in
-                context.withCGContext { cg in
-                    PresentationRenderer.drawBackground(
-                        draft.background, effects: stack,
-                        picture: document.picture(for: draft.background.pictureID),
-                        in: CGRect(origin: .zero, size: size), ctx: cg
-                    )
-                }
-            }
-            .aspectRatio(4.0 / 3.0, contentMode: .fit)
-            .clipShape(RoundedRectangle(cornerRadius: 5))
-            .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(.quaternary, lineWidth: 1))
+            effectCanvas(stack, of: owner)
+                .aspectRatio(4.0 / 3.0, contentMode: .fit)
+                .clipShape(RoundedRectangle(cornerRadius: 5))
+                .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(.quaternary, lineWidth: 1))
             // The name alone: the picture above it already says what the
             // effect is, and the glyph beside it cost enough width to truncate
             // "Pixelate" in three columns.
@@ -1197,35 +1221,37 @@ struct PresentationInspector: View {
         }
     }
 
-    private func effectRow(_ effect: Presentation.Effect) -> some View {
+    private func effectRow(_ effect: Presentation.Effect,
+                           of owner: EffectOwner) -> some View {
         VStack(alignment: .leading, spacing: Self.captionGap) {
             HStack(spacing: 8) {
-                effectPreview(effect)
-                effectKindMenu(effect)
+                effectPreview(effect, of: owner)
+                effectKindMenu(effect, of: owner)
                 Spacer(minLength: 0)
                 // Hide rather than delete, exactly as the shadow does: an
                 // effect switched off keeps its numbers, so turning it back on
                 // returns the one you had.
                 effectRowButton(effect.isEnabled ? "eye" : "eye.slash",
                                 label: effect.isEnabled ? "Hide Effect" : "Show Effect") {
-                    setEffect(effect) { $0.isEnabled.toggle() }
+                    setEffect(effect, of: owner) { $0.isEnabled.toggle() }
                 }
                 effectRowButton("xmark", label: "Remove Effect") {
-                    removeEffect(effect)
+                    removeEffect(effect, from: owner)
                 }
             }
-            effectLayerRow(effect)
+            // Only the page has two layers to choose between.
+            if owner == .page { effectLayerRow(effect) }
             ForEach(EffectStack.parameters(for: effect.kind), id: \.parameter) { info in
                 if info.parameter == .color {
-                    effectColorRow(effect, info)
+                    effectColorRow(effect, info, of: owner)
                 } else if info.parameter == .glyphs {
-                    effectGlyphRow(effect, info)
+                    effectGlyphRow(effect, info, of: owner)
                 } else {
                     presentationSlider(
                         LocalizedStringKey(info.titleKey),
                         id: "effect-\(effect.id)-\(info.parameter.rawValue)",
                         systemImage: info.systemImage,
-                        value: effectBinding(effect, info.parameter),
+                        value: effectBinding(effect, info.parameter, of: owner),
                         range: info.range,
                         step: info.step,
                         unit: Self.unit(for: info, of: effect, canvasSize: canvasSize)
@@ -1241,11 +1267,12 @@ struct PresentationInspector: View {
         // even the same height, since each kind brings its own sliders.
         .draggable(effect.id.uuidString)
         .dropDestination(for: String.self) { items, _ in
+            let stack = effects(of: owner)
             guard let dragged = items.first,
-                  let from = draft.effects.firstIndex(where: { $0.id.uuidString == dragged }),
-                  let to = draft.effects.firstIndex(where: { $0.id == effect.id })
+                  let from = stack.firstIndex(where: { $0.id.uuidString == dragged }),
+                  let to = stack.firstIndex(where: { $0.id == effect.id })
             else { return false }
-            moveEffect(from: from, to: to)
+            moveEffect(from: from, to: to, of: owner)
             return true
         }
     }
@@ -1254,7 +1281,8 @@ struct PresentationInspector: View {
     /// than a slider — the same chip and the same typed field as the shadow's
     /// colour, in the same notation the rest of the app uses.
     private func effectColorRow(_ effect: Presentation.Effect,
-                                _ info: EffectStack.ParameterInfo) -> some View {
+                                _ info: EffectStack.ParameterInfo,
+                                of owner: EffectOwner) -> some View {
         VStack(alignment: .leading, spacing: Self.captionGap) {
             Text(LocalizedStringKey(info.titleKey))
                 .font(.system(size: 11))
@@ -1262,11 +1290,11 @@ struct PresentationInspector: View {
             HStack(spacing: 8) {
                 ColorChip(color: effect.color, diameter: Self.swatchSize,
                           supportsOpacity: false) { color in
-                    setEffect(effect) { $0.color = color }
+                    setEffect(effect, of: owner) { $0.color = color }
                 }
                 .accessibilityLabel(Text(LocalizedStringKey(info.titleKey)))
                 ColorField(color: effect.color) { color in
-                    setEffect(effect) { $0.color = color }
+                    setEffect(effect, of: owner) { $0.color = color }
                 }
                 Spacer(minLength: 0)
             }
@@ -1282,9 +1310,10 @@ struct PresentationInspector: View {
     /// The label takes the room that is left rather than asking for room of its
     /// own — a menu that sizes itself to "Fluted Glass" would set the width of
     /// the whole inspector.
-    private func effectKindMenu(_ effect: Presentation.Effect) -> some View {
+    private func effectKindMenu(_ effect: Presentation.Effect,
+                                of owner: EffectOwner) -> some View {
         Button {
-            effectPicker = .replace(effect.id)
+            effectPicker = .replace(owner, effect.id)
         } label: {
             HStack(spacing: 3) {
                 Text(LocalizedStringKey(EffectStack.title(for: effect.kind)))
@@ -1300,8 +1329,8 @@ struct PresentationInspector: View {
         .help("Change Effect")
         // Anchored to the row it will change, so the grid opens beside the
         // thing it is about rather than beside the "+" at the bottom.
-        .popover(isPresented: showingPicker(.replace(effect.id)), arrowEdge: .bottom) {
-            effectGrid(.replace(effect.id))
+        .popover(isPresented: showingPicker(.replace(owner, effect.id)), arrowEdge: .bottom) {
+            effectGrid(.replace(owner, effect.id))
         }
     }
 
@@ -1323,7 +1352,7 @@ struct PresentationInspector: View {
         segments(
             selection: Binding(
                 get: { effect.layer },
-                set: { layer in setEffect(effect) { $0.layer = layer } }
+                set: { layer in setEffect(effect, of: .page) { $0.layer = layer } }
             ),
             of: Presentation.Effect.Layer.allCases
         ) { LocalizedStringKey(EffectStack.title(for: $0)) }
@@ -1333,14 +1362,15 @@ struct PresentationInspector: View {
     /// rather than a slider — and the menu shows the characters themselves,
     /// because "@%#*+=-:." says what it will look like and "Classic" does not.
     private func effectGlyphRow(_ effect: Presentation.Effect,
-                                _ info: EffectStack.ParameterInfo) -> some View {
+                                _ info: EffectStack.ParameterInfo,
+                                of owner: EffectOwner) -> some View {
         VStack(alignment: .leading, spacing: Self.captionGap) {
             Text(LocalizedStringKey(info.titleKey))
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
             Picker(selection: Binding(
                 get: { effect.glyphs },
-                set: { set in setEffect(effect) { $0.glyphs = set } }
+                set: { set in setEffect(effect, of: owner) { $0.glyphs = set } }
             )) {
                 ForEach(Presentation.Effect.GlyphSet.allCases) { set in
                     HStack(spacing: 6) {
@@ -1370,7 +1400,8 @@ struct PresentationInspector: View {
     /// The effect on the background it is actually sitting on, drawn by the
     /// routine that draws the canvas — a swatch that made its own picture could
     /// promise something the page would not deliver.
-    private func effectPreview(_ effect: Presentation.Effect) -> some View {
+    private func effectPreview(_ effect: Presentation.Effect,
+                               of owner: EffectOwner) -> some View {
         // Drawn as if switched on and as if it were a background effect, even
         // when it is neither: the swatch answers "what does this effect do",
         // and a row showing the plain background — because it was switched off,
@@ -1379,19 +1410,45 @@ struct PresentationInspector: View {
         var shown = effect
         shown.isEnabled = true
         shown.layer = .background
-        return Canvas { context, size in
-            context.withCGContext { cg in
-                let rect = CGRect(origin: .zero, size: size)
-                PresentationRenderer.drawBackground(
-                    draft.background, effects: [shown],
-                    picture: document.picture(for: draft.background.pictureID),
-                    in: rect, ctx: cg)
+        return effectCanvas([shown], of: owner)
+            .frame(width: 28, height: 20)
+            .clipShape(RoundedRectangle(cornerRadius: 4))
+            .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(.separator))
+            .accessibilityHidden(true)
+    }
+
+    /// A stack, drawn on whatever it belongs to: the page's background, or the
+    /// picture the section is about.
+    ///
+    /// The same rule holds either way — a swatch promises what the export will
+    /// draw, so it is made by the routine that draws it — and it is why an
+    /// object's tiles show the object. Grain over a photograph and grain over a
+    /// gradient look nothing alike, and the tile that decides the choice should
+    /// be the one that is true.
+    @ViewBuilder
+    private func effectCanvas(_ stack: [Presentation.Effect],
+                              of owner: EffectOwner) -> some View {
+        switch owner {
+        case .page:
+            Canvas { context, size in
+                context.withCGContext { cg in
+                    PresentationRenderer.drawBackground(
+                        draft.background, effects: stack,
+                        picture: document.picture(for: draft.background.pictureID),
+                        in: CGRect(origin: .zero, size: size), ctx: cg)
+                }
+            }
+        case .object(let id):
+            let name = document.annotations.first { $0.id == id }?.pictureID
+            Canvas { context, size in
+                context.withCGContext { cg in
+                    guard let name, let picture = document.picture(for: name) else { return }
+                    let treated = EffectBaker.object(stack, over: picture, named: name) ?? picture
+                    AnnotationRenderer.drawImageInFlippedSpace(
+                        treated, in: CGRect(origin: .zero, size: size), ctx: cg)
+                }
             }
         }
-        .frame(width: 28, height: 20)
-        .clipShape(RoundedRectangle(cornerRadius: 4))
-        .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(.separator))
-        .accessibilityHidden(true)
     }
 
     /// What a parameter is *measured in*, which is not always what it is stored
@@ -1766,6 +1823,10 @@ struct PresentationInspector: View {
                         updateImmediately { $0.glow.color = color }
                     }
                     Spacer(minLength: 0)
+                    sectionActionButton(glowIsVisible ? "eye" : "eye.slash",
+                                        label: glowIsVisible ? "Hide Glow" : "Show Glow") {
+                        toggleGlow()
+                    }
                 }
             }
             .font(.system(size: 11))
@@ -1848,6 +1909,7 @@ struct PresentationInspector: View {
             if isOpen {
                 GroupBox {
                     VStack(alignment: .leading, spacing: Self.controlSpacing) {
+                        objectSizeRow(picture)
                         presentationSlider(
                             "Corner Radius", id: "object-radius-\(picture.id)",
                             systemImage: "rectangle",
@@ -1861,46 +1923,182 @@ struct PresentationInspector: View {
                             value: objectBinding(picture.id, \.pictureShadow),
                             range: 0...1, step: 0.05, unit: .percent
                         )
+                        // Both lights carry their colour and their eye, in the
+                        // shape the page's shadow row already has: the colour
+                        // on the left, the one whole-block action on the right.
+                        objectColorRow(
+                            picture, "Shadow Color", color: picture.pictureShadowColor,
+                            isVisible: picture.pictureShadow > 0,
+                            show: "Show Shadow", hide: "Hide Shadow",
+                            set: { $0.pictureShadowColor = $1 },
+                            toggle: { toggleObjectLight(picture, \.pictureShadow) }
+                        )
                         presentationSlider(
                             "Glow", id: "object-glow-\(picture.id)",
                             systemImage: "sun.max",
                             value: objectBinding(picture.id, \.pictureGlow),
                             range: 0...1, step: 0.05, unit: .percent
                         )
-                        VStack(alignment: .leading, spacing: Self.captionGap) {
-                            Text("Glow Color")
-                                .font(.system(size: 11))
-                                .foregroundStyle(.secondary)
-                            HStack(spacing: 8) {
-                                ColorChip(color: picture.pictureGlowColor,
-                                          diameter: Self.swatchSize,
-                                          supportsOpacity: false) { color in
-                                    updateObject(picture.id) { $0.pictureGlowColor = color }
-                                }
-                                .accessibilityLabel(Text("Glow Color"))
-                                ColorField(color: picture.pictureGlowColor) { color in
-                                    updateObject(picture.id) { $0.pictureGlowColor = color }
-                                }
-                            }
-                        }
-                        .font(.system(size: 11))
+                        objectColorRow(
+                            picture, "Glow Color", color: picture.pictureGlowColor,
+                            isVisible: picture.pictureGlow > 0,
+                            show: "Show Glow", hide: "Hide Glow",
+                            set: { $0.pictureGlowColor = $1 },
+                            toggle: { toggleObjectLight(picture, \.pictureGlow) }
+                        )
+
+                        objectEffects(picture)
 
                         // Its own row, and the section's last word. Beside the
                         // colour field it read as "delete the colour", which is
                         // a bad thing for a button to be misread as when what
-                        // it really throws away is the picture.
+                        // it really throws away is the picture. Small, and a
+                        // picture with a minus on it rather than a bin: the bin
+                        // at the foot of the panel means something larger —
+                        // every bit of decoration, gone — and two identical
+                        // glyphs a finger apart is how the wrong one is pressed.
                         Button(role: .destructive) {
                             document.delete(id: picture.id)
                         } label: {
-                            Label("Remove Image", systemImage: "trash")
+                            Label("Remove Image", systemImage: "rectangle.badge.minus")
                                 .frame(maxWidth: .infinity)
                         }
                         .buttonStyle(.bordered)
+                        .controlSize(.small)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(Self.groupPadding)
                 }
             }
+        }
+    }
+
+    /// How big the picture is on the page, in canvas pixels, and whether the
+    /// two numbers are tied together.
+    ///
+    /// The chain is on to start with and is the same promise Shift makes on the
+    /// canvas: type one number and the other follows, so a photograph is not
+    /// squashed by being given a round width. Turning it off is how a picture
+    /// is deliberately stretched — rare, and it should take a decision.
+    private func objectSizeRow(_ picture: Annotation) -> some View {
+        let linked = !unlinkedObjects.contains(picture.id)
+        return VStack(alignment: .leading, spacing: Self.captionGap) {
+            Text("Size, px")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+            HStack(spacing: 8) {
+                objectSizeField(picture, "arrow.left.and.right",
+                                value: picture.rect.width, label: "Width") { typed in
+                    resizeObject(picture, width: typed, keepingRatio: linked)
+                }
+                objectSizeField(picture, "arrow.up.and.down",
+                                value: picture.rect.height, label: "Height") { typed in
+                    resizeObject(picture, height: typed, keepingRatio: linked)
+                }
+                panelIconButton("link", role: linked ? .bordered : .quiet,
+                                label: linked ? "Free Proportions" : "Keep Proportions") {
+                    if linked { unlinkedObjects.insert(picture.id) }
+                    else { unlinkedObjects.remove(picture.id) }
+                }
+                .foregroundStyle(linked ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+            }
+        }
+    }
+
+    private func objectSizeField(_ picture: Annotation, _ systemImage: String,
+                                 value: CGFloat, label: LocalizedStringKey,
+                                 commit: @escaping (CGFloat) -> Void) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: systemImage)
+                .font(.system(size: 10))
+                .foregroundStyle(.secondary)
+            NumberField(value: .constant(Double(value.rounded())), alignment: .center) { typed in
+                commit(CGFloat(typed))
+            }
+            .controlSize(.large)
+        }
+        .frame(maxWidth: .infinity)
+        .help(label)
+        .accessibilityLabel(label)
+    }
+
+    /// A light's colour and its eye — one row, written once for the shadow and
+    /// the glow, which differ only in which number they carry.
+    private func objectColorRow(_ picture: Annotation, _ title: LocalizedStringKey,
+                                color: Presentation.Color,
+                                isVisible: Bool,
+                                show: LocalizedStringKey, hide: LocalizedStringKey,
+                                set: @escaping (inout Annotation, Presentation.Color) -> Void,
+                                toggle: @escaping () -> Void) -> some View {
+        VStack(alignment: .leading, spacing: Self.captionGap) {
+            Text(title)
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+            HStack(spacing: 8) {
+                ColorChip(color: color, diameter: Self.swatchSize,
+                          supportsOpacity: false) { picked in
+                    updateObject(picture.id) { set(&$0, picked) }
+                }
+                .accessibilityLabel(Text(title))
+                ColorField(color: color) { picked in
+                    updateObject(picture.id) { set(&$0, picked) }
+                }
+                Spacer(minLength: 0)
+                sectionActionButton(isVisible ? "eye" : "eye.slash",
+                                    label: isVisible ? hide : show, action: toggle)
+            }
+        }
+        .font(.system(size: 11))
+    }
+
+    /// The picture's own stack, in its own section — the same rows the page
+    /// has, minus the layer switch, because an object is one layer.
+    @ViewBuilder
+    private func objectEffects(_ picture: Annotation) -> some View {
+        let owner = EffectOwner.object(picture.id)
+        VStack(alignment: .leading, spacing: Self.captionGap) {
+            HStack(spacing: 8) {
+                Text("Effects")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 0)
+                sectionActionButton("plus", label: "Add Effect") {
+                    effectPicker = .add(owner)
+                }
+                .popover(isPresented: showingPicker(.add(owner)), arrowEdge: .bottom) {
+                    effectGrid(.add(owner))
+                }
+            }
+            ForEach(picture.pictureEffects) { effect in
+                effectRow(effect, of: owner)
+            }
+        }
+    }
+
+    /// Closes a light's eye, and opens it again on what it was worth. A number
+    /// of zero is what "off" means here, so hiding has to remember.
+    private func toggleObjectLight(_ picture: Annotation,
+                                   _ path: WritableKeyPath<Annotation, CGFloat>) {
+        let key = "\(picture.id)-\(path == \Annotation.pictureShadow ? "shadow" : "glow")"
+        let current = picture[keyPath: path]
+        if current > 0 {
+            hiddenObjectLights[key] = current
+            updateObject(picture.id) { $0[keyPath: path] = 0 }
+        } else {
+            let restored = hiddenObjectLights[key] ?? 0.35
+            updateObject(picture.id) { $0[keyPath: path] = restored }
+        }
+    }
+
+    /// A typed size, applied from the picture's top-left corner.
+    private func resizeObject(_ picture: Annotation, width: CGFloat? = nil,
+                              height: CGFloat? = nil, keepingRatio: Bool) {
+        let resized = Annotation.resized(picture.rect, width: width, height: height,
+                                         keepingRatio: keepingRatio)
+        guard resized != picture.rect else { return }
+        updateObject(picture.id) {
+            $0.start = resized.origin
+            $0.end = CGPoint(x: resized.maxX, y: resized.maxY)
         }
     }
 
@@ -1924,11 +2122,21 @@ struct PresentationInspector: View {
                                _ path: WritableKeyPath<Annotation, CGFloat>) -> Binding<CGFloat> {
         Binding(
             get: { document.annotations.first { $0.id == id }?[keyPath: path] ?? 0 },
-            set: { value in updateObject(id) { $0[keyPath: path] = value } }
+            set: { value in updateObjectLive(id) { $0[keyPath: path] = value } }
         )
     }
 
+    /// One discrete change to one object, and one step of undo — what a chip,
+    /// a menu or a button does.
     private func updateObject(_ id: UUID, _ mutation: (inout Annotation) -> Void) {
+        document.beginChange()
+        updateObjectLive(id, mutation)
+        document.commitChange()
+    }
+
+    /// The same, without a step of its own: a slider opens one for the whole
+    /// drag (`sliderEditingChanged`), so every tick in between must not.
+    private func updateObjectLive(_ id: UUID, _ mutation: (inout Annotation) -> Void) {
         guard let index = document.annotations.firstIndex(where: { $0.id == id }) else { return }
         mutation(&document.annotations[index])
     }
@@ -2236,6 +2444,7 @@ struct PresentationInspector: View {
     /// A transparent shadow is a shadow that is not there — the section needs no
     /// separate switch to say so.
     var shadowIsVisible: Bool { draft.shadow.opacity > 0 }
+    var glowIsVisible: Bool { draft.glow.opacity > 0 }
 
     /// What the hide button turns *on* when there is nothing to bring back: a
     /// soft drop sitting slightly below the picture. Restoring only the opacity
@@ -2244,6 +2453,25 @@ struct PresentationInspector: View {
         radius: 0.05, offset: CGPoint(x: 0, y: 0.02), opacity: 0.35)
 
     /// Hides the shadow without forgetting it, or brings it back.
+    /// Light off, and back on as it was. The glow is two numbers rather than
+    /// four, so the rule is the shadow's without the offset.
+    func toggleGlow() {
+        if draft.glow.opacity > 0 {
+            hiddenGlow = draft.glow
+            updateImmediately { $0.glow.opacity = 0 }
+        } else {
+            var shown = draft.glow
+            if let hiddenGlow {
+                shown.radius = hiddenGlow.radius
+                shown.opacity = hiddenGlow.opacity
+            }
+            if shown.opacity <= 0 { shown.opacity = 0.5 }
+            if shown.radius <= 0 { shown.radius = 0.08 }
+            hiddenGlow = nil
+            updateImmediately { $0.glow = shown }
+        }
+    }
+
     func toggleShadow() {
         let (shadow, remembered) = Self.shadowToggled(draft.shadow, remembered: hiddenShadow)
         hiddenShadow = remembered
@@ -2520,54 +2748,82 @@ struct PresentationInspector: View {
 
     // MARK: Document mutations
 
-    private func addEffect(_ kind: Presentation.Effect.Kind) {
-        updateImmediately { $0.effects.append(EffectStack.make(kind, over: $0.background)) }
+    /// Whichever stack the row belongs to, read.
+    private func effects(of owner: EffectOwner) -> [Presentation.Effect] {
+        switch owner {
+        case .page: return draft.effects
+        case .object(let id):
+            return document.annotations.first { $0.id == id }?.pictureEffects ?? []
+        }
     }
 
-    private func removeEffect(_ effect: Presentation.Effect) {
-        updateImmediately { $0.effects.removeAll { $0.id == effect.id } }
+    /// …and written. One undo step per call, or none of its own when `live` —
+    /// a slider's whole drag is one step, opened and closed by the slider.
+    private func setEffects(of owner: EffectOwner, live: Bool = false,
+                            _ mutation: (inout [Presentation.Effect]) -> Void) {
+        switch owner {
+        case .page:
+            if live { updateLive { mutation(&$0.effects) } }
+            else { updateImmediately { mutation(&$0.effects) } }
+        case .object(let id):
+            if live { updateObjectLive(id) { mutation(&$0.pictureEffects) } }
+            else { updateObject(id) { mutation(&$0.pictureEffects) } }
+        }
     }
 
-    private func moveEffect(from: Int, to: Int) {
-        updateImmediately { $0.effects = EffectStack.moved($0.effects, from: from, to: to).effects }
+    private func addEffect(_ kind: Presentation.Effect.Kind, to owner: EffectOwner) {
+        let background = draft.background
+        setEffects(of: owner) { $0.append(EffectStack.make(kind, over: background)) }
+    }
+
+    private func removeEffect(_ effect: Presentation.Effect, from owner: EffectOwner) {
+        setEffects(of: owner) { $0.removeAll { $0.id == effect.id } }
+    }
+
+    private func moveEffect(from: Int, to: Int, of owner: EffectOwner) {
+        setEffects(of: owner) { $0 = EffectStack.moved($0, from: from, to: to).effects }
     }
 
     /// The same row, made into another kind of effect.
     private func setEffectKind(_ effect: Presentation.Effect,
-                               to kind: Presentation.Effect.Kind) {
+                               to kind: Presentation.Effect.Kind,
+                               of owner: EffectOwner) {
         guard kind != effect.kind else { return }
-        updateImmediately {
-            guard let index = $0.effects.firstIndex(where: { $0.id == effect.id }) else { return }
-            $0.effects[index] = EffectStack.changing(effect, to: kind, over: $0.background)
+        let background = draft.background
+        setEffects(of: owner) { stack in
+            guard let index = stack.firstIndex(where: { $0.id == effect.id }) else { return }
+            stack[index] = EffectStack.changing(effect, to: kind, over: background)
         }
     }
 
     /// One effect changed in place. Discrete, so it is its own undo step —
     /// unlike a slider, which groups the whole drag.
-    private func setEffect(_ effect: Presentation.Effect,
+    private func setEffect(_ effect: Presentation.Effect, of owner: EffectOwner,
                            _ mutation: (inout Presentation.Effect) -> Void) {
-        guard let index = draft.effects.firstIndex(where: { $0.id == effect.id }) else { return }
-        var changed = draft.effects[index]
-        mutation(&changed)
-        updateImmediately { $0.effects[index] = changed }
+        setEffects(of: owner) { stack in
+            guard let index = stack.firstIndex(where: { $0.id == effect.id }) else { return }
+            mutation(&stack[index])
+        }
     }
 
     /// A parameter of one effect, live: the slider drags the picture and the
     /// gesture is one undo step (`sliderEditingChanged`), exactly as the shadow
     /// sliders do.
     private func effectBinding(_ effect: Presentation.Effect,
-                               _ parameter: EffectStack.Parameter) -> Binding<CGFloat> {
+                               _ parameter: EffectStack.Parameter,
+                               of owner: EffectOwner) -> Binding<CGFloat> {
         Binding(
             get: {
-                guard let current = draft.effects.first(where: { $0.id == effect.id })
+                guard let current = effects(of: owner).first(where: { $0.id == effect.id })
                 else { return 0 }
                 return EffectStack.value(parameter, of: current)
             },
             set: { value in
-                guard let index = draft.effects.firstIndex(where: { $0.id == effect.id })
-                else { return }
-                let updated = EffectStack.setting(parameter, of: draft.effects[index], to: value)
-                updateLive { $0.effects[index] = updated }
+                setEffects(of: owner, live: true) { stack in
+                    guard let index = stack.firstIndex(where: { $0.id == effect.id })
+                    else { return }
+                    stack[index] = EffectStack.setting(parameter, of: stack[index], to: value)
+                }
             }
         )
     }

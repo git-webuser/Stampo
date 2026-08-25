@@ -351,6 +351,8 @@ struct EditorCanvasView: View {
         /// with the mode: the radius is one number, but it is measured from
         /// whichever corner the hand is on.
         case settingRadius(ImageCorner)
+        /// Rounding one placed picture's corners, from the dot inside `corner`.
+        case settingPictureRadius(UUID, ImageCorner)
         case ignore
     }
     /// How the screen mapped to the page at some moment — captured when a drag
@@ -802,6 +804,61 @@ struct EditorCanvasView: View {
         }
     }
 
+    /// A placed picture's frame, corner grips and radius dots, in the scanner's
+    /// orange. Its geometry is the picture selection's, its colour is not.
+    private func drawPictureSelection(_ a: Annotation, context: GraphicsContext,
+                                      fitScale: CGFloat, offset: CGPoint) {
+        func view(_ p: CGPoint) -> CGPoint {
+            CGPoint(x: offset.x + p.x * fitScale, y: offset.y + p.y * fitScale)
+        }
+        let rect = a.rect
+        let tint = Color(nsColor: .systemOrange)
+        let frame = CGRect(origin: view(rect.origin),
+                           size: CGSize(width: rect.width * fitScale,
+                                        height: rect.height * fitScale))
+        context.stroke(Path(frame), with: .color(tint), lineWidth: 1.5)
+        for corner in ImageCorner.allCases {
+            let c = view(corner.point(in: rect))
+            let box = CGRect(x: c.x - 4, y: c.y - 4, width: 8, height: 8)
+            context.fill(Path(roundedRect: box, cornerRadius: 2), with: .color(.white))
+            context.stroke(Path(roundedRect: box, cornerRadius: 2), with: .color(tint),
+                           lineWidth: 1.5)
+        }
+        // No side bars: a picture has no margins to drag. The dots are the
+        // radius, one inside each corner, exactly as the screenshot's are.
+        for corner in ImageCorner.allCases {
+            let dot = view(Self.pictureRadiusHandlePoint(corner, of: a))
+            let ring = CGRect(x: dot.x - 4, y: dot.y - 4, width: 8, height: 8)
+            context.fill(Path(ellipseIn: ring), with: .color(.white))
+            context.stroke(Path(ellipseIn: ring), with: .color(tint), lineWidth: 1.5)
+        }
+    }
+
+    /// Where a placed picture's radius dot sits. Its radius is a fraction of
+    /// its *own* short side rather than the canvas's — a picture keeps its look
+    /// when it is resized — so the arithmetic is the screenshot's with a
+    /// different basis.
+    static func pictureRadiusHandlePoint(_ corner: ImageCorner, of a: Annotation) -> CGPoint {
+        let rect = a.rect
+        let short = min(rect.width, rect.height)
+        let radius = min(max(0, a.pictureCornerRadius) * short, short / 2)
+        let inset = max(radius, min(14, short / 3))
+        let anchor = corner.point(in: rect)
+        return CGPoint(x: anchor.x + (corner.isLeading ? inset : -inset),
+                       y: anchor.y + (corner.isTop ? inset : -inset))
+    }
+
+    /// The radius a pointer is asking for, as a fraction of the picture's own
+    /// short side. Pure arithmetic, so the rule can be tested without a drag.
+    static func pictureCornerRadius(forPointer point: CGPoint, from corner: ImageCorner,
+                                    of rect: CGRect) -> CGFloat {
+        let short = min(rect.width, rect.height)
+        guard short > 0 else { return 0 }
+        let anchor = corner.point(in: rect)
+        let reach = min(abs(point.x - anchor.x), abs(point.y - anchor.y))
+        return min(0.5, max(0, reach / short))
+    }
+
     /// The page as it is laid out this pass — centred, except while a margin is
     /// being dragged, when the edge in hand is pinned under the pointer.
     ///
@@ -995,6 +1052,18 @@ struct EditorCanvasView: View {
                                fitScale: CGFloat, offset: CGPoint) {
         func toView(_ p: CGPoint) -> CGPoint {
             CGPoint(x: p.x * fitScale + offset.x, y: p.y * fitScale + offset.y)
+        }
+
+        // A placed picture is a picture, so it wears the picture's chrome: a
+        // frame, corner grips, and the radius dot inside each corner — which is
+        // also the easiest way to round it, since the number is otherwise only
+        // in the panel. Orange rather than the accent blue, borrowed from the
+        // scanner's own second frame: on a page where the screenshot is already
+        // outlined in blue, two blue frames say the same thing about two
+        // different objects.
+        if a.kind == .picture {
+            drawPictureSelection(a, context: context, fitScale: fitScale, offset: offset)
+            return
         }
 
         // Dashed outline for area-like annotations (incl. text bounds).
@@ -1511,6 +1580,12 @@ struct EditorCanvasView: View {
                         forPointer: baseline.page(value.location), on: edge,
                         canvasSize: baseline.size))
 
+                case .settingPictureRadius(let id, let corner):
+                    update(id) { picture in
+                        picture.pictureCornerRadius = Self.pictureCornerRadius(
+                            forPointer: sp.canvas, from: corner, of: picture.rect)
+                    }
+
                 case .settingRadius(let corner):
                     let rect = PresentationLayout.resolve(imagePixelSize: pixel,
                                                           document.presentation).imageRect
@@ -1636,7 +1711,8 @@ struct EditorCanvasView: View {
                                           magnet: bindMagnetPt / scaleOf(id))
                     document.refreshBindingFallbacks()
                     document.commitChange()
-                case .movingImage, .resizingImage, .settingGap, .settingRadius:
+                case .movingImage, .resizingImage, .settingGap, .settingRadius,
+                     .settingPictureRadius:
                     // The page centres itself again — once, now, rather than on
                     // every sample of the drag.
                     gapDragPointer = nil
@@ -1665,6 +1741,19 @@ struct EditorCanvasView: View {
         let toolIsImageSpace = shapeKind(for: gestureTool)
             .map(Annotation.kindLivesInImageSpace) ?? false
         let toolPoint = sp.point(imageSpace: toolIsImageSpace)
+
+        // A placed picture's radius dots, asked about before its corners: the
+        // two are only the dot's inset apart, and the corner would swallow
+        // every press aimed at the dot.
+        if let selected = document.selectedAnnotation, selected.kind == .picture {
+            for corner in ImageCorner.allCases {
+                let dot = Self.pictureRadiusHandlePoint(corner, of: selected)
+                if hypot(p.x - dot.x, p.y - dot.y) <= grabPx {
+                    document.beginChange()
+                    return .settingPictureRadius(selected.id, corner)
+                }
+            }
+        }
 
         // Resize handles of the current selection win over everything. Bound
         // arrow endpoints are grabbed at their resolved (drawn) positions.

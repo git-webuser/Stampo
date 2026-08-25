@@ -37,12 +37,46 @@ nonisolated enum EffectBaker {
         guard width > 0, height > 0,
               width <= maximumSide, height <= maximumSide else { return nil }
 
+        return run(active.map(Recipe.init), over: rendered)
+    }
+
+    /// One placed picture with its own effects run over it, or nil when its
+    /// stack has nothing switched on.
+    ///
+    /// Every enabled effect applies, whatever its `layer` says: an object is
+    /// one layer, and the background/page switch is a question about the page
+    /// that the panel never asks inside an object's section.
+    ///
+    /// Baked at the picture's own pixel size rather than at the size it is
+    /// drawn — so it survives being dragged, resized and zoomed, and so the
+    /// preview and the export get the identical picture rather than the same
+    /// numbers read at two resolutions. A picture is small next to a page, and
+    /// this is the layer where holding the result is worth most.
+    static func object(_ effects: [Presentation.Effect], over picture: CGImage,
+                       named name: UUID) -> CGImage? {
+        let active = EffectStack.active(effects)
+        guard !active.isEmpty else { return nil }
+        let width = picture.width, height = picture.height
+        guard width > 0, height > 0, width <= maximumSide, height <= maximumSide else { return nil }
+
+        let recipes = active.map(Recipe.init)
+        let key = ObjectKey(picture: name, effects: recipes)
+        if let held = objectCache.value(for: key) { return held }
+        guard let baked = run(recipes, over: picture) else { return nil }
+        objectCache.store(baked, for: key)
+        return baked
+    }
+
+    /// A stack, run over a bitmap, with the bitmap's own silhouette put back —
+    /// what both the page pass and an object's pass do, once.
+    private static func run(_ recipes: [Recipe], over rendered: CGImage) -> CGImage? {
         counter.value += 1
-        let extent = CGRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height))
+        let extent = CGRect(x: 0, y: 0,
+                            width: CGFloat(rendered.width), height: CGFloat(rendered.height))
         let source = CIImage(cgImage: rendered)
         var image = source
-        let shortSide = CGFloat(min(width, height))
-        for recipe in active.map(Recipe.init) {
+        let shortSide = CGFloat(min(rendered.width, rendered.height))
+        for recipe in recipes {
             image = apply(recipe, to: image, extent: extent, shortSide: shortSide)
         }
         image = keepingTheShapeOf(source, in: image, extent: extent)
@@ -1038,6 +1072,15 @@ nonisolated enum EffectBaker {
         }
     }
 
+    private struct ObjectKey: Hashable {
+        /// The picture's name, not its address: a `CGImage` can be let go of
+        /// and another allocated where it stood, and a cache keyed on that
+        /// would then hand back the wrong picture. A name, on the other hand,
+        /// stands for the same pixels for as long as the document holds them.
+        let picture: UUID
+        let effects: [Recipe]
+    }
+
     private struct Key: Hashable {
         let background: Presentation.Background
         let effects: [Recipe]
@@ -1054,7 +1097,7 @@ nonisolated enum EffectBaker {
     /// either. A budget in pixels keeps whole rooms of tiny tiles for the price
     /// of a corner of one canvas, and still refuses to hold a heap of
     /// full-resolution pages.
-    private final class Cache: @unchecked Sendable {
+    private final class Cache<Key: Hashable>: @unchecked Sendable {
         private let lock = NSLock()
         private var entries: [(key: Key, image: CGImage)] = []
         /// Sixteen megapixels, about sixty megabytes: room for a 4K page and a
@@ -1097,11 +1140,15 @@ nonisolated enum EffectBaker {
         }
     }
 
-    private static let cache = Cache()
+    private static let cache = Cache<Key>()
+    /// Pictures placed on the page, keyed on their pixels and their stack —
+    /// not on the rectangle they are drawn in, which is what lets one be
+    /// dragged and resized without paying for the bake again.
+    private static let objectCache = Cache<ObjectKey>()
     private static let counter = Counter()
 
     /// Tests only: makes a cache miss reproducible.
-    static func emptyCache() { cache.removeAll() }
+    static func emptyCache() { cache.removeAll(); objectCache.removeAll() }
 
     /// GPU-backed, and shared for the same reason `AnnotationRenderer` shares
     /// its own: a `CIContext` per call spends more time being built than the

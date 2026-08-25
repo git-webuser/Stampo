@@ -3071,6 +3071,23 @@
         }
       }
     },
+    "Free Proportions" : {
+      "comment" : "Decor inspector — unties a placed picture's width and height",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Free Proportions"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Свободные пропорции"
+          }
+        }
+      }
+    },
     "From Archive" : {
       "comment" : "Decor inspector — the colours the archive holds",
       "localizations" : {
@@ -3480,6 +3497,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Скрыть эффект"
+          }
+        }
+      }
+    },
+    "Hide Glow" : {
+      "comment" : "Decor inspector — turns the glow off, keeping its numbers",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hide Glow"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Скрыть свечение"
           }
         }
       }
@@ -3913,6 +3947,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Сохранить переносы"
+          }
+        }
+      }
+    },
+    "Keep Proportions" : {
+      "comment" : "Decor inspector — ties a placed picture's width and height together",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keep Proportions"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сохранять пропорции"
           }
         }
       }
@@ -7094,6 +7145,23 @@
         }
       }
     },
+    "Show Glow" : {
+      "comment" : "Decor inspector — turns the glow back on",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show Glow"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Показать свечение"
+          }
+        }
+      }
+    },
     "Show in Finder" : {
       "localizations" : {
         "en" : {
@@ -7191,6 +7259,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Стороны"
+          }
+        }
+      }
+    },
+    "Size, px" : {
+      "comment" : "Decor inspector — the width and height of a placed picture",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Size, px"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Размер, px"
           }
         }
       }
