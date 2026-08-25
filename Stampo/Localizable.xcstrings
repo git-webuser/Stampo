@@ -3622,6 +3622,23 @@
         }
       }
     },
+    "Image %lld" : {
+      "comment" : "Decor inspector — the heading of a placed picture's section, numbered from two",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Image %lld"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Изображение %lld"
+          }
+        }
+      }
+    },
     "Image Colors" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -5284,6 +5301,7 @@
     },
     "Picture" : {
       "comment" : "Decor inspector — a background made of the user's own image",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -5874,6 +5892,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Убрать из архива"
+          }
+        }
+      }
+    },
+    "Remove Image" : {
+      "comment" : "Decor inspector — takes a placed picture off the page",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remove Image"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Удалить изображение"
           }
         }
       }

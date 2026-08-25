@@ -165,4 +165,64 @@ import Testing
         let green = rep?.colorAt(x: 40, y: 40)
         #expect(Double(green?.greenComponent ?? 0) > 0.5, "the placed picture is not in the file")
     }
+
+    /// The panel deletes an object by name, not by selection: the section you
+    /// press the button in is the object it throws away, whether or not the
+    /// canvas happens to be pointing at it. One press, one step of undo.
+    @Test func thePanelDeletesOnePictureByName() throws {
+        let document = document()
+        let url = try writePNG("placed-delete.png", width: 60, height: 60)
+        defer { try? FileManager.default.removeItem(at: url) }
+        document.startDecorationIfNeeded()
+        let canvas = CGSize(width: 400, height: 300)
+        #expect(document.placePicture(at: url, centredOn: CGPoint(x: 40, y: 40), canvasSize: canvas))
+        let first = try #require(document.annotations.last?.id)
+        #expect(document.placePicture(at: url, centredOn: CGPoint(x: 120, y: 90), canvasSize: canvas))
+        let second = try #require(document.annotations.last?.id)
+        document.selectedID = second
+
+        document.delete(id: first)
+        #expect(document.annotations.map(\.id) == [second])
+        #expect(document.selectedID == second, "deleting one object let go of another")
+
+        document.undo()
+        #expect(document.annotations.map(\.id) == [first, second])
+
+        // Throwing away what is selected does let go of it, and a name that is
+        // not on the page is not an undo step.
+        document.delete(id: second)
+        #expect(document.selectedID == nil)
+        let steps = document.annotations.count
+        document.delete(id: UUID())
+        #expect(document.annotations.count == steps)
+    }
+
+    /// Shift on a corner keeps a picture's own proportions. A square would be
+    /// no kinder to a photograph than free dragging is — the point of the key
+    /// is that the picture is not squashed.
+    @Test func shiftResizesAPictureWithoutSquashingIt() throws {
+        let document = document()
+        let url = try writePNG("placed-shift.png", width: 80, height: 40)
+        defer { try? FileManager.default.removeItem(at: url) }
+        document.startDecorationIfNeeded()
+        #expect(document.placePicture(at: url, centredOn: CGPoint(x: 100, y: 100),
+                                      canvasSize: CGSize(width: 400, height: 300)))
+        var picture = try #require(document.annotations.last)
+        let ratio = picture.rect.height / picture.rect.width
+        #expect(abs(ratio - 0.5) < 0.01, "the picture did not come in at its own shape")
+
+        let corner = CGPoint(x: picture.rect.minX, y: picture.rect.minY)
+        picture.apply(handle: .bottomRight,
+                      to: CGPoint(x: corner.x + 300, y: corner.y + 20),
+                      aspectLocked: true)
+        #expect(abs(picture.rect.height / picture.rect.width - ratio) < 0.01,
+                "Shift squashed the picture")
+        // The longer side of the drag leads, so the corner follows the pointer.
+        #expect(abs(picture.rect.width - 300) < 1)
+
+        // Without the key it goes wherever it is dragged.
+        picture.apply(handle: .bottomRight,
+                      to: CGPoint(x: corner.x + 300, y: corner.y + 20))
+        #expect(abs(picture.rect.height - 20) < 1)
+    }
 }

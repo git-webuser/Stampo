@@ -422,6 +422,12 @@ nonisolated struct Annotation: Identifiable, Equatable, Sendable {
     /// than four: a picture on a page wants the same shadow the screenshot has,
     /// only more or less of it, and the radius and offset follow from its size.
     var pictureShadow: CGFloat = 0
+    /// How strong the light behind a placed picture is, 0…1, and its colour.
+    /// Its own rather than the page's: giving every object the same glow is a
+    /// blunt rule, and a second picture is often placed precisely because it
+    /// should read differently from the first.
+    var pictureGlow: CGFloat = 0
+    var pictureGlowColor: Presentation.Color = Presentation.Glow.none.color
     /// Number of sides of a `.polygon` (ShapeCounts.polygonSides).
     var polygonSides: Int = ShapeCounts.defaultPolygonSides
     /// Number of points of a `.star` (ShapeCounts.starPoints).
@@ -1201,7 +1207,18 @@ nonisolated struct Annotation: Identifiable, Equatable, Sendable {
             let lockAspect = aspectLocked
                 && (kind == .rect || kind == .oval || kind == .loupe
                     || kind.isPathShape)
-            let target = lockAspect ? Self.aspectLockedEnd(from: anchor, to: p) : p
+            let target: CGPoint
+            if aspectLocked, kind == .picture {
+                // A picture keeps its own proportions rather than becoming a
+                // square: squashing a photograph is the one thing Shift is
+                // there to prevent. The ratio is the one it has at this moment
+                // — locked from the first step of the drag, and kept by every
+                // step after, since each one reads back what the last wrote.
+                target = Self.ratioLockedEnd(from: anchor, to: p,
+                                             ratio: r.height / max(r.width, 0.0001))
+            } else {
+                target = lockAspect ? Self.aspectLockedEnd(from: anchor, to: p) : p
+            }
             let (dx, crossedX) = Self.resolvedDelta(raw: target.x - anchor.x,
                                                     side: direction.x)
             let (dy, crossedY) = Self.resolvedDelta(raw: target.y - anchor.y,
@@ -1622,6 +1639,19 @@ nonisolated struct Annotation: Identifiable, Equatable, Sendable {
         guard side > 0 else { return point }
         return CGPoint(x: from.x + (dx < 0 ? -side : side),
                        y: from.y + (dy < 0 ? -side : side))
+    }
+
+    /// The corner that keeps a given height-to-width ratio, in whichever
+    /// quadrant the drag is heading. The longer side of the drag leads, so the
+    /// picture follows the pointer rather than lagging behind it.
+    static func ratioLockedEnd(from: CGPoint, to point: CGPoint,
+                               ratio: CGFloat) -> CGPoint {
+        let dx = point.x - from.x, dy = point.y - from.y
+        guard ratio > 0, dx != 0 || dy != 0 else { return point }
+        let width = max(abs(dx), abs(dy) / ratio)
+        let height = width * ratio
+        return CGPoint(x: from.x + (dx < 0 ? -width : width),
+                       y: from.y + (dy < 0 ? -height : height))
     }
 
     // MARK: Arrow binding (pure resolver — unit-testable)
@@ -2417,14 +2447,21 @@ nonisolated struct RenderedArtifact: Sendable {
 
     func deleteSelected() {
         guard let selectedID else { return }
+        delete(id: selectedID)
+    }
+
+    /// Removes one annotation by name — the panel's own way of throwing a
+    /// placed picture away, which must not depend on it being selected.
+    func delete(id: UUID) {
+        guard annotations.contains(where: { $0.id == id }) else { return }
         beginChange()
         // Freeze bound arrows at their current point before the target (which
         // might be this selection) disappears, so they hold place rather than
         // snapping to a stale fallback. Undo restores the target and the
         // pre-freeze fallbacks together via the snapshot.
         refreshBindingFallbacks()
-        annotations.removeAll { $0.id == selectedID }
-        self.selectedID = nil
+        annotations.removeAll { $0.id == id }
+        if selectedID == id { selectedID = nil }
         commitChange()
     }
 

@@ -85,6 +85,10 @@ struct PresentationInspector: View {
     /// What each kind of background held when it was last left. Session-scoped
     /// by design — see `BackgroundDrawers`.
     @State private var drawers = BackgroundDrawers()
+    /// Which placed pictures have their settings open. Not persisted and not
+    /// a preference: it is about the objects of this document, which outlive
+    /// neither it nor the panel.
+    @State private var openObjects: Set<UUID> = []
     /// A picture is being dragged over the background section right now.
     @State private var pictureIsOverTheBackground = false
     /// What the grid of effects is open *for*: adding one to the end of the
@@ -416,6 +420,7 @@ struct PresentationInspector: View {
                 effectsSection
                 shadowSection
                 glowSection
+                objectSections
                 removeButton
             }
             .padding(16)
@@ -1425,7 +1430,7 @@ struct PresentationInspector: View {
     /// the *measured* gaps between picture and canvas, and the buttons snap it
     /// to an edge or the middle.
     private var imageSection: some View {
-        inspectorGroup("Screenshot", section: .image) {
+        inspectorGroup("Image", section: .image) {
             alignmentRow
             gapGrid
             presentationSlider(
@@ -1777,6 +1782,155 @@ struct PresentationInspector: View {
         Binding(get: { draft.glow.opacity }, set: { value in
             updateLive { $0.glow.opacity = value }
         })
+    }
+
+    // MARK: Objects
+
+    /// The pictures placed on the page, each with its own settings, below the
+    /// page's own and above the button that throws the decoration away.
+    ///
+    /// The column keeps growing rather than swapping: a panel that changed its
+    /// meaning when something was selected would put the page's settings out of
+    /// reach exactly when somebody wants to compare an object against them. So
+    /// the page stays where it is and the objects follow it, folded, in the
+    /// order they were placed.
+    ///
+    /// They are not a layers panel. There is no z-order here, no visibility, no
+    /// naming — a picture is reached by clicking it on the canvas, and this is
+    /// where its settings are once it is.
+    @ViewBuilder private var objectSections: some View {
+        let pictures = document.annotations.filter { $0.kind == .picture }
+        if !pictures.isEmpty {
+            Divider()
+            ForEach(Array(pictures.enumerated()), id: \.element.id) { index, picture in
+                objectSection(picture, number: index + 2)
+            }
+        }
+    }
+
+    /// One placed picture: what it looks like, what it is called, and the two
+    /// lights it casts.
+    ///
+    /// Numbered from two, because the screenshot is the first image on the page
+    /// and the section above is already called Image.
+    private func objectSection(_ picture: Annotation, number: Int) -> some View {
+        let isOpen = openObjects.contains(picture.id) || document.selectedID == picture.id
+        return VStack(alignment: .leading, spacing: 6) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.16)) {
+                    if isOpen {
+                        openObjects.remove(picture.id)
+                        if document.selectedID == picture.id { document.selectedID = nil }
+                    } else {
+                        openObjects.insert(picture.id)
+                        // Opening a section is a way of pointing at the object,
+                        // so the canvas points at it too.
+                        document.selectedID = picture.id
+                    }
+                }
+            } label: {
+                HStack(spacing: 8) {
+                    objectThumbnail(picture)
+                    Text(String(format: String(localized: "Image %lld"), number))
+                        .font(.headline)
+                    Spacer(minLength: 0)
+                    Image(systemName: "chevron.forward")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.tertiary)
+                        .rotationEffect(.degrees(isOpen ? 90 : 0))
+                }
+                .frame(minHeight: 28)
+                .padding(.horizontal, 6)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            if isOpen {
+                GroupBox {
+                    VStack(alignment: .leading, spacing: Self.controlSpacing) {
+                        presentationSlider(
+                            "Corner Radius", id: "object-radius-\(picture.id)",
+                            systemImage: "rectangle",
+                            value: objectBinding(picture.id, \.pictureCornerRadius),
+                            range: 0...0.5, step: 0.01,
+                            unit: .pixels(basis: min(picture.rect.width, picture.rect.height))
+                        )
+                        presentationSlider(
+                            "Shadow", id: "object-shadow-\(picture.id)",
+                            systemImage: "square.filled.on.square",
+                            value: objectBinding(picture.id, \.pictureShadow),
+                            range: 0...1, step: 0.05, unit: .percent
+                        )
+                        presentationSlider(
+                            "Glow", id: "object-glow-\(picture.id)",
+                            systemImage: "sun.max",
+                            value: objectBinding(picture.id, \.pictureGlow),
+                            range: 0...1, step: 0.05, unit: .percent
+                        )
+                        VStack(alignment: .leading, spacing: Self.captionGap) {
+                            Text("Glow Color")
+                                .font(.system(size: 11))
+                                .foregroundStyle(.secondary)
+                            HStack(spacing: 8) {
+                                ColorChip(color: picture.pictureGlowColor,
+                                          diameter: Self.swatchSize,
+                                          supportsOpacity: false) { color in
+                                    updateObject(picture.id) { $0.pictureGlowColor = color }
+                                }
+                                .accessibilityLabel(Text("Glow Color"))
+                                ColorField(color: picture.pictureGlowColor) { color in
+                                    updateObject(picture.id) { $0.pictureGlowColor = color }
+                                }
+                            }
+                        }
+                        .font(.system(size: 11))
+
+                        // Its own row, and the section's last word. Beside the
+                        // colour field it read as "delete the colour", which is
+                        // a bad thing for a button to be misread as when what
+                        // it really throws away is the picture.
+                        Button(role: .destructive) {
+                            document.delete(id: picture.id)
+                        } label: {
+                            Label("Remove Image", systemImage: "trash")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(Self.groupPadding)
+                }
+            }
+        }
+    }
+
+    private func objectThumbnail(_ picture: Annotation) -> some View {
+        Canvas { context, size in
+            context.withCGContext { cg in
+                guard let image = document.picture(for: picture.pictureID) else { return }
+                AnnotationRenderer.drawImageInFlippedSpace(
+                    image, in: CGRect(origin: .zero, size: size), ctx: cg)
+            }
+        }
+        .frame(width: 24, height: 18)
+        .clipShape(RoundedRectangle(cornerRadius: 3))
+        .overlay(RoundedRectangle(cornerRadius: 3).strokeBorder(.quaternary))
+        .accessibilityHidden(true)
+    }
+
+    /// A number on one placed picture, live: the slider drags the canvas and
+    /// the gesture is one undo step, exactly as the page's own sliders behave.
+    private func objectBinding(_ id: UUID,
+                               _ path: WritableKeyPath<Annotation, CGFloat>) -> Binding<CGFloat> {
+        Binding(
+            get: { document.annotations.first { $0.id == id }?[keyPath: path] ?? 0 },
+            set: { value in updateObject(id) { $0[keyPath: path] = value } }
+        )
+    }
+
+    private func updateObject(_ id: UUID, _ mutation: (inout Annotation) -> Void) {
+        guard let index = document.annotations.firstIndex(where: { $0.id == id }) else { return }
+        mutation(&document.annotations[index])
     }
 
     /// Throwing the decoration away is the one thing in this panel that undoes

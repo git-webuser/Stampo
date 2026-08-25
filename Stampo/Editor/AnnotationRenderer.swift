@@ -184,29 +184,27 @@ nonisolated enum AnnotationRenderer {
         let path = CGPath(roundedRect: rect, cornerWidth: radius, cornerHeight: radius,
                           transform: nil)
 
-        // The shadow first, cast by the picture's own shape, and drawn the way
+        // The lights first, cast by the picture's own shape and drawn the way
         // the page casts the screenshot's: an opaque stand-in inside a
         // transparency layer, then cut away, because Core Graphics scales a
-        // shadow by the source alpha.
+        // shadow by the source alpha. The glow underneath the shadow, so a dark
+        // shadow reads over the halo rather than being washed out by it — the
+        // same order the page uses.
+        let short = min(rect.width, rect.height)
+        if a.pictureGlow > 0 {
+            castLight(under: path, blur: short * 0.09 * min(1, a.pictureGlow),
+                      offset: .zero,
+                      color: CGColor(srgbRed: a.pictureGlowColor.red,
+                                     green: a.pictureGlowColor.green,
+                                     blue: a.pictureGlowColor.blue,
+                                     alpha: min(1, a.pictureGlow)),
+                      ctx: ctx)
+        }
         if a.pictureShadow > 0 {
             let strength = min(1, a.pictureShadow)
-            ctx.saveGState()
-            ctx.beginTransparencyLayer(auxiliaryInfo: nil)
-            ctx.setShadow(
-                offset: CGSize(width: 0, height: -min(rect.width, rect.height) * 0.02 * strength),
-                blur: min(rect.width, rect.height) * 0.06 * strength,
-                color: CGColor(gray: 0, alpha: 0.55 * strength)
-            )
-            ctx.setFillColor(CGColor(gray: 0, alpha: 1))
-            ctx.addPath(path)
-            ctx.fillPath()
-            ctx.setShadow(offset: .zero, blur: 0, color: nil)
-            ctx.setBlendMode(.clear)
-            ctx.addPath(path)
-            ctx.fillPath()
-            ctx.setBlendMode(.normal)
-            ctx.endTransparencyLayer()
-            ctx.restoreGState()
+            castLight(under: path, blur: short * 0.06 * strength,
+                      offset: CGSize(width: 0, height: -short * 0.02 * strength),
+                      color: CGColor(gray: 0, alpha: 0.55 * strength), ctx: ctx)
         }
 
         ctx.saveGState()
@@ -216,6 +214,26 @@ nonisolated enum AnnotationRenderer {
             ctx.clip()
         }
         drawImageInFlippedSpace(picture, in: rect, ctx: ctx)
+        ctx.restoreGState()
+    }
+
+    /// A shadow or a glow cast by a shape, with the shape itself cut back out
+    /// of it — Core Graphics scales a shadow by the source alpha, so the caster
+    /// has to be opaque and then removed.
+    private static func castLight(under path: CGPath, blur: CGFloat, offset: CGSize,
+                                  color: CGColor, ctx: CGContext) {
+        ctx.saveGState()
+        ctx.beginTransparencyLayer(auxiliaryInfo: nil)
+        ctx.setShadow(offset: offset, blur: blur, color: color)
+        ctx.setFillColor(CGColor(gray: 0, alpha: 1))
+        ctx.addPath(path)
+        ctx.fillPath()
+        ctx.setShadow(offset: .zero, blur: 0, color: nil)
+        ctx.setBlendMode(.clear)
+        ctx.addPath(path)
+        ctx.fillPath()
+        ctx.setBlendMode(.normal)
+        ctx.endTransparencyLayer()
         ctx.restoreGState()
     }
 
