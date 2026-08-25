@@ -1735,6 +1735,17 @@ struct PresentationInspector: View {
     /// thing and says it in the same place as everything else.
     private var shadowSection: some View {
         inspectorGroup("Shadow", section: .shadow) {
+            lightSwitch(isOn: shadowIsVisible,
+                        label: shadowIsVisible ? "Hide Shadow" : "Show Shadow") {
+                toggleShadow()
+            }
+        } content: {
+            // The switch is the section's one whole-block action, and it hides
+            // rather than resets: the radius and the offset survive the round
+            // trip, so turning the shadow back on returns the one you had.
+            // While it is off there is nothing to set, and the section says so
+            // — the switch itself stays live, since it is the way back.
+            Group {
             presentationSlider(
                 "Shadow Radius", id: "shadowRadius", systemImage: "circle.dotted",
                 value: shadowRadiusBinding,
@@ -1778,17 +1789,12 @@ struct PresentationInspector: View {
                         .accessibilityLabel(Text("Shadow Color"))
                     ColorField(color: draft.shadow.color) { setShadowColor($0) }
                     Spacer(minLength: 0)
-                    // Same corner, same button as the canvas rotate: the section's
-                    // one whole-block action. It hides rather than resets — the
-                    // radius and the offset survive the round trip, so turning the
-                    // shadow back on returns the one you had.
-                    sectionActionButton(shadowIsVisible ? "eye" : "eye.slash",
-                                        label: shadowIsVisible ? "Hide Shadow" : "Show Shadow") {
-                        toggleShadow()
-                    }
                 }
             }
             .font(.system(size: 11))
+            }
+            .disabled(!shadowIsVisible)
+            .opacity(shadowIsVisible ? 1 : 0.5)
         }
     }
 
@@ -1797,6 +1803,12 @@ struct PresentationInspector: View {
     /// colour all round.
     private var glowSection: some View {
         inspectorGroup("Glow", section: .glow) {
+            lightSwitch(isOn: glowIsVisible,
+                        label: glowIsVisible ? "Hide Glow" : "Show Glow") {
+                toggleGlow()
+            }
+        } content: {
+            Group {
             presentationSlider(
                 "Glow Radius", id: "glowRadius", systemImage: "circle.dotted",
                 value: glowRadiusBinding,
@@ -1823,13 +1835,12 @@ struct PresentationInspector: View {
                         updateImmediately { $0.glow.color = color }
                     }
                     Spacer(minLength: 0)
-                    sectionActionButton(glowIsVisible ? "eye" : "eye.slash",
-                                        label: glowIsVisible ? "Hide Glow" : "Show Glow") {
-                        toggleGlow()
-                    }
                 }
             }
             .font(.system(size: 11))
+            }
+            .disabled(!glowIsVisible)
+            .opacity(glowIsVisible ? 1 : 0.5)
         }
     }
 
@@ -1917,34 +1928,21 @@ struct PresentationInspector: View {
                             range: 0...0.5, step: 0.01,
                             unit: .pixels(basis: min(picture.rect.width, picture.rect.height))
                         )
-                        presentationSlider(
-                            "Shadow", id: "object-shadow-\(picture.id)",
-                            systemImage: "square.filled.on.square",
-                            value: objectBinding(picture.id, \.pictureShadow),
-                            range: 0...1, step: 0.05, unit: .percent
-                        )
-                        // Both lights carry their colour and their eye, in the
-                        // shape the page's shadow row already has: the colour
-                        // on the left, the one whole-block action on the right.
-                        objectColorRow(
-                            picture, "Shadow Color", color: picture.pictureShadowColor,
-                            isVisible: picture.pictureShadow > 0,
+                        objectLight(
+                            picture, "Shadow", systemImage: "square.filled.on.square",
+                            id: "object-shadow-\(picture.id)",
+                            amount: \.pictureShadow,
+                            colorTitle: "Shadow Color", color: picture.pictureShadowColor,
                             show: "Show Shadow", hide: "Hide Shadow",
-                            set: { $0.pictureShadowColor = $1 },
-                            toggle: { toggleObjectLight(picture, \.pictureShadow) }
+                            setColor: { $0.pictureShadowColor = $1 }
                         )
-                        presentationSlider(
-                            "Glow", id: "object-glow-\(picture.id)",
-                            systemImage: "sun.max",
-                            value: objectBinding(picture.id, \.pictureGlow),
-                            range: 0...1, step: 0.05, unit: .percent
-                        )
-                        objectColorRow(
-                            picture, "Glow Color", color: picture.pictureGlowColor,
-                            isVisible: picture.pictureGlow > 0,
+                        objectLight(
+                            picture, "Glow", systemImage: "sun.max",
+                            id: "object-glow-\(picture.id)",
+                            amount: \.pictureGlow,
+                            colorTitle: "Glow Color", color: picture.pictureGlowColor,
                             show: "Show Glow", hide: "Hide Glow",
-                            set: { $0.pictureGlowColor = $1 },
-                            toggle: { toggleObjectLight(picture, \.pictureGlow) }
+                            setColor: { $0.pictureGlowColor = $1 }
                         )
 
                         objectEffects(picture)
@@ -1994,18 +1992,18 @@ struct PresentationInspector: View {
                 // that changes its border when it is pressed changes its size
                 // with it, and the two fields beside it move every time. The
                 // glyph carries the state — a whole chain keeps the shape, a
-                // broken one lets it go — and the tint says which is which
-                // without costing a point of width. A chain rather than a
-                // lock: a lock says "this may not be changed", and both
-                // numbers here may always be changed. What the button is about
-                // is whether they are tied to each other.
+                // broken one lets it go — which is the whole of it, exactly as
+                // the margins' button is: a second signal in colour would be
+                // saying the same thing twice. A chain rather than a lock: a
+                // lock says "this may not be changed", and both numbers here
+                // may always be changed. What the button is about is whether
+                // they are tied to each other.
                 panelIconButton(linked ? "personalhotspot" : "personalhotspot.slash",
                                 role: .quiet,
                                 label: linked ? "Free Proportions" : "Keep Proportions") {
                     if linked { unlinkedObjects.insert(picture.id) }
                     else { unlinkedObjects.remove(picture.id) }
                 }
-                .foregroundStyle(linked ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
             }
         }
     }
@@ -2027,33 +2025,61 @@ struct PresentationInspector: View {
         .accessibilityLabel(label)
     }
 
-    /// A light's colour and its eye — one row, written once for the shadow and
-    /// the glow, which differ only in which number they carry.
-    private func objectColorRow(_ picture: Annotation, _ title: LocalizedStringKey,
-                                color: Presentation.Color,
-                                isVisible: Bool,
-                                show: LocalizedStringKey, hide: LocalizedStringKey,
-                                set: @escaping (inout Annotation, Presentation.Color) -> Void,
-                                toggle: @escaping () -> Void) -> some View {
-        VStack(alignment: .leading, spacing: Self.captionGap) {
-            Text(title)
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-            HStack(spacing: 8) {
-                ColorChip(color: color, diameter: Self.swatchSize,
-                          supportsOpacity: false) { picked in
-                    updateObject(picture.id) { set(&$0, picked) }
+    /// One light on a placed picture: whether it is there at all, how strong,
+    /// what colour.
+    ///
+    /// The switch sits beside the name, which is what it is about — the light,
+    /// not the colour it happened to stand next to — and everything the light
+    /// is made of goes grey when it is off, so the panel says plainly that
+    /// there is nothing to set. Its number moves down to the end of the colour
+    /// row, where the switch used to be: the strength and the colour are the
+    /// two things a light *has*, and they read as a pair.
+    private func objectLight(_ picture: Annotation, _ title: LocalizedStringKey,
+                             systemImage: String, id: String,
+                             amount: WritableKeyPath<Annotation, CGFloat>,
+                             colorTitle: LocalizedStringKey, color: Presentation.Color,
+                             show: LocalizedStringKey, hide: LocalizedStringKey,
+                             setColor: @escaping (inout Annotation, Presentation.Color) -> Void)
+    -> some View {
+        let isOn = picture[keyPath: amount] > 0
+        let value = objectBinding(picture.id, amount)
+        return VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                Text(title)
+                    .font(.system(size: 11))
+                Spacer(minLength: 4)
+                lightSwitch(isOn: isOn, label: isOn ? hide : show) {
+                    toggleObjectLight(picture, amount)
                 }
-                .accessibilityLabel(Text(title))
-                ColorField(color: color) { picked in
-                    updateObject(picture.id) { set(&$0, picked) }
-                }
-                Spacer(minLength: 0)
-                sectionActionButton(isVisible ? "eye" : "eye.slash",
-                                    label: isVisible ? hide : show, action: toggle)
             }
+            VStack(alignment: .leading, spacing: Self.captionGap) {
+                Slider(value: snapping(value, range: 0...1, step: 0.05),
+                       in: 0...1, onEditingChanged: sliderEditingChanged)
+                Text(colorTitle)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                HStack(spacing: 8) {
+                    ColorChip(color: color, diameter: Self.swatchSize,
+                              supportsOpacity: false) { picked in
+                        updateObject(picture.id) { setColor(&$0, picked) }
+                    }
+                    .accessibilityLabel(Text(colorTitle))
+                    ColorField(color: color) { picked in
+                        updateObject(picture.id) { setColor(&$0, picked) }
+                    }
+                    Spacer(minLength: 4)
+                    valueField(value: value, range: 0...1, unit: .percent, id: id)
+                }
+            }
+            // Off is off: a slider that moves a number nobody draws, and a
+            // colour for a light that is not there, are worse than absent —
+            // they look like settings that do not work.
+            .disabled(!isOn)
+            .opacity(isOn ? 1 : 0.5)
         }
-        .font(.system(size: 11))
     }
 
     /// The picture's own stack, in its own section — the same rows the page
@@ -2159,6 +2185,28 @@ struct PresentationInspector: View {
         }
     }
 
+    /// On or off, for a thing that has a number: the shadow, the glow, and the
+    /// same two on any placed picture.
+    ///
+    /// A switch rather than the eye it replaces. An icon button says one thing
+    /// and is read as two — "this is showing" and "press to show" are the same
+    /// picture — and the only way to know which was to press it and watch.
+    /// A switch has no such question in it: what it looks like *is* the state,
+    /// which is what the control is for everywhere else in the system.
+    ///
+    /// Off means a number of zero, so switching off has to remember what the
+    /// number was; each caller keeps its own memory and hands over an action
+    /// rather than a binding.
+    private func lightSwitch(isOn: Bool, label: LocalizedStringKey,
+                             toggle: @escaping () -> Void) -> some View {
+        Toggle("", isOn: Binding(get: { isOn }, set: { _ in toggle() }))
+            .labelsHidden()
+            .toggleStyle(.switch)
+            .controlSize(.mini)
+            .help(label)
+            .accessibilityLabel(Text(label))
+    }
+
     /// The button that throws something away: the panel has two of them — all
     /// the decoration, and one picture — and they are the same button. Full
     /// width and full height, because a destructive action is not something to
@@ -2241,9 +2289,10 @@ struct PresentationInspector: View {
     /// gone. The title is also the fold control — the whole header row is the
     /// hit target, not just the chevron, because the row is what reads as
     /// clickable at this size.
-    private func inspectorGroup<Content: View>(
+    private func inspectorGroup<Content: View, Accessory: View>(
         _ title: LocalizedStringKey,
         section: Section,
+        @ViewBuilder accessory: () -> Accessory = { EmptyView() },
         @ViewBuilder content: () -> Content
     ) -> some View {
         let isExpanded = !collapsed.contains(section)
@@ -2251,34 +2300,49 @@ struct PresentationInspector: View {
         // around would leave its container — padding and all — visible under
         // the title, which reads as a rendering fault rather than as a folded
         // section.
+        let fold = {
+            withAnimation(.easeInOut(duration: 0.16)) {
+                if isExpanded { collapsed.insert(section) }
+                else { collapsed.remove(section) }
+            }
+        }
+        // Two buttons rather than one, so that a switch can stand between the
+        // name and the chevron: a control inside a button's label is a picture
+        // of a control — the press belongs to the button around it. Both halves
+        // fold the section, so the row still behaves as one strip.
         return VStack(alignment: .leading, spacing: 6) {
-            Button {
-                withAnimation(.easeInOut(duration: 0.16)) {
-                    if isExpanded { collapsed.insert(section) }
-                    else { collapsed.remove(section) }
+            HStack(spacing: 8) {
+                Button(action: fold) {
+                    HStack(spacing: 8) {
+                        Image(systemName: section.systemImage)
+                            .font(.system(size: 13))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 18)
+                        Text(title).font(.headline)
+                        Spacer(minLength: 0)
+                    }
+                    // The whole row is the target, and it is tall enough to hit
+                    // without aiming: a 13pt headline alone is a 16pt-high strip.
+                    .frame(minHeight: 28)
+                    .contentShape(Rectangle())
                 }
-            } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: section.systemImage)
-                        .font(.system(size: 13))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 18)
-                    Text(title).font(.headline)
-                    Spacer(minLength: 0)
+                .buttonStyle(.plain)
+
+                accessory()
+
+                Button(action: fold) {
                     // Trailing, where a disclosure control belongs once the row
                     // opens with an icon of its own.
                     Image(systemName: "chevron.forward")
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(.tertiary)
                         .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                        .frame(minHeight: 28)
+                        .contentShape(Rectangle())
                 }
-                // The whole row is the target, and it is tall enough to hit
-                // without aiming: a 13pt headline alone is a 16pt-high strip.
-                .frame(minHeight: 28)
-                .padding(.horizontal, 6)
-                .contentShape(Rectangle())
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
+            .padding(.horizontal, 6)
 
             if isExpanded {
                 GroupBox {
@@ -2373,6 +2437,22 @@ struct PresentationInspector: View {
     /// beside them the panel looked cramped rather than compact.
     private static let groupPadding: CGFloat = 8
 
+    /// A value that lands on the step, whatever the slider hands over. Its own
+    /// function because two sliders now share it — the panel's own, and the
+    /// bare one an object's light draws under its name.
+    private func snapping(_ value: Binding<CGFloat>, range: ClosedRange<CGFloat>,
+                          step: CGFloat) -> Binding<CGFloat> {
+        Binding(
+            get: { value.wrappedValue },
+            set: { raw in
+                let detents = ((raw - range.lowerBound) / step).rounded()
+                value.wrappedValue = min(range.upperBound,
+                                         max(range.lowerBound,
+                                             range.lowerBound + detents * step))
+            }
+        )
+    }
+
     /// A slider **and** a typed field for the same number.
     ///
     /// The stored value stays normalized to the canvas — that is what keeps a
@@ -2388,16 +2468,7 @@ struct PresentationInspector: View {
         step: CGFloat,
         unit: ValueUnit
     ) -> some View {
-        let snapped = Binding<CGFloat>(
-            get: { value.wrappedValue },
-            set: { raw in
-                let detents = ((raw - range.lowerBound) / step).rounded()
-                value.wrappedValue = min(
-                    range.upperBound,
-                    max(range.lowerBound, range.lowerBound + detents * step)
-                )
-            }
-        )
+        let snapped = snapping(value, range: range, step: step)
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
                 Image(systemName: systemImage)
