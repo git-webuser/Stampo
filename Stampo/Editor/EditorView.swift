@@ -267,6 +267,17 @@ struct EditorView: View {
                               value: drawingWidthBinding,
                               range: range,
                               step: effectiveDrawingMode == .marker ? 4 : 2)
+            case .picture:
+                // A picture on the page gets the two things the page gives the
+                // screenshot, and nothing else: how round its corners are and
+                // how much shadow it casts. Both are fractions of its own size,
+                // so a picture keeps its look when it is resized.
+                settingSlider("Corner Radius", systemImage: "rectangle",
+                              value: pictureCornerRadiusBinding,
+                              range: 0...0.5, step: 0.01)
+                settingSlider("Shadow", systemImage: "square.filled.on.square",
+                              value: pictureShadowBinding,
+                              range: 0...1, step: 0.05)
             case .step:
                 colorSwatches
                 fontPicker
@@ -962,6 +973,28 @@ struct EditorView: View {
                 style.blurStyle = newValue
                 document.prepareBlurSource(style: newValue, level: effectiveBlurLevel)
                 applyToSelection { if $0.kind == .blur { $0.blurStyle = newValue } }
+            }
+        )
+    }
+
+    /// The two settings a placed picture has. They live on the annotation
+    /// rather than in the tool's style: two screenshots side by side are often
+    /// wanted with different rounding, and a style shared by every future
+    /// picture could not say that.
+    private var pictureCornerRadiusBinding: Binding<CGFloat> {
+        Binding(
+            get: { document.selectedAnnotation?.pictureCornerRadius ?? 0 },
+            set: { value in
+                document.updateSelected { if $0.kind == .picture { $0.pictureCornerRadius = value } }
+            }
+        )
+    }
+
+    private var pictureShadowBinding: Binding<CGFloat> {
+        Binding(
+            get: { document.selectedAnnotation?.pictureShadow ?? 0 },
+            set: { value in
+                document.updateSelected { if $0.kind == .picture { $0.pictureShadow = value } }
             }
         )
     }

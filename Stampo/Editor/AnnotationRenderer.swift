@@ -178,9 +178,44 @@ nonisolated enum AnnotationRenderer {
     private static func drawPicture(_ a: Annotation, pictures: [UUID: CGImage],
                                     ctx: CGContext) {
         guard let id = a.pictureID, let picture = pictures[id] else { return }
+        let rect = a.rect
+        let radius = min(max(0, a.pictureCornerRadius) * min(rect.width, rect.height),
+                         min(rect.width, rect.height) / 2)
+        let path = CGPath(roundedRect: rect, cornerWidth: radius, cornerHeight: radius,
+                          transform: nil)
+
+        // The shadow first, cast by the picture's own shape, and drawn the way
+        // the page casts the screenshot's: an opaque stand-in inside a
+        // transparency layer, then cut away, because Core Graphics scales a
+        // shadow by the source alpha.
+        if a.pictureShadow > 0 {
+            let strength = min(1, a.pictureShadow)
+            ctx.saveGState()
+            ctx.beginTransparencyLayer(auxiliaryInfo: nil)
+            ctx.setShadow(
+                offset: CGSize(width: 0, height: -min(rect.width, rect.height) * 0.02 * strength),
+                blur: min(rect.width, rect.height) * 0.06 * strength,
+                color: CGColor(gray: 0, alpha: 0.55 * strength)
+            )
+            ctx.setFillColor(CGColor(gray: 0, alpha: 1))
+            ctx.addPath(path)
+            ctx.fillPath()
+            ctx.setShadow(offset: .zero, blur: 0, color: nil)
+            ctx.setBlendMode(.clear)
+            ctx.addPath(path)
+            ctx.fillPath()
+            ctx.setBlendMode(.normal)
+            ctx.endTransparencyLayer()
+            ctx.restoreGState()
+        }
+
         ctx.saveGState()
         ctx.interpolationQuality = .high
-        drawImageInFlippedSpace(picture, in: a.rect, ctx: ctx)
+        if radius > 0 {
+            ctx.addPath(path)
+            ctx.clip()
+        }
+        drawImageInFlippedSpace(picture, in: rect, ctx: ctx)
         ctx.restoreGState()
     }
 

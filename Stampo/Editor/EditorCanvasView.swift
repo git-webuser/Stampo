@@ -2334,6 +2334,26 @@ struct EditorCanvasView: View {
                 return nil
             }
 
+            // A picture on the clipboard becomes an object on the page, the
+            // same thing a dropped file becomes. Behind the text-editing guard
+            // above, so ⌘V inside a label still pastes text.
+            if event.type == .keyDown, event.keyCode == 9, // V
+               commandModifiers == .command, !fieldHasFocus,
+               let picture = EditorDocument.pictureOnPasteboard() {
+                let canvasSize = PresentationLayout.resolve(
+                    imagePixelSize: self.document.pixelSize,
+                    self.document.presentation
+                ).canvasSize
+                // The middle of the page rather than the middle of what is on
+                // screen: the page is the thing being made, and it is where the
+                // eye is even when the view is panned.
+                self.document.placePicture(
+                    picture,
+                    centredOn: CGPoint(x: canvasSize.width / 2, y: canvasSize.height / 2),
+                    canvasSize: canvasSize)
+                return nil
+            }
+
             // Duplicate the current annotation. Exact modifiers avoid stealing
             // other Command+D variants; no selection leaves the event untouched.
             if event.type == .keyDown, event.keyCode == 2, // D

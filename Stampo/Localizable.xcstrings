@@ -5248,6 +5248,23 @@
         }
       }
     },
+    "Photo" : {
+      "comment" : "Decor inspector — a background made of the user's own photograph",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Photo"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Фото"
+          }
+        }
+      }
+    },
     "Pick Color" : {
       "extractionState" : "manual",
       "localizations" : {

@@ -85,6 +85,8 @@ struct PresentationInspector: View {
     /// What each kind of background held when it was last left. Session-scoped
     /// by design — see `BackgroundDrawers`.
     @State private var drawers = BackgroundDrawers()
+    /// A picture is being dragged over the background section right now.
+    @State private var pictureIsOverTheBackground = false
     /// What the grid of effects is open *for*: adding one to the end of the
     /// stack, or making an existing row into another kind. One grid answers
     /// both, because both ask the same question — which effect?
@@ -146,7 +148,7 @@ struct PresentationInspector: View {
             case .solid:    return "Solid"
             case .none:     return "No Background"
             case .gradient: return "Gradient"
-            case .picture:  return "Picture"
+            case .picture:  return "Photo"
             }
         }
     }
@@ -438,6 +440,29 @@ struct PresentationInspector: View {
     // MARK: Background
 
     private var backgroundSection: some View {
+        backgroundSectionBody
+            // The whole section is the drop zone, not the one tile inside it:
+            // this is the place where the page is painted, so a picture let go
+            // anywhere in it means "paint the page with this" — unambiguously,
+            // which the canvas cannot be (there a picture is an object).
+            .dropDestination(for: URL.self) { urls, _ in
+                guard let url = urls.first(where: { EditorDocument.picture(at: $0) != nil })
+                else { return false }
+                loadBackgroundPicture(from: url)
+                return true
+            } isTargeted: { targeted in
+                pictureIsOverTheBackground = targeted
+            }
+            .overlay {
+                if pictureIsOverTheBackground {
+                    RoundedRectangle(cornerRadius: 8)
+                        .strokeBorder(Color.accentColor, lineWidth: 2)
+                        .allowsHitTesting(false)
+                }
+            }
+    }
+
+    private var backgroundSectionBody: some View {
         inspectorGroup("Background", section: .background) {
             // Four kinds, four columns — the same row the preset gallery
             // below is built on, rather than three and a straggler.
@@ -1400,7 +1425,7 @@ struct PresentationInspector: View {
     /// the *measured* gaps between picture and canvas, and the buttons snap it
     /// to an edge or the middle.
     private var imageSection: some View {
-        inspectorGroup("Image", section: .image) {
+        inspectorGroup("Screenshot", section: .image) {
             alignmentRow
             gapGrid
             presentationSlider(

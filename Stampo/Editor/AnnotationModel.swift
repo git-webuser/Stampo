@@ -414,6 +414,14 @@ nonisolated struct Annotation: Identifiable, Equatable, Sendable {
     /// Which picture a `.picture` annotation draws — the document holds the
     /// pixels under this name.
     var pictureID: UUID?
+    /// How round a placed picture's corners are, as a fraction of its short
+    /// side — the same rule the page uses for the screenshot's corners, so the
+    /// two look like the same treatment when they sit side by side.
+    var pictureCornerRadius: CGFloat = 0
+    /// How strong the shadow under a placed picture is, 0…1. One number rather
+    /// than four: a picture on a page wants the same shadow the screenshot has,
+    /// only more or less of it, and the radius and offset follow from its size.
+    var pictureShadow: CGFloat = 0
     /// Number of sides of a `.polygon` (ShapeCounts.polygonSides).
     var polygonSides: Int = ShapeCounts.defaultPolygonSides
     /// Number of points of a `.star` (ShapeCounts.starPoints).
@@ -2589,6 +2597,13 @@ nonisolated struct RenderedArtifact: Sendable {
     @discardableResult
     func placePicture(at url: URL, centredOn point: CGPoint, canvasSize: CGSize) -> Bool {
         guard let picture = Self.picture(at: url) else { return false }
+        return placePicture(picture, centredOn: point, canvasSize: canvasSize)
+    }
+
+    /// The same, for pixels that never came from a file — the clipboard.
+    @discardableResult
+    func placePicture(_ picture: CGImage, centredOn point: CGPoint,
+                      canvasSize: CGSize) -> Bool {
         let id = UUID()
         let size = Self.placedPictureSize(of: picture, on: canvasSize)
         beginChange()
@@ -2604,6 +2619,22 @@ nonisolated struct RenderedArtifact: Sendable {
         selectedID = placed.id
         commitChange()
         return true
+    }
+
+    /// The picture on the clipboard, if there is one.
+    ///
+    /// A copied *file* counts: Finder puts a URL on the pasteboard rather than
+    /// the pixels, and to a person who copied a screenshot in Finder the two
+    /// are the same act.
+    nonisolated static func pictureOnPasteboard(
+        _ pasteboard: NSPasteboard = .general
+    ) -> CGImage? {
+        if let urls = pasteboard.readObjects(forClasses: [NSURL.self]) as? [URL],
+           let picture = urls.lazy.compactMap({ Self.picture(at: $0) }).first {
+            return picture
+        }
+        guard let image = NSImage(pasteboard: pasteboard) else { return nil }
+        return image.cgImage(forProposedRect: nil, context: nil, hints: nil)
     }
 
     /// How big a dropped picture arrives.
