@@ -1920,6 +1920,13 @@ struct PresentationInspector: View {
             if isOpen {
                 GroupBox {
                     VStack(alignment: .leading, spacing: Self.controlSpacing) {
+                        // Four blocks, and rules between them: how big it is
+                        // and how round, then each of its two lights, then its
+                        // effects, then the way to be rid of it. Without the
+                        // rules the section is a column of a dozen controls
+                        // where only the reading order says which belongs to
+                        // which — and the two lights are made of the same three
+                        // controls, so they run together worst of all.
                         objectSizeRow(picture)
                         presentationSlider(
                             "Corner Radius", id: "object-radius-\(picture.id)",
@@ -1928,6 +1935,7 @@ struct PresentationInspector: View {
                             range: 0...0.5, step: 0.01,
                             unit: .pixels(basis: min(picture.rect.width, picture.rect.height))
                         )
+                        Divider()
                         objectLight(
                             picture, "Shadow", systemImage: "square.filled.on.square",
                             id: "object-shadow-\(picture.id)",
@@ -1936,6 +1944,7 @@ struct PresentationInspector: View {
                             show: "Show Shadow", hide: "Hide Shadow",
                             setColor: { $0.pictureShadowColor = $1 }
                         )
+                        Divider()
                         objectLight(
                             picture, "Glow", systemImage: "sun.max",
                             id: "object-glow-\(picture.id)",
@@ -1945,7 +1954,9 @@ struct PresentationInspector: View {
                             setColor: { $0.pictureGlowColor = $1 }
                         )
 
+                        Divider()
                         objectEffects(picture)
+                        Divider()
 
                         // Its own row, and the section's last word. Beside the
                         // colour field it read as "delete the colour", which is
@@ -2055,9 +2066,10 @@ struct PresentationInspector: View {
                     toggleObjectLight(picture, amount)
                 }
             }
-            VStack(alignment: .leading, spacing: Self.captionGap) {
+            VStack(alignment: .leading, spacing: Self.controlSpacing) {
                 Slider(value: snapping(value, range: 0...1, step: 0.05),
                        in: 0...1, onEditingChanged: sliderEditingChanged)
+                VStack(alignment: .leading, spacing: Self.captionGap) {
                 Text(colorTitle)
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
@@ -2073,6 +2085,7 @@ struct PresentationInspector: View {
                     Spacer(minLength: 4)
                     valueField(value: value, range: 0...1, unit: .percent, id: id)
                 }
+                }
             }
             // Off is off: a slider that moves a number nobody draws, and a
             // colour for a light that is not there, are worse than absent —
@@ -2087,11 +2100,13 @@ struct PresentationInspector: View {
     @ViewBuilder
     private func objectEffects(_ picture: Annotation) -> some View {
         let owner = EffectOwner.object(picture.id)
-        VStack(alignment: .leading, spacing: Self.captionGap) {
+        VStack(alignment: .leading, spacing: Self.controlSpacing) {
             HStack(spacing: 8) {
-                Text("Effects")
+                Image(systemName: Section.effects.systemImage)
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
+                Text("Effects")
+                    .font(.system(size: 11))
                 Spacer(minLength: 0)
                 sectionActionButton("plus", label: "Add Effect") {
                     effectPicker = .add(owner)
