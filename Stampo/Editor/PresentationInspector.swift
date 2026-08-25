@@ -451,7 +451,7 @@ struct PresentationInspector: View {
                 shadowSection
                 glowSection
                 objectSections
-                removeButton
+                removePresentationButton
             }
             .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -1957,14 +1957,9 @@ struct PresentationInspector: View {
                         // at the foot of the panel means something larger —
                         // every bit of decoration, gone — and two identical
                         // glyphs a finger apart is how the wrong one is pressed.
-                        Button(role: .destructive) {
+                        removeButton("Remove Image", systemImage: "rectangle.badge.minus") {
                             document.delete(id: picture.id)
-                        } label: {
-                            Label("Remove Image", systemImage: "rectangle.badge.minus")
-                                .frame(maxWidth: .infinity)
                         }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(Self.groupPadding)
@@ -1995,7 +1990,17 @@ struct PresentationInspector: View {
                                 value: picture.rect.height, label: "Height") { typed in
                     resizeObject(picture, height: typed, keepingRatio: linked)
                 }
-                panelIconButton("link", role: linked ? .bordered : .quiet,
+                // The margins' own button, and for the same reason: a control
+                // that changes its border when it is pressed changes its size
+                // with it, and the two fields beside it move every time. The
+                // glyph carries the state — a whole chain keeps the shape, a
+                // broken one lets it go — and the tint says which is which
+                // without costing a point of width. A chain rather than a
+                // lock: a lock says "this may not be changed", and both
+                // numbers here may always be changed. What the button is about
+                // is whether they are tied to each other.
+                panelIconButton(linked ? "personalhotspot" : "personalhotspot.slash",
+                                role: .quiet,
                                 label: linked ? "Free Proportions" : "Keep Proportions") {
                     if linked { unlinkedObjects.insert(picture.id) }
                     else { unlinkedObjects.remove(picture.id) }
@@ -2146,19 +2151,28 @@ struct PresentationInspector: View {
     /// line of tinted text that reads as a caption. It keeps the destructive
     /// role, which is what makes it red, and a rule above it so it is plainly
     /// not part of the last section.
-    private var removeButton: some View {
+    private var removePresentationButton: some View {
         VStack(spacing: Self.sectionSpacing) {
             Divider()
-            Button(role: .destructive) {
-                removePresentation()
-            } label: {
-                Label("Remove Decor", systemImage: "trash")
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.large)
-            .disabled(document.presentation == nil)
+            removeButton("Remove Decor", systemImage: "trash") { removePresentation() }
+                .disabled(document.presentation == nil)
         }
+    }
+
+    /// The button that throws something away: the panel has two of them — all
+    /// the decoration, and one picture — and they are the same button. Full
+    /// width and full height, because a destructive action is not something to
+    /// aim at, and a shorter one would only look like a different kind of
+    /// control. What differs is the glyph, so that two of them in one column
+    /// are not mistaken for each other.
+    private func removeButton(_ title: LocalizedStringKey, systemImage: String,
+                              action: @escaping () -> Void) -> some View {
+        Button(role: .destructive, action: action) {
+            Label(title, systemImage: systemImage)
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.large)
     }
 
     // MARK: Building blocks
