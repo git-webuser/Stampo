@@ -760,20 +760,25 @@ struct PresentationInspector: View {
     }
 
     /// How a picture meets the page, as a glyph and a name.
-    /// The four read as a set rather than as four separate pictures.
+    /// The four read as a set, in two pairs.
     ///
-    /// Filling is corners pushed outward — "grow until nothing is left over" —
-    /// against a picture sitting inside a frame, and that pair is legible at
-    /// 13pt where symbols differing only by an arrow's direction are not.
-    /// Rejected on sight, drawn at button size: the vertical compress/expand
-    /// pair speaks about height alone, and the four-quadrant inset reads as
-    /// tiles rather than as an inset, which is the *other* button.
+    /// Two of them are the same rectangle filled differently — one area in the
+    /// middle against four in the corners — so "one picture over the page"
+    /// against "the same one again and again" is said by the picture rather
+    /// than by the label. The other two are arrows in a frame, inward to sit
+    /// inside it and outward to be pulled to its edges.
+    ///
+    /// Three earlier sets were drawn at button size and thrown away, which is
+    /// the only way to judge these: `aspectratio` and `aspectratio.fill` differ
+    /// by a fill nobody sees at 13pt, the vertical compress/expand pair speaks
+    /// about height alone, and a solid rectangle for "fill" said nothing about
+    /// what happens to the picture.
     static func symbol(for fit: Presentation.Background.PictureFit) -> String {
         switch fit {
-        case .fill:    return "rectangle.expand.diagonal"
-        case .fit:     return "rectangle.inset.filled"
-        case .stretch: return "arrow.left.and.right.square"
-        case .tile:    return "square.grid.3x3.fill"
+        case .fill:    return "inset.filled.center.rectangle"
+        case .fit:     return "arrow.down.right.and.arrow.up.left.rectangle"
+        case .stretch: return "arrow.down.backward.and.arrow.up.forward.rectangle"
+        case .tile:    return "inset.filled.topleft.topright.bottomleft.bottomright.rectangle"
         }
     }
 
