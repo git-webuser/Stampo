@@ -17,6 +17,11 @@ nonisolated enum AnnotationKind: Equatable, Sendable {
     case blur
     case step
     case loupe
+    /// A picture of the user's own, placed on the page beside the screenshot —
+    /// a second shot for a before-and-after, a logo, anything droppable. Held
+    /// by name like the background picture is: the annotation is a value that
+    /// crosses into the export task, and the pixels live in the document.
+    case picture
 
     /// Closed-region shapes whose outline is a computed `CGPath` over the
     /// bounding rect (unlike rect/oval, which stroke CG primitives directly).
@@ -406,6 +411,9 @@ nonisolated struct Annotation: Identifiable, Equatable, Sendable {
     var blurLevel: Int = BlurIntensity.defaultLevel
     /// 0 is outline-only; rect and oval use a translucent fill above 0.
     var fillOpacity: CGFloat = 0
+    /// Which picture a `.picture` annotation draws — the document holds the
+    /// pixels under this name.
+    var pictureID: UUID?
     /// Number of sides of a `.polygon` (ShapeCounts.polygonSides).
     var polygonSides: Int = ShapeCounts.defaultPolygonSides
     /// Number of points of a `.star` (ShapeCounts.starPoints).
@@ -852,7 +860,7 @@ nonisolated struct Annotation: Identifiable, Equatable, Sendable {
         case .line, .arrow:
             return hypot(end.x - start.x, end.y - start.y) < 4
         case .rect, .oval, .roundedRect, .polygon, .star, .bubble,
-             .blur, .loupe:
+             .blur, .loupe, .picture:
             return rect.width < 4 || rect.height < 4
         case .text:
             return text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -907,7 +915,7 @@ nonisolated struct Annotation: Identifiable, Equatable, Sendable {
             return outline.copy(strokingWithWidth: lineWidth + tolerance * 2,
                                 lineCap: .round, lineJoin: .round,
                                 miterLimit: 10).contains(p)
-        case .text, .blur:
+        case .text, .blur, .picture:
             return rect.insetBy(dx: -tolerance, dy: -tolerance).contains(p)
         case .freehand:
             guard let first = freehandPoints.first else { return false }
@@ -1017,7 +1025,7 @@ nonisolated struct Annotation: Identifiable, Equatable, Sendable {
         case .line:
             return [(.start, start), (.end, end)]
         case .rect, .oval, .roundedRect, .polygon, .star, .bubble,
-             .blur, .loupe:
+             .blur, .loupe, .picture:
             var result = Self.corners(of: rect,
                                       (.topLeft, .topRight, .bottomLeft, .bottomRight))
             if let sourceRect = loupeSourceRect {
@@ -1941,11 +1949,11 @@ struct DocumentSnapshot: Equatable, Sendable {
 nonisolated struct EditorRenderSnapshot: Sendable {
     let baseImage: CGImage
     let blurSources: [BlurSource: CGImage]
-    /// The user's own background, if the page is made of one — carried by the
-    /// snapshot for the same reason the blurred copies are: the presentation
-    /// names it, the document holds it, and the export task gets neither unless
-    /// it is handed over.
-    let backgroundPicture: CGImage?
+    /// The user's own pictures — the page's background and anything placed on
+    /// it. Carried by the snapshot for the same reason the blurred copies are:
+    /// the values name them, the document holds them, and the export task gets
+    /// neither unless they are handed over.
+    let pictures: [UUID: CGImage]
     let annotations: [Annotation]
     let revision: UInt64
     let format: String
@@ -2040,7 +2048,7 @@ nonisolated struct RenderedArtifact: Sendable {
         EditorRenderSnapshot(
             baseImage: baseImage,
             blurSources: blurSources,
-            backgroundPicture: backgroundPicture(for: presentation?.background.pictureID),
+            pictures: pictures,
             annotations: annotations,
             revision: revision,
             format: format,
@@ -2520,7 +2528,8 @@ nonisolated struct RenderedArtifact: Sendable {
 
     // MARK: Background pictures
 
-    /// The user's own backgrounds, by the name the presentation calls them.
+    /// The user's own pictures, by the name that refers to them — a page's
+    /// background and a picture placed on the page alike.
     ///
     /// Beside the picture rather than inside it, exactly as the blurred copies
     /// of the screenshot are: `Presentation` is a value that crosses into the
@@ -2528,15 +2537,18 @@ nonisolated struct RenderedArtifact: Sendable {
     /// be neither cheap to compare nor pleasant to carry. Undo therefore takes
     /// the *name* back and the pixels stay — which is what makes undoing a
     /// change of background instant rather than a second trip to the disk.
-    private(set) var backgroundPictures: [UUID: CGImage] = [:]
+    private(set) var pictures: [UUID: CGImage] = [:]
 
-    func backgroundPicture(for id: UUID?) -> CGImage? {
+    func picture(for id: UUID?) -> CGImage? {
         guard let id else { return nil }
-        return backgroundPictures[id]
+        return pictures[id]
     }
 
-    func setBackgroundPicture(_ picture: CGImage, id: UUID) {
-        backgroundPictures[id] = picture
+    /// Kept, not owned: an undo that takes a picture off the page leaves the
+    /// pixels here, so putting it back is instant rather than another trip to
+    /// the disk. They go when the document does.
+    func keepPicture(_ picture: CGImage, id: UUID) {
+        pictures[id] = picture
     }
 
     /// Takes the file as the page's background, in one undo step.
@@ -2554,7 +2566,7 @@ nonisolated struct RenderedArtifact: Sendable {
         // exactly as touching any other decor control is.
         startDecorationForEditing()
         let id = UUID()
-        setBackgroundPicture(picture, id: id)
+        keepPicture(picture, id: id)
         // However the last picture met the page, this one meets it the same:
         // somebody who tiles textures is usually about to tile another.
         presentation?.background = .picture(id: id,
@@ -2562,6 +2574,54 @@ nonisolated struct RenderedArtifact: Sendable {
                                             fit: presentation?.background.pictureFit ?? .fill)
         commitChange()
         return true
+    }
+
+    /// Places a picture on the page, centred where it was dropped.
+    ///
+    /// It becomes an ordinary annotation, and that is the whole design: the
+    /// canvas is where objects live and the panel is where the page is
+    /// designed, so a picture brought to the canvas is a thing on the page —
+    /// movable, resizable, deletable and annotatable like everything else —
+    /// while the page's *background* is chosen in the panel. Two screenshots
+    /// side by side with an arrow across them needs nothing else.
+    ///
+    /// Returns false when the file is not an image anyone can read.
+    @discardableResult
+    func placePicture(at url: URL, centredOn point: CGPoint, canvasSize: CGSize) -> Bool {
+        guard let picture = Self.picture(at: url) else { return false }
+        let id = UUID()
+        let size = Self.placedPictureSize(of: picture, on: canvasSize)
+        beginChange()
+        keepPicture(picture, id: id)
+        var placed = Annotation(
+            kind: .picture,
+            start: CGPoint(x: point.x - size.width / 2, y: point.y - size.height / 2),
+            end: CGPoint(x: point.x + size.width / 2, y: point.y + size.height / 2),
+            color: .red, lineWidth: 0
+        )
+        placed.pictureID = id
+        annotations.append(placed)
+        selectedID = placed.id
+        commitChange()
+        return true
+    }
+
+    /// How big a dropped picture arrives.
+    ///
+    /// Its own pixels, unless that would cover more than half the page: a
+    /// screenshot dropped beside another is usually the same size as the one
+    /// already there, and something enormous would land as a wall with no
+    /// visible handles to shrink it by.
+    nonisolated static func placedPictureSize(of picture: CGImage,
+                                              on canvasSize: CGSize) -> CGSize {
+        let size = CGSize(width: CGFloat(picture.width), height: CGFloat(picture.height))
+        guard size.width > 0, size.height > 0,
+              canvasSize.width > 0, canvasSize.height > 0 else { return size }
+        let room = min(canvasSize.width * 0.5 / size.width,
+                       canvasSize.height * 0.5 / size.height)
+        let scale = min(1, room)
+        return CGSize(width: (size.width * scale).rounded(),
+                      height: (size.height * scale).rounded())
     }
 
     /// A picture read from a file, in the form the renderer draws.

@@ -57,10 +57,10 @@ nonisolated enum PresentationRenderer {
         in ctx: CGContext,
         base: CGImage,
         blurSources: [BlurSource: CGImage],
-        /// The user's own background, if the page is made of one. Carried
-        /// beside the presentation for the same reason the blurred copies are:
-        /// the value model names an image, the document holds it.
-        backgroundPicture: CGImage? = nil,
+        /// The user's own pictures, by name. Carried beside the presentation
+        /// for the same reason the blurred copies are: the value model names an
+        /// image, the document holds it.
+        pictures: [UUID: CGImage] = [:],
         annotations: [Annotation],
         presentation: Presentation,
         layout: PresentationLayout.Resolved,
@@ -69,7 +69,7 @@ nonisolated enum PresentationRenderer {
     ) {
         guard !EffectStack.page(presentation.effects).isEmpty else {
             drawContents(in: ctx, base: base, blurSources: blurSources,
-                         backgroundPicture: backgroundPicture,
+                         pictures: pictures,
                          annotations: annotations, presentation: presentation,
                          layout: layout, skipping: skippedID)
             return
@@ -89,7 +89,7 @@ nonisolated enum PresentationRenderer {
               )
         else {
             drawContents(in: ctx, base: base, blurSources: blurSources,
-                         backgroundPicture: backgroundPicture,
+                         pictures: pictures,
                          annotations: annotations, presentation: presentation,
                          layout: layout, skipping: skippedID)
             return
@@ -101,7 +101,7 @@ nonisolated enum PresentationRenderer {
         offscreen.scaleBy(x: CGFloat(width) / canvasRect.width,
                           y: CGFloat(height) / canvasRect.height)
         drawContents(in: offscreen, base: base, blurSources: blurSources,
-                     backgroundPicture: backgroundPicture,
+                     pictures: pictures,
                      annotations: annotations, presentation: presentation,
                      layout: layout, skipping: skippedID)
 
@@ -109,7 +109,7 @@ nonisolated enum PresentationRenderer {
               let filtered = EffectBaker.page(presentation.effects, over: rendered)
         else {
             drawContents(in: ctx, base: base, blurSources: blurSources,
-                         backgroundPicture: backgroundPicture,
+                         pictures: pictures,
                          annotations: annotations, presentation: presentation,
                          layout: layout, skipping: skippedID)
             return
@@ -121,7 +121,7 @@ nonisolated enum PresentationRenderer {
         in ctx: CGContext,
         base: CGImage,
         blurSources: [BlurSource: CGImage],
-        backgroundPicture: CGImage?,
+        pictures: [UUID: CGImage],
         annotations: [Annotation],
         presentation: Presentation,
         layout: PresentationLayout.Resolved,
@@ -129,7 +129,8 @@ nonisolated enum PresentationRenderer {
     ) {
         let canvasRect = CGRect(origin: .zero, size: layout.canvasSize)
         drawBackground(presentation.background, effects: presentation.effects,
-                       picture: backgroundPicture, in: canvasRect, ctx: ctx)
+                       picture: pictures[presentation.background.pictureID ?? UUID()],
+                       in: canvasRect, ctx: ctx)
         // The glow first, so a dark shadow reads *over* the halo rather than
         // being washed out by it.
         drawShadow(for: layout.imageRect,
@@ -179,6 +180,7 @@ nonisolated enum PresentationRenderer {
         AnnotationRenderer.drawAnnotationLayer(in: ctx,
                                                base: base,
                                                blurSources: blurSources,
+                                               pictures: pictures,
                                                annotations: annotations,
                                                skipping: skippedID,
                                                where: { $0.livesInImageSpace })
@@ -191,6 +193,7 @@ nonisolated enum PresentationRenderer {
         AnnotationRenderer.drawAnnotationLayer(in: ctx,
                                                base: base,
                                                blurSources: blurSources,
+                                               pictures: pictures,
                                                annotations: annotations,
                                                skipping: skippedID,
                                                where: { !$0.livesInImageSpace })
@@ -215,6 +218,7 @@ nonisolated enum PresentationRenderer {
         in ctx: CGContext,
         base: CGImage,
         blurSources: [BlurSource: CGImage],
+        pictures: [UUID: CGImage] = [:],
         annotations: [Annotation],
         layout: PresentationLayout.Resolved,
         cornerRadius: CGFloat = 0,
@@ -259,6 +263,7 @@ nonisolated enum PresentationRenderer {
         AnnotationRenderer.drawAnnotationLayer(in: ctx,
                                                base: base,
                                                blurSources: blurSources,
+                                               pictures: pictures,
                                                annotations: annotations,
                                                skipping: skippedID,
                                                where: { $0.livesInImageSpace })
@@ -267,6 +272,7 @@ nonisolated enum PresentationRenderer {
         AnnotationRenderer.drawAnnotationLayer(in: ctx,
                                                base: base,
                                                blurSources: blurSources,
+                                               pictures: pictures,
                                                annotations: annotations,
                                                skipping: skippedID,
                                                where: { !$0.livesInImageSpace })

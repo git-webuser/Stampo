@@ -107,7 +107,8 @@ import Testing
         presentation.background = .picture(id: UUID(), backing: .black, fit: .fill)
 
         let withPicture = AnnotationRenderer.renderBitmap(
-            base: shot.makeImage()!, backgroundPicture: picture(width: 80, height: 80),
+            base: shot.makeImage()!,
+            pictures: [presentation.background.pictureID!: picture(width: 80, height: 80)],
             annotations: [], presentation: presentation)
         let without = AnnotationRenderer.renderBitmap(
             base: shot.makeImage()!, annotations: [], presentation: presentation)
@@ -173,7 +174,7 @@ import Testing
         // The page exists, it is made of the picture, and the pixels are here.
         let id = document.presentation?.background.pictureID
         #expect(id != nil)
-        #expect(document.backgroundPicture(for: id) != nil)
+        #expect(document.picture(for: id) != nil)
         #expect(document.undoStack.count == steps + 1)
 
         // However the last one met the page, the next one meets it the same.

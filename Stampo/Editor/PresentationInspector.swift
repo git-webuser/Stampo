@@ -668,7 +668,7 @@ struct PresentationInspector: View {
                     context.withCGContext { cg in
                         PresentationRenderer.drawBackground(
                             sample,
-                            picture: document.backgroundPicture(for: sample.pictureID),
+                            picture: document.picture(for: sample.pictureID),
                             in: CGRect(origin: .zero, size: size),
                             ctx: cg
                         )
@@ -679,7 +679,7 @@ struct PresentationInspector: View {
             // it shows what it is *for*. Every other tile is a picture of
             // itself; this is the one kind that has to be asked for first.
             .overlay {
-                if kind == .picture, document.backgroundPicture(for: sample.pictureID) == nil {
+                if kind == .picture, document.picture(for: sample.pictureID) == nil {
                     // Read against the tile it sits on, not against the panel:
                     // `.secondary` over a pale backing was a grey glyph on a
                     // grey square. The same rule the pattern effects use for
@@ -1149,7 +1149,7 @@ struct PresentationInspector: View {
                 context.withCGContext { cg in
                     PresentationRenderer.drawBackground(
                         draft.background, effects: stack,
-                        picture: document.backgroundPicture(for: draft.background.pictureID),
+                        picture: document.picture(for: draft.background.pictureID),
                         in: CGRect(origin: .zero, size: size), ctx: cg
                     )
                 }
@@ -1354,7 +1354,7 @@ struct PresentationInspector: View {
                 let rect = CGRect(origin: .zero, size: size)
                 PresentationRenderer.drawBackground(
                     draft.background, effects: [shown],
-                    picture: document.backgroundPicture(for: draft.background.pictureID),
+                    picture: document.picture(for: draft.background.pictureID),
                     in: rect, ctx: cg)
             }
         }
@@ -2133,7 +2133,7 @@ struct PresentationInspector: View {
             // away: the tile is the question, and the file dialog is where it
             // is answered. Coming back to a picture already chosen asks
             // nothing.
-            if document.backgroundPicture(for: draft.background.pictureID) == nil {
+            if document.picture(for: draft.background.pictureID) == nil {
                 chooseBackgroundPicture()
             }
         }

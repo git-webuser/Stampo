@@ -90,12 +90,14 @@ nonisolated enum AnnotationRenderer {
         in ctx: CGContext,
         base: CGImage,
         blurSources: [BlurSource: CGImage],
+        pictures: [UUID: CGImage] = [:],
         annotations: [Annotation],
         skipping skippedID: UUID? = nil
     ) {
         drawBaseLayer(in: ctx, base: base, blurSources: blurSources,
                       annotations: annotations, skipping: skippedID)
         drawAnnotationLayer(in: ctx, base: base, blurSources: blurSources,
+                            pictures: pictures,
                             annotations: annotations, skipping: skippedID)
     }
 
@@ -136,6 +138,11 @@ nonisolated enum AnnotationRenderer {
         in ctx: CGContext,
         base: CGImage,
         blurSources: [BlurSource: CGImage],
+        /// The user's own pictures, by the name the annotations call them —
+        /// beside the annotations for the same reason the blurred copies are
+        /// beside the blur ones: a value that crosses into the export task
+        /// should not be carrying images.
+        pictures: [UUID: CGImage] = [:],
         annotations: [Annotation],
         skipping skippedID: UUID? = nil,
         where include: (Annotation) -> Bool = { _ in true }
@@ -155,9 +162,26 @@ nonisolated enum AnnotationRenderer {
             case .step:  drawStep(annotation, ctx: ctx)
             case .loupe: drawLoupe(annotation, base: base, blurSources: blurSources,
                                    annotations: annotations, ctx: ctx)
+            case .picture:
+                drawPicture(annotation, pictures: pictures, ctx: ctx)
             case .blur:  break  // handled in the first pass
             }
         }
+    }
+
+    /// A picture placed on the page: drawn to fill the rectangle it was given,
+    /// which is the rectangle the user dragged it to.
+    ///
+    /// Nothing is drawn when the document does not have the pixels — a name
+    /// without an image is a picture that was never loaded, and an outline
+    /// standing in for it would be a second thing to explain.
+    private static func drawPicture(_ a: Annotation, pictures: [UUID: CGImage],
+                                    ctx: CGContext) {
+        guard let id = a.pictureID, let picture = pictures[id] else { return }
+        ctx.saveGState()
+        ctx.interpolationQuality = .high
+        drawImageInFlippedSpace(picture, in: a.rect, ctx: ctx)
+        ctx.restoreGState()
     }
 
     /// `CGContext.draw` renders images bottom-up; under our flipped (top-left)
@@ -665,7 +689,7 @@ nonisolated enum AnnotationRenderer {
     nonisolated static func renderBitmap(
         base: CGImage,
         blurSources: [BlurSource: CGImage] = [:],
-        backgroundPicture: CGImage? = nil,
+        pictures: [UUID: CGImage] = [:],
         annotations: [Annotation],
         presentation: Presentation? = nil
     ) -> NSBitmapImageRep? {
@@ -700,7 +724,7 @@ nonisolated enum AnnotationRenderer {
         PresentationRenderer.draw(in: ctx,
                                   base: base,
                                   blurSources: blurSources,
-                                  backgroundPicture: backgroundPicture,
+                                  pictures: pictures,
                                   annotations: annotations,
                                   presentation: resolvedPresentation,
                                   layout: layout)
@@ -716,7 +740,7 @@ nonisolated enum AnnotationRenderer {
         guard let rep = renderBitmap(
             base: snapshot.baseImage,
             blurSources: snapshot.blurSources,
-            backgroundPicture: snapshot.backgroundPicture,
+            pictures: snapshot.pictures,
             annotations: snapshot.annotations,
             presentation: snapshot.presentation
         ) else { return nil }

@@ -481,15 +481,27 @@ struct EditorCanvasView: View {
                           y: offset.y + drawSize.height / 2)
                 .allowsHitTesting(false)
             }
-            // A picture dropped on the canvas becomes the page's background —
-            // the shortest way there is, and the reason the panel's file dialog
-            // is at the *end* of its row rather than the start. Only files the
-            // system can read as images are taken; anything else is left for
-            // whoever else wants it.
-            .dropDestination(for: URL.self) { urls, _ in
+            // A picture dropped on the canvas becomes an object *on the page*,
+            // not the page's background.
+            //
+            // The canvas is where objects live and the panel is where the page
+            // is designed — a rule this editor already followed before there
+            // were pictures to drop. It also answers what a person actually
+            // means by the gesture: a second screenshot beside the first, to be
+            // annotated across both. The background keeps its own way in, in
+            // the panel, where the page is.
+            .dropDestination(for: URL.self) { urls, location in
                 guard let url = urls.first(where: { EditorDocument.picture(at: $0) != nil })
                 else { return false }
-                return document.useBackgroundPicture(at: url)
+                // The drop point, in the page's own coordinates — where the
+                // pointer let go is where the picture lands.
+                let canvasPoint = CGPoint(
+                    x: (location.x - geometry.canvasOffset.x) / geometry.canvasScale,
+                    y: (location.y - geometry.canvasOffset.y) / geometry.canvasScale
+                )
+                return document.placePicture(
+                    at: url, centredOn: canvasPoint,
+                    canvasSize: geometry.presentationLayout.canvasSize)
             } isTargeted: { targeted in
                 pictureIsOverTheCanvas = targeted
             }
@@ -643,8 +655,7 @@ struct EditorCanvasView: View {
                         in: cg,
                         base: document.baseImage,
                         blurSources: document.blurSources,
-                        backgroundPicture: document.backgroundPicture(
-                            for: presentation.background.pictureID),
+                        pictures: document.pictures,
                         annotations: document.annotations,
                         presentation: presentation,
                         layout: layout,
@@ -664,6 +675,7 @@ struct EditorCanvasView: View {
                         in: cg,
                         base: document.baseImage,
                         blurSources: document.blurSources,
+                        pictures: document.pictures,
                         annotations: document.annotations,
                         layout: layout,
                         cornerRadius: presentation.cornerRadius,
@@ -682,6 +694,7 @@ struct EditorCanvasView: View {
                         in: cg,
                         base: document.baseImage,
                         blurSources: document.blurSources,
+                        pictures: document.pictures,
                         annotations: document.annotations,
                         skipping: skipID
                     )
@@ -2186,9 +2199,11 @@ struct EditorCanvasView: View {
         case .line, .arrow:
             return Annotation.snappedArrowEnd(from: start, to: point)
         case .rect, .oval, .roundedRect, .polygon, .star, .bubble,
-             .loupe:
+             .loupe, .picture:
             // Shift makes a loupe's oval a circle (its rounded rect a square,
-            // a polygon or star regular).
+            // a polygon or star regular) — and a picture keep its own
+            // proportions, which is the one thing a picture is usually asked
+            // to do.
             return Annotation.aspectLockedEnd(from: start, to: point)
         case .text, .freehand, .blur, .step:
             return point
