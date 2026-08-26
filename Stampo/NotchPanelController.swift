@@ -1455,8 +1455,55 @@ final class NotchPanelController: NSObject {
         dissolveStrip { [weak self] in
             guard let self else { return }
             if case .waiting = self.state { self.state = .main }
-            guard thenHide, !self.pointerIsOverThePanel else { return }
+            guard thenHide, !self.pointerIsOverThePanel else {
+                // Staying: the strip is only as wide as two glyphs, and the
+                // panel is still standing at that width. Clearing the flag
+                // hands the width back but moves nothing — somebody has to ask
+                // for the new frame.
+                self.growIntoMain()
+                return
+            }
             self.hideAnimated(reason: .waitFinished)
+        }
+    }
+
+    /// Opens a panel that is standing at the wait strip's width out to Main's.
+    ///
+    /// The strip is 270 points of two glyphs; Main is the whole row of buttons.
+    /// A panel left at the strip's width after the wait ends is a panel that
+    /// looks half-open — which is exactly what it was, since the width follows
+    /// `waitingStripVisible` and nothing re-applied the frame when that flag
+    /// cleared.
+    private func growIntoMain() {
+        guard let panel, panel.isVisible,
+              let screen = currentScreen ?? panel.screen ?? NSScreen.main
+        else { return }
+        // Everything Main is, not just its width: the route, the shape at rest,
+        // its content on and its controls live. Half of these were already
+        // right; setting them all here is what makes this a panel that is Main
+        // rather than a strip standing where Main goes.
+        route = .main
+        rootState.routeContentVisible = 1.0
+        let target = frameForWidth(clampedWidth(currentWidthForCurrentRoute, on: screen),
+                                   on: screen, height: panelWindowHeight)
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = PanelTiming.archiveCloseMorph
+            ctx.timingFunction = PanelTiming.settle
+            withAnimation(PanelTiming.contentFadeIn) {
+                self.interactionState.contentVisibility = 1.0
+            }
+            panel.animator().setFrame(target, display: true)
+        } completionHandler: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.state = .main
+                self.interactionState.isEnabled = true
+            }
+        }
+        // The shape settles back to the strip's own outline — the wait borrowed
+        // the panel, it did not open a route.
+        withAnimation(.spring(response: 0.34, dampingFraction: 0.9)) {
+            self.rootState.progress = 0.0
         }
     }
 
