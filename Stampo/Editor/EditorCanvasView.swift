@@ -281,11 +281,18 @@ struct EditorCanvasView: View {
     /// Where the fitted image currently sits on screen. The scanner opens its
     /// overlay over exactly this rect, so it follows zoom and pan for free.
     @Binding var imageScreenGeometry: ImageScreenGeometry?
+    /// What this canvas's own window can answer — chiefly whether it has the
+    /// keyboard. The key monitor is a *local* one, so with a window per
+    /// document every editor hears every key: acting on them belongs to the
+    /// window that is key, and each canvas has to ask about its own.
+    var windowContext: EditorWindowContext = .detached
 
     @FocusState private var textFieldFocused: Bool
     @State private var magnificationStart: CGFloat?
     @State private var magnificationStartPan: CGSize?
     @State private var isSpaceHeld = false
+    /// A picture is being dragged over the canvas right now.
+    @State private var pictureIsOverTheCanvas = false
     /// Whether ⌘ is down — see `isCommandHeld`. Held in state rather than read
     /// live so pressing it redraws the canvas and repaints the cursor.
     @State private var isCommandDown = false
@@ -326,9 +333,51 @@ struct EditorCanvasView: View {
         /// else on the canvas, in canvas pixels.
         case movingImage(last: CGPoint)
         case resizingImage(ImageCorner)
+        /// Dragging the middle of a side: the gap on that edge follows the
+        /// pointer. The same act as typing into that margin field, and it goes
+        /// through the same rule.
+        ///
+        /// The mapping from the screen to the page travels with the mode, and
+        /// that is not an optimisation. On an auto page a margin *is* the page
+        /// — set it and the canvas grows — so a gap read from the live mapping
+        /// feeds the gesture its own output: the page grows, the view re-fits
+        /// smaller, the same pointer now sits at a different page coordinate,
+        /// and the margin runs away from the mouse while every frame re-renders
+        /// the whole scene at a new scale. Frozen at the start, ten points of
+        /// mouse are ten points of margin, and the drag is one conversion
+        /// instead of a chase. Same reasoning as `routeSegment`'s baseline.
+        case settingGap(PresentationLayout.Edge, baseline: CanvasMapping)
+        /// Dragging one of the dots inside the corners. Which corner travels
+        /// with the mode: the radius is one number, but it is measured from
+        /// whichever corner the hand is on.
+        case settingRadius(ImageCorner)
+        /// Rounding one placed picture's corners, from the dot inside `corner`.
+        case settingPictureRadius(UUID, ImageCorner)
         case ignore
     }
+    /// How the screen mapped to the page at some moment — captured when a drag
+    /// that changes the page's own size begins.
+    struct CanvasMapping: Equatable {
+        let baseScale: CGFloat
+        let zoom: CGFloat
+        let offset: CGPoint
+        let size: CGSize
+
+        var scale: CGFloat { baseScale * zoom }
+
+        func page(_ viewPoint: CGPoint) -> CGPoint {
+            guard scale > 0 else { return .zero }
+            return CGPoint(x: (viewPoint.x - offset.x) / scale,
+                           y: (viewPoint.y - offset.y) / scale)
+        }
+    }
+
     @State private var dragMode: DragMode?
+    /// Where the pointer is during a drag that resizes the page, so the edge
+    /// in hand can be pinned under it — see
+    /// `EditorCanvasGeometry.canvasOrigin(pinning:)`. Nil the rest of the time,
+    /// when the page centres itself in the window as it always has.
+    @State private var gapDragPointer: CGPoint?
     /// Whether the pointer is wearing a cursor we set — see `updateCursor`.
     @State private var cursorIsOurs = false
     /// Whether the pointer is over something it can pick up. Drives both the
@@ -357,13 +406,8 @@ struct EditorCanvasView: View {
             // presentation there keeps the existing crop interaction safe;
             // the styled canvas returns as soon as the crop is committed.
             let renderPresentation = tool == .crop ? nil : document.presentation
-            let geometry = EditorCanvasGeometry.resolve(
-                viewport: geo.size,
-                imagePixelSize: pixel,
-                presentation: renderPresentation,
-                zoom: zoomFactor,
-                pan: panOffset
-            )
+            let geometry = pinnedGeometry(
+                viewport: geo.size, pixel: pixel, presentation: renderPresentation)
             let fitScale = geometry.imageFitScale
             let baseDrawSize = geometry.canvasBaseDrawSize
             let drawSize = geometry.imageDrawSize
@@ -438,6 +482,40 @@ struct EditorCanvasView: View {
                 .position(x: offset.x + drawSize.width / 2,
                           y: offset.y + drawSize.height / 2)
                 .allowsHitTesting(false)
+            }
+            // A picture dropped on the canvas becomes an object *on the page*,
+            // not the page's background.
+            //
+            // The canvas is where objects live and the panel is where the page
+            // is designed — a rule this editor already followed before there
+            // were pictures to drop. It also answers what a person actually
+            // means by the gesture: a second screenshot beside the first, to be
+            // annotated across both. The background keeps its own way in, in
+            // the panel, where the page is.
+            .dropDestination(for: URL.self) { urls, location in
+                guard let url = urls.first(where: { EditorDocument.picture(at: $0) != nil })
+                else { return false }
+                // The drop point, in the page's own coordinates — where the
+                // pointer let go is where the picture lands.
+                let canvasPoint = CGPoint(
+                    x: (location.x - geometry.canvasOffset.x) / geometry.canvasScale,
+                    y: (location.y - geometry.canvasOffset.y) / geometry.canvasScale
+                )
+                return document.placePicture(
+                    at: url, centredOn: canvasPoint,
+                    canvasSize: geometry.presentationLayout.canvasSize)
+            } isTargeted: { targeted in
+                pictureIsOverTheCanvas = targeted
+            }
+            .overlay {
+                // Said on the canvas, because that is what the drop will change
+                // — a highlight around the window would be about the window.
+                if pictureIsOverTheCanvas {
+                    RoundedRectangle(cornerRadius: 6)
+                        .strokeBorder(Color.accentColor, lineWidth: 3)
+                        .padding(4)
+                        .allowsHitTesting(false)
+                }
             }
             .gesture(dragGesture(fitScale: fitScale, offset: offset, pixel: pixel,
                                  annotationBounds: annotationBounds,
@@ -529,7 +607,7 @@ struct EditorCanvasView: View {
         .onReceive(NotificationCenter.default.publisher(
             for: NSWindow.didResignKeyNotification
         )) { _ in
-            guard !EditorWindowController.shared.isKeyWindow else { return }
+            guard !windowContext.isKeyWindow() else { return }
             releaseHeldKeys()
         }
         .onDisappear {
@@ -579,10 +657,19 @@ struct EditorCanvasView: View {
                         in: cg,
                         base: document.baseImage,
                         blurSources: document.blurSources,
+                        pictures: document.pictures,
                         annotations: document.annotations,
                         presentation: presentation,
                         layout: layout,
-                        skipping: skipID
+                        skipping: skipID,
+                        // While something is being dragged, a page-layer effect
+                        // is recomputed on every pointer sample and nothing
+                        // caches it, so the canvas asks for half the side. It
+                        // buys less than the pixel count suggests — measured,
+                        // fluted glass 38 ms to 19, ASCII 38 to 30 — because
+                        // ribs and character cells are counted in fractions of
+                        // the page and there are just as many of them.
+                        pageQuality: dragMode == nil ? .full : .interactive
                     )
                     // Editor only: show what the canvas cropped away, so it can
                     // still be selected and moved back in.
@@ -590,6 +677,7 @@ struct EditorCanvasView: View {
                         in: cg,
                         base: document.baseImage,
                         blurSources: document.blurSources,
+                        pictures: document.pictures,
                         annotations: document.annotations,
                         layout: layout,
                         cornerRadius: presentation.cornerRadius,
@@ -608,6 +696,7 @@ struct EditorCanvasView: View {
                         in: cg,
                         base: document.baseImage,
                         blurSources: document.blurSources,
+                        pictures: document.pictures,
                         annotations: document.annotations,
                         skipping: skipID
                     )
@@ -636,7 +725,9 @@ struct EditorCanvasView: View {
             if imageSelected, presentation != nil {
                 drawImageSelection(layout.imageRect, context: context,
                                    fitScale: canvasScale, offset: canvasOffset,
-                                   showsHandles: true)
+                                   showsHandles: true,
+                                   cornerRadius: presentation?.cornerRadius ?? 0,
+                                   canvasSize: layout.canvasSize)
             }
 
             // While dragging an arrow/line endpoint — either resizing an
@@ -668,7 +759,8 @@ struct EditorCanvasView: View {
     /// uses, so it reads as the object it now is.
     private func drawImageSelection(_ rect: CGRect, context: GraphicsContext,
                                     fitScale: CGFloat, offset: CGPoint,
-                                    showsHandles: Bool) {
+                                    showsHandles: Bool,
+                                    cornerRadius: CGFloat, canvasSize: CGSize) {
         func view(_ p: CGPoint) -> CGPoint {
             CGPoint(x: offset.x + p.x * fitScale, y: offset.y + p.y * fitScale)
         }
@@ -684,6 +776,137 @@ struct EditorCanvasView: View {
             context.stroke(Path(roundedRect: box, cornerRadius: 2),
                            with: .color(.accentColor), lineWidth: 1.5)
         }
+        // The sides carry the margins. Bars rather than squares, because they
+        // do a different thing from the corners — a corner resizes the picture,
+        // a side moves the edge and the gap follows.
+        for edge in PresentationLayout.Edge.allCases {
+            let m = view(Self.edgeHandlePoint(edge, in: rect))
+            let horizontal = edge == .top || edge == .bottom
+            let box = CGRect(x: m.x - (horizontal ? 7 : 2.5),
+                             y: m.y - (horizontal ? 2.5 : 7),
+                             width: horizontal ? 14 : 5,
+                             height: horizontal ? 5 : 14)
+            context.fill(Path(roundedRect: box, cornerRadius: 2.5), with: .color(.white))
+            context.stroke(Path(roundedRect: box, cornerRadius: 2.5),
+                           with: .color(.accentColor), lineWidth: 1.5)
+        }
+        // And the radius, as a dot inside every corner. One number, four ways
+        // to set it: a person rounds the corner they are looking at, and
+        // having to cross the picture to reach the only handle is a detour
+        // with nothing at the end of it.
+        for corner in ImageCorner.allCases {
+            let dot = view(Self.radiusHandlePoint(corner, in: rect,
+                                                  cornerRadius: cornerRadius,
+                                                  canvasSize: canvasSize))
+            let ring = CGRect(x: dot.x - 4, y: dot.y - 4, width: 8, height: 8)
+            context.fill(Path(ellipseIn: ring), with: .color(.white))
+            context.stroke(Path(ellipseIn: ring), with: .color(.accentColor), lineWidth: 1.5)
+        }
+    }
+
+    /// A placed picture's frame, corner grips and radius dots, in the scanner's
+    /// orange. Its geometry is the picture selection's, its colour is not.
+    private func drawPictureSelection(_ a: Annotation, context: GraphicsContext,
+                                      fitScale: CGFloat, offset: CGPoint) {
+        func view(_ p: CGPoint) -> CGPoint {
+            CGPoint(x: offset.x + p.x * fitScale, y: offset.y + p.y * fitScale)
+        }
+        let rect = a.rect
+        let tint = Color(nsColor: .systemOrange)
+        let frame = CGRect(origin: view(rect.origin),
+                           size: CGSize(width: rect.width * fitScale,
+                                        height: rect.height * fitScale))
+        context.stroke(Path(frame), with: .color(tint), lineWidth: 1.5)
+        for corner in ImageCorner.allCases {
+            let c = view(corner.point(in: rect))
+            let box = CGRect(x: c.x - 4, y: c.y - 4, width: 8, height: 8)
+            context.fill(Path(roundedRect: box, cornerRadius: 2), with: .color(.white))
+            context.stroke(Path(roundedRect: box, cornerRadius: 2), with: .color(tint),
+                           lineWidth: 1.5)
+        }
+        // No side bars: a picture has no margins to drag. The dots are the
+        // radius, one inside each corner, exactly as the screenshot's are.
+        for corner in ImageCorner.allCases {
+            let dot = view(Self.pictureRadiusHandlePoint(corner, of: a))
+            let ring = CGRect(x: dot.x - 4, y: dot.y - 4, width: 8, height: 8)
+            context.fill(Path(ellipseIn: ring), with: .color(.white))
+            context.stroke(Path(ellipseIn: ring), with: .color(tint), lineWidth: 1.5)
+        }
+    }
+
+    /// Where a placed picture's radius dot sits. Its radius is a fraction of
+    /// its *own* short side rather than the canvas's — a picture keeps its look
+    /// when it is resized — so the arithmetic is the screenshot's with a
+    /// different basis.
+    static func pictureRadiusHandlePoint(_ corner: ImageCorner, of a: Annotation) -> CGPoint {
+        let rect = a.rect
+        let short = min(rect.width, rect.height)
+        let radius = min(max(0, a.pictureCornerRadius) * short, short / 2)
+        let inset = max(radius, min(14, short / 3))
+        let anchor = corner.point(in: rect)
+        return CGPoint(x: anchor.x + (corner.isLeading ? inset : -inset),
+                       y: anchor.y + (corner.isTop ? inset : -inset))
+    }
+
+    /// The radius a pointer is asking for, as a fraction of the picture's own
+    /// short side. Pure arithmetic, so the rule can be tested without a drag.
+    static func pictureCornerRadius(forPointer point: CGPoint, from corner: ImageCorner,
+                                    of rect: CGRect) -> CGFloat {
+        let short = min(rect.width, rect.height)
+        guard short > 0 else { return 0 }
+        let anchor = corner.point(in: rect)
+        let reach = min(abs(point.x - anchor.x), abs(point.y - anchor.y))
+        return min(0.5, max(0, reach / short))
+    }
+
+    /// The page as it is laid out this pass — centred, except while a margin is
+    /// being dragged, when the edge in hand is pinned under the pointer.
+    ///
+    /// Two resolves rather than one: the pin needs the scale and the centred
+    /// origin the first one works out, and both are pure arithmetic.
+    private func pinnedGeometry(viewport: CGSize, pixel: CGSize,
+                                presentation: Presentation?) -> EditorCanvasGeometry.Resolved {
+        let centred = EditorCanvasGeometry.resolve(
+            viewport: viewport, imagePixelSize: pixel, presentation: presentation,
+            zoom: zoomFactor, pan: panOffset)
+        guard case .settingGap(let edge, _)? = dragMode, let pointer = gapDragPointer
+        else { return centred }
+        let origin = EditorCanvasGeometry.canvasOrigin(
+            pinning: edge, at: pointer,
+            imageRect: centred.presentationLayout.imageRect,
+            canvasScale: centred.canvasScale,
+            canvasDrawSize: centred.canvasDrawSize,
+            viewport: viewport,
+            centred: centred.canvasOffset)
+        return EditorCanvasGeometry.resolve(
+            viewport: viewport, imagePixelSize: pixel, presentation: presentation,
+            zoom: zoomFactor, pan: panOffset, canvasOriginOverride: origin)
+    }
+
+    /// The middle of a side, in canvas pixels.
+    static func edgeHandlePoint(_ edge: PresentationLayout.Edge,
+                                in rect: CGRect) -> CGPoint {
+        switch edge {
+        case .top:      return CGPoint(x: rect.midX, y: rect.minY)
+        case .bottom:   return CGPoint(x: rect.midX, y: rect.maxY)
+        case .leading:  return CGPoint(x: rect.minX, y: rect.midY)
+        case .trailing: return CGPoint(x: rect.maxX, y: rect.midY)
+        }
+    }
+
+    /// Where a corner's radius dot sits: as far along that corner's two sides
+    /// as the radius reaches, and never closer to the corner than a grab of its
+    /// own — at radius 0 a dot exactly on the corner would be the corner
+    /// handle, and one of the two would be unreachable.
+    static func radiusHandlePoint(_ corner: ImageCorner, in rect: CGRect,
+                                  cornerRadius: CGFloat,
+                                  canvasSize: CGSize) -> CGPoint {
+        let short = min(canvasSize.width, canvasSize.height)
+        let radius = min(max(0, cornerRadius) * short, min(rect.width, rect.height) / 2)
+        let inset = max(radius, min(14, min(rect.width, rect.height) / 3))
+        let anchor = corner.point(in: rect)
+        return CGPoint(x: anchor.x + (corner.isLeading ? inset : -inset),
+                       y: anchor.y + (corner.isTop ? inset : -inset))
     }
 
     private func drawCropOverlay(_ rect: CGRect, context: GraphicsContext,
@@ -829,6 +1052,18 @@ struct EditorCanvasView: View {
                                fitScale: CGFloat, offset: CGPoint) {
         func toView(_ p: CGPoint) -> CGPoint {
             CGPoint(x: p.x * fitScale + offset.x, y: p.y * fitScale + offset.y)
+        }
+
+        // A placed picture is a picture, so it wears the picture's chrome: a
+        // frame, corner grips, and the radius dot inside each corner — which is
+        // also the easiest way to round it, since the number is otherwise only
+        // in the panel. Orange rather than the accent blue, borrowed from the
+        // scanner's own second frame: on a page where the screenshot is already
+        // outlined in blue, two blue frames say the same thing about two
+        // different objects.
+        if a.kind == .picture {
+            drawPictureSelection(a, context: context, fitScale: fitScale, offset: offset)
+            return
         }
 
         // Dashed outline for area-like annotations (incl. text bounds).
@@ -1097,7 +1332,13 @@ struct EditorCanvasView: View {
                         // so it works even on an already-selected annotation.
                         dragMode = .ignore
                     } else {
-                        dragMode = beginDrag(at: sp, with: activeTool)
+                        dragMode = beginDrag(
+                            at: sp, with: activeTool,
+                            mapping: CanvasMapping(
+                                baseScale: canvasScale / max(0.0001, zoomFactor),
+                                zoom: zoomFactor,
+                                offset: canvasOffset,
+                                size: canvasSize))
                     }
                 }
 
@@ -1329,6 +1570,29 @@ struct EditorCanvasView: View {
                         imagePixelSize: pixel
                     )
 
+                case .settingGap(let edge, let baseline):
+                    // Through the mapping the drag started with, never the live
+                    // one — see the case's own note. The page is placed so the
+                    // edge stays under the pointer; the number comes from the
+                    // baseline, so it can never chase its own output.
+                    gapDragPointer = value.location
+                    document.setGap(edge, to: PresentationLayout.gap(
+                        forPointer: baseline.page(value.location), on: edge,
+                        canvasSize: baseline.size))
+
+                case .settingPictureRadius(let id, let corner):
+                    update(id) { picture in
+                        picture.pictureCornerRadius = Self.pictureCornerRadius(
+                            forPointer: sp.canvas, from: corner, of: picture.rect)
+                    }
+
+                case .settingRadius(let corner):
+                    let rect = PresentationLayout.resolve(imagePixelSize: pixel,
+                                                          document.presentation).imageRect
+                    document.setCornerRadius(PresentationLayout.cornerRadius(
+                        forPointer: sp.canvas, from: corner, in: rect,
+                        canvasSize: canvasSize))
+
                 case .panning(let last):
                     // Clamp so the image can't be dragged past its overflow
                     // (and stays centered when it fits — no free-floating).
@@ -1447,7 +1711,11 @@ struct EditorCanvasView: View {
                                           magnet: bindMagnetPt / scaleOf(id))
                     document.refreshBindingFallbacks()
                     document.commitChange()
-                case .movingImage, .resizingImage:
+                case .movingImage, .resizingImage, .settingGap, .settingRadius,
+                     .settingPictureRadius:
+                    // The page centres itself again — once, now, rather than on
+                    // every sample of the drag.
+                    gapDragPointer = nil
                     document.commitChange()
                 case .duplicatePending, .cropCreating, .cropMoving, .cropResizing,
                      .panning, .ignore, nil:
@@ -1458,7 +1726,8 @@ struct EditorCanvasView: View {
 
     /// Decides what a fresh mouse-down does, before we know if it's a click
     /// or a drag.
-    private func beginDrag(at sp: SpacedPoint, with gestureTool: EditorTool) -> DragMode {
+    private func beginDrag(at sp: SpacedPoint, with gestureTool: EditorTool,
+                           mapping: CanvasMapping) -> DragMode {
         // Tolerances are in pixels of whichever space the object being tested
         // is measured in, so a grab feels the same distance on screen either way.
         let selectedScale = document.selectedAnnotation.map(sp.scale(for:)) ?? sp.canvasScale
@@ -1472,6 +1741,19 @@ struct EditorCanvasView: View {
         let toolIsImageSpace = shapeKind(for: gestureTool)
             .map(Annotation.kindLivesInImageSpace) ?? false
         let toolPoint = sp.point(imageSpace: toolIsImageSpace)
+
+        // A placed picture's radius dots, asked about before its corners: the
+        // two are only the dot's inset apart, and the corner would swallow
+        // every press aimed at the dot.
+        if let selected = document.selectedAnnotation, selected.kind == .picture {
+            for corner in ImageCorner.allCases {
+                let dot = Self.pictureRadiusHandlePoint(corner, of: selected)
+                if hypot(p.x - dot.x, p.y - dot.y) <= grabPx {
+                    document.beginChange()
+                    return .settingPictureRadius(selected.id, corner)
+                }
+            }
+        }
 
         // Resize handles of the current selection win over everything. Bound
         // arrow endpoints are grabbed at their resolved (drawn) positions.
@@ -1521,7 +1803,7 @@ struct EditorCanvasView: View {
             }
             // The picture is the last thing under the pointer: annotations sit
             // on top of it, empty background below.
-            if let mode = beginImageDrag(at: sp) { return mode }
+            if let mode = beginImageDrag(at: sp, mapping: mapping) { return mode }
             // Empty space: a click deselects (in handleClick), a drag pans.
             return .undecided(pixelPoint: toolPoint, tool: gestureTool)
         case .text:
@@ -1755,10 +2037,11 @@ struct EditorCanvasView: View {
             || imageIsGrabbable(at: sp, for: activeTool)
     }
 
-    /// Grabbing the picture: a corner of the selection frame resizes it, its
+    /// Grabbing the picture: a corner of the selection frame resizes it, a side
+    /// sets that margin, the dot inside the top-left corner rounds it, and its
     /// body moves it. Only with a presentation — without one the picture *is*
     /// the canvas and there is nowhere to move it to.
-    private func beginImageDrag(at sp: SpacedPoint) -> DragMode? {
+    private func beginImageDrag(at sp: SpacedPoint, mapping: CanvasMapping) -> DragMode? {
         guard document.presentation != nil else { return nil }
         let layout = PresentationLayout.resolve(imagePixelSize: document.pixelSize,
                                                 document.presentation)
@@ -1772,6 +2055,26 @@ struct EditorCanvasView: View {
                 if hypot(sp.canvas.x - c.x, sp.canvas.y - c.y) <= grab {
                     document.beginChange()
                     return .resizingImage(corner)
+                }
+            }
+            // The radius dots sit inside the corners, so they are asked about
+            // after the corners themselves: at radius 0 the two are only the
+            // dot's inset apart.
+            for corner in ImageCorner.allCases {
+                let dot = Self.radiusHandlePoint(
+                    corner, in: rect,
+                    cornerRadius: document.presentation?.cornerRadius ?? 0,
+                    canvasSize: layout.canvasSize)
+                if hypot(sp.canvas.x - dot.x, sp.canvas.y - dot.y) <= grab {
+                    document.beginChange()
+                    return .settingRadius(corner)
+                }
+            }
+            for edge in PresentationLayout.Edge.allCases {
+                let m = Self.edgeHandlePoint(edge, in: rect)
+                if hypot(sp.canvas.x - m.x, sp.canvas.y - m.y) <= grab {
+                    document.beginChange()
+                    return .settingGap(edge, baseline: mapping)
                 }
             }
         }
@@ -1985,9 +2288,11 @@ struct EditorCanvasView: View {
         case .line, .arrow:
             return Annotation.snappedArrowEnd(from: start, to: point)
         case .rect, .oval, .roundedRect, .polygon, .star, .bubble,
-             .loupe:
+             .loupe, .picture:
             // Shift makes a loupe's oval a circle (its rounded rect a square,
-            // a polygon or star regular).
+            // a polygon or star regular) — and a picture keep its own
+            // proportions, which is the one thing a picture is usually asked
+            // to do.
             return Annotation.aspectLockedEnd(from: start, to: point)
         case .text, .freehand, .blur, .step:
             return point
@@ -2077,7 +2382,7 @@ struct EditorCanvasView: View {
             // event this has to hear, and only the repaint is the key window's
             // business.
             if event.type == .flagsChanged {
-                let isKey = EditorWindowController.shared.isKeyWindow
+                let isKey = windowContext.isKeyWindow()
                 let down = Self.trackedCommand(
                     eventSaysDown: event.modifierFlags.contains(.command),
                     editorIsKey: isKey
@@ -2089,7 +2394,7 @@ struct EditorCanvasView: View {
                 return event
             }
 
-            guard EditorWindowController.shared.isKeyWindow else { return event }
+            guard windowContext.isKeyWindow() else { return event }
 
             let commandModifiers = event.modifierFlags
                 .intersection([.command, .control, .option, .shift])
@@ -2115,6 +2420,26 @@ struct EditorCanvasView: View {
 
             if event.keyCode == 49 { // Space
                 self.isSpaceHeld = event.type == .keyDown
+                return nil
+            }
+
+            // A picture on the clipboard becomes an object on the page, the
+            // same thing a dropped file becomes. Behind the text-editing guard
+            // above, so ⌘V inside a label still pastes text.
+            if event.type == .keyDown, event.keyCode == 9, // V
+               commandModifiers == .command, !fieldHasFocus,
+               let picture = EditorDocument.pictureOnPasteboard() {
+                let canvasSize = PresentationLayout.resolve(
+                    imagePixelSize: self.document.pixelSize,
+                    self.document.presentation
+                ).canvasSize
+                // The middle of the page rather than the middle of what is on
+                // screen: the page is the thing being made, and it is where the
+                // eye is even when the view is panned.
+                self.document.placePicture(
+                    picture,
+                    centredOn: CGPoint(x: canvasSize.width / 2, y: canvasSize.height / 2),
+                    canvasSize: canvasSize)
                 return nil
             }
 

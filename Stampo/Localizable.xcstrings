@@ -376,6 +376,24 @@
         }
       }
     },
+    "Aberration" : {
+      "comment" : "Decor inspector — how far the lens spreads the colour channels",
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aberration"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Аберрация"
+          }
+        }
+      }
+    },
     "About" : {
       "comment" : "Settings tab label — About page",
       "extractionState" : "stale",
@@ -408,6 +426,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Добавьте ⌘, ⌃ или ⌥ к сочетанию"
+          }
+        }
+      }
+    },
+    "Add Effect" : {
+      "comment" : "Decor inspector — button that adds an effect to the stack",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Add Effect"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Добавить эффект"
           }
         }
       }
@@ -634,6 +669,23 @@
         }
       }
     },
+    "Amber Glow" : {
+      "comment" : "Decor inspector — the name of one background in the gallery",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Amber Glow"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Янтарное сияние"
+          }
+        }
+      }
+    },
     "Angle" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -786,6 +838,24 @@
         }
       }
     },
+    "ASCII" : {
+      "comment" : "Decor inspector — effect that redraws the background as characters",
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ASCII"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ASCII"
+          }
+        }
+      }
+    },
     "Asks GitHub once a day. No other data is sent" : {
       "comment" : "Description for the update check toggle",
       "localizations" : {
@@ -803,8 +873,26 @@
         }
       }
     },
+    "Aurora Mesh" : {
+      "comment" : "Decor inspector — the name of one background in the gallery",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aurora Mesh"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Северное сияние"
+          }
+        }
+      }
+    },
     "Auto" : {
       "comment" : "Canvas that grows with the picture and its margins",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -903,6 +991,41 @@
         }
       }
     },
+    "Berry Mesh" : {
+      "comment" : "Decor inspector — the name of one background in the gallery",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Berry Mesh"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ягодная сетка"
+          }
+        }
+      }
+    },
+    "Binary" : {
+      "comment" : "Decor inspector — the ASCII character set of ones and zeroes",
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Binary"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Двоичный"
+          }
+        }
+      }
+    },
     "Black" : {
       "comment" : "Annotation color name (tooltip on the black swatch).",
       "localizations" : {
@@ -916,6 +1039,24 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Чёрный"
+          }
+        }
+      }
+    },
+    "Blocks" : {
+      "comment" : "Decor inspector — the ASCII character set of shaded blocks",
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Blocks"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Блоки"
           }
         }
       }
@@ -989,6 +1130,23 @@
         }
       }
     },
+    "Bottom Left" : {
+      "comment" : "One corner of a mesh gradient",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bottom Left"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Нижний левый"
+          }
+        }
+      }
+    },
     "Bottom Margin" : {
       "comment" : "Gap between the picture and that canvas edge",
       "localizations" : {
@@ -1002,6 +1160,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Нижнее поле"
+          }
+        }
+      }
+    },
+    "Bottom Right" : {
+      "comment" : "One corner of a mesh gradient",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bottom Right"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Нижний правый"
           }
         }
       }
@@ -1036,6 +1211,24 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Выноска"
+          }
+        }
+      }
+    },
+    "Bumpiness" : {
+      "comment" : "Decor inspector — how sharply the frosted glass was poured",
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bumpiness"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Бугристость"
           }
         }
       }
@@ -1183,6 +1376,60 @@
         }
       }
     },
+    "Cell Height" : {
+      "comment" : "Decor inspector — height of one ASCII cell against its width",
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cell Height"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Высота клетки"
+          }
+        }
+      }
+    },
+    "Cell Size" : {
+      "comment" : "Decor inspector — size of one cell of the pixelate or dither effect",
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cell Size"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Размер клетки"
+          }
+        }
+      }
+    },
+    "Cell Width" : {
+      "comment" : "Decor inspector — width of one ASCII cell, in pixels",
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cell Width"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ширина клетки"
+          }
+        }
+      }
+    },
     "Center Horizontally" : {
       "comment" : "Aligns the picture inside the canvas",
       "localizations" : {
@@ -1213,6 +1460,58 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Центрировать по вертикали"
+          }
+        }
+      }
+    },
+    "Change Effect" : {
+      "comment" : "Decor inspector — the menu on an effect's name, for making it another kind",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Change Effect"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Заменить эффект"
+          }
+        }
+      }
+    },
+    "Characters" : {
+      "comment" : "Decor inspector — which set of characters the ASCII effect draws with",
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Characters"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Символы"
+          }
+        }
+      }
+    },
+    "Charcoal" : {
+      "comment" : "Decor inspector — the name of one background in the gallery",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Charcoal"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Уголь"
           }
         }
       }
@@ -1268,6 +1567,23 @@
         }
       }
     },
+    "Choose Picture" : {
+      "comment" : "Decor inspector — the button that opens a file for the background picture",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choose Picture"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Выбрать картинку"
+          }
+        }
+      }
+    },
     "Choose…" : {
       "comment" : "Button label that opens a folder picker",
       "localizations" : {
@@ -1285,8 +1601,27 @@
         }
       }
     },
+    "Classic" : {
+      "comment" : "Decor inspector — the ASCII character set of punctuation and letters",
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Classic"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Классический"
+          }
+        }
+      }
+    },
     "Classic 3:4" : {
       "comment" : "Canvas format — 3:4",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -1298,6 +1633,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Классический 3:4"
+          }
+        }
+      }
+    },
+    "Clay" : {
+      "comment" : "Decor inspector — the name of one background in the gallery",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Clay"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Глина"
           }
         }
       }
@@ -1486,6 +1838,24 @@
         }
       }
     },
+    "Color Levels" : {
+      "comment" : "Decor inspector — how many colours a quantizing effect leaves",
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Color Levels"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Число цветов"
+          }
+        }
+      }
+    },
     "Color picker unavailable" : {
       "comment" : "Title for the NSAlert shown when color picker cannot access screen",
       "extractionState" : "stale",
@@ -1504,6 +1874,23 @@
         }
       }
     },
+    "Colors" : {
+      "comment" : "The palette above the decor inspector's colour swatches",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Colors"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Цвета"
+          }
+        }
+      }
+    },
     "Compact" : {
       "comment" : "Filename preset name",
       "extractionState" : "stale",
@@ -1518,6 +1905,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Компактный"
+          }
+        }
+      }
+    },
+    "Cool Mesh" : {
+      "comment" : "Decor inspector — the name of one background in the gallery",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cool Mesh"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Холодная сетка"
           }
         }
       }
@@ -1884,6 +2288,7 @@
     },
     "Custom Color" : {
       "comment" : "Colour well for a background colour outside the preset swatches",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -1951,6 +2356,23 @@
         }
       }
     },
+    "Deep" : {
+      "comment" : "Decor inspector — the name of one background in the gallery",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deep"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Глубина"
+          }
+        }
+      }
+    },
     "Default format" : {
       "localizations" : {
         "en" : {
@@ -1997,6 +2419,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Удалить"
+          }
+        }
+      }
+    },
+    "Denim" : {
+      "comment" : "Decor inspector — the name of one background in the gallery",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Denim"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Деним"
           }
         }
       }
@@ -2072,6 +2511,24 @@
         }
       }
     },
+    "Dim" : {
+      "comment" : "Decor inspector — effect that lays shade over the background",
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dim"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Затемнение"
+          }
+        }
+      }
+    },
     "Discard" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2107,6 +2564,24 @@
         }
       }
     },
+    "Dither" : {
+      "comment" : "Decor inspector — effect that reduces the background to few colours with speckle",
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dither"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Дизеринг"
+          }
+        }
+      }
+    },
     "Done" : {
       "comment" : "Closing button of the translation setup window",
       "localizations" : {
@@ -2120,6 +2595,42 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Готово"
+          }
+        }
+      }
+    },
+    "Dot Size" : {
+      "comment" : "Decor inspector — size of one halftone dot",
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dot Size"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Размер точки"
+          }
+        }
+      }
+    },
+    "Dots" : {
+      "comment" : "Decor inspector — effect that lays a grid of dots over the background",
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dots"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Точки"
           }
         }
       }
@@ -2226,6 +2737,23 @@
         }
       }
     },
+    "Dusk Mesh" : {
+      "comment" : "Decor inspector — the name of one background in the gallery",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dusk Mesh"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сумеречная сетка"
+          }
+        }
+      }
+    },
     "Each language is downloaded once by macOS, usually a few hundred megabytes" : {
       "comment" : "Description of the Add language row: what pressing it actually costs",
       "localizations" : {
@@ -2277,6 +2805,24 @@
         }
       }
     },
+    "Edit Stop Color" : {
+      "comment" : "Tooltip on the selected gradient stop — clicking it opens the colour panel",
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Edit Stop Color"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Изменить цвет точки"
+          }
+        }
+      }
+    },
     "Effects" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2307,6 +2853,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Управление элементами"
+          }
+        }
+      }
+    },
+    "Ember" : {
+      "comment" : "Decor inspector — the name of one background in the gallery",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ember"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Угли"
           }
         }
       }
@@ -2591,6 +3154,24 @@
         }
       }
     },
+    "Fluted Glass" : {
+      "comment" : "Decor inspector — effect that shows the page through vertical ribs of glass",
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fluted Glass"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Рифлёное стекло"
+          }
+        }
+      }
+    },
     "Font" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2625,6 +3206,23 @@
         }
       }
     },
+    "Forest Mesh" : {
+      "comment" : "Decor inspector — the name of one background in the gallery",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Forest Mesh"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Лесная сетка"
+          }
+        }
+      }
+    },
     "Format" : {
       "comment" : "Label for the file format picker (PNG/JPEG/TIFF)",
       "localizations" : {
@@ -2644,6 +3242,7 @@
     },
     "Free Margins" : {
       "comment" : "Switches a fixed canvas to one that grows with the margins",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -2655,6 +3254,40 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Свободные поля"
+          }
+        }
+      }
+    },
+    "Free Proportions" : {
+      "comment" : "Decor inspector — unties a placed picture's width and height",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Free Proportions"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Свободные пропорции"
+          }
+        }
+      }
+    },
+    "From Archive" : {
+      "comment" : "Decor inspector — the colours the archive holds",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "From Archive"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Из архива"
           }
         }
       }
@@ -2672,6 +3305,24 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Из изображения"
+          }
+        }
+      }
+    },
+    "Frosted Glass" : {
+      "comment" : "Decor inspector — effect that refracts the page as through textured glass",
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Frosted Glass"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Матовое стекло"
           }
         }
       }
@@ -2729,6 +3380,92 @@
         }
       }
     },
+    "Glass" : {
+      "comment" : "Decor inspector — effect that refracts the background as through textured glass",
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Glass"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Стекло"
+          }
+        }
+      }
+    },
+    "Glow" : {
+      "comment" : "Decor inspector — section for the light spilling from behind the picture",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Glow"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Свечение"
+          }
+        }
+      }
+    },
+    "Glow Color" : {
+      "comment" : "Decor inspector — colour of the glow behind the picture",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Glow Color"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Цвет свечения"
+          }
+        }
+      }
+    },
+    "Glow Opacity" : {
+      "comment" : "Decor inspector — how strong the glow is",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Glow Opacity"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Прозрачность свечения"
+          }
+        }
+      }
+    },
+    "Glow Radius" : {
+      "comment" : "Decor inspector — how far the glow reaches from the picture",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Glow Radius"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Радиус свечения"
+          }
+        }
+      }
+    },
     "Gradient" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2742,6 +3479,59 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Градиент"
+          }
+        }
+      }
+    },
+    "Grain" : {
+      "comment" : "Decor inspector — name of the film-grain effect",
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Grain"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Зерно"
+          }
+        }
+      }
+    },
+    "Grain Size" : {
+      "comment" : "Decor inspector — size of one grain, as a fraction of the short side",
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Grain Size"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Размер зерна"
+          }
+        }
+      }
+    },
+    "Grain, texture and other treatments of the background" : {
+      "comment" : "Decor inspector — what the empty effects section is for",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Grain, texture and other treatments of the background"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Зерно, текстура и другая обработка фона"
           }
         }
       }
@@ -2798,6 +3588,42 @@
         }
       }
     },
+    "Grid" : {
+      "comment" : "Decor inspector — effect that lays a grid of lines over the background",
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Grid"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сетка"
+          }
+        }
+      }
+    },
+    "Halftone" : {
+      "comment" : "Decor inspector — effect that separates the background into print dots",
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Halftone"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Растр"
+          }
+        }
+      }
+    },
     "Head Size" : {
       "comment" : "Editor slider — arrowhead size, as a multiple of its natural size",
       "extractionState" : "stale",
@@ -2841,6 +3667,40 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Скрыть архив"
+          }
+        }
+      }
+    },
+    "Hide Effect" : {
+      "comment" : "Decor inspector — switches one effect off, keeping its settings",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hide Effect"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Скрыть эффект"
+          }
+        }
+      }
+    },
+    "Hide Glow" : {
+      "comment" : "Decor inspector — turns the glow off, keeping its numbers",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hide Glow"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Скрыть свечение"
           }
         }
       }
@@ -2983,6 +3843,23 @@
         }
       }
     },
+    "Image %lld" : {
+      "comment" : "Decor inspector — the heading of a placed picture's section, numbered from two",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Image %lld"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Изображение %lld"
+          }
+        }
+      }
+    },
     "Image Colors" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -3063,6 +3940,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Включать тень окна"
+          }
+        }
+      }
+    },
+    "Ink" : {
+      "comment" : "Decor inspector — the name of one background in the gallery",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ink"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Чернила"
           }
         }
       }
@@ -3222,6 +4116,23 @@
         }
       }
     },
+    "Join Margins" : {
+      "comment" : "Decor inspector — button that shows the margins as two fields, one per axis",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Join Margins"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Свести поля"
+          }
+        }
+      }
+    },
     "JPEG" : {
       "comment" : "A file format option in the capture settings view.",
       "isCommentAutoGenerated" : true
@@ -3240,6 +4151,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Сохранить переносы"
+          }
+        }
+      }
+    },
+    "Keep Proportions" : {
+      "comment" : "Decor inspector — ties a placed picture's width and height together",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keep Proportions"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сохранять пропорции"
           }
         }
       }
@@ -3347,6 +4275,40 @@
         }
       }
     },
+    "Lavender" : {
+      "comment" : "Decor inspector — the name of one background in the gallery",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lavender"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Лаванда"
+          }
+        }
+      }
+    },
+    "Left and Right Margins" : {
+      "comment" : "Decor inspector — the horizontal margin field",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Left and Right Margins"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Левое и правое поля"
+          }
+        }
+      }
+    },
     "Left Margin" : {
       "comment" : "Gap between the picture and that canvas edge",
       "localizations" : {
@@ -3360,6 +4322,59 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Левое поле"
+          }
+        }
+      }
+    },
+    "Lemon" : {
+      "comment" : "Decor inspector — the name of one background in the gallery",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lemon"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Лимон"
+          }
+        }
+      }
+    },
+    "Lens" : {
+      "comment" : "Decor inspector — effect that bulges or pinches the middle of the background",
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lens"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Линза"
+          }
+        }
+      }
+    },
+    "Lens Radius" : {
+      "comment" : "Decor inspector — how far the lens effect reaches from the middle",
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lens Radius"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Радиус линзы"
           }
         }
       }
@@ -3467,6 +4482,23 @@
         }
       }
     },
+    "Linen" : {
+      "comment" : "Decor inspector — the name of one background in the gallery",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Linen"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Лён"
+          }
+        }
+      }
+    },
     "Links" : {
       "comment" : "About page section header for GitHub links",
       "localizations" : {
@@ -3552,193 +4584,6 @@
         }
       }
     },
-    "Presets" : {
-      "comment" : "Ready-made backgrounds",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Presets"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Подборка"
-          }
-        }
-      }
-    },
-    "Remove Color" : {
-      "comment" : "Removes a saved swatch",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Remove Color"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Убрать цвет"
-          }
-        }
-      }
-    },
-    "Right Margin" : {
-      "comment" : "Gap between the picture and that canvas edge",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Right Margin"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Правое поле"
-          }
-        }
-      }
-    },
-    "Rotate Canvas" : {
-      "comment" : "Swaps the canvas width and height",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Rotate Canvas"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Повернуть холст"
-          }
-        }
-      }
-    },
-    "Save Color" : {
-      "comment" : "Adds the picked colour to the user's swatches",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Save Color"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Сохранить цвет"
-          }
-        }
-      }
-    },
-    "Shadow Color" : {
-      "comment" : "Colour well for the presentation shadow",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Shadow Color"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Цвет тени"
-          }
-        }
-      }
-    },
-    "Shadow Offset X" : {
-      "comment" : "Horizontal shadow offset slider",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Shadow Offset X"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Смещение тени по горизонтали"
-          }
-        }
-      }
-    },
-    "Shadow Offset Y" : {
-      "comment" : "Vertical shadow offset slider",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Shadow Offset Y"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Смещение тени по вертикали"
-          }
-        }
-      }
-    },
-    "Show Shadow" : {
-      "comment" : "Brings the hidden shadow back",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Show Shadow"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Показать тень"
-          }
-        }
-      }
-    },
-    "Square" : {
-      "comment" : "Canvas format — 1:1",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Square"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Квадрат"
-          }
-        }
-      }
-    },
-    "Top Margin" : {
-      "comment" : "Gap between the picture and that canvas edge",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Top Margin"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Верхнее поле"
-          }
-        }
-      }
-    },
     "macOS couldn't capture the screen. This usually means Screen Recording permission is missing or was revoked." : {
       "extractionState" : "stale",
       "localizations" : {
@@ -3769,6 +4614,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Управляй файлами"
+          }
+        }
+      }
+    },
+    "Margins, px" : {
+      "comment" : "Decor inspector — caption over the four margin fields",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Margins, px"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Поля, px"
           }
         }
       }
@@ -3857,6 +4719,74 @@
         }
       }
     },
+    "Midnight" : {
+      "comment" : "Decor inspector — the name of one background in the gallery",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Midnight"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Полночь"
+          }
+        }
+      }
+    },
+    "Mint" : {
+      "comment" : "Decor inspector — the name of one background in the gallery",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mint"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Мята"
+          }
+        }
+      }
+    },
+    "Mint Glow" : {
+      "comment" : "Decor inspector — the name of one background in the gallery",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mint Glow"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Мятное сияние"
+          }
+        }
+      }
+    },
+    "Mist" : {
+      "comment" : "Decor inspector — the name of one background in the gallery",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mist"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Дымка"
+          }
+        }
+      }
+    },
     "Move 1 pt" : {
       "comment" : "Hotkey action label — nudge color picker cursor by 1 point",
       "extractionState" : "manual",
@@ -3907,6 +4837,42 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Сдвиг на 50 pt"
+          }
+        }
+      }
+    },
+    "Move Left" : {
+      "comment" : "Reorders one gradient stop",
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Move Left"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сдвинуть влево"
+          }
+        }
+      }
+    },
+    "Move Right" : {
+      "comment" : "Reorders one gradient stop",
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Move Right"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сдвинуть вправо"
           }
         }
       }
@@ -4164,6 +5130,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Нумерация"
+          }
+        }
+      }
+    },
+    "Ocean" : {
+      "comment" : "Decor inspector — the name of one background in the gallery",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ocean"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Океан"
           }
         }
       }
@@ -4462,6 +5445,24 @@
         }
       }
     },
+    "Page" : {
+      "comment" : "Decor inspector — the effect is laid over the whole page, the picture included",
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Page"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Страница"
+          }
+        }
+      }
+    },
     "Panel and Archive" : {
       "comment" : "Hotkeys section header — panel and archive shortcuts",
       "extractionState" : "stale",
@@ -4497,6 +5498,23 @@
         }
       }
     },
+    "Paper" : {
+      "comment" : "Decor inspector — the name of one background in the gallery",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Paper"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Бумага"
+          }
+        }
+      }
+    },
     "Partly selected" : {
       "comment" : "VoiceOver value of a stack's checkbox — some members picked",
       "localizations" : {
@@ -4528,6 +5546,77 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Вставьте в отчёт об ошибке, чтобы помочь в диагностике проблемы"
+          }
+        }
+      }
+    },
+    "Pattern Color" : {
+      "comment" : "Decor inspector — colour of the dots or lines of a pattern",
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pattern Color"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Цвет узора"
+          }
+        }
+      }
+    },
+    "Pattern Scale" : {
+      "comment" : "Decor inspector — size of one cell of the dither pattern",
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pattern Scale"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Шаг узора дизеринга"
+          }
+        }
+      }
+    },
+    "Pattern Step" : {
+      "comment" : "Decor inspector — distance between the dots or lines of a pattern",
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pattern Step"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Шаг узора"
+          }
+        }
+      }
+    },
+    "Peach" : {
+      "comment" : "Decor inspector — the name of one background in the gallery",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Peach"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Персик"
           }
         }
       }
@@ -4601,6 +5690,23 @@
         }
       }
     },
+    "Photo" : {
+      "comment" : "Decor inspector — a background made of the user's own photograph",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Photo"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Фото"
+          }
+        }
+      }
+    },
     "Pick Color" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -4614,6 +5720,24 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Выбрать цвет"
+          }
+        }
+      }
+    },
+    "Picture" : {
+      "comment" : "Decor inspector — a background made of the user's own image",
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Picture"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Картинка"
           }
         }
       }
@@ -4818,6 +5942,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Подготовка к отправке…"
+          }
+        }
+      }
+    },
+    "Presets" : {
+      "comment" : "Ready-made backgrounds",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Presets"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Подборка"
           }
         }
       }
@@ -5112,6 +6253,24 @@
         }
       }
     },
+    "Relief" : {
+      "comment" : "Decor inspector — how deeply the ribs of fluted glass are shaded",
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Relief"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Рельеф"
+          }
+        }
+      }
+    },
     "Remove Decor" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -5129,6 +6288,23 @@
         }
       }
     },
+    "Remove Effect" : {
+      "comment" : "Decor inspector — button that takes one effect out of the stack",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remove Effect"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Удалить эффект"
+          }
+        }
+      }
+    },
     "Remove from archive" : {
       "localizations" : {
         "en" : {
@@ -5141,6 +6317,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Убрать из архива"
+          }
+        }
+      }
+    },
+    "Remove Image" : {
+      "comment" : "Decor inspector — takes a placed picture off the page",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remove Image"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Удалить изображение"
           }
         }
       }
@@ -5278,6 +6471,58 @@
         }
       }
     },
+    "Rib Width" : {
+      "comment" : "Decor inspector — width of one rib of fluted glass",
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rib Width"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ширина ребра"
+          }
+        }
+      }
+    },
+    "Right Margin" : {
+      "comment" : "Gap between the picture and that canvas edge",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Right Margin"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Правое поле"
+          }
+        }
+      }
+    },
+    "Rose" : {
+      "comment" : "Decor inspector — the name of one background in the gallery",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rose"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Роза"
+          }
+        }
+      }
+    },
     "Rotate Left" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -5329,9 +6574,57 @@
         }
       }
     },
+    "Sage" : {
+      "comment" : "Decor inspector — the name of one background in the gallery",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sage"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Шалфей"
+          }
+        }
+      }
+    },
     "Sand" : {
       "comment" : "Color name.",
-      "isCommentAutoGenerated" : true
+      "isCommentAutoGenerated" : true,
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sand"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Песочный"
+          }
+        }
+      }
+    },
+    "Sand Mesh" : {
+      "comment" : "Decor inspector — the name of one background in the gallery",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sand Mesh"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Песчаная сетка"
+          }
+        }
+      }
     },
     "Save" : {
       "extractionState" : "manual",
@@ -5380,6 +6673,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Сохранить изменения перед закрытием?"
+          }
+        }
+      }
+    },
+    "Save Color to Archive" : {
+      "comment" : "Decor inspector — keeps the picked colour in the archive",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Save Color to Archive"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сохранить цвет в архив"
           }
         }
       }
@@ -5918,6 +7228,24 @@
         }
       }
     },
+    "Shade Color" : {
+      "comment" : "Decor inspector — colour of the shade the dim effect lays down",
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Shade Color"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Цвет затемнения"
+          }
+        }
+      }
+    },
     "Shadow" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -5935,6 +7263,23 @@
         }
       }
     },
+    "Shadow Color" : {
+      "comment" : "Colour well for the presentation shadow",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Shadow Color"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Цвет тени"
+          }
+        }
+      }
+    },
     "Shadow Offset" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -5948,6 +7293,40 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Смещение тени"
+          }
+        }
+      }
+    },
+    "Shadow Offset X" : {
+      "comment" : "Horizontal shadow offset slider",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Shadow Offset X"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Смещение тени по горизонтали"
+          }
+        }
+      }
+    },
+    "Shadow Offset Y" : {
+      "comment" : "Vertical shadow offset slider",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Shadow Offset Y"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Смещение тени по вертикали"
           }
         }
       }
@@ -5982,6 +7361,24 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Радиус тени"
+          }
+        }
+      }
+    },
+    "Shapes" : {
+      "comment" : "Editor toolbar — the shape family popover",
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Shapes"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Фигуры"
           }
         }
       }
@@ -6156,6 +7553,40 @@
         }
       }
     },
+    "Show Effect" : {
+      "comment" : "Decor inspector — switches a hidden effect back on",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show Effect"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Показать эффект"
+          }
+        }
+      }
+    },
+    "Show Glow" : {
+      "comment" : "Decor inspector — turns the glow back on",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show Glow"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Показать свечение"
+          }
+        }
+      }
+    },
     "Show in Finder" : {
       "localizations" : {
         "en" : {
@@ -6168,6 +7599,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Показать в Finder"
+          }
+        }
+      }
+    },
+    "Show Shadow" : {
+      "comment" : "Brings the hidden shadow back",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show Shadow"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Показать тень"
           }
         }
       }
@@ -6240,6 +7688,23 @@
         }
       }
     },
+    "Size, px" : {
+      "comment" : "Decor inspector — the width and height of a placed picture",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Size, px"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Размер, px"
+          }
+        }
+      }
+    },
     "Skip This Version" : {
       "comment" : "Update alert skip button",
       "extractionState" : "stale",
@@ -6254,6 +7719,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Пропустить эту версию"
+          }
+        }
+      }
+    },
+    "Slate" : {
+      "comment" : "Decor inspector — the name of one background in the gallery",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slate"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сланец"
           }
         }
       }
@@ -6288,6 +7770,41 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Сплошной"
+          }
+        }
+      }
+    },
+    "Split Margins" : {
+      "comment" : "Decor inspector — button that opens the margins into four fields, one per side",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Split Margins"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Развести поля"
+          }
+        }
+      }
+    },
+    "Square" : {
+      "comment" : "Canvas format — 1:1",
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Square"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Квадрат"
           }
         }
       }
@@ -6328,6 +7845,24 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Stampo не может сохранить скриншоты в \"%@\". Папка могла быть перемещена, переименована или доступ к ней был отозван. Выберите новую папку в Настройки → Съёмка."
+          }
+        }
+      }
+    },
+    "Stampo couldn't read that file as an image. Try a PNG, JPEG or HEIC." : {
+      "comment" : "Alert body — the chosen background file could not be read",
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stampo couldn't read that file as an image. Try a PNG, JPEG or HEIC."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stampo не смог прочитать этот файл как изображение. Попробуйте PNG, JPEG или HEIC."
           }
         }
       }
@@ -6378,6 +7913,23 @@
         }
       }
     },
+    "Steel" : {
+      "comment" : "Decor inspector — the name of one background in the gallery",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Steel"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сталь"
+          }
+        }
+      }
+    },
     "Stop" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -6412,6 +7964,41 @@
         }
       }
     },
+    "Strength" : {
+      "comment" : "Decor inspector — how strongly an effect is felt",
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Strength"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сила"
+          }
+        }
+      }
+    },
+    "Stretch" : {
+      "comment" : "Decor inspector — the background picture squashed to cover the page",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stretch"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Растянуть"
+          }
+        }
+      }
+    },
     "Strikethrough" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -6429,6 +8016,24 @@
         }
       }
     },
+    "Stripes" : {
+      "comment" : "Decor inspector — effect that lays parallel lines over the background",
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stripes"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Полосы"
+          }
+        }
+      }
+    },
     "Style" : {
       "comment" : "Label for the filename style picker in capture settings",
       "localizations" : {
@@ -6442,6 +8047,58 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Стиль"
+          }
+        }
+      }
+    },
+    "Sunset" : {
+      "comment" : "Decor inspector — the name of one background in the gallery",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sunset"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Закат"
+          }
+        }
+      }
+    },
+    "Sunset Mesh" : {
+      "comment" : "Decor inspector — the name of one background in the gallery",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sunset Mesh"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Закатная сетка"
+          }
+        }
+      }
+    },
+    "Swap Sides" : {
+      "comment" : "Editor toolbar — turns the page's ratio on its side (the picture's own rotate lives in the row above)",
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Swap Sides"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Поменять стороны"
           }
         }
       }
@@ -6649,6 +8306,42 @@
         }
       }
     },
+    "Texture Size" : {
+      "comment" : "Decor inspector — coarseness of the glass texture",
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Texture Size"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Размер текстуры"
+          }
+        }
+      }
+    },
+    "That picture can't be used" : {
+      "comment" : "Alert title — the chosen background file could not be read",
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "That picture can't be used"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Эту картинку не получится использовать"
+          }
+        }
+      }
+    },
     "The canvas around the image stays transparent" : {
       "comment" : "Explains what the No Background option does",
       "localizations" : {
@@ -6774,6 +8467,23 @@
       "comment" : "The text label for the TIFF file format option in the capture settings view.",
       "isCommentAutoGenerated" : true
     },
+    "Tile" : {
+      "comment" : "Decor inspector — the background picture repeated at its own size",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tile"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Замостить"
+          }
+        }
+      }
+    },
     "Timer delay" : {
       "localizations" : {
         "en" : {
@@ -6838,6 +8548,74 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Инструменты"
+          }
+        }
+      }
+    },
+    "Top and Bottom Margins" : {
+      "comment" : "Decor inspector — the vertical margin field",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Top and Bottom Margins"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Верхнее и нижнее поля"
+          }
+        }
+      }
+    },
+    "Top Left" : {
+      "comment" : "One corner of a mesh gradient",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Top Left"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Верхний левый"
+          }
+        }
+      }
+    },
+    "Top Margin" : {
+      "comment" : "Gap between the picture and that canvas edge",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Top Margin"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Верхнее поле"
+          }
+        }
+      }
+    },
+    "Top Right" : {
+      "comment" : "One corner of a mesh gradient",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Top Right"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Верхний правый"
           }
         }
       }
@@ -7094,6 +8872,23 @@
         }
       }
     },
+    "Use as Background" : {
+      "comment" : "Open panel — the button that accepts the chosen file",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Use as Background"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сделать фоном"
+          }
+        }
+      }
+    },
     "Use Image Colors" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -7191,6 +8986,93 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Открыть на GitHub"
+          }
+        }
+      }
+    },
+    "Vignette" : {
+      "comment" : "Decor inspector — effect that darkens the edges of the page",
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vignette"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Виньетка"
+          }
+        }
+      }
+    },
+    "Vignette Radius" : {
+      "comment" : "Decor inspector — how far in from the edges a vignette reaches",
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vignette Radius"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Радиус виньетки"
+          }
+        }
+      }
+    },
+    "Violet" : {
+      "comment" : "Decor inspector — the name of one background in the gallery",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Violet"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Фиалка"
+          }
+        }
+      }
+    },
+    "Violet Glow" : {
+      "comment" : "Decor inspector — the name of one background in the gallery",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Violet Glow"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Фиалковое сияние"
+          }
+        }
+      }
+    },
+    "Warm Mesh" : {
+      "comment" : "Decor inspector — the name of one background in the gallery",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Warm Mesh"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Тёплая сетка"
           }
         }
       }

@@ -85,8 +85,9 @@ import Testing
         let gaps = PresentationLayout.gaps(
             PresentationLayout.resolve(imagePixelSize: document.pixelSize, presentation)
         )
-        #expect(abs(gaps.leading - Presentation.defaultMargin) < 0.5)
-        #expect(abs(gaps.trailing - Presentation.defaultMargin) < 0.5)
+        let expected = Presentation.defaultMargin(for: document.pixelSize)
+        #expect(abs(gaps.leading - expected) < 0.5)
+        #expect(abs(gaps.trailing - expected) < 0.5)
         #expect(document.undoStack.count == 1)
 
         // Called again — for instance on a second open — it changes nothing.
@@ -110,7 +111,8 @@ import Testing
             Issue.record("a new decoration should hug the picture")
             return
         }
-        #expect(margins == Presentation.Margins(all: Presentation.defaultMargin))
+        #expect(margins == Presentation.Margins(
+            all: Presentation.defaultMargin(for: document.pixelSize)))
         #expect(scale == 1)   // the picture keeps every pixel it had
     }
 
@@ -138,8 +140,11 @@ import Testing
         // starves the very main-queue work being waited on.
         try? await Task.sleep(for: .milliseconds(600))
 
+        // The *number* field, by type rather than by being first: the panel
+        // also carries a hex field now, and "the first editable text field"
+        // moves whenever the rows are rearranged.
         func firstEditable(_ view: NSView) -> NSTextField? {
-            if let field = view as? NSTextField, field.isEditable { return field }
+            if let field = view as? NumberField.Field, field.isEditable { return field }
             for sub in view.subviews { if let found = firstEditable(sub) { return found } }
             return nil
         }
@@ -148,7 +153,10 @@ import Testing
             return
         }
 
-        #expect(field.stringValue == "440")   // 400 wide picture + 20 either side
+        // The first number in the panel is the top margin: the page's own size
+        // moved to the toolbar's second row with the rest of the canvas
+        // controls.
+        #expect(field.stringValue == "20")
 
         // A real mouse-down/up pair: the click is where the problem lived.
         let point = field.convert(CGPoint(x: field.bounds.midX, y: field.bounds.midY), to: nil)
@@ -380,5 +388,110 @@ import Testing
         #expect(shown.shadow.color == recolored.color)
         #expect(shown.shadow.opacity == 0.4)
         #expect(shown.shadow.radius == 0.08)
+    }
+
+    /// Every number in an effect row is printed in the unit it is *stored* in,
+    /// or converted to one that can be compared with its neighbours.
+    ///
+    /// Both bugs in this class were reported by hand. The angle was kept in
+    /// radians under a label saying degrees, so the field read "1", "2", "3".
+    /// The ASCII cell height is a multiple of the cell's width and was printed
+    /// as a percentage, so a width of 19 pixels sat beside a height of "160" —
+    /// two numbers about one cell that could not be compared.
+    @Test func everyEffectParameterIsPrintedInAUsableUnit() {
+        let canvas = CGSize(width: 1200, height: 900)
+        for kind in Presentation.Effect.Kind.allCases {
+            let effect = EffectStack.make(kind, seed: 5)
+            for info in EffectStack.parameters(for: kind) {
+                let unit = PresentationInspector.unit(for: info, of: effect,
+                                                      canvasSize: canvas)
+                switch info.parameter {
+                case .scale:
+                    // A fraction of the short side, shown as the pixels it is.
+                    #expect(unit == .pixels(basis: 900), "\(kind).scale")
+                case .angle:
+                    #expect(unit == .degrees, "\(kind).angle")
+                case .detail where kind == .ascii:
+                    // A line height, in the same unit as the width it belongs
+                    // to: 0.018 × 900 = 16.2 pixels of cell.
+                    #expect(unit == .pixels(basis: effect.scale * 900), "ascii.detail")
+                case .detail:
+                    #expect(unit == (info.step >= 1 ? .count : .percent), "\(kind).detail")
+                case .amount, .aberration, .color, .glyphs:
+                    #expect(unit == .percent, "\(kind).\(info.parameter)")
+                }
+            }
+        }
+    }
+
+    /// Folding a section is a preference, so it has to survive a round trip
+    /// through a string in the defaults — and survive whatever it finds there.
+    @Test func theFoldedSectionsSurviveTheRoundTrip() {
+        typealias Section = PresentationInspector.Section
+
+        #expect(PresentationInspector.sections(
+            folded: PresentationInspector.folded(PresentationInspector.foldedByDefault))
+            == PresentationInspector.foldedByDefault)
+
+        for sections in [Set<Section>(), Set(Section.allCases), [Section.background]] {
+            #expect(PresentationInspector.sections(
+                folded: PresentationInspector.folded(sections)) == sections)
+        }
+
+        // Always the same spelling for the same set: a value that rewrites
+        // itself in a new order every launch reads as a setting that keeps
+        // changing.
+        #expect(PresentationInspector.folded([.glow, .shadow])
+                == PresentationInspector.folded([.shadow, .glow]))
+
+        // A word nobody claims — a section renamed in a later version — leaves
+        // that section unfolded rather than throwing the whole preference away.
+        #expect(PresentationInspector.sections(folded: "shadow,gloww,,glow")
+                == [.shadow, .glow])
+        #expect(PresentationInspector.sections(folded: "").isEmpty)
+    }
+
+    /// The panel is built once offscreen when the editor opens, so the first
+    /// press of the decor button does not pay for it — measured, 140 ms cold
+    /// against 80 ms warm, and a primer of plain sliders and fields does not
+    /// help because what is slow is the panel's own view types.
+    ///
+    /// The whole trick rests on the inspector never writing on appear. This is
+    /// the test that keeps that true: build it, throw it away, and the document
+    /// must not have moved — no presentation conjured, no undo step pushed.
+    @Test func warmingTheInspectorLeavesTheDocumentAlone() {
+        let ctx = CGContext(data: nil, width: 60, height: 40, bitsPerComponent: 8,
+                            bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        let document = EditorDocument(baseImage: ctx.makeImage()!,
+                                      sourceURL: URL(fileURLWithPath: "/tmp/warm.png"))
+        let before = document.presentation
+        let steps = document.undoStack.count
+
+        EditorWindowController.warmDecorInspectorForTesting(document: document)
+
+        #expect(document.presentation == before)
+        #expect(document.presentation == nil, "an untouched document must stay undecorated")
+        #expect(document.undoStack.count == steps)
+
+        // And a decorated one is left exactly as it was.
+        document.startDecorationIfNeeded()
+        let decorated = document.presentation
+        let decoratedSteps = document.undoStack.count
+        EditorWindowController.warmDecorInspectorForTesting(document: document)
+        #expect(document.presentation == decorated)
+        #expect(document.undoStack.count == decoratedSteps)
+    }
+
+    /// The gallery is a shortcut and the palette is a vocabulary; a tile that
+    /// is pixel-for-pixel the circle below it makes them read as one list
+    /// drawn twice.
+    @Test func noPresetRepeatsAPaletteColor() {
+        let palette = PresentationInspector.paletteColorsForTesting
+        for preset in PresentationInspector.backgroundPresetsForTesting {
+            guard case .solid(let color) = preset else { continue }
+            #expect(palette.contains(color) == false,
+                    "Preset repeats a palette colour: \(color)")
+        }
     }
 }

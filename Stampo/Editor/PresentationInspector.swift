@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// Native trailing properties for the document's non-destructive decoration.
 ///
@@ -28,22 +29,120 @@ struct PresentationInspector: View {
     static let contentMinimumWidth: CGFloat = 320
 
     let document: EditorDocument
+    /// The app's colours, live — see `PresentationColorShelf`. nil in previews
+    /// and tests, where the built-in palette stands alone.
+    let colorShelf: (any PresentationColorShelf)?
 
     @State private var draft: Presentation
     /// Which groups the user has folded away. Sections are identified by a
     /// stable case rather than by their title, which is a localized key and
     /// therefore not a usable dictionary key.
-    @State private var collapsed: Set<Section> = []
-    /// Colours the user chose to keep, alongside the eight built-ins.
-    /// Session-scoped on purpose: nothing about the decoration is
-    /// persisted yet, and a palette is not the place to start.
-    @State private var userColors: [Presentation.Color] = []
+    /// Which sections are folded, kept across openings and across launches.
+    ///
+    /// A preference, not document state: folding the shadow away is a statement
+    /// about how someone likes to work, and it would be a poor one if it had to
+    /// be made again every time the panel opened.
+    ///
+    /// Shadow and glow start folded. They are the two sections a page usually
+    /// does without, they are the tallest — four sliders and three — and the
+    /// panel pays for what it builds: folding them takes about 25 ms off every
+    /// opening, of the 80 the panel used to cost.
+    /// Through `AppSettings.store`, not straight to `.standard`: the test
+    /// bundle is hosted by the app, so a test that opens this panel and clicks
+    /// in it would otherwise rewrite the preferences of whoever ran it — and
+    /// one did, leaving the shadow section unfolded for good.
+    @AppStorage(AppSettings.Keys.decorFoldedSections, store: AppSettings.store)
+    private var foldedSections: String = Self.folded(Self.foldedByDefault)
+
+    static let foldedByDefault: Set<Section> = [.shadow, .glow]
+
+    private var collapsed: Set<Section> {
+        get { Self.sections(folded: foldedSections) }
+        nonmutating set { foldedSections = Self.folded(newValue) }
+    }
+
+    /// The stored spelling, and back. Sorted so the same set is always the
+    /// same string — a value that rewrites itself in a different order on every
+    /// launch looks like a setting that keeps changing.
+    static func folded(_ sections: Set<Section>) -> String {
+        sections.map(\.rawValue).sorted().joined(separator: ",")
+    }
+
+    /// Anything unreadable is simply not folded. A section renamed in a later
+    /// version leaves a word nobody claims, and the worst that may come of it
+    /// is a panel that opens with one section more than the user left.
+    static func sections(folded value: String) -> Set<Section> {
+        Set(value.split(separator: ",").compactMap { Section(rawValue: String($0)) })
+    }
     /// The shadow put aside by the hide button, so showing it again brings back
     /// the one you had rather than a stock one.
     @State private var hiddenShadow: Presentation.Shadow?
+    /// The same, for the glow: the two sections do the same thing and should
+    /// have the same button.
+    @State private var hiddenGlow: Presentation.Glow?
+    /// Whether the margins are shown as four fields or as two. A way of
+    /// looking at them, not a property of the document.
+    @State private var marginsAreSplit = false
+    /// Which margin field has the keyboard, if any.
+    @State private var editedMargin: MarginShorthand.Target?
+    /// What each kind of background held when it was last left. Session-scoped
+    /// by design — see `BackgroundDrawers`.
+    @State private var drawers = BackgroundDrawers()
+    /// Which placed pictures have their settings open. Not persisted and not
+    /// a preference: it is about the objects of this document, which outlive
+    /// neither it nor the panel.
+    @State private var openObjects: Set<UUID> = []
+    /// Which objects have their two size fields untied. Linked is the default,
+    /// and the exception is the one worth remembering — for this session only,
+    /// like every other way of *looking* at the panel.
+    @State private var unlinkedObjects: Set<UUID> = []
+    /// What a light was worth before its eye was closed, so opening it again
+    /// returns the one you had rather than a stock one — exactly what the
+    /// page's shadow does.
+    @State private var hiddenObjectLights: [String: CGFloat] = [:]
+    /// A picture is being dragged over the background section right now.
+    @State private var pictureIsOverTheBackground = false
+    /// What the grid of effects is open *for*: adding one to the end of the
+    /// stack, or making an existing row into another kind. One grid answers
+    /// both, because both ask the same question — which effect?
+    @State private var effectPicker: PickerTarget?
 
-    private enum Section: Hashable, CaseIterable {
-        case canvas, background, image, shadow
+    enum PickerTarget: Hashable, Identifiable {
+        case add(EffectOwner)
+        case replace(EffectOwner, UUID)
+
+        var id: Self { self }
+
+        /// Whose stack the grid is about — the one thing every use of it needs.
+        var owner: EffectOwner {
+            switch self {
+            case .add(let owner):          return owner
+            case .replace(let owner, _):   return owner
+            }
+        }
+    }
+
+    /// Whose stack a row belongs to: the page's, or one placed picture's.
+    ///
+    /// The whole effects UI is written once and pointed at either. What differs
+    /// is only what a tile draws and whether the layer switch is there at all —
+    /// an object has one layer, itself, so asking "background or page" inside
+    /// its section would be asking about somebody else.
+    enum EffectOwner: Hashable {
+        case page
+        case object(UUID)
+    }
+    /// Which mesh corner the row below the plate acts on. Four corners, so no
+    /// clamping machinery — just a number between 0 and 3.
+    @State private var selectedCorner = 0
+    /// Which gradient stop the row's controls act on. Held loosely: the list
+    /// changes under it (a stop is added, removed, dragged elsewhere), so every
+    /// read goes through `GradientStops.clampedSelection` rather than trusting
+    /// the number.
+    @State private var selectedStop = 0
+
+    enum Section: String, Hashable, CaseIterable {
+        case background, image, effects, shadow, glow
 
         /// Kept on the case (and exposed through `sectionSystemImages`) so the
         /// SF Symbol availability test can reach these names.
@@ -52,10 +151,11 @@ struct PresentationInspector: View {
             // Each one its own: the decor button already owns
             // `rectangle.center.inset.filled`, and a section repeating it made
             // the panel look like it was labelled twice.
-            case .canvas:     return "rectangle.dashed"
             case .background: return "paintpalette"
             case .image:      return "photo"
+            case .effects:    return "camera.filters"
             case .shadow:     return "square.filled.on.square"
+            case .glow:       return "sun.max"
             }
         }
     }
@@ -66,52 +166,14 @@ struct PresentationInspector: View {
 
     // MARK: Canvas formats
 
-    /// Formats are listed in one orientation only. Portrait versions are the
-    /// same format turned, which is what the rotate button is for — a separate
-    /// "9:16" tile beside "16:9" would be the same choice twice.
-    /// The formats, and — last — the page that has no fixed format at all.
-    ///
-    /// "Custom" is not here: a size you typed is not a format, it is what the
-    /// width and height fields already say. `auto` is, because it is a real
-    /// choice of page — one whose size follows the margins instead of dictating
-    /// them, which is why its tile shows the size it currently works out to.
-    private enum CanvasChoice: String, CaseIterable, Hashable, Identifiable {
-        case square, threeFour, instagram, twitter, openGraph, auto
-
-        var id: String { rawValue }
-
-        var titleKey: LocalizedStringKey {
-            switch self {
-            case .square:    return "Square"
-            case .threeFour: return "Classic 3:4"
-            case .instagram: return "Instagram 4:5"
-            case .twitter:   return "Twitter / X"
-            case .openGraph: return "Open Graph"
-            case .auto:      return "Auto"
-            }
-        }
-
-        /// nil for `auto`, whose size is worked out rather than chosen.
-        var pixelSize: CGSize? {
-            switch self {
-            case .square:    return CGSize(width: 1080, height: 1080)
-            case .threeFour: return CGSize(width: 1080, height: 1440)
-            case .instagram: return CGSize(width: 1080, height: 1350)
-            case .twitter:   return CGSize(width: 1600, height: 900)
-            case .openGraph: return CGSize(width: 1200, height: 630)
-            case .auto:      return nil
-            }
-        }
-    }
-
     /// Linear and radial are one background with a shape switch, not two
     /// entries in the list — the stops, the palette and the whole editor below
     /// are identical, and giving them separate tiles made the panel reflow for
     /// what is really one choice.
     private enum BackgroundKind: String, CaseIterable, Hashable, Identifiable {
-        // Order is the order of the tiles: the two backgrounds you pick from
+        // Order is the order of the tiles: the backgrounds you pick from
         // first, then the way out of having one at all.
-        case solid, gradient, none
+        case solid, gradient, picture, none
 
         var id: String { rawValue }
 
@@ -120,6 +182,7 @@ struct PresentationInspector: View {
             case .solid:    return "Solid"
             case .none:     return "No Background"
             case .gradient: return "Gradient"
+            case .picture:  return "Photo"
             }
         }
     }
@@ -141,194 +204,6 @@ struct PresentationInspector: View {
         }
     }
 
-    private enum CanvasDimension {
-        case width, height
-    }
-
-    /// A number field whose value lives in the *placeholder*, so the editable
-    /// text is always empty and typing starts a fresh number.
-    ///
-    /// Three attempts at selecting the text on click failed for the same
-    /// reason: `mouseDown` runs its own tracking loop and sets the selection
-    /// when the button comes back up, after anything the app chose. Rather than
-    /// race that, there is simply nothing to select — the number is drawn as a
-    /// placeholder in the ordinary label colour, so it reads as a value while
-    /// behaving like an empty field. Confirming a number puts it back into the
-    /// placeholder and empties the text again.
-    private struct NumberField: NSViewRepresentable {
-        @Binding var value: Double
-        var alignment: NSTextAlignment = .right
-        var onCommit: (Double) -> Void
-
-        final class Field: NSTextField {
-            /// The number goes the moment editing starts. Overridden on the
-            /// field rather than handled through the delegate: this is the
-            /// control's own hook and it fires whether or not anything else is
-            /// listening — the delegate route left the placeholder standing.
-            /// The number is ordinary text, and taking the keyboard empties it:
-            /// the field editor is installed *after* this, so it starts on an
-            /// empty string and the first keystroke begins a new number. No
-            /// placeholder is involved — a placeholder that survives the click
-            /// looks like text you could edit, and it is not.
-            override func becomeFirstResponder() -> Bool {
-                let accepted = super.becomeFirstResponder()
-                if accepted {
-                    stringValue = ""
-                    watchForClicksOutside()
-                }
-                return accepted
-            }
-
-            /// Editing is over however it ended — Return, Escape, a click
-            /// elsewhere — so this is where the watch stops.
-            override func textDidEndEditing(_ notification: Notification) {
-                super.textDidEndEditing(notification)
-                stopWatchingForClicksOutside()
-            }
-
-            private var clicksOutside: Any?
-
-            /// A click beside the field used to leave it editing: almost
-            /// nothing in a SwiftUI panel takes the keyboard when clicked, so
-            /// nobody took it away from the field and the number stayed
-            /// uncommitted with the field still empty. Watching the window's
-            /// own clicks is the only place that sees all of them — sliders,
-            /// tiles, plain labels and the panel's background alike.
-            private func watchForClicksOutside() {
-                guard clicksOutside == nil else { return }
-                clicksOutside = NSEvent.addLocalMonitorForEvents(
-                    matching: [.leftMouseDown, .rightMouseDown]
-                ) { [weak self] event in
-                    // The event is returned untouched: this ends the editing
-                    // session, it does not swallow the click that ended it.
-                    guard let self, let window = self.window, event.window === window
-                    else { return event }
-                    let point = self.convert(event.locationInWindow, from: nil)
-                    if !self.bounds.contains(point) { window.makeFirstResponder(nil) }
-                    return event
-                }
-            }
-
-            private func stopWatchingForClicksOutside() {
-                if let clicksOutside { NSEvent.removeMonitor(clicksOutside) }
-                clicksOutside = nil
-            }
-
-            func show(_ number: Double) {
-                stringValue = Self.formatter.string(from: NSNumber(value: number))
-                    ?? String(Int(number))
-            }
-
-            static let formatter: NumberFormatter = {
-                let formatter = NumberFormatter()
-                formatter.numberStyle = .none
-                formatter.usesGroupingSeparator = false
-                formatter.maximumFractionDigits = 0
-                return formatter
-            }()
-        }
-
-        final class Coordinator: NSObject, NSTextFieldDelegate {
-            var onCommit: (Double) -> Void = { _ in }
-            var current: Double = 0
-
-            /// An empty field means "unchanged": clicking in clears the number,
-            /// and leaving without typing must not rewrite it.
-            private func commit(_ field: NSTextField) {
-                let typed = field.stringValue
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                if !typed.isEmpty, let value = Double(typed) { onCommit(value) }
-                repaint(field)
-            }
-
-            /// The field goes back to showing the model — one runloop hop later.
-            ///
-            /// `current` is written by `updateNSView`, which runs *after* the
-            /// commit has travelled through the document and back. Drawing it
-            /// inline therefore drew the number from before the edit: that is
-            /// what made Return look like it threw the typed value away, even
-            /// though the model had taken it.
-            private func repaint(_ field: NSTextField) {
-                DispatchQueue.main.async { [weak self, weak field] in
-                    guard let self, let field = field as? Field else { return }
-                    // Not if the keyboard came back in the meantime — the field
-                    // is then showing something the user is in the middle of.
-                    guard field.currentEditor() == nil,
-                          field.window?.firstResponder !== field else { return }
-                    field.show(self.current)
-                }
-            }
-
-            /// Return.
-            @objc func changed(_ sender: NSTextField) {
-                commit(sender)
-                // Give the keyboard back, so the value on screen is the model's
-                // again and the next click starts a fresh number.
-                sender.window?.makeFirstResponder(nil)
-            }
-
-            func controlTextDidEndEditing(_ notification: Notification) {
-                guard let field = notification.object as? NSTextField else { return }
-                commit(field)
-            }
-
-            /// Escape: leave without changing anything.
-            ///
-            /// The field is empty from the moment it takes the keyboard, so
-            /// AppKit's own abort has nothing to put back — the number is
-            /// redrawn from the model here instead. Nothing is committed on
-            /// this path, which is the whole point of Escape.
-            func control(_ control: NSControl, textView: NSTextView,
-                         doCommandBy selector: Selector) -> Bool {
-                guard selector == #selector(NSResponder.cancelOperation(_:)) else { return false }
-                let value = current
-                // Not inside the command: tearing the field editor down while
-                // it is dispatching its own command is how AppKit ends up
-                // waiting on itself.
-                DispatchQueue.main.async { [weak control] in
-                    guard let field = control as? Field else { return }
-                    field.abortEditing()
-                    field.show(value)
-                    field.window?.makeFirstResponder(nil)
-                }
-                return true
-            }
-        }
-
-        func makeCoordinator() -> Coordinator { Coordinator() }
-
-        func makeNSView(context: Context) -> Field {
-            let field = Field()
-            // `isBezeled`, not `isBordered`: a plain border draws the square box
-            // that replaced the panel's rounded fields.
-            field.isBezeled = true
-            field.bezelStyle = .roundedBezel
-            field.focusRingType = .default
-            field.alignment = alignment
-            // Match the rest of the panel's controls, which are all large.
-            field.controlSize = .large
-            field.font = .monospacedDigitSystemFont(
-                ofSize: NSFont.systemFontSize(for: .large), weight: .regular
-            )
-            field.setContentHuggingPriority(.defaultLow, for: .horizontal)
-            field.delegate = context.coordinator
-            field.target = context.coordinator
-            field.action = #selector(Coordinator.changed(_:))
-            return field
-        }
-
-        func updateNSView(_ field: Field, context: Context) {
-            context.coordinator.onCommit = onCommit
-            context.coordinator.current = value
-            field.alignment = alignment
-            // Never disturb a field that has the keyboard — including the
-            // moment after the click when its editor is not installed yet.
-            guard field.currentEditor() == nil,
-                  field.window?.firstResponder !== field else { return }
-            field.show(value)
-        }
-    }
-
     /// A round colour chip that opens the system colour panel.
     ///
     /// SwiftUI's `ColorPicker` draws a wide rectangular well whose width cannot
@@ -336,6 +211,27 @@ struct PresentationInspector: View {
     /// control, and a row of them pushed the inspector past its own maximum
     /// width. This is the same circle the annotation toolbar uses, so every
     /// colour in the app is picked from the same shape.
+    /// Hands a colour to the system colour panel and takes the changes back.
+    ///
+    /// Order matters and so does ownership. `NSColorPanel` keeps an unowned
+    /// target, and assigning its colour makes it fire the action straight away
+    /// — so the target is installed first, and it is a process-wide object
+    /// rather than a view's own state. A per-view proxy was deallocated as its
+    /// chip re-rendered and the panel then messaged freed memory
+    /// (EXC_BAD_ACCESS in objc_msgSend, measured from the crash report).
+    static func openColorPanel(for color: Presentation.Color,
+                               supportsOpacity: Bool = true,
+                               onChange: @escaping (Presentation.Color) -> Void) {
+        let panel = NSColorPanel.shared
+        ColorPanelProxy.shared.onChange = onChange
+        panel.setTarget(ColorPanelProxy.shared)
+        panel.setAction(#selector(ColorPanelProxy.colorChanged(_:)))
+        panel.showsAlpha = supportsOpacity
+        panel.color = NSColor(srgbRed: color.red, green: color.green,
+                              blue: color.blue, alpha: color.alpha)
+        panel.makeKeyAndOrderFront(nil)
+    }
+
     private struct ColorChip: View {
         let color: Presentation.Color
         var diameter: CGFloat
@@ -345,21 +241,9 @@ struct PresentationInspector: View {
 
         var body: some View {
             Button {
-                // Order matters and so does ownership. `NSColorPanel` keeps an
-                // unowned target, and assigning its colour makes it fire the
-                // action straight away — so the target is installed first, and
-                // it is a process-wide object rather than this view's state.
-                // A per-view proxy was deallocated as the chip re-rendered and
-                // the panel then messaged freed memory (EXC_BAD_ACCESS in
-                // objc_msgSend, measured from the crash report).
-                let panel = NSColorPanel.shared
-                ColorPanelProxy.shared.onChange = onChange
-                panel.setTarget(ColorPanelProxy.shared)
-                panel.setAction(#selector(ColorPanelProxy.colorChanged(_:)))
-                panel.showsAlpha = supportsOpacity
-                panel.color = NSColor(srgbRed: color.red, green: color.green,
-                                      blue: color.blue, alpha: color.alpha)
-                panel.makeKeyAndOrderFront(nil)
+                PresentationInspector.openColorPanel(for: color,
+                                                     supportsOpacity: supportsOpacity,
+                                                     onChange: onChange)
             } label: {
                 Circle()
                     .fill(Color(red: Double(color.red), green: Double(color.green),
@@ -422,6 +306,31 @@ struct PresentationInspector: View {
         let id: String
         let background: Presentation.Background
 
+        /// What the tile is called on hover. Derived from the id rather than
+        /// written beside it: the ids are already English names — `amberGlow`,
+        /// `sandMesh` — so a second list of the same words would only be a
+        /// second place to forget one. The derived name is the catalogue key,
+        /// and `everyPresetIsNamed` keeps every one of them translated.
+        var titleKey: String {
+            id == "fromImage" ? "From Image" : Self.spelled(id)
+        }
+
+        /// `amberGlow` → `Amber Glow`.
+        static func spelled(_ id: String) -> String {
+            var words: [String] = []
+            var word = ""
+            for character in id {
+                if character.isUppercase, !word.isEmpty {
+                    words.append(word)
+                    word = String(character)
+                } else {
+                    word.append(word.isEmpty ? Character(character.uppercased()) : character)
+                }
+            }
+            if !word.isEmpty { words.append(word) }
+            return words.joined(separator: " ")
+        }
+
         /// Which list this belongs to. Derived from the value rather than
         /// stated beside it: a preset that claimed one kind and carried another
         /// would put a gradient in the solid drawer.
@@ -439,6 +348,7 @@ struct PresentationInspector: View {
             switch background {
             case .none:                            return .none
             case .solid:                           return .solid
+            case .picture:                         return .picture
             case .linearGradient, .radialGradient,
                  .mesh:                            return .gradient
             }
@@ -453,16 +363,25 @@ struct PresentationInspector: View {
     /// one click. Picking one writes an ordinary background value, so every
     /// control below keeps working on it: the preset is a starting point for
     /// this document, never a locked style.
+    ///
+    /// No solid here may equal a swatch in `palette` — the rule that
+    /// `noPresetRepeatsAPaletteColor` keeps. Two grids of colour sit one above
+    /// the other, and a tile that is pixel-for-pixel the circle below it makes
+    /// the pair look like one list drawn twice rather than a shortcut above a
+    /// vocabulary. `sand` and `graphite` used to be exactly that; they are the
+    /// lighter `linen` and `charcoal` now, and the palette keeps the originals.
     private static let backgroundPresets: [BackgroundPreset] = {
         func linear(_ id: String, _ a: Presentation.Color, _ b: Presentation.Color) -> BackgroundPreset {
-            BackgroundPreset(id: id, background: .linearGradient(stops: [a, b], angle: .pi / 2))
+            BackgroundPreset(id: id,
+                             background: .linearGradient(stops: Presentation.Stop.spread([a, b]),
+                                                         angle: .pi / 2))
         }
         return [
             BackgroundPreset(id: "paper", background: .solid(rgb(0.97, 0.97, 0.96))),
-            BackgroundPreset(id: "sand", background: .solid(rgb(0.93, 0.89, 0.85))),
+            BackgroundPreset(id: "linen", background: .solid(rgb(0.96, 0.93, 0.87))),
             BackgroundPreset(id: "mist", background: .solid(rgb(0.87, 0.89, 0.92))),
             BackgroundPreset(id: "sage", background: .solid(rgb(0.84, 0.88, 0.83))),
-            BackgroundPreset(id: "graphite", background: .solid(rgb(0.11, 0.11, 0.12))),
+            BackgroundPreset(id: "charcoal", background: .solid(rgb(0.17, 0.17, 0.19))),
             BackgroundPreset(id: "midnight", background: .solid(rgb(0.09, 0.11, 0.18))),
             BackgroundPreset(id: "clay", background: .solid(rgb(0.76, 0.55, 0.47))),
             BackgroundPreset(id: "denim", background: .solid(rgb(0.25, 0.38, 0.55))),
@@ -475,21 +394,21 @@ struct PresentationInspector: View {
             linear("lemon", rgb(0.99, 0.90, 0.55), rgb(0.96, 0.70, 0.25)),
             linear("lavender", rgb(0.86, 0.83, 0.99), rgb(0.55, 0.50, 0.85)),
             BackgroundPreset(id: "rose", background: .radialGradient(
-                stops: [rgb(0.98, 0.78, 0.83), rgb(0.85, 0.36, 0.53)])),
+                stops: Presentation.Stop.spread([rgb(0.98, 0.78, 0.83), rgb(0.85, 0.36, 0.53)]))),
             BackgroundPreset(id: "deep", background: .radialGradient(
-                stops: [rgb(0.31, 0.36, 0.62), rgb(0.06, 0.07, 0.14)])),
+                stops: Presentation.Stop.spread([rgb(0.31, 0.36, 0.62), rgb(0.06, 0.07, 0.14)]))),
             BackgroundPreset(id: "amberGlow", background: .radialGradient(
-                stops: [rgb(0.99, 0.85, 0.55), rgb(0.85, 0.45, 0.15)])),
+                stops: Presentation.Stop.spread([rgb(0.99, 0.85, 0.55), rgb(0.85, 0.45, 0.15)]))),
             BackgroundPreset(id: "mintGlow", background: .radialGradient(
-                stops: [rgb(0.80, 0.98, 0.90), rgb(0.15, 0.50, 0.45)])),
+                stops: Presentation.Stop.spread([rgb(0.80, 0.98, 0.90), rgb(0.15, 0.50, 0.45)]))),
             BackgroundPreset(id: "violetGlow", background: .radialGradient(
-                stops: [rgb(0.80, 0.70, 0.99), rgb(0.30, 0.15, 0.55)])),
+                stops: Presentation.Stop.spread([rgb(0.80, 0.70, 0.99), rgb(0.30, 0.15, 0.55)]))),
             BackgroundPreset(id: "steel", background: .radialGradient(
-                stops: [rgb(0.85, 0.88, 0.92), rgb(0.35, 0.40, 0.48)])),
+                stops: Presentation.Stop.spread([rgb(0.85, 0.88, 0.92), rgb(0.35, 0.40, 0.48)]))),
             BackgroundPreset(id: "ember", background: .radialGradient(
-                stops: [rgb(0.99, 0.72, 0.55), rgb(0.55, 0.12, 0.15)])),
+                stops: Presentation.Stop.spread([rgb(0.99, 0.72, 0.55), rgb(0.55, 0.12, 0.15)]))),
             BackgroundPreset(id: "ink", background: .radialGradient(
-                stops: [rgb(0.45, 0.50, 0.60), rgb(0.05, 0.05, 0.09)])),
+                stops: Presentation.Stop.spread([rgb(0.45, 0.50, 0.60), rgb(0.05, 0.05, 0.09)]))),
             BackgroundPreset(id: "warmMesh", background: .mesh(colors: [
                 rgb(0.99, 0.80, 0.55), rgb(0.97, 0.55, 0.44),
                 rgb(0.85, 0.36, 0.53), rgb(0.99, 0.88, 0.72)])),
@@ -522,6 +441,18 @@ struct PresentationInspector: View {
         backgroundPresets.map(\.background)
     }
 
+    /// Every name the gallery can show, for the test that keeps them all
+    /// translated.
+    static var backgroundPresetNamesForTesting: [String] {
+        backgroundPresets.map(\.titleKey)
+    }
+
+    /// The eight built-in swatches, for the test that keeps the gallery above
+    /// them from repeating any of these.
+    static var paletteColorsForTesting: [Presentation.Color] {
+        palette.map(\.color)
+    }
+
     private static let fallbackColor = Presentation.Color(
         red: 0.18, green: 0.43, blue: 0.92, alpha: 1
     )
@@ -529,23 +460,28 @@ struct PresentationInspector: View {
     /// One row of eight, never two. Sized together with `contentMinimumWidth`.
     private static let swatchSize: CGFloat = 22
     private static let swatchGap: CGFloat = 6
-    /// The square inside a section's action button.
-    private static let sectionActionSize: CGFloat = 22
+    /// The square every glyph button in the panel occupies — see
+    /// `panelIconButton`.
+    private static let buttonSide: CGFloat = 28
 
-    init(document: EditorDocument) {
+    init(document: EditorDocument, colorShelf: (any PresentationColorShelf)? = nil) {
         self.document = document
+        self.colorShelf = colorShelf
         _draft = State(initialValue: document.presentation ?? .identity)
     }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: Self.sectionSpacing) {
-                header
-                canvasSection
                 backgroundSection
+                // The picture before the treatments on it: the page, then the
+                // thing on the page, then what is done to both.
                 imageSection
+                effectsSection
                 shadowSection
-                removeButton
+                glowSection
+                objectSections
+                removePresentationButton
             }
             .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -555,132 +491,40 @@ struct PresentationInspector: View {
         }
     }
 
-    private var header: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Label("Decor", systemImage: Self.decorSystemImage)
-                .font(.title3.weight(.semibold))
-            Text("Canvas and image presentation")
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-        }
-        .accessibilityElement(children: .combine)
-    }
-
-    // MARK: Canvas
-
-    private var canvasSection: some View {
-        inspectorGroup("Canvas", section: .canvas) {
-            tileGrid(CanvasChoice.allCases, selected: canvasChoice) { choice in
-                canvasTile(choice)
-            } action: { choice in
-                selectCanvas(choice)
-            }
-
-            // The size fields show the page the document actually has, and
-            // typing in them sets it.
-            HStack(spacing: 8) {
-                // The fields give width back when the panel is narrow; the ×
-                // between them never does. Fixed-width fields squeezed it out
-                // of the row entirely at the panel's minimum width.
-                NumberField(value: .constant(Double(canvasSize.width.rounded()))) { typed in
-                    setCustomDimension(.width, to: Int(typed))
-                }
-                .frame(minWidth: 56, maxWidth: Self.numberFieldWidth)
-                Text(verbatim: "×").foregroundStyle(.secondary).fixedSize()
-                NumberField(value: .constant(Double(canvasSize.height.rounded()))) { typed in
-                    setCustomDimension(.height, to: Int(typed))
-                }
-                .frame(minWidth: 56, maxWidth: Self.numberFieldWidth)
-                Spacer(minLength: 0)
-                sectionActionButton("rotate.right", label: "Rotate Canvas") {
-                    rotateCanvas()
-                }
-                .disabled(marginsAreFree)
-            }
-            .controlSize(.large)
-            .font(.system(size: 13))
-        }
-    }
-
-    /// A proportional plate plus the format's own pixel size: the two things a
-    /// name alone cannot tell you.
-    ///
-    /// Custom shows no numbers. Its size is whatever the fields below say, so
-    /// printing it here only repeats them — and while a preset is active it
-    /// repeats *that* preset, which reads as two tiles claiming the same size.
-    private func canvasTile(_ choice: CanvasChoice) -> some View {
-        let size = tileSize(for: choice)
-        let ratio = size.height > 0 ? size.width / size.height : 1
-        return VStack(spacing: 5) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 3)
-                    .fill(.quaternary)
-                    .overlay(RoundedRectangle(cornerRadius: 3)
-                        .strokeBorder(.tertiary, lineWidth: 1))
-                    .overlay {
-                        // A bare grey plate says nothing a name does not; the
-                        // ratio is the one fact the plate's silhouette only
-                        // hints at. Custom has no ratio to promise — it is
-                        // whatever the fields below say — so it shows a mark.
-                        Text(verbatim: choice.pixelSize == nil
-                             ? "—"
-                             : Self.ratioLabel(for: size))
-                            .font(.system(size: 9, weight: .medium, design: .rounded))
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.7)
-                            .padding(.horizontal, 2)
-                    }
-                    .aspectRatio(max(0.3, min(3, ratio)), contentMode: .fit)
-            }
-            .frame(height: 34)
-            Text(choice.titleKey)
-                .font(.system(size: 10))
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
-            // `verbatim` on purpose: a localized interpolation groups the
-            // digits, and "1 080×1 350" is not how anyone writes a pixel size.
-            // Custom says nothing here: its numbers are the fields below, and
-            // printing them twice is what made the tile look like a duplicate.
-            Text(verbatim: "\(Int(size.width.rounded()))×\(Int(size.height.rounded()))")
-                .font(.system(size: 9, design: .monospaced))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
-        }
-    }
-
-    /// A selected format follows the canvas's current orientation; the others
-    /// stay in their canonical one, so the row does not spin as you rotate.
-    private func tileSize(for choice: CanvasChoice) -> CGSize {
-        guard let preset = choice.pixelSize else { return resolvedLayout.canvasSize }
-        guard canvasChoice == choice, canvasIsPortrait != (preset.height > preset.width)
-        else { return preset }
-        return CGSize(width: preset.height, height: preset.width)
-    }
-
-    /// "16:9" when the sides reduce to something a person would say, otherwise
-    /// a decimal like "1.91:1". Reducing 1600×900 to 16:9 is the point; showing
-    /// "1080:1350" instead of "4:5" would be worse than showing nothing.
-    static func ratioLabel(for size: CGSize) -> String {
-        let w = Int(size.width.rounded()), h = Int(size.height.rounded())
-        guard w > 0, h > 0 else { return "—" }
-        var a = w, b = h
-        while b != 0 { (a, b) = (b, a % b) }
-        let divisor = max(1, a)
-        let rw = w / divisor, rh = h / divisor
-        if rw <= 32 && rh <= 32 { return "\(rw):\(rh)" }
-        let ratio = CGFloat(w) / CGFloat(h)
-        return ratio >= 1
-            ? String(format: "%.2f:1", Double(ratio))
-            : String(format: "1:%.2f", Double(1 / ratio))
-    }
+    // No header of its own. "Decor / Canvas and image presentation" said
+    // again, in forty points of height, what the button that opens this panel
+    // already says — and it said it above every section, on every opening.
 
     // MARK: Background
 
     private var backgroundSection: some View {
+        backgroundSectionBody
+            // The whole section is the drop zone, not the one tile inside it:
+            // this is the place where the page is painted, so a picture let go
+            // anywhere in it means "paint the page with this" — unambiguously,
+            // which the canvas cannot be (there a picture is an object).
+            .dropDestination(for: URL.self) { urls, _ in
+                guard let url = urls.first(where: { EditorDocument.picture(at: $0) != nil })
+                else { return false }
+                loadBackgroundPicture(from: url)
+                return true
+            } isTargeted: { targeted in
+                pictureIsOverTheBackground = targeted
+            }
+            .overlay {
+                if pictureIsOverTheBackground {
+                    RoundedRectangle(cornerRadius: 8)
+                        .strokeBorder(Color.accentColor, lineWidth: 2)
+                        .allowsHitTesting(false)
+                }
+            }
+    }
+
+    private var backgroundSectionBody: some View {
         inspectorGroup("Background", section: .background) {
-            tileGrid(BackgroundKind.allCases, selected: backgroundKind) { kind in
+            // Four kinds, four columns — the same row the preset gallery
+            // below is built on, rather than three and a straggler.
+            tileGrid(BackgroundKind.allCases, selected: backgroundKind, columns: 4) { kind in
                 backgroundTile(kind)
             } action: { kind in
                 setBackgroundKind(kind)
@@ -693,12 +537,16 @@ struct PresentationInspector: View {
             switch backgroundKind {
             case .none:
                 Text("The canvas around the image stays transparent")
-                    .font(.system(size: 10))
+                    .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             case .solid:
+                selectedColorRow(color: solidColor, onPick: { setSolidColor($0) }) {
+                    saveToArchiveButton(color: solidColor)
+                }
                 swatchRow(selected: solidColor) { setSolidColor($0) }
-                customColorRow(binding: solidColorBinding)
+            case .picture:
+                pictureRow
             case .gradient:
                 if gradientShape == .mesh {
                     meshCornerEditor
@@ -746,7 +594,7 @@ struct PresentationInspector: View {
         case (.solid, _):
             background = .solid(base)
         case (.gradient, .radial):
-            background = .radialGradient(stops: [light, dark])
+            background = .radialGradient(stops: Presentation.Stop.spread([light, dark]))
         case (.gradient, .mesh):
             // Four near-identical quarters make a mesh that looks like a fill.
             // When the shot has no spread of its own, the corners are built
@@ -755,7 +603,7 @@ struct PresentationInspector: View {
                                ? colors
                                : Self.meshColors(from: base))
         default:
-            background = .linearGradient(stops: [light, dark], angle: .pi / 2)
+            background = .linearGradient(stops: Presentation.Stop.spread([light, dark]), angle: .pi / 2)
         }
         return BackgroundPreset(id: "fromImage", background: background)
     }
@@ -794,9 +642,24 @@ struct PresentationInspector: View {
     }
 
     private var gradientShapePicker: some View {
-        Picker("", selection: gradientShapeBinding) {
-            ForEach(GradientShape.allCases) { shape in
-                Text(shape.titleKey).tag(shape)
+        segments(selection: gradientShapeBinding, of: GradientShape.allCases) { $0.titleKey }
+    }
+
+    /// The panel's one segmented control.
+    ///
+    /// Text, full width, `.large` — the same as every other control in here.
+    /// Written once because it was written twice: the layer switch first
+    /// borrowed `IconSegmentedPicker` from the toolbar, which is an AppKit
+    /// control that measures itself against its own content, so it stood taller
+    /// than the shape switch above it *and* pushed the whole inspector wider.
+    private func segments<Value: Identifiable & Hashable>(
+        selection: Binding<Value>,
+        of values: [Value],
+        title: @escaping (Value) -> LocalizedStringKey
+    ) -> some View {
+        Picker("", selection: selection) {
+            ForEach(values) { value in
+                Text(title(value)).tag(value)
             }
         }
         .pickerStyle(.segmented)
@@ -822,7 +685,7 @@ struct PresentationInspector: View {
         // line is not.
         let presets = curated.isEmpty ? [] : [sampledPreset] + curated.dropLast()
         if !presets.isEmpty {
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: Self.captionGap) {
                 Text("Presets")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
@@ -838,7 +701,7 @@ struct PresentationInspector: View {
                                 .overlay(alignment: .bottomTrailing) {
                                     if preset.id == "fromImage" {
                                         Image(systemName: "eyedropper")
-                                            .font(.system(size: 9, weight: .semibold))
+                                            .font(.system(size: 11, weight: .semibold))
                                             .foregroundStyle(.white)
                                             .shadow(radius: 1)
                                             .padding(3)
@@ -853,8 +716,11 @@ struct PresentationInspector: View {
                                 }
                         }
                         .buttonStyle(.plain)
-                        .help(preset.id == "fromImage" ? "From Image" : "Presets")
-                        .accessibilityLabel(Text(preset.id == "fromImage" ? "From Image" : "Presets"))
+                        // Its own name, not "Presets" — which is what all
+                        // thirty-one of them used to say on hover, in a gallery
+                        // whose whole difficulty is telling one from another.
+                        .help(Text(LocalizedStringKey(preset.titleKey)))
+                        .accessibilityLabel(Text(LocalizedStringKey(preset.titleKey)))
                     }
                 }
             }
@@ -888,19 +754,34 @@ struct PresentationInspector: View {
                     context.withCGContext { cg in
                         PresentationRenderer.drawBackground(
                             sample,
+                            picture: document.picture(for: sample.pictureID),
                             in: CGRect(origin: .zero, size: size),
                             ctx: cg
                         )
                     }
                 }
             }
+            // A page of pictures with no picture yet has nothing to show, so
+            // it shows what it is *for*. Every other tile is a picture of
+            // itself; this is the one kind that has to be asked for first.
+            .overlay {
+                if kind == .picture, document.picture(for: sample.pictureID) == nil {
+                    // Read against the tile it sits on, not against the panel:
+                    // `.secondary` over a pale backing was a grey glyph on a
+                    // grey square. The same rule the pattern effects use for
+                    // their ink — dark on light, light on dark.
+                    Image(systemName: "photo.badge.plus")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundStyle(swiftUIColor(sample.contrastingInk))
+                }
+            }
             // 4:3 rather than a thin strip: a gradient's direction and a mesh's
             // spread are not readable in 30 points of height.
             .aspectRatio(4.0 / 3.0, contentMode: .fit)
-            .clipShape(RoundedRectangle(cornerRadius: 5))
-            .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(.quaternary, lineWidth: 1))
+                .clipShape(RoundedRectangle(cornerRadius: 5))
+                .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(.quaternary, lineWidth: 1))
             Text(kind.titleKey)
-                .font(.system(size: 10))
+                .font(.system(size: 11))
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
         }
@@ -933,6 +814,69 @@ struct PresentationInspector: View {
         }
     }
 
+    /// What the picture background offers: a row of buttons, shaped like the
+    /// alignment row above it.
+    ///
+    /// One button for now — choose a file — and it is a glyph rather than a
+    /// labelled button because the rest of this row is already spoken for: how
+    /// the picture meets the page (fill, fit, tile) belongs here, and a row of
+    /// icons takes them without reflowing. The tile above says what the section
+    /// is; a sentence under it saying "blur and dim with the effects below"
+    /// said what the panel already shows.
+    ///
+    /// Dimming and blurring stay in the effects stack — they work on gradients
+    /// too, and a second pair of the same dials here would disagree with the
+    /// first sooner or later.
+    private var pictureRow: some View {
+        HStack(spacing: 6) {
+            // The four ways first, the file last: the ways are what you come
+            // back to, and replacing the picture is the once-in-a-while act at
+            // the end of the row.
+            ForEach(Presentation.Background.PictureFit.allCases) { fit in
+                panelIconButton(Self.symbol(for: fit), stretch: true,
+                                label: Self.title(for: fit)) {
+                    updateImmediately { $0.background = $0.background.settingPictureFit(fit) }
+                }
+                .activeToolChrome(draft.background.pictureFit == fit)
+            }
+            panelIconButton("photo.badge.plus", stretch: true, label: "Choose Picture") {
+                chooseBackgroundPicture()
+            }
+        }
+    }
+
+    /// How a picture meets the page, as a glyph and a name.
+    /// The four read as a set, in two pairs.
+    ///
+    /// Two of them are the same rectangle filled differently — one area in the
+    /// middle against four in the corners — so "one picture over the page"
+    /// against "the same one again and again" is said by the picture rather
+    /// than by the label. The other two are arrows in a frame, inward to sit
+    /// inside it and outward to be pulled to its edges.
+    ///
+    /// Three earlier sets were drawn at button size and thrown away, which is
+    /// the only way to judge these: `aspectratio` and `aspectratio.fill` differ
+    /// by a fill nobody sees at 13pt, the vertical compress/expand pair speaks
+    /// about height alone, and a solid rectangle for "fill" said nothing about
+    /// what happens to the picture.
+    static func symbol(for fit: Presentation.Background.PictureFit) -> String {
+        switch fit {
+        case .fill:    return "inset.filled.center.rectangle"
+        case .fit:     return "arrow.down.right.and.arrow.up.left.rectangle"
+        case .stretch: return "arrow.down.backward.and.arrow.up.forward.rectangle"
+        case .tile:    return "inset.filled.topleft.topright.bottomleft.bottomright.rectangle"
+        }
+    }
+
+    static func title(for fit: Presentation.Background.PictureFit) -> LocalizedStringKey {
+        switch fit {
+        case .fill:    return "Fill"
+        case .fit:     return "Fit"
+        case .stretch: return "Stretch"
+        case .tile:    return "Tile"
+        }
+    }
+
     /// The preview values for each tile. They are deliberately built from the
     /// current colors when the kind is already selected, so the tile doubles as
     /// a live thumbnail of what the user has configured.
@@ -951,55 +895,105 @@ struct PresentationInspector: View {
                 }
             }
             return .linearGradient(stops: previewStops(for: .gradient), angle: .pi / 2)
+        case .picture:
+            // The tile shows the picture the page has; with none yet it shows
+            // the colour that would back one, so the tile is never a blank.
+            return backgroundKind == .picture
+                ? draft.background
+                : .picture(id: UUID(),
+                           backing: .init(red: 0.82, green: 0.84, blue: 0.88, alpha: 1),
+                           fit: .fill)
         }
     }
 
-    private func previewStops(for kind: BackgroundKind) -> [Presentation.Color] {
+    private func previewStops(for kind: BackgroundKind) -> [Presentation.Stop] {
         if backgroundKind == kind, !draft.background.stops.isEmpty {
             return draft.background.stops
         }
-        return Self.defaultStops
+        return Presentation.Stop.spread(Self.defaultStops)
     }
 
-    private static let defaultStops: [Presentation.Color] = [
-        Presentation.Color(red: 0.36, green: 0.55, blue: 0.98, alpha: 1),
-        Presentation.Color(red: 0.09, green: 0.13, blue: 0.36, alpha: 1)
-    ]
+    private static var defaultStops: [Presentation.Color] { BackgroundDrawers.defaultStops }
 
-    /// Stops are the whole gradient UI: every one is an editable well, and the
-    /// two buttons are what turns an ordinary gradient into a layered one.
+    /// The gradient's stops, on the ramp they belong to.
+    ///
+    /// Three rewrites, each answering the last one's complaint. It began acting
+    /// on the end of the list whatever the user pointed at — "+" appended a
+    /// darkened copy of the last colour, "−" took the last one away, a palette
+    /// tap overwrote the last one, and order could not be changed at all. Then
+    /// the stops became selectable, which reached the middle ones but left
+    /// "order" as a separate idea to manipulate. Now they have positions, and
+    /// order is simply where they sit: `GradientStopsBar` drags them, a tap on
+    /// the ramp adds one where it landed, and the row below belongs to whichever
+    /// is selected.
     private var stopEditor: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: Self.swatchGap) {
-                ForEach(Array(currentStops.enumerated()), id: \.offset) { index, color in
-                    ColorChip(color: color, diameter: Self.swatchSize) { picked in
-                        var stops = currentStops
-                        guard stops.indices.contains(index) else { return }
-                        stops[index] = picked
-                        setStops(stops)
-                    }
-                    .accessibilityLabel(Text("Stop"))
-                }
-                Spacer(minLength: 0)
-                Button {
-                    addStop()
-                } label: {
-                    Image(systemName: "plus")
-                }
-                .disabled(currentStops.count >= 5)
-                .accessibilityLabel(Text("Add Stop"))
-                Button {
-                    removeStop()
-                } label: {
-                    Image(systemName: "minus")
-                }
-                .disabled(currentStops.count <= 2)
-                .accessibilityLabel(Text("Remove Stop"))
+        let stops = currentStops
+        let selection = GradientStops.clampedSelection(selectedStop, in: stops)
+        return VStack(alignment: .leading, spacing: 8) {
+            GradientStopsBar(stops: stops,
+                             selection: Binding(get: { selection },
+                                                set: { selectedStop = $0 }),
+                             apply: { setStops($0) })
+            selectedStopRow(stops: stops, selection: selection)
+            swatchRow(selected: stops.indices.contains(selection)
+                      ? stops[selection].color : nil) {
+                setSelectedStopColor($0)
             }
-            .controlSize(.large)
-
-            swatchRow(selected: nil) { appendOrReplaceLastStop($0) }
         }
+    }
+
+    /// What the selected stop is, and the two things you can do to it that the
+    /// ramp itself cannot show: name a colour exactly, and take the stop away.
+    /// "+" stays beside them because a bar you cannot click — a keyboard — still
+    /// needs a way to add one.
+    /// What the selected colour is, and the two things the plate or the ramp
+    /// cannot show: name it exactly, and hand it to the system panel. Whatever
+    /// else the surface offers — adding and removing stops, and nothing at all
+    /// for a mesh's fixed four — rides along on the right.
+    private func selectedColorRow<Trailing: View>(
+        color: Presentation.Color,
+        onPick: @escaping (Presentation.Color) -> Void,
+        @ViewBuilder trailing: () -> Trailing = { EmptyView() }
+    ) -> some View {
+        HStack(spacing: 8) {
+            ColorChip(color: color, diameter: Self.swatchSize) { onPick($0) }
+                .accessibilityLabel(Text("Color"))
+            ColorField(color: color) { onPick($0) }
+            Spacer(minLength: 0)
+            trailing()
+        }
+        .controlSize(.large)
+    }
+
+    private func selectedStopRow(stops: [Presentation.Stop], selection: Int) -> some View {
+        let color = stops.indices.contains(selection) ? stops[selection].color : .white
+        return selectedColorRow(color: color) { picked in
+            setStops(GradientStops.recolored(stops, at: selection, to: picked))
+        } trailing: {
+            panelIconButton("plus", label: "Add Stop") {
+                // Halfway to the next stop, or halfway to the end when the
+                // selected one is last: the same "add a handle where there is
+                // room" the ramp does under the pointer.
+                setStops(GradientStops.inserted(into: stops, at: nextGap(in: stops, after: selection)))
+                selectedStop = selection + 1
+            }
+            .disabled(stops.count >= GradientStops.maximum)
+            panelIconButton("minus", label: "Remove Stop") {
+                let remaining = GradientStops.removed(from: stops, at: selection)
+                guard remaining != stops else { return }
+                setStops(remaining)
+                selectedStop = GradientStops.clampedSelection(selection, in: remaining)
+            }
+            .disabled(stops.count <= GradientStops.minimum)
+        }
+        .controlSize(.large)
+    }
+
+    private func nextGap(in stops: [Presentation.Stop], after index: Int) -> CGFloat {
+        guard stops.indices.contains(index) else { return 0.5 }
+        let here = stops[index].location
+        let next = stops.indices.contains(index + 1) ? stops[index + 1].location : 1
+        return here + (next - here) / 2
     }
 
     private var swatchRowWidth: CGFloat {
@@ -1011,11 +1005,19 @@ struct PresentationInspector: View {
     /// inspector is too narrow and `contentMinimumWidth` is the thing to fix.
     /// The user's own colours follow the eight built-ins on a second row, which
     /// only appears once there is something to put on it.
+    ///
+    /// Captioned like "Presets" above it and "Corners" beside it, because
+    /// without a word the two grids of colour read as one list that changed
+    /// its mind about size: the gallery is a ready-made page, this is the
+    /// palette a page is painted from.
     private func swatchRow(
         selected: Presentation.Color?,
         action: @escaping (Presentation.Color) -> Void
     ) -> some View {
-        VStack(alignment: .leading, spacing: Self.swatchGap) {
+        VStack(alignment: .leading, spacing: Self.captionGap) {
+            Text("Colors")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
             HStack(spacing: Self.swatchGap) {
                 ForEach(Self.palette) { entry in
                     swatch(entry.color, selected: selected, label: entry.titleKey,
@@ -1024,30 +1026,42 @@ struct PresentationInspector: View {
             }
             .frame(minWidth: swatchRowWidth, alignment: .leading)
 
-            if !userColors.isEmpty {
-                Divider()
-                // Adaptive, not an HStack: saved colours must wrap onto another
-                // line rather than push the inspector past its own maximum
-                // width (and, with enough of them, off the screen).
-                LazyVGrid(
-                    columns: [GridItem(.adaptive(minimum: Self.swatchSize),
-                                       spacing: Self.swatchGap,
-                                       alignment: .leading)],
-                    alignment: .leading,
-                    spacing: Self.swatchGap
-                ) {
-                    ForEach(Array(userColors.enumerated()), id: \.offset) { index, color in
-                        swatch(color, selected: selected, label: "Custom Color",
-                               action: action)
-                            .contextMenu {
-                                Button(role: .destructive) {
-                                    userColors.remove(at: index)
-                                } label: {
-                                    Label("Remove Color", systemImage: "trash")
-                                        .labelStyle(.titleAndIcon)
-                                }
-                            }
-                    }
+            archiveRow(selected: selected, action: action)
+        }
+    }
+
+    /// The colours the user has already collected — the archive's, live.
+    ///
+    /// A colour picked with the eyedropper is an archive entry, so it is
+    /// already in a list the user keeps and can see from the panel. Repeating
+    /// that list here is what turns the eyedropper into a way of choosing a
+    /// background or a gradient stop, and it is why the inspector keeps no
+    /// private palette of its own: a second list would be one to fill, prune
+    /// and disagree with.
+    @ViewBuilder
+    private func archiveRow(
+        selected: Presentation.Color?,
+        action: @escaping (Presentation.Color) -> Void
+    ) -> some View {
+        let colors = colorShelf?.shelfColors ?? []
+        if !colors.isEmpty {
+            Divider()
+            Text("From Archive")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+            // Adaptive, not an HStack: the archive holds up to fifty entries,
+            // and they must wrap onto another line rather than push the
+            // inspector past its own maximum width.
+            LazyVGrid(
+                columns: [GridItem(.adaptive(minimum: Self.swatchSize),
+                                   spacing: Self.swatchGap,
+                                   alignment: .leading)],
+                alignment: .leading,
+                spacing: Self.swatchGap
+            ) {
+                ForEach(Array(colors.enumerated()), id: \.offset) { _, color in
+                    swatch(color, selected: selected, label: "From Archive",
+                           action: action)
                 }
             }
         }
@@ -1076,74 +1090,431 @@ struct PresentationInspector: View {
         .accessibilityLabel(label)
     }
 
-    /// The well picks a colour; the plus keeps it. Without the second half a
-    /// "custom colour" is a single slot that the next pick overwrites, which is
-    /// no use when a design needs three of them.
-    private func customColorRow(binding: Binding<SwiftUI.Color>) -> some View {
-        HStack(spacing: 8) {
-            Text("Custom Color")
-            ColorChip(color: presentationColor(binding.wrappedValue),
-                      diameter: Self.swatchSize) { picked in
-                binding.wrappedValue = swiftUIColor(picked)
-            }
-            Spacer(minLength: 0)
-            // Trailing, like the canvas rotate button: the actions in this
-            // panel all sit on the right edge of their row.
-            Button {
-                let color = presentationColor(binding.wrappedValue)
-                if !userColors.contains(color), !Self.palette.contains(where: { $0.color == color }) {
-                    userColors.append(color)
-                }
-            } label: {
-                Image(systemName: "plus")
-            }
-            .controlSize(.large)
-            .help("Save Color")
-            .accessibilityLabel(Text("Save Color"))
+    /// Keeps the colour on screen in the archive, beside the ones the
+    /// eyedropper put there. The row it sits on already says which colour that
+    /// is — the swatch and the hex field — so the button needs no label of its
+    /// own, and it sits on the right edge like every other action here.
+    private func saveToArchiveButton(color: Presentation.Color) -> some View {
+        panelIconButton("plus", label: "Save Color to Archive") {
+            colorShelf?.addShelfColor(color)
         }
-        .font(.system(size: 11))
+        .disabled(colorShelf == nil)
     }
 
 
-    /// A mesh is four corner colours, and now the panel says so. It used to
-    /// offer a single seed that the app spread into four by mixing with white
-    /// and black — which is why choosing one felt like guessing what would come
-    /// out the other end.
+    /// A mesh is four corner colours, and now the panel shows them where they
+    /// are. It began as a single seed the app spread into four by mixing with
+    /// white and black — choosing one felt like guessing what would come out
+    /// the other end — and then as a bare row of four chips, which said the
+    /// colours but not which corner each belonged to, so nothing else in the
+    /// panel could act on "the one you mean". A corner cannot move, so there is
+    /// no dragging and nothing to add or remove; everything else is the stop
+    /// bar's language.
     private var meshCornerEditor: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Corners")
+        let corners = meshCorners
+        let selection = min(max(0, selectedCorner), 3)
+        return VStack(alignment: .leading, spacing: 8) {
+            MeshCornersPlate(colors: corners,
+                             selection: Binding(get: { selection },
+                                                set: { selectedCorner = $0 }),
+                             apply: { setMeshColors($0) })
+            selectedColorRow(color: corners[selection]) { picked in
+                setMeshCorner(picked, at: selection)
+            }
+            swatchRow(selected: corners[selection]) { setMeshCorner($0, at: selection) }
+        }
+    }
+
+    private func setMeshColors(_ colors: [Presentation.Color]) {
+        updateImmediately { $0.background = .mesh(colors: colors) }
+    }
+
+    private func setMeshCorner(_ color: Presentation.Color, at index: Int) {
+        var colors = meshCorners
+        guard colors.indices.contains(index) else { return }
+        colors[index] = color
+        setMeshColors(colors)
+    }
+
+    private var meshCorners: [Presentation.Color] {
+        if case .mesh(let colors) = draft.background, colors.count >= 4 { return colors }
+        return Self.meshCorners(from: draft.background.colors)
+    }
+
+    /// Two stops spread over four corners: the ends keep their colours and the
+    /// other two are the blend, so switching from a line to a mesh keeps what
+    /// the user had rather than starting over.
+    static func meshCorners(from colors: [Presentation.Color]) -> [Presentation.Color] {
+        BackgroundDrawers.meshCorners(from: colors)
+    }
+
+
+
+    // MARK: Effects
+
+    /// The stack, Figma's shape: a row per effect, its parameters beneath it,
+    /// and one button that adds another. Order is meaningful — filters do not
+    /// commute — so rows can be dragged past each other.
+    ///
+    /// The section is deliberately not a switch with one set of controls. Two
+    /// grains of different sizes is a legitimate thing to ask for, and any
+    /// design where an effect is a property rather than a member of a list
+    /// cannot say it.
+    private var effectsSection: some View {
+        inspectorGroup("Effects", section: .effects) {
+            // A rule between the rows, not around them. Every row is the same
+            // three controls and then a handful of sliders whose number changes
+            // with the kind, so two of them in a column read as one long effect
+            // with too many dials — the first thing anybody asked about this
+            // section. The first row needs none: the section's own header is
+            // already the line above it.
+            ForEach(Array(draft.effects.enumerated()), id: \.element.id) { index, effect in
+                if index > 0 { Divider() }
+                effectRow(effect, of: .page)
+            }
+            HStack(spacing: 8) {
+                if draft.effects.isEmpty {
+                    // An empty section that says nothing looks broken; this is
+                    // the one line that says what the button is for.
+                    Text("Grain, texture and other treatments of the background")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 0)
+                sectionActionButton("plus", label: "Add Effect") {
+                    effectPicker = .add(.page)
+                }
+                .popover(isPresented: showingPicker(.add(.page)), arrowEdge: .bottom) {
+                    effectGrid(.add(.page))
+                }
+            }
+        }
+    }
+
+    /// The grid behind the "+" and behind an effect's own name: every kind,
+    /// drawn on the background it would land on, with the stack that is already
+    /// there underneath it.
+    ///
+    /// That is what makes a tile honest rather than decorative — and it also
+    /// tells the truth about the awkward ones. Pixelate and glass have nothing
+    /// to work on over a bare gradient, so their tiles show almost nothing, and
+    /// so would the page. An effect that needs a texture under it is a fact
+    /// about the effect, not something a stock sample should hide.
+    private func effectGrid(_ target: PickerTarget) -> some View {
+        let owner = target.owner
+        let current: Presentation.Effect.Kind? = {
+            guard case .replace(_, let id) = target else { return nil }
+            return effects(of: owner).first { $0.id == id }?.kind
+        }()
+        return ScrollView {
+            tileGrid(Presentation.Effect.Kind.allCases, selected: current) { kind in
+                effectTile(kind, target)
+            } action: { kind in
+                switch target {
+                case .add:
+                    addEffect(kind, to: owner)
+                case .replace(_, let id):
+                    if let effect = effects(of: owner).first(where: { $0.id == id }) {
+                        setEffectKind(effect, to: kind, of: owner)
+                    }
+                }
+                effectPicker = nil
+            }
+            .padding(10)
+        }
+        .frame(width: 300, height: 340)
+    }
+
+    /// The tile shows the page as it would be *after the choice* — with the
+    /// candidate appended, or standing in for the row being changed. Anything
+    /// else would be a picture of an effect in the abstract, and the panel's
+    /// rule is that a tile promises exactly what the export will draw.
+    private func effectTile(_ kind: Presentation.Effect.Kind,
+                            _ target: PickerTarget) -> some View {
+        let owner = target.owner
+        let replacing: UUID? = {
+            if case .replace(_, let id) = target { return id }
+            return nil
+        }()
+        let stack = EffectStack.stack(effects(of: owner), choosing: kind,
+                                      over: draft.background, replacing: replacing)
+        return VStack(spacing: 5) {
+            effectCanvas(stack, of: owner)
+                .aspectRatio(4.0 / 3.0, contentMode: .fit)
+                .clipShape(RoundedRectangle(cornerRadius: 5))
+                .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(.quaternary, lineWidth: 1))
+            // The name alone: the picture above it already says what the
+            // effect is, and the glyph beside it cost enough width to truncate
+            // "Pixelate" in three columns.
+            Text(LocalizedStringKey(EffectStack.title(for: kind)))
+                .font(.system(size: 11))
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+        }
+    }
+
+    private func effectRow(_ effect: Presentation.Effect,
+                           of owner: EffectOwner) -> some View {
+        VStack(alignment: .leading, spacing: Self.captionGap) {
+            HStack(spacing: 8) {
+                effectPreview(effect, of: owner)
+                effectKindMenu(effect, of: owner)
+                Spacer(minLength: 0)
+                // Hide rather than delete, exactly as the shadow does: an
+                // effect switched off keeps its numbers, so turning it back on
+                // returns the one you had.
+                effectRowButton(effect.isEnabled ? "eye" : "eye.slash",
+                                label: effect.isEnabled ? "Hide Effect" : "Show Effect") {
+                    setEffect(effect, of: owner) { $0.isEnabled.toggle() }
+                }
+                effectRowButton("xmark", label: "Remove Effect") {
+                    removeEffect(effect, from: owner)
+                }
+            }
+            // Only the page has two layers to choose between.
+            if owner == .page { effectLayerRow(effect) }
+            ForEach(EffectStack.parameters(for: effect.kind), id: \.parameter) { info in
+                if info.parameter == .color {
+                    effectColorRow(effect, info, of: owner)
+                } else if info.parameter == .glyphs {
+                    effectGlyphRow(effect, info, of: owner)
+                } else {
+                    presentationSlider(
+                        LocalizedStringKey(info.titleKey),
+                        id: "effect-\(effect.id)-\(info.parameter.rawValue)",
+                        systemImage: info.systemImage,
+                        value: effectBinding(effect, info.parameter, of: owner),
+                        range: info.range,
+                        step: info.step,
+                        unit: Self.unit(for: info, of: effect, canvasSize: canvasSize)
+                    )
+                }
+            }
+        }
+        .opacity(effect.isEnabled ? 1 : 0.5)
+        .padding(.vertical, 2)
+        .contentShape(Rectangle())
+        // Identity, not geometry: a row knows its own index, so dropping on it
+        // needs no arithmetic about row heights — and the rows here are not
+        // even the same height, since each kind brings its own sliders.
+        .draggable(effect.id.uuidString)
+        .dropDestination(for: String.self) { items, _ in
+            let stack = effects(of: owner)
+            guard let dragged = items.first,
+                  let from = stack.firstIndex(where: { $0.id.uuidString == dragged }),
+                  let to = stack.firstIndex(where: { $0.id == effect.id })
+            else { return false }
+            moveEffect(from: from, to: to, of: owner)
+            return true
+        }
+    }
+
+    /// A colour is not a number, so it gets the panel's colour controls rather
+    /// than a slider — the same chip and the same typed field as the shadow's
+    /// colour, in the same notation the rest of the app uses.
+    private func effectColorRow(_ effect: Presentation.Effect,
+                                _ info: EffectStack.ParameterInfo,
+                                of owner: EffectOwner) -> some View {
+        VStack(alignment: .leading, spacing: Self.captionGap) {
+            Text(LocalizedStringKey(info.titleKey))
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
-            HStack(spacing: Self.swatchGap) {
-                ForEach(0..<4, id: \.self) { index in
-                    ColorChip(color: meshCorners[index], diameter: Self.swatchSize) { picked in
-                        var colors = meshCorners
-                        colors[index] = picked
-                        updateImmediately { $0.background = .mesh(colors: colors) }
-                    }
-                    .accessibilityLabel(Text("Corners"))
+            HStack(spacing: 8) {
+                ColorChip(color: effect.color, diameter: Self.swatchSize,
+                          supportsOpacity: false) { color in
+                    setEffect(effect, of: owner) { $0.color = color }
+                }
+                .accessibilityLabel(Text(LocalizedStringKey(info.titleKey)))
+                ColorField(color: effect.color) { color in
+                    setEffect(effect, of: owner) { $0.color = color }
                 }
                 Spacer(minLength: 0)
             }
         }
     }
 
-    private var meshCorners: [Presentation.Color] {
-        if case .mesh(let colors) = draft.background, colors.count >= 4 { return colors }
-        return Self.meshCorners(from: draft.background.stops)
+    /// The row's name, and the way to change what the effect *is*.
+    ///
+    /// Swapping a kind through the menu beats deleting the row and adding
+    /// another: the row keeps its place in the stack, its layer and its switch,
+    /// which is what a person means by "make this one a halftone instead".
+    ///
+    /// The label takes the room that is left rather than asking for room of its
+    /// own — a menu that sizes itself to "Fluted Glass" would set the width of
+    /// the whole inspector.
+    private func effectKindMenu(_ effect: Presentation.Effect,
+                                of owner: EffectOwner) -> some View {
+        Button {
+            effectPicker = .replace(owner, effect.id)
+        } label: {
+            HStack(spacing: 3) {
+                Text(LocalizedStringKey(EffectStack.title(for: effect.kind)))
+                    .font(.system(size: 11))
+                    .lineLimit(1)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 8, weight: .semibold))
+                    .foregroundStyle(.secondary)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("Change Effect")
+        // Anchored to the row it will change, so the grid opens beside the
+        // thing it is about rather than beside the "+" at the bottom.
+        .popover(isPresented: showingPicker(.replace(owner, effect.id)), arrowEdge: .bottom) {
+            effectGrid(.replace(owner, effect.id))
+        }
     }
 
-    /// Two stops spread over four corners: the ends keep their colours and the
-    /// other two are the blend, so switching from a line to a mesh keeps what
-    /// the user had rather than starting over.
-    static func meshCorners(from stops: [Presentation.Color]) -> [Presentation.Color] {
-        guard let first = stops.first else { return meshColors(from: fallbackColor) }
-        let last = stops.last ?? first
-        let middle = mix(first, last, amount: 0.5)
-        return [first, middle, middle, last]
+    /// One state, several anchors: the grid belongs to whichever control asked
+    /// for it, and closing it from anywhere clears the same value.
+    private func showingPicker(_ target: PickerTarget) -> Binding<Bool> {
+        Binding(get: { effectPicker == target },
+                set: { shown in effectPicker = shown ? target : nil })
     }
 
+    /// Behind the picture, or over everything.
+    ///
+    /// Every effect carries it, because every effect can be read either way: a
+    /// grain behind the screenshot is a paper the picture sits on, and the same
+    /// grain over it is film the whole page was shot on. It is the first row of
+    /// the effect rather than the last, since it changes what the sliders below
+    /// are doing.
+    private func effectLayerRow(_ effect: Presentation.Effect) -> some View {
+        segments(
+            selection: Binding(
+                get: { effect.layer },
+                set: { layer in setEffect(effect, of: .page) { $0.layer = layer } }
+            ),
+            of: Presentation.Effect.Layer.allCases
+        ) { LocalizedStringKey(EffectStack.title(for: $0)) }
+    }
 
+    /// Which characters the page is written in. A choice, so it gets a menu
+    /// rather than a slider — and the menu shows the characters themselves,
+    /// because "@%#*+=-:." says what it will look like and "Classic" does not.
+    private func effectGlyphRow(_ effect: Presentation.Effect,
+                                _ info: EffectStack.ParameterInfo,
+                                of owner: EffectOwner) -> some View {
+        VStack(alignment: .leading, spacing: Self.captionGap) {
+            Text(LocalizedStringKey(info.titleKey))
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+            Picker(selection: Binding(
+                get: { effect.glyphs },
+                set: { set in setEffect(effect, of: owner) { $0.glyphs = set } }
+            )) {
+                ForEach(Presentation.Effect.GlyphSet.allCases) { set in
+                    HStack(spacing: 6) {
+                        Text(LocalizedStringKey(EffectStack.title(for: set)))
+                        Text(String(set.characters.dropLast().prefix(6)))
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                    }
+                    .tag(set)
+                }
+            } label: {
+                EmptyView()
+            }
+            .labelsHidden()
+            .controlSize(.large)
+        }
+    }
+
+    /// The row's own small buttons — plain, because two bordered squares beside
+    /// a name read as a toolbar rather than as the ends of a row.
+    private func effectRowButton(_ systemImage: String,
+                                 label: LocalizedStringKey,
+                                 action: @escaping () -> Void) -> some View {
+        panelIconButton(systemImage, role: .quiet, label: label, action: action)
+    }
+
+    /// The effect on the background it is actually sitting on, drawn by the
+    /// routine that draws the canvas — a swatch that made its own picture could
+    /// promise something the page would not deliver.
+    private func effectPreview(_ effect: Presentation.Effect,
+                               of owner: EffectOwner) -> some View {
+        // Drawn as if switched on and as if it were a background effect, even
+        // when it is neither: the swatch answers "what does this effect do",
+        // and a row showing the plain background — because it was switched off,
+        // or because its effect belongs to the whole page and this swatch is
+        // only a background — said nothing about what it was hiding.
+        var shown = effect
+        shown.isEnabled = true
+        shown.layer = .background
+        return effectCanvas([shown], of: owner)
+            .frame(width: 28, height: 20)
+            .clipShape(RoundedRectangle(cornerRadius: 4))
+            .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(.separator))
+            .accessibilityHidden(true)
+    }
+
+    /// A stack, drawn on whatever it belongs to: the page's background, or the
+    /// picture the section is about.
+    ///
+    /// The same rule holds either way — a swatch promises what the export will
+    /// draw, so it is made by the routine that draws it — and it is why an
+    /// object's tiles show the object. Grain over a photograph and grain over a
+    /// gradient look nothing alike, and the tile that decides the choice should
+    /// be the one that is true.
+    @ViewBuilder
+    private func effectCanvas(_ stack: [Presentation.Effect],
+                              of owner: EffectOwner) -> some View {
+        switch owner {
+        case .page:
+            Canvas { context, size in
+                context.withCGContext { cg in
+                    PresentationRenderer.drawBackground(
+                        draft.background, effects: stack,
+                        picture: document.picture(for: draft.background.pictureID),
+                        in: CGRect(origin: .zero, size: size), ctx: cg)
+                }
+            }
+        case .object(let id):
+            let name = document.annotations.first { $0.id == id }?.pictureID
+            Canvas { context, size in
+                context.withCGContext { cg in
+                    guard let name, let picture = document.picture(for: name) else { return }
+                    let treated = EffectBaker.object(stack, over: picture, named: name) ?? picture
+                    AnnotationRenderer.drawImageInFlippedSpace(
+                        treated, in: CGRect(origin: .zero, size: size), ctx: cg)
+                }
+            }
+        }
+    }
+
+    /// What a parameter is *measured in*, which is not always what it is stored
+    /// as.
+    ///
+    /// Every mismatch here has cost a bug report. The angle was kept in radians
+    /// and printed under a label saying degrees, so the field read "1", "2",
+    /// "3". The ASCII cell height is a multiple of the cell's width and was
+    /// printed as a percentage, so a width of 19 pixels sat beside a height of
+    /// "160" — two numbers about the same cell that could not be compared.
+    static func unit(for info: EffectStack.ParameterInfo,
+                     of effect: Presentation.Effect,
+                     canvasSize: CGSize) -> ValueUnit {
+        let shortSide = min(canvasSize.width, canvasSize.height)
+        switch info.parameter {
+        case .scale:
+            return .pixels(basis: shortSide)
+        case .angle:
+            return .degrees
+        case .detail where effect.kind == .ascii:
+            // A line height, shown the way a line height is: in the same unit
+            // as the size it belongs to.
+            return .pixels(basis: max(1, effect.scale * shortSide))
+        // Otherwise told apart by the step, not by the range: a parameter that
+        // moves in whole numbers is a count of something — six colours — and
+        // one that moves in hundredths is a proportion. Reading the range
+        // instead made that same cell height show as "2".
+        case .detail:
+            return info.step >= 1 ? .count : .percent
+        case .amount, .color, .aberration, .glyphs:
+            return .percent
+        }
+    }
 
     /// Position is edited on the object, not on a slider: the four fields are
     /// the *measured* gaps between picture and canvas, and the buttons snap it
@@ -1164,54 +1535,121 @@ struct PresentationInspector: View {
     private var alignmentRow: some View {
         HStack(spacing: 6) {
             ForEach(Alignment.allCases) { item in
-                Button { align(item) } label: {
-                    Image(systemName: item.systemImage)
-                        .frame(maxWidth: .infinity)
+                panelIconButton(item.systemImage, stretch: true, label: item.titleKey) {
+                    align(item)
                 }
-                .controlSize(.large)
-                .help(item.titleKey)
-                .accessibilityLabel(item.titleKey)
             }
         }
     }
 
-    /// The four margins drawn where they are: around a small stand-in for the
-    /// picture. A column of four labelled fields made the reader work out which
-    /// side each one meant.
+    /// The four margins as two fields — one per axis — with a button that opens
+    /// them into four.
+    ///
+    /// The shape of the fields *is* the explanation: the field you type into is
+    /// the thing you are setting, and the glyph inside it says which sides that
+    /// is. Three earlier tries changed an invisible rule instead and left the
+    /// same four fields standing: a cross around a plate that meant nothing to
+    /// anyone, driven first by keyboard modifiers that could not work at all
+    /// (no modifier can be held while digits are typed) and then by a button in
+    /// the middle whose two states said nothing about what typing would do.
+    ///
+    /// The caption carries the unit for all of them: a "px" in every field says
+    /// the same thing four times, in the one place on the panel where there is
+    /// no room to say anything.
     private var gapGrid: some View {
         let gaps = PresentationLayout.gaps(resolvedLayout)
-        return VStack(spacing: Self.marginGap) {
-            gapField(.top, value: gaps.top)
-            HStack(spacing: Self.marginGap) {
-                gapField(.leading, value: gaps.leading)
-                // The picture's stand-in, sized to the gap between the fields
-                // so the cross reads as a frame around it rather than as four
-                // controls that happen to be near each other.
-                RoundedRectangle(cornerRadius: 4)
-                    .strokeBorder(.tertiary, style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
-                    .frame(width: Self.marginPlateWidth, height: 30)
-                gapField(.trailing, value: gaps.trailing)
+        let margins = Presentation.Margins(top: gaps.top, leading: gaps.leading,
+                                           bottom: gaps.bottom, trailing: gaps.trailing)
+        return VStack(alignment: .leading, spacing: Self.captionGap) {
+            Text("Margins, px")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+            HStack(alignment: .top, spacing: Self.marginGap) {
+                if marginsAreSplit {
+                    VStack(spacing: Self.marginGap) {
+                        HStack(spacing: Self.marginGap) {
+                            gapField(.side(.top), of: margins)
+                            gapField(.side(.bottom), of: margins)
+                        }
+                        HStack(spacing: Self.marginGap) {
+                            gapField(.side(.leading), of: margins)
+                            gapField(.side(.trailing), of: margins)
+                        }
+                    }
+                } else {
+                    HStack(spacing: Self.marginGap) {
+                        gapField(.vertical, of: margins)
+                        gapField(.horizontal, of: margins)
+                    }
+                }
+                splitMarginsButton
             }
-            gapField(.bottom, value: gaps.bottom)
         }
-        .frame(maxWidth: .infinity)
     }
 
-    private static let marginGap: CGFloat = 6
-    /// What is left in the middle once two fields and their gaps are placed.
-    private static let marginPlateWidth: CGFloat = 44
-
-    private func gapField(_ edge: PresentationLayout.Edge, value: CGFloat) -> some View {
-        NumberField(value: .constant(Double(value.rounded())), alignment: .center) { typed in
-            setGap(edge, to: CGFloat(typed))
+    /// Opens the two axis fields into four, one per side, and closes them
+    /// again. Figma's own control, and for its reason: two fields are what the
+    /// margins usually are, four is what they sometimes need to be, and the
+    /// button is the only thing on screen that has to be learned.
+    private var splitMarginsButton: some View {
+        panelIconButton(
+            marginsAreSplit ? "arrow.down.right.and.arrow.up.left"
+                            : "arrow.up.left.and.arrow.down.right",
+            role: .quiet,
+            label: marginsAreSplit ? "Join Margins" : "Split Margins"
+        ) {
+            marginsAreSplit.toggle()
         }
-        .frame(width: Self.numberFieldWidth)
-        // SwiftUI writes the environment's control size onto the wrapped
-        // NSControl, so a field outside a `.large` container is reset to the
-        // regular one — 22 points against the canvas row's 30. Measured.
-        .controlSize(.large)
-        .help(Self.gapTitle(edge))
-        .accessibilityLabel(Self.gapTitle(edge))
+        .disabled(!marginsAreFree)
+    }
+
+    private func gapField(_ target: MarginShorthand.Target,
+                          of margins: Presentation.Margins) -> some View {
+        let values = MarginShorthand.values(for: target, of: margins).map { Double($0) }
+        return HStack(spacing: 4) {
+            Image(systemName: Self.marginSymbol(target))
+                .font(.system(size: 10))
+                // The glyph is the only thing that tells these fields apart,
+                // so it is also where the field says it has the keyboard.
+                .foregroundStyle(editedMargin == target ? AnyShapeStyle(.tint)
+                                 : AnyShapeStyle(.secondary))
+            NumberField(values: Binding<[Double]>.constant(values),
+                        alignment: .center,
+                        onCommit: { (typed: [Double]) in
+                setGap(target, to: typed.map { CGFloat($0) }, from: margins)
+            }, onEditingChange: { editing in
+                editedMargin = editing ? target : (editedMargin == target ? nil : editedMargin)
+            })
+            // SwiftUI writes the environment's control size onto the wrapped
+            // NSControl, so a field outside a `.large` container is reset to
+            // the regular one — 22 points against the canvas row's 30.
+            .controlSize(.large)
+        }
+        .frame(maxWidth: .infinity)
+        .help(Self.marginTitle(target))
+        .accessibilityLabel(Self.marginTitle(target))
+    }
+
+    /// A rectangle with the sides the field stands for picked out — the same
+    /// idea as the little squares in Figma's padding fields, and the reason a
+    /// glyph belongs *inside* the field rather than on a button beside it.
+    static func marginSymbol(_ target: MarginShorthand.Target) -> String {
+        switch target {
+        case .vertical:          return "rectangle.split.1x2"
+        case .horizontal:        return "rectangle.split.2x1"
+        case .side(.top):        return "rectangle.tophalf.inset.filled"
+        case .side(.bottom):     return "rectangle.bottomhalf.inset.filled"
+        case .side(.leading):    return "rectangle.lefthalf.inset.filled"
+        case .side(.trailing):   return "rectangle.righthalf.inset.filled"
+        }
+    }
+
+    static func marginTitle(_ target: MarginShorthand.Target) -> LocalizedStringKey {
+        switch target {
+        case .vertical:        return "Top and Bottom Margins"
+        case .horizontal:      return "Left and Right Margins"
+        case .side(let edge):  return gapTitle(edge)
+        }
     }
 
     private static func gapTitle(_ edge: PresentationLayout.Edge) -> LocalizedStringKey {
@@ -1227,68 +1665,23 @@ struct PresentationInspector: View {
         PresentationLayout.resolve(imagePixelSize: document.pixelSize, draft)
     }
 
-    private func setGap(_ edge: PresentationLayout.Edge, to value: CGFloat) {
-        // On an auto page the margins *are* the page, so each one is simply
-        // itself: 50 on four sides is four numbers. On a fixed page there is a
-        // size to respect, so the picture resizes against the opposite edge.
-        if case .auto(var margins, let scale) = draft.canvas {
-            guard margins[edge] != value else { return }
-            margins[edge] = value
-            updateImmediately { $0.canvas = .auto(margins: margins, scale: scale) }
-            return
+    /// The field's door into `EditorDocument.setGap`. The document owns the
+    /// rule — the canvas drags the same sides — and what stays here is what
+    /// belongs to the fields alone: how far one typed number reaches.
+    /// The fields' door into `EditorDocument.setGap`. The document owns the
+    /// rule — the canvas drags the same sides — and what belongs to the fields
+    /// alone is how a typed list maps onto the four margins.
+    private func setGap(_ target: MarginShorthand.Target, to values: [CGFloat],
+                        from margins: Presentation.Margins) {
+        let updated = MarginShorthand.applied(values, from: target, to: margins)
+        guard updated != margins else { return }
+        document.beginChange()
+        // One Return is one undo step however many sides it reached.
+        for edge in PresentationLayout.Edge.allCases where updated[edge] != margins[edge] {
+            document.setGap(edge, to: updated[edge])
         }
-        let placement = PresentationLayout.placement(
-            draft.image, settingGap: edge, to: value,
-            imagePixelSize: document.pixelSize, canvasSize: canvasSize, in: draft
-        )
-        guard placement != draft.image else { return }
-        updateImmediately { $0.image = placement }
-    }
-
-    /// The one switch that says which of the two numbers is the input.
-    ///
-    /// On: the margins are, and the page size follows them — so all four can be
-    /// whatever you ask, 50 all round included. Off: the page size is, and the
-    /// margins follow it, which on a locked aspect ratio means they cannot all
-    /// be set independently. Flipping it never moves the picture: the state it
-    /// leaves behind is the one you were already looking at.
-    private func setFreeMargins(_ free: Bool) {
-        let layout = resolvedLayout
-        guard free != marginsAreFree else { return }
-        if free {
-            // Auto takes over exactly what is on screen — the margins *and* the
-            // size the picture was left at. Going 1:1, resizing, then back to
-            // Auto must not rewind to whatever Auto held before.
-            let gaps = PresentationLayout.gaps(layout)
-            let margins = Presentation.Margins(top: gaps.top.rounded(),
-                                               leading: gaps.leading.rounded(),
-                                               bottom: gaps.bottom.rounded(),
-                                               trailing: gaps.trailing.rounded())
-            let image = document.pixelSize
-            let scale = image.width > 0 ? layout.imageRect.width / image.width : 1
-            updateImmediately {
-                $0.canvas = .auto(margins: margins, scale: scale)
-                $0.image = .fitted
-            }
-            return
-        }
-        // Freezing the page: keep its current size, and describe the picture's
-        // present rectangle as a placement inside it.
-        let canvas = layout.canvasSize
-        let image = document.pixelSize
-        guard canvas.width > 0, canvas.height > 0, image.width > 0, image.height > 0,
-              layout.imageRect.width > 0 else { return }
-        let fit = min(canvas.width / image.width, canvas.height / image.height)
-        guard fit > 0 else { return }
-        let placement = Presentation.ImagePlacement(
-            center: CGPoint(x: layout.imageRect.midX / canvas.width,
-                            y: layout.imageRect.midY / canvas.height),
-            scale: layout.imageRect.width / (image.width * fit)
-        )
-        updateImmediately {
-            $0.canvas = .preset(pixelSize: canvas)
-            $0.image = placement
-        }
+        document.commitChange()
+        draft = document.presentation ?? draft
     }
 
     private var marginsAreFree: Bool {
@@ -1375,6 +1768,17 @@ struct PresentationInspector: View {
     /// thing and says it in the same place as everything else.
     private var shadowSection: some View {
         inspectorGroup("Shadow", section: .shadow) {
+            lightSwitch(isOn: shadowIsVisible,
+                        label: shadowIsVisible ? "Hide Shadow" : "Show Shadow") {
+                toggleShadow()
+            }
+        } content: {
+            // The switch is the section's one whole-block action, and it hides
+            // rather than resets: the radius and the offset survive the round
+            // trip, so turning the shadow back on returns the one you had.
+            // While it is off there is nothing to set, and the section says so
+            // — the switch itself stays live, since it is the way back.
+            Group {
             presentationSlider(
                 "Shadow Radius", id: "shadowRadius", systemImage: "circle.dotted",
                 value: shadowRadiusBinding,
@@ -1399,28 +1803,444 @@ struct PresentationInspector: View {
                 range: -0.1...0.1, step: 0.005,
                 unit: .pixels(basis: canvasSize.height)
             )
-            HStack(spacing: 8) {
+            // The caption sits above its controls, like "Presets", "Colors"
+            // and "From Archive" — the sliders in this section put their names
+            // on the left because a slider has no room above it, which is not
+            // a reason for a colour row to do the same.
+            //
+            // In its own stack, and that is the whole point of the stack: a
+            // caption left as a sibling of the row inherits the section's
+            // spacing between *controls* (14), so it floated twice as far from
+            // what it names as every other caption in the panel does.
+            VStack(alignment: .leading, spacing: Self.captionGap) {
                 Text("Shadow Color")
-                ColorChip(color: draft.shadow.color, diameter: Self.swatchSize,
-                          supportsOpacity: false) { picked in
-                    var color = picked
-                    // Opacity has its own slider; a colour that also carried
-                    // alpha would give two controls one number to fight over.
-                    color.alpha = 1
-                    updateImmediately { $0.shadow.color = color }
-                }
-                Spacer(minLength: 0)
-                // Same corner, same button as the canvas rotate: the section's
-                // one whole-block action. It hides rather than resets — the
-                // radius and the offset survive the round trip, so turning the
-                // shadow back on returns the one you had.
-                sectionActionButton(shadowIsVisible ? "eye" : "eye.slash",
-                                    label: shadowIsVisible ? "Hide Shadow" : "Show Shadow") {
-                    toggleShadow()
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                HStack(spacing: 8) {
+                    ColorChip(color: draft.shadow.color, diameter: Self.swatchSize,
+                              supportsOpacity: false) { setShadowColor($0) }
+                        .accessibilityLabel(Text("Shadow Color"))
+                    ColorField(color: draft.shadow.color) { setShadowColor($0) }
+                    Spacer(minLength: 0)
                 }
             }
             .font(.system(size: 11))
+            }
+            .disabled(!shadowIsVisible)
+            .opacity(shadowIsVisible ? 1 : 0.5)
         }
+    }
+
+    /// Light from behind the picture — the same drawing as the shadow, and a
+    /// section of its own because the two are wanted together: depth below,
+    /// colour all round.
+    private var glowSection: some View {
+        inspectorGroup("Glow", section: .glow) {
+            lightSwitch(isOn: glowIsVisible,
+                        label: glowIsVisible ? "Hide Glow" : "Show Glow") {
+                toggleGlow()
+            }
+        } content: {
+            Group {
+            presentationSlider(
+                "Glow Radius", id: "glowRadius", systemImage: "circle.dotted",
+                value: glowRadiusBinding,
+                range: 0...0.25, step: 0.005,
+                unit: .pixels(basis: max(canvasSize.width, canvasSize.height))
+            )
+            presentationSlider(
+                "Glow Opacity", id: "glowOpacity", systemImage: "circle.lefthalf.filled",
+                value: glowOpacityBinding,
+                range: 0...1, step: 0.01,
+                unit: .percent
+            )
+            VStack(alignment: .leading, spacing: Self.captionGap) {
+                Text("Glow Color")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                HStack(spacing: 8) {
+                    ColorChip(color: draft.glow.color, diameter: Self.swatchSize,
+                              supportsOpacity: false) { color in
+                        updateImmediately { $0.glow.color = color }
+                    }
+                    .accessibilityLabel(Text("Glow Color"))
+                    ColorField(color: draft.glow.color) { color in
+                        updateImmediately { $0.glow.color = color }
+                    }
+                    Spacer(minLength: 0)
+                }
+            }
+            .font(.system(size: 11))
+            }
+            .disabled(!glowIsVisible)
+            .opacity(glowIsVisible ? 1 : 0.5)
+        }
+    }
+
+    private var glowRadiusBinding: Binding<CGFloat> {
+        Binding(get: { draft.glow.radius }, set: { value in
+            updateLive { $0.glow.radius = value }
+        })
+    }
+
+    private var glowOpacityBinding: Binding<CGFloat> {
+        Binding(get: { draft.glow.opacity }, set: { value in
+            updateLive { $0.glow.opacity = value }
+        })
+    }
+
+    // MARK: Objects
+
+    /// The pictures placed on the page, each with its own settings, below the
+    /// page's own and above the button that throws the decoration away.
+    ///
+    /// The column keeps growing rather than swapping: a panel that changed its
+    /// meaning when something was selected would put the page's settings out of
+    /// reach exactly when somebody wants to compare an object against them. So
+    /// the page stays where it is and the objects follow it, folded, in the
+    /// order they were placed.
+    ///
+    /// They are not a layers panel. There is no z-order here, no visibility, no
+    /// naming — a picture is reached by clicking it on the canvas, and this is
+    /// where its settings are once it is.
+    @ViewBuilder private var objectSections: some View {
+        let pictures = document.annotations.filter { $0.kind == .picture }
+        if !pictures.isEmpty {
+            Divider()
+            ForEach(Array(pictures.enumerated()), id: \.element.id) { index, picture in
+                objectSection(picture, number: index + 2)
+            }
+        }
+    }
+
+    /// One placed picture: what it looks like, what it is called, and the two
+    /// lights it casts.
+    ///
+    /// Numbered from two, because the screenshot is the first image on the page
+    /// and the section above is already called Image.
+    private func objectSection(_ picture: Annotation, number: Int) -> some View {
+        let isOpen = openObjects.contains(picture.id) || document.selectedID == picture.id
+        let fold = {
+            withAnimation(.easeInOut(duration: 0.16)) {
+                if isOpen {
+                    openObjects.remove(picture.id)
+                    if document.selectedID == picture.id { document.selectedID = nil }
+                } else {
+                    openObjects.insert(picture.id)
+                    // Opening a section is a way of pointing at the object, so
+                    // the canvas points at it too.
+                    document.selectedID = picture.id
+                }
+            }
+        }
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+            Button(action: fold) {
+                HStack(spacing: 8) {
+                    objectThumbnail(picture)
+                    // The name asks for no width of its own — an ideal of
+                    // zero, a maximum of everything — so a long one in any
+                    // language takes the room that is there and truncates
+                    // rather than adding to what the panel says it needs.
+                    Text(String(format: String(localized: "Image %lld"), number))
+                        .font(.headline)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .frame(minWidth: 0, idealWidth: 0, maxWidth: .infinity,
+                               alignment: .leading)
+                }
+                .frame(minHeight: 28)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            // Where a light's switch sits in every other header: the one thing
+            // this block can be told to do as a whole. A picture is thrown away
+            // by a cross rather than by a button at the foot of its settings —
+            // that button could only be reached past everything the picture
+            // has, and only with the section open. A misclick is one ⌘Z.
+            panelIconButton("xmark", role: .quiet, label: "Remove Image") {
+                document.delete(id: picture.id)
+            }
+
+            Button(action: fold) {
+                Image(systemName: "chevron.forward")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.tertiary)
+                    .rotationEffect(.degrees(isOpen ? 90 : 0))
+                    .frame(minHeight: 28)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 6)
+
+            if isOpen {
+                // Four boxes rather than one box with rules in it. Every block
+                // is a heading and then its own controls — how big the picture
+                // is and how round, then each of its two lights, then its
+                // effects — and a box says where one ends and the next begins
+                // better than a line inside a single box can. The two lights
+                // are made of the same three controls, so run together they
+                // were the hardest of all to tell apart.
+                objectBlock {
+                    objectSizeRow(picture)
+                    presentationSlider(
+                        "Corner Radius", id: "object-radius-\(picture.id)",
+                        systemImage: "rectangle",
+                        value: objectBinding(picture.id, \.pictureCornerRadius),
+                        range: 0...0.5, step: 0.01,
+                        unit: .pixels(basis: min(picture.rect.width, picture.rect.height))
+                    )
+                }
+                objectBlock {
+                    objectLight(
+                        picture, "Shadow", systemImage: "square.filled.on.square",
+                        id: "object-shadow-\(picture.id)",
+                        amount: \.pictureShadow,
+                        colorTitle: "Shadow Color", color: picture.pictureShadowColor,
+                        show: "Show Shadow", hide: "Hide Shadow",
+                        setColor: { $0.pictureShadowColor = $1 }
+                    )
+                }
+                objectBlock {
+                    objectLight(
+                        picture, "Glow", systemImage: "sun.max",
+                        id: "object-glow-\(picture.id)",
+                        amount: \.pictureGlow,
+                        colorTitle: "Glow Color", color: picture.pictureGlowColor,
+                        show: "Show Glow", hide: "Hide Glow",
+                        setColor: { $0.pictureGlowColor = $1 }
+                    )
+                }
+                objectBlock {
+                    objectEffects(picture)
+                }
+            }
+        }
+    }
+
+    /// One block of a picture's settings, in a box of its own.
+    private func objectBlock<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        GroupBox {
+            VStack(alignment: .leading, spacing: Self.controlSpacing) {
+                content()
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(Self.groupPadding)
+        }
+    }
+
+    /// How big the picture is on the page, in canvas pixels, and whether the
+    /// two numbers are tied together.
+    ///
+    /// The chain is on to start with and is the same promise Shift makes on the
+    /// canvas: type one number and the other follows, so a photograph is not
+    /// squashed by being given a round width. Turning it off is how a picture
+    /// is deliberately stretched — rare, and it should take a decision.
+    private func objectSizeRow(_ picture: Annotation) -> some View {
+        let linked = !unlinkedObjects.contains(picture.id)
+        return VStack(alignment: .leading, spacing: Self.captionGap) {
+            Text("Size, px")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+            HStack(spacing: 8) {
+                objectSizeField(picture, "arrow.left.and.right",
+                                value: picture.rect.width, label: "Width") { typed in
+                    resizeObject(picture, width: typed, keepingRatio: linked)
+                }
+                objectSizeField(picture, "arrow.up.and.down",
+                                value: picture.rect.height, label: "Height") { typed in
+                    resizeObject(picture, height: typed, keepingRatio: linked)
+                }
+                // The margins' own button, and for the same reason: a control
+                // that changes its border when it is pressed changes its size
+                // with it, and the two fields beside it move every time. The
+                // glyph carries the state — a whole chain keeps the shape, a
+                // broken one lets it go — which is the whole of it, exactly as
+                // the margins' button is: a second signal in colour would be
+                // saying the same thing twice. A chain rather than a lock: a
+                // lock says "this may not be changed", and both numbers here
+                // may always be changed. What the button is about is whether
+                // they are tied to each other.
+                panelIconButton(linked ? "personalhotspot" : "personalhotspot.slash",
+                                role: .quiet,
+                                label: linked ? "Free Proportions" : "Keep Proportions") {
+                    if linked { unlinkedObjects.insert(picture.id) }
+                    else { unlinkedObjects.remove(picture.id) }
+                }
+            }
+        }
+    }
+
+    private func objectSizeField(_ picture: Annotation, _ systemImage: String,
+                                 value: CGFloat, label: LocalizedStringKey,
+                                 commit: @escaping (CGFloat) -> Void) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: systemImage)
+                .font(.system(size: 10))
+                .foregroundStyle(.secondary)
+            NumberField(value: .constant(Double(value.rounded())), alignment: .center) { typed in
+                commit(CGFloat(typed))
+            }
+            .controlSize(.large)
+        }
+        .frame(maxWidth: .infinity)
+        .help(label)
+        .accessibilityLabel(label)
+    }
+
+    /// One light on a placed picture: whether it is there at all, how strong,
+    /// what colour.
+    ///
+    /// The switch sits beside the name, which is what it is about — the light,
+    /// not the colour it happened to stand next to — and everything the light
+    /// is made of goes grey when it is off, so the panel says plainly that
+    /// there is nothing to set. Its number moves down to the end of the colour
+    /// row, where the switch used to be: the strength and the colour are the
+    /// two things a light *has*, and they read as a pair.
+    private func objectLight(_ picture: Annotation, _ title: LocalizedStringKey,
+                             systemImage: String, id: String,
+                             amount: WritableKeyPath<Annotation, CGFloat>,
+                             colorTitle: LocalizedStringKey, color: Presentation.Color,
+                             show: LocalizedStringKey, hide: LocalizedStringKey,
+                             setColor: @escaping (inout Annotation, Presentation.Color) -> Void)
+    -> some View {
+        let isOn = picture[keyPath: amount] > 0
+        let value = objectBinding(picture.id, amount)
+        return VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                Text(title)
+                    .font(.system(size: 11))
+                Spacer(minLength: 4)
+                lightSwitch(isOn: isOn, label: isOn ? hide : show) {
+                    toggleObjectLight(picture, amount)
+                }
+            }
+            VStack(alignment: .leading, spacing: Self.controlSpacing) {
+                Slider(value: snapping(value, range: 0...1, step: 0.05),
+                       in: 0...1, onEditingChanged: sliderEditingChanged)
+                VStack(alignment: .leading, spacing: Self.captionGap) {
+                Text(colorTitle)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                HStack(spacing: 8) {
+                    ColorChip(color: color, diameter: Self.swatchSize,
+                              supportsOpacity: false) { picked in
+                        updateObject(picture.id) { setColor(&$0, picked) }
+                    }
+                    .accessibilityLabel(Text(colorTitle))
+                    ColorField(color: color) { picked in
+                        updateObject(picture.id) { setColor(&$0, picked) }
+                    }
+                    Spacer(minLength: 4)
+                    valueField(value: value, range: 0...1, unit: .percent, id: id,
+                               width: Self.shortFieldWidth)
+                }
+                }
+            }
+            // Off is off: a slider that moves a number nobody draws, and a
+            // colour for a light that is not there, are worse than absent —
+            // they look like settings that do not work.
+            .disabled(!isOn)
+            .opacity(isOn ? 1 : 0.5)
+        }
+    }
+
+    /// The picture's own stack, in its own section — the same rows the page
+    /// has, minus the layer switch, because an object is one layer.
+    @ViewBuilder
+    private func objectEffects(_ picture: Annotation) -> some View {
+        let owner = EffectOwner.object(picture.id)
+        VStack(alignment: .leading, spacing: Self.controlSpacing) {
+            HStack(spacing: 8) {
+                Image(systemName: Section.effects.systemImage)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                Text("Effects")
+                    .font(.system(size: 11))
+                Spacer(minLength: 0)
+                sectionActionButton("plus", label: "Add Effect") {
+                    effectPicker = .add(owner)
+                }
+                .popover(isPresented: showingPicker(.add(owner)), arrowEdge: .bottom) {
+                    effectGrid(.add(owner))
+                }
+            }
+            ForEach(Array(picture.pictureEffects.enumerated()), id: \.element.id) { index, effect in
+                if index > 0 { Divider() }
+                effectRow(effect, of: owner)
+            }
+        }
+    }
+
+    /// Closes a light's eye, and opens it again on what it was worth. A number
+    /// of zero is what "off" means here, so hiding has to remember.
+    private func toggleObjectLight(_ picture: Annotation,
+                                   _ path: WritableKeyPath<Annotation, CGFloat>) {
+        let key = "\(picture.id)-\(path == \Annotation.pictureShadow ? "shadow" : "glow")"
+        let current = picture[keyPath: path]
+        if current > 0 {
+            hiddenObjectLights[key] = current
+            updateObject(picture.id) { $0[keyPath: path] = 0 }
+        } else {
+            let restored = hiddenObjectLights[key] ?? 0.35
+            updateObject(picture.id) { $0[keyPath: path] = restored }
+        }
+    }
+
+    /// A typed size, applied from the picture's top-left corner.
+    private func resizeObject(_ picture: Annotation, width: CGFloat? = nil,
+                              height: CGFloat? = nil, keepingRatio: Bool) {
+        let resized = Annotation.resized(picture.rect, width: width, height: height,
+                                         keepingRatio: keepingRatio)
+        guard resized != picture.rect else { return }
+        updateObject(picture.id) {
+            $0.start = resized.origin
+            $0.end = CGPoint(x: resized.maxX, y: resized.maxY)
+        }
+    }
+
+    private func objectThumbnail(_ picture: Annotation) -> some View {
+        Canvas { context, size in
+            context.withCGContext { cg in
+                guard let image = document.picture(for: picture.pictureID) else { return }
+                AnnotationRenderer.drawImageInFlippedSpace(
+                    image, in: CGRect(origin: .zero, size: size), ctx: cg)
+            }
+        }
+        .frame(width: 24, height: 18)
+        .clipShape(RoundedRectangle(cornerRadius: 3))
+        .overlay(RoundedRectangle(cornerRadius: 3).strokeBorder(.quaternary))
+        .accessibilityHidden(true)
+    }
+
+    /// A number on one placed picture, live: the slider drags the canvas and
+    /// the gesture is one undo step, exactly as the page's own sliders behave.
+    private func objectBinding(_ id: UUID,
+                               _ path: WritableKeyPath<Annotation, CGFloat>) -> Binding<CGFloat> {
+        Binding(
+            get: { document.annotations.first { $0.id == id }?[keyPath: path] ?? 0 },
+            set: { value in updateObjectLive(id) { $0[keyPath: path] = value } }
+        )
+    }
+
+    /// One discrete change to one object, and one step of undo — what a chip,
+    /// a menu or a button does.
+    private func updateObject(_ id: UUID, _ mutation: (inout Annotation) -> Void) {
+        document.beginChange()
+        updateObjectLive(id, mutation)
+        document.commitChange()
+    }
+
+    /// The same, without a step of its own: a slider opens one for the whole
+    /// drag (`sliderEditingChanged`), so every tick in between must not.
+    private func updateObjectLive(_ id: UUID, _ mutation: (inout Annotation) -> Void) {
+        guard let index = document.annotations.firstIndex(where: { $0.id == id }) else { return }
+        mutation(&document.annotations[index])
     }
 
     /// Throwing the decoration away is the one thing in this panel that undoes
@@ -1428,42 +2248,111 @@ struct PresentationInspector: View {
     /// line of tinted text that reads as a caption. It keeps the destructive
     /// role, which is what makes it red, and a rule above it so it is plainly
     /// not part of the last section.
-    private var removeButton: some View {
+    private var removePresentationButton: some View {
         VStack(spacing: Self.sectionSpacing) {
             Divider()
-            Button(role: .destructive) {
-                removePresentation()
-            } label: {
-                Label("Remove Decor", systemImage: "trash")
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.large)
-            .disabled(document.presentation == nil)
+            removeButton("Remove Decor", systemImage: "trash") { removePresentation() }
+                .disabled(document.presentation == nil)
         }
+    }
+
+    /// On or off, for a thing that has a number: the shadow, the glow, and the
+    /// same two on any placed picture.
+    ///
+    /// A switch rather than the eye it replaces. An icon button says one thing
+    /// and is read as two — "this is showing" and "press to show" are the same
+    /// picture — and the only way to know which was to press it and watch.
+    /// A switch has no such question in it: what it looks like *is* the state,
+    /// which is what the control is for everywhere else in the system.
+    ///
+    /// Off means a number of zero, so switching off has to remember what the
+    /// number was; each caller keeps its own memory and hands over an action
+    /// rather than a binding.
+    private func lightSwitch(isOn: Bool, label: LocalizedStringKey,
+                             toggle: @escaping () -> Void) -> some View {
+        Toggle("", isOn: Binding(get: { isOn }, set: { _ in toggle() }))
+            .labelsHidden()
+            .toggleStyle(.switch)
+            .controlSize(.mini)
+            .help(label)
+            .accessibilityLabel(Text(label))
+    }
+
+    /// The button that throws something away: the panel has two of them — all
+    /// the decoration, and one picture — and they are the same button. Full
+    /// width and full height, because a destructive action is not something to
+    /// aim at, and a shorter one would only look like a different kind of
+    /// control. What differs is the glyph, so that two of them in one column
+    /// are not mistaken for each other.
+    private func removeButton(_ title: LocalizedStringKey, systemImage: String,
+                              action: @escaping () -> Void) -> some View {
+        Button(role: .destructive, action: action) {
+            Label(title, systemImage: systemImage)
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.large)
     }
 
     // MARK: Building blocks
 
+    /// Every glyph button in the panel, from one place.
+    ///
+    /// They were written five times over and came out five sizes: a 13pt glyph
+    /// in 22×22 for a section's action, an 11pt one in 20×20 on an effect row,
+    /// another 11pt in 26×30 beside the margins, a bare 28-wide one under the
+    /// picture, and the alignment row with no size of its own at all. Nothing
+    /// chose those numbers; they were each written where they were needed.
+    ///
+    /// One square, one glyph size, one control size. What a caller still
+    /// chooses is how loud the button is — `bordered` for an action that stands
+    /// on its own, `quiet` for one that lives inside a row it must not shout
+    /// over — and whether it stretches, which is how a row of them divides the
+    /// panel evenly.
+    private func panelIconButton(
+        _ systemImage: String,
+        role: PanelButtonRole = .bordered,
+        stretch: Bool = false,
+        label: LocalizedStringKey,
+        action: @escaping () -> Void
+    ) -> some View {
+        // Two branches rather than one erased style: `buttonStyle` takes a
+        // concrete type, and the two SwiftUI offers here share no box.
+        Group {
+            if role == .bordered {
+                Button(action: action) { panelButtonLabel(systemImage, stretch: stretch) }
+                    .buttonStyle(.bordered)
+            } else {
+                Button(action: action) { panelButtonLabel(systemImage, stretch: stretch) }
+                    .buttonStyle(.borderless)
+            }
+        }
+        .controlSize(.large)
+        .help(label)
+        .accessibilityLabel(Text(label))
+    }
+
+    private func panelButtonLabel(_ systemImage: String, stretch: Bool) -> some View {
+        Image(systemName: systemImage)
+            .font(.system(size: 13))
+            .frame(width: stretch ? nil : Self.buttonSide, height: Self.buttonSide)
+            .frame(maxWidth: stretch ? .infinity : nil)
+            // The frame is the target, not the glyph: a label that is only a
+            // stroked shape takes clicks on the stroke alone, which is how a
+            // button here once came to look broken.
+            .contentShape(Rectangle())
+    }
+
+    enum PanelButtonRole { case bordered, quiet }
+
     /// A section's one whole-block action, in the trailing corner of its last
-    /// row: rotate for the canvas, hide/show for the shadow. One builder, so
-    /// the two are the same button rather than two buttons that happen to look
-    /// alike — they sit in rows with different fonts, and inheriting those made
-    /// them different sizes.
+    /// row: the "+" for effects, hide/show for the shadow.
     private func sectionActionButton(
         _ systemImage: String,
         label: LocalizedStringKey,
         action: @escaping () -> Void
     ) -> some View {
-        Button(action: action) {
-            Image(systemName: systemImage)
-                .font(.system(size: 13))
-                .frame(width: Self.sectionActionSize, height: Self.sectionActionSize)
-        }
-        .buttonStyle(.bordered)
-        .controlSize(.large)
-        .help(label)
-        .accessibilityLabel(Text(label))
+        panelIconButton(systemImage, label: label, action: action)
     }
 
     /// The group's own title is the only title: the controls inside carry no
@@ -1471,9 +2360,10 @@ struct PresentationInspector: View {
     /// gone. The title is also the fold control — the whole header row is the
     /// hit target, not just the chevron, because the row is what reads as
     /// clickable at this size.
-    private func inspectorGroup<Content: View>(
+    private func inspectorGroup<Content: View, Accessory: View>(
         _ title: LocalizedStringKey,
         section: Section,
+        @ViewBuilder accessory: () -> Accessory = { EmptyView() },
         @ViewBuilder content: () -> Content
     ) -> some View {
         let isExpanded = !collapsed.contains(section)
@@ -1481,34 +2371,49 @@ struct PresentationInspector: View {
         // around would leave its container — padding and all — visible under
         // the title, which reads as a rendering fault rather than as a folded
         // section.
+        let fold = {
+            withAnimation(.easeInOut(duration: 0.16)) {
+                if isExpanded { collapsed.insert(section) }
+                else { collapsed.remove(section) }
+            }
+        }
+        // Two buttons rather than one, so that a switch can stand between the
+        // name and the chevron: a control inside a button's label is a picture
+        // of a control — the press belongs to the button around it. Both halves
+        // fold the section, so the row still behaves as one strip.
         return VStack(alignment: .leading, spacing: 6) {
-            Button {
-                withAnimation(.easeInOut(duration: 0.16)) {
-                    if isExpanded { collapsed.insert(section) }
-                    else { collapsed.remove(section) }
+            HStack(spacing: 8) {
+                Button(action: fold) {
+                    HStack(spacing: 8) {
+                        Image(systemName: section.systemImage)
+                            .font(.system(size: 13))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 18)
+                        Text(title).font(.headline)
+                        Spacer(minLength: 0)
+                    }
+                    // The whole row is the target, and it is tall enough to hit
+                    // without aiming: a 13pt headline alone is a 16pt-high strip.
+                    .frame(minHeight: 28)
+                    .contentShape(Rectangle())
                 }
-            } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: section.systemImage)
-                        .font(.system(size: 13))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 18)
-                    Text(title).font(.headline)
-                    Spacer(minLength: 0)
+                .buttonStyle(.plain)
+
+                accessory()
+
+                Button(action: fold) {
                     // Trailing, where a disclosure control belongs once the row
                     // opens with an icon of its own.
                     Image(systemName: "chevron.forward")
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(.tertiary)
                         .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                        .frame(minHeight: 28)
+                        .contentShape(Rectangle())
                 }
-                // The whole row is the target, and it is tall enough to hit
-                // without aiming: a 13pt headline alone is a 16pt-high strip.
-                .frame(minHeight: 28)
-                .padding(.horizontal, 6)
-                .contentShape(Rectangle())
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
+            .padding(.horizontal, 6)
 
             if isExpanded {
                 GroupBox {
@@ -1522,14 +2427,21 @@ struct PresentationInspector: View {
         }
     }
 
+    /// A row of choices drawn as pictures of themselves.
+    ///
+    /// The column count is the caller's, because the two users of this grid are
+    /// counting different things: the four kinds of background are a row, like
+    /// the gallery of presets under them, while the effects are a list of
+    /// twelve that reads better three abreast.
     private func tileGrid<Choice: Identifiable & Hashable, Tile: View>(
         _ choices: [Choice],
         selected: Choice?,
+        columns: Int = 3,
         @ViewBuilder tile: @escaping (Choice) -> Tile,
         action: @escaping (Choice) -> Void
     ) -> some View {
         LazyVGrid(
-            columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3),
+            columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: columns),
             spacing: 8
         ) {
             ForEach(choices) { choice in
@@ -1562,7 +2474,9 @@ struct PresentationInspector: View {
     /// the panel is the same width and their right edges line up. A trailing
     /// "px" caption pushed each field left by a different amount depending on
     /// the unit's own width.
-    private enum ValueUnit {
+    enum ValueUnit: Equatable {
+        /// A plain number, shown as it stands: six colours is six.
+        case count
         /// A canvas fraction shown as pixels of `basis` — the same length the
         /// renderer multiplies that fraction by.
         case pixels(basis: CGFloat)
@@ -1578,14 +2492,42 @@ struct PresentationInspector: View {
     /// width: the canvas row carries two of them plus the × and the rotate
     /// button, and the margins carry two plus the picture's stand-in.
     private static let numberFieldWidth: CGFloat = 100
+    /// For a number that shares its row with the colour field: the two of them
+    /// at full width asked for 326 points where the panel's own minimum is 320,
+    /// and the inspector column grew by the difference the moment a picture was
+    /// placed. A percentage never needs more than three digits.
+    private static let shortFieldWidth: CGFloat = 62
     /// The panel's rhythm, in one place: between sections, and between the
     /// controls inside one.
     private static let sectionSpacing: CGFloat = 16
     private static let controlSpacing: CGFloat = 14
+    /// Between a caption and the thing it names. Every caption in the panel —
+    /// "Presets", "Colors", "From Archive", "Corners", "Margins, px" — sits
+    /// this far above its controls, and the shadow's colour drifted to the
+    /// section's own control spacing until it was given a stack of its own.
+    private static let captionGap: CGFloat = 6
+    /// Between the margin fields and the button beside them.
+    private static let marginGap: CGFloat = 6
     /// Breathing room inside a section's box, on top of what `GroupBox` gives.
     /// Its own inset is about half of what the app's settings cards use, and
     /// beside them the panel looked cramped rather than compact.
     private static let groupPadding: CGFloat = 8
+
+    /// A value that lands on the step, whatever the slider hands over. Its own
+    /// function because two sliders now share it — the panel's own, and the
+    /// bare one an object's light draws under its name.
+    private func snapping(_ value: Binding<CGFloat>, range: ClosedRange<CGFloat>,
+                          step: CGFloat) -> Binding<CGFloat> {
+        Binding(
+            get: { value.wrappedValue },
+            set: { raw in
+                let detents = ((raw - range.lowerBound) / step).rounded()
+                value.wrappedValue = min(range.upperBound,
+                                         max(range.lowerBound,
+                                             range.lowerBound + detents * step))
+            }
+        )
+    }
 
     /// A slider **and** a typed field for the same number.
     ///
@@ -1602,16 +2544,7 @@ struct PresentationInspector: View {
         step: CGFloat,
         unit: ValueUnit
     ) -> some View {
-        let snapped = Binding<CGFloat>(
-            get: { value.wrappedValue },
-            set: { raw in
-                let detents = ((raw - range.lowerBound) / step).rounded()
-                value.wrappedValue = min(
-                    range.upperBound,
-                    max(range.lowerBound, range.lowerBound + detents * step)
-                )
-            }
-        )
+        let snapped = snapping(value, range: range, step: step)
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
                 Image(systemName: systemImage)
@@ -1630,7 +2563,8 @@ struct PresentationInspector: View {
     private func valueField(value: Binding<CGFloat>,
                             range: ClosedRange<CGFloat>,
                             unit: ValueUnit,
-                            id: String) -> some View {
+                            id: String,
+                            width: CGFloat = numberFieldWidth) -> some View {
         let commit: (CGFloat) -> Void = { fraction in
             let clamped = min(range.upperBound, max(range.lowerBound, fraction))
             guard clamped != value.wrappedValue else { return }
@@ -1642,7 +2576,7 @@ struct PresentationInspector: View {
         switch unit {
         case .pixels(let basis): shown = (Double(value.wrappedValue) * Double(basis)).rounded()
         case .percent:           shown = (Double(value.wrappedValue) * 100).rounded()
-        case .degrees:           shown = Double(value.wrappedValue.rounded())
+        case .degrees, .count:   shown = Double(value.wrappedValue.rounded())
         }
         return NumberField(value: .constant(shown)) { typed in
             switch unit {
@@ -1651,12 +2585,12 @@ struct PresentationInspector: View {
                 commit(CGFloat(typed) / basis)
             case .percent:
                 commit(CGFloat(typed) / 100)
-            case .degrees:
+            case .degrees, .count:
                 commit(CGFloat(typed))
             }
         }
         .controlSize(.large)
-        .frame(width: Self.numberFieldWidth)
+        .frame(width: width)
     }
 
     private func sliderEditingChanged(_ editing: Bool) {
@@ -1669,21 +2603,10 @@ struct PresentationInspector: View {
     /// Which format the page currently is — nil when it is a size of your own,
     /// or when the margins are free and there is no fixed size at all. Nothing
     /// is highlighted then, which is the truth.
-    private var canvasChoice: CanvasChoice? {
-        guard case .preset(let pixelSize) = draft.canvas else { return .auto }
-        let turned = CGSize(width: pixelSize.height, height: pixelSize.width)
-        // Either orientation counts: rotating a format does not turn it into a
-        // different one. Nothing matches a size you typed — nothing is
-        // highlighted then, which is the truth.
-        return CanvasChoice.allCases.first {
-            guard let preset = $0.pixelSize else { return false }
-            return preset == pixelSize || preset == turned
-        }
-    }
-
     /// A transparent shadow is a shadow that is not there — the section needs no
     /// separate switch to say so.
     var shadowIsVisible: Bool { draft.shadow.opacity > 0 }
+    var glowIsVisible: Bool { draft.glow.opacity > 0 }
 
     /// What the hide button turns *on* when there is nothing to bring back: a
     /// soft drop sitting slightly below the picture. Restoring only the opacity
@@ -1692,6 +2615,25 @@ struct PresentationInspector: View {
         radius: 0.05, offset: CGPoint(x: 0, y: 0.02), opacity: 0.35)
 
     /// Hides the shadow without forgetting it, or brings it back.
+    /// Light off, and back on as it was. The glow is two numbers rather than
+    /// four, so the rule is the shadow's without the offset.
+    func toggleGlow() {
+        if draft.glow.opacity > 0 {
+            hiddenGlow = draft.glow
+            updateImmediately { $0.glow.opacity = 0 }
+        } else {
+            var shown = draft.glow
+            if let hiddenGlow {
+                shown.radius = hiddenGlow.radius
+                shown.opacity = hiddenGlow.opacity
+            }
+            if shown.opacity <= 0 { shown.opacity = 0.5 }
+            if shown.radius <= 0 { shown.radius = 0.08 }
+            hiddenGlow = nil
+            updateImmediately { $0.glow = shown }
+        }
+    }
+
     func toggleShadow() {
         let (shadow, remembered) = Self.shadowToggled(draft.shadow, remembered: hiddenShadow)
         hiddenShadow = remembered
@@ -1726,106 +2668,8 @@ struct PresentationInspector: View {
     }
 
     /// Turns the canvas a quarter, keeping the same format selected.
-    private func rotateCanvas() {
-        let size = canvasSize
-        let turned = CGSize(width: size.height, height: size.width)
-        updateImmediately { $0.canvas = .preset(pixelSize: turned) }
-    }
-
-    private var canvasIsPortrait: Bool {
-        canvasSize.height > canvasSize.width
-    }
-
-    /// Custom keeps whatever size is on screen and simply hands it over to the
-    /// user — it is a mode, not a different number, so it stays selectable even
-    /// when the current size happens to match a preset exactly.
-    /// Choosing a format fixes the page, so free margins switch off with it —
-    /// otherwise the format would mean nothing, the size being derived from the
-    /// margins anyway.
-    private func selectCanvas(_ choice: CanvasChoice) {
-        guard let presetSize = choice.pixelSize else {
-            setFreeMargins(true)
-            return
-        }
-        let canvas: Presentation.Canvas = .preset(pixelSize: presetSize)
-        // Leaving "Original" for a real format is the moment a decoration
-        // starts, so it starts framed rather than edge to edge. Only then:
-        // a padding the user has since chosen (zero included) is theirs.
-        let framesForTheFirstTime = draft.image == .fitted
-        let framed = PresentationLayout.placement(
-            framingWith: Presentation.defaultMargin,
-            imagePixelSize: document.pixelSize,
-            canvasSize: {
-                if case .preset(let size) = canvas { return size }
-                return document.pixelSize
-            }()
-        )
-        updateImmediately {
-            $0.canvas = canvas
-            if framesForTheFirstTime {
-                $0.image = framed
-                // A transparent canvas is a deliberate choice, not a starting
-                // point: the first thing a format should show is a framed shot
-                // on a real background.
-                if case .none = $0.background { $0.background = .solid(.white) }
-            }
-        }
-    }
-
     private var canvasSize: CGSize {
         resolvedLayout.canvasSize
-    }
-
-    /// Shows the size the page *is* — an auto page grows with its margins, and
-    /// a field that kept showing the last custom number instead would be the
-    /// same kind of lie the margins used to tell. Typing is what makes it
-    /// custom.
-    private func customDimensionBinding(_ dimension: CanvasDimension) -> Binding<Int> {
-        Binding(
-            get: {
-                let live = canvasSize
-                let value = dimension == .width ? live.width : live.height
-                return max(1, Int(value.rounded()))
-            },
-            set: { setCustomDimension(dimension, to: $0) }
-        )
-    }
-
-    /// Typing a size is itself the act of going custom, so the fields select
-    /// the Custom tile instead of quietly rewriting the preset that is active.
-    ///
-    /// The equality guard is not an optimisation. A `TextField(value:format:)`
-    /// writes its parsed value back as the field appears, and without this the
-    /// canvas jumped to Custom the moment the inspector was merely opened —
-    /// measured, not supposed. Opening the panel must change nothing.
-    private func setCustomDimension(_ dimension: CanvasDimension, to value: Int) {
-        let safeValue = CGFloat(min(16384, max(1, value)))
-        let live = canvasSize
-        let current = dimension == .width ? live.width : live.height
-        guard safeValue != current.rounded() else { return }
-        // On an auto page the size is still yours to set — the margins take up
-        // the difference and the picture is left alone. Typing a size on a
-        // fixed page simply sets that page's size.
-        if case .auto(var margins, let scale) = draft.canvas {
-            let delta = safeValue - current
-            if dimension == .width {
-                let split = PresentationLayout.absorb(delta, into: margins.leading,
-                                                      and: margins.trailing)
-                margins.leading = split.near
-                margins.trailing = split.far
-            } else {
-                let split = PresentationLayout.absorb(delta, into: margins.top,
-                                                      and: margins.bottom)
-                margins.top = split.near
-                margins.bottom = split.far
-            }
-            updateImmediately { $0.canvas = .auto(margins: margins, scale: scale) }
-            return
-        }
-        var size = live
-        if dimension == .width { size.width = safeValue }
-        else { size.height = safeValue }
-        updateImmediately { $0.canvas = .preset(pixelSize: size) }
     }
 
     // MARK: Background state
@@ -1834,6 +2678,7 @@ struct PresentationInspector: View {
         switch draft.background {
         case .none:           return .none
         case .solid:          return .solid
+        case .picture:        return .picture
         case .linearGradient,
              .radialGradient,
              .mesh:           return .gradient
@@ -1841,23 +2686,56 @@ struct PresentationInspector: View {
     }
 
     private func setBackgroundKind(_ kind: BackgroundKind) {
-        let carried = draft.background.stops
-        let stops = carried.count >= 2 ? carried : Self.defaultStops
-        let next: Presentation.Background
         switch kind {
         case .none:
-            next = .none
+            drawers.keep(draft.background)
+            updateImmediately { $0.background = .none }
         case .solid:
-            if case .solid(let color) = draft.background { next = .solid(color) }
-            else { next = .solid(carried.first ?? .white) }
+            switchBackground(to: .solid)
         case .gradient:
-            switch draft.background {
-            case .linearGradient, .radialGradient, .mesh:
-                next = draft.background
-            default:
-                next = .linearGradient(stops: stops, angle: .pi / 2)
+            // Back to the gradient you were last in, not to a linear one you
+            // may never have chosen.
+            switchBackground(to: drawers.lastGradient)
+        case .picture:
+            switchBackground(to: .picture)
+            // A page of pictures with no picture yet asks for one straight
+            // away: the tile is the question, and the file dialog is where it
+            // is answered. Coming back to a picture already chosen asks
+            // nothing.
+            if document.picture(for: draft.background.pictureID) == nil {
+                chooseBackgroundPicture()
             }
         }
+    }
+
+    /// The file dialog behind the picture tile.
+    private func chooseBackgroundPicture() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.image]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.prompt = String(localized: "Use as Background")
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        loadBackgroundPicture(from: url)
+    }
+
+    private func loadBackgroundPicture(from url: URL) {
+        guard document.useBackgroundPicture(at: url) else {
+            UserFacingError.present(.backgroundPictureUnreadable)
+            return
+        }
+        draft = document.presentation ?? draft
+    }
+
+    /// Moving between the four drawers puts back what was in the one you are
+    /// entering and keeps what was in the one you are leaving — the rules, and
+    /// the reason for them, are in `BackgroundDrawers`.
+    private func switchBackground(to drawer: BackgroundDrawers.Drawer) {
+        guard BackgroundDrawers.drawer(of: draft.background) != drawer else { return }
+        var drawers = self.drawers
+        let next = drawers.switching(from: draft.background, to: drawer,
+                                     angle: currentGradientAngle)
+        self.drawers = drawers
         updateImmediately { $0.background = next }
     }
 
@@ -1875,7 +2753,7 @@ struct PresentationInspector: View {
 
     private var meshSeedBinding: Binding<SwiftUI.Color> {
         Binding(
-            get: { swiftUIColor(draft.background.stops.first ?? Self.fallbackColor) },
+            get: { swiftUIColor(draft.background.colors.first ?? Self.fallbackColor) },
             set: { setMeshColor(presentationColor($0)) }
         )
     }
@@ -1892,19 +2770,10 @@ struct PresentationInspector: View {
     /// gradient drawn a different way, so nothing the user picked is discarded.
     private var gradientShapeBinding: Binding<GradientShape> {
         Binding(get: { gradientShape }, set: { shape in
-            let stops = currentStops
-            let angle = currentGradientAngle
-            updateImmediately { presentation in
-                switch shape {
-                case .linear:
-                    presentation.background = .linearGradient(stops: stops, angle: angle)
-                case .radial:
-                    presentation.background = .radialGradient(stops: stops)
-                case .mesh:
-                    // The colours carry across: two stops become the two ends
-                    // of a four-corner spread rather than being thrown away.
-                    presentation.background = .mesh(colors: Self.meshCorners(from: stops))
-                }
+            switch shape {
+            case .linear: switchBackground(to: .linear)
+            case .radial: switchBackground(to: .radial)
+            case .mesh:   switchBackground(to: .mesh)
             }
         })
     }
@@ -1914,28 +2783,12 @@ struct PresentationInspector: View {
         return .pi / 2
     }
 
-    private var currentStops: [Presentation.Color] {
+    private var currentStops: [Presentation.Stop] {
         let stops = draft.background.stops
-        return stops.count >= 2 ? stops : Self.defaultStops
+        return stops.count >= 2 ? stops : Presentation.Stop.spread(Self.defaultStops)
     }
 
-    private func stopBinding(at index: Int) -> Binding<SwiftUI.Color> {
-        Binding(
-            get: {
-                let stops = currentStops
-                guard stops.indices.contains(index) else { return .clear }
-                return swiftUIColor(stops[index])
-            },
-            set: { newValue in
-                var stops = currentStops
-                guard stops.indices.contains(index) else { return }
-                stops[index] = presentationColor(newValue)
-                setStops(stops)
-            }
-        )
-    }
-
-    private func setStops(_ stops: [Presentation.Color]) {
+    private func setStops(_ stops: [Presentation.Stop]) {
         updateImmediately {
             switch $0.background {
             case .radialGradient:
@@ -1948,27 +2801,14 @@ struct PresentationInspector: View {
         }
     }
 
-    private func addStop() {
-        var stops = currentStops
-        guard stops.count < 5, let last = stops.last else { return }
-        stops.append(Self.mix(last, .black, amount: 0.35))
-        setStops(stops)
-    }
-
-    private func removeStop() {
-        var stops = currentStops
-        guard stops.count > 2 else { return }
-        stops.removeLast()
-        setStops(stops)
-    }
-
-    /// A palette tap edits the stop nearest to "the one you are working on":
-    /// the last. Picking colors for a gradient is otherwise a trip through the
-    /// system color panel for every stop.
-    private func appendOrReplaceLastStop(_ color: Presentation.Color) {
-        var stops = currentStops
-        stops[stops.count - 1] = color
-        setStops(stops)
+    /// A palette or archive tap paints the stop the user has selected — the
+    /// one wearing the ring. That is the whole reason the row has a selection:
+    /// picking colours for a gradient is otherwise a trip through the system
+    /// colour panel for every stop.
+    private func setSelectedStopColor(_ color: Presentation.Color) {
+        let stops = currentStops
+        let index = GradientStops.clampedSelection(selectedStop, in: stops)
+        setStops(GradientStops.recolored(stops, at: index, to: color))
     }
 
     private func setSolidColor(_ color: Presentation.Color) {
@@ -1989,13 +2829,7 @@ struct PresentationInspector: View {
     private static func mix(_ lhs: Presentation.Color,
                             _ rhs: Presentation.Color,
                             amount: CGFloat) -> Presentation.Color {
-        let t = min(1, max(0, amount))
-        return Presentation.Color(
-            red: lhs.red + (rhs.red - lhs.red) * t,
-            green: lhs.green + (rhs.green - lhs.green) * t,
-            blue: lhs.blue + (rhs.blue - lhs.blue) * t,
-            alpha: lhs.alpha + (rhs.alpha - lhs.alpha) * t
-        )
+        GradientStops.blend(lhs, rhs, amount: amount)
     }
 
     private func sampledBackgroundColors() -> [Presentation.Color] {
@@ -2053,6 +2887,14 @@ struct PresentationInspector: View {
         })
     }
 
+    /// Opacity has its own slider; a colour that also carried alpha would give
+    /// two controls one number to fight over.
+    private func setShadowColor(_ color: Presentation.Color) {
+        var opaque = color
+        opaque.alpha = 1
+        updateImmediately { $0.shadow.color = opaque }
+    }
+
     private var shadowColorBinding: Binding<SwiftUI.Color> {
         Binding(
             get: { swiftUIColor(draft.shadow.color) },
@@ -2067,6 +2909,86 @@ struct PresentationInspector: View {
     }
 
     // MARK: Document mutations
+
+    /// Whichever stack the row belongs to, read.
+    private func effects(of owner: EffectOwner) -> [Presentation.Effect] {
+        switch owner {
+        case .page: return draft.effects
+        case .object(let id):
+            return document.annotations.first { $0.id == id }?.pictureEffects ?? []
+        }
+    }
+
+    /// …and written. One undo step per call, or none of its own when `live` —
+    /// a slider's whole drag is one step, opened and closed by the slider.
+    private func setEffects(of owner: EffectOwner, live: Bool = false,
+                            _ mutation: (inout [Presentation.Effect]) -> Void) {
+        switch owner {
+        case .page:
+            if live { updateLive { mutation(&$0.effects) } }
+            else { updateImmediately { mutation(&$0.effects) } }
+        case .object(let id):
+            if live { updateObjectLive(id) { mutation(&$0.pictureEffects) } }
+            else { updateObject(id) { mutation(&$0.pictureEffects) } }
+        }
+    }
+
+    private func addEffect(_ kind: Presentation.Effect.Kind, to owner: EffectOwner) {
+        let background = draft.background
+        setEffects(of: owner) { $0.append(EffectStack.make(kind, over: background)) }
+    }
+
+    private func removeEffect(_ effect: Presentation.Effect, from owner: EffectOwner) {
+        setEffects(of: owner) { $0.removeAll { $0.id == effect.id } }
+    }
+
+    private func moveEffect(from: Int, to: Int, of owner: EffectOwner) {
+        setEffects(of: owner) { $0 = EffectStack.moved($0, from: from, to: to).effects }
+    }
+
+    /// The same row, made into another kind of effect.
+    private func setEffectKind(_ effect: Presentation.Effect,
+                               to kind: Presentation.Effect.Kind,
+                               of owner: EffectOwner) {
+        guard kind != effect.kind else { return }
+        let background = draft.background
+        setEffects(of: owner) { stack in
+            guard let index = stack.firstIndex(where: { $0.id == effect.id }) else { return }
+            stack[index] = EffectStack.changing(effect, to: kind, over: background)
+        }
+    }
+
+    /// One effect changed in place. Discrete, so it is its own undo step —
+    /// unlike a slider, which groups the whole drag.
+    private func setEffect(_ effect: Presentation.Effect, of owner: EffectOwner,
+                           _ mutation: (inout Presentation.Effect) -> Void) {
+        setEffects(of: owner) { stack in
+            guard let index = stack.firstIndex(where: { $0.id == effect.id }) else { return }
+            mutation(&stack[index])
+        }
+    }
+
+    /// A parameter of one effect, live: the slider drags the picture and the
+    /// gesture is one undo step (`sliderEditingChanged`), exactly as the shadow
+    /// sliders do.
+    private func effectBinding(_ effect: Presentation.Effect,
+                               _ parameter: EffectStack.Parameter,
+                               of owner: EffectOwner) -> Binding<CGFloat> {
+        Binding(
+            get: {
+                guard let current = effects(of: owner).first(where: { $0.id == effect.id })
+                else { return 0 }
+                return EffectStack.value(parameter, of: current)
+            },
+            set: { value in
+                setEffects(of: owner, live: true) { stack in
+                    guard let index = stack.firstIndex(where: { $0.id == effect.id })
+                    else { return }
+                    stack[index] = EffectStack.setting(parameter, of: stack[index], to: value)
+                }
+            }
+        )
+    }
 
     private func updateLive(_ mutation: (inout Presentation) -> Void) {
         var next = draft

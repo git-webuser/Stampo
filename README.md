@@ -16,7 +16,23 @@ Stampo replaces the usual screenshot workflow with a panel that opens when you c
 
 ## Installation
 
+### Homebrew — the short way
+
+Stampo isn't notarized yet, and `--no-quarantine` is what keeps macOS from
+flagging the download: the app opens on the first double-click with nothing to
+approve.
+
+```bash
+brew tap git-webuser/stampo https://github.com/git-webuser/Stampo
+brew install --cask --no-quarantine stampo
+```
+
+Update later with `brew upgrade --cask stampo`.
+
 ### Download the DMG
+
+No terminal, but four more steps — macOS blocks the first launch of an
+un-notarized app and you have to allow it by hand:
 
 1. Download the latest `Stampo-<version>.dmg` from the [Releases](https://github.com/git-webuser/Stampo/releases) page.
 2. Open the DMG and drag **Stampo.app** to your **Applications** folder.
@@ -27,19 +43,6 @@ Stampo replaces the usual screenshot workflow with a panel that opens when you c
 Control-clicking the app and choosing **Open** used to skip those last two steps.
 macOS 15 removed that shortcut and Stampo requires macOS 15.7 or later, so
 **Open Anyway** is the way through.
-
-### Homebrew
-
-If you're comfortable with the terminal, this route skips the block entirely —
-`--no-quarantine` keeps macOS from flagging the download, so Stampo opens on the
-first double-click with nothing to approve:
-
-```bash
-brew tap git-webuser/stampo https://github.com/git-webuser/Stampo
-brew install --cask --no-quarantine stampo
-```
-
-Update later with `brew upgrade --cask stampo`.
 
 ## Permissions
 
@@ -107,6 +110,7 @@ Click the post-capture thumbnail (or right-click a screenshot in the archive →
 - **Crop** the image: drag a frame with corner/edge handles (or type an exact **W × H** in the toolbar), then **Apply** (**Return**) or **Cancel** (**Esc**). The frame shows a rule-of-thirds grid, nudges with the arrow keys (`⇧` 10 px, `⌥⇧` 50 px), rotates with the image, and stays within the picture; cropping is undoable.
 - **Share** hands the marked-up image to the system share sheet — Mail, Messages, AirDrop, or anything else you have installed. It exports a real file named after the document in your configured format, and never saves: an unsaved edit stays unsaved.
 - **Scan** a region: click the Scan button (next to Crop), drag over an area, and every QR/barcode payload and all readable text is copied to the clipboard and added to the archive. It is the same scanner the `⌃⌥⌘S` hotkey opens — same crosshair, same mode badge, the same **⌥** (keep line breaks), **⌃** (translate), **⇥** (language) and **Esc** — with one difference: it works inside the image rather than across the screen, so the toolbar stays live and a selection cannot leave the picture. The **Line Breaks** control in the second toolbar row and **⌥** are one setting seen twice: the overlay opens on what the control holds, and the control follows what **⌥** does.
+- **Decor** dresses the screenshot without leaving the editor: a page (Square, Classic 3:4, Instagram 4:5, Twitter/X, Open Graph, or an **Auto** page that follows the picture), a background (solid, gradient, radial, mesh, or none — which keeps the PNG transparent), four margins, a corner radius and a shadow. Every tile you pick from is painted by the same routine that renders the export, so nothing here can promise what the file will not deliver. The colors you have picked with the eyedropper are right there under the built-in palette — **From Archive** — so a color sampled off the screen becomes a background or a gradient stop without a detour, and the **+** beside **Custom Color** keeps a new one in the same archive. A gradient's stops are edited where they are: click one to select it, click it again to change its color, **+** adds a stop after it (halfway to the next one), **−** removes the one you picked, and dragging a stop — or its context menu — changes the order. The four margin fields set one side each; the button in the middle of them says how far a typed number reaches and switches between three answers — each side on its own, opposite sides linked, or all four together.
 - Hover any toolbar control for a tooltip describing it.
 - Double-click a text label or step marker to edit it; inside a text label, **Return** commits and **⇧Return** starts a new line. New step markers auto-number from the highest numeric label (labels can be any text, e.g. `1.1` or `4.12`).
 - Blur/pixelate always sits beneath the other annotations, so arrows, text, and shapes stay crisp on top of a redacted region.
@@ -157,6 +161,8 @@ File names follow one of four presets, selectable in **Settings → Capture**: c
 The archive shows recent screenshots, color swatches, and scanned or translated text — and it's also a drop target for files.
 
 ![The archive: screenshots, color swatches, and scanned text side by side](assets/screenshots/panel-archive.png)
+
+Entries survive quitting the app — a picked color and a scanned text live nowhere else, so the archive keeps them; it holds the 20 most recent entries by default. Both the limit and the keeping are in **Settings → Archive**.
 
 Entries stay in the order they were captured, newest first, and the row scrolls once it fills up. The header switches the notation color swatches are copied in — HEX, RGB, HSL, HSB, or CMYK — from the menu, or with `⇥` while the pointer is on the panel.
 

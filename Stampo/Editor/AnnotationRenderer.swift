@@ -90,12 +90,14 @@ nonisolated enum AnnotationRenderer {
         in ctx: CGContext,
         base: CGImage,
         blurSources: [BlurSource: CGImage],
+        pictures: [UUID: CGImage] = [:],
         annotations: [Annotation],
         skipping skippedID: UUID? = nil
     ) {
         drawBaseLayer(in: ctx, base: base, blurSources: blurSources,
                       annotations: annotations, skipping: skippedID)
         drawAnnotationLayer(in: ctx, base: base, blurSources: blurSources,
+                            pictures: pictures,
                             annotations: annotations, skipping: skippedID)
     }
 
@@ -136,6 +138,11 @@ nonisolated enum AnnotationRenderer {
         in ctx: CGContext,
         base: CGImage,
         blurSources: [BlurSource: CGImage],
+        /// The user's own pictures, by the name the annotations call them —
+        /// beside the annotations for the same reason the blurred copies are
+        /// beside the blur ones: a value that crosses into the export task
+        /// should not be carrying images.
+        pictures: [UUID: CGImage] = [:],
         annotations: [Annotation],
         skipping skippedID: UUID? = nil,
         where include: (Annotation) -> Bool = { _ in true }
@@ -155,16 +162,98 @@ nonisolated enum AnnotationRenderer {
             case .step:  drawStep(annotation, ctx: ctx)
             case .loupe: drawLoupe(annotation, base: base, blurSources: blurSources,
                                    annotations: annotations, ctx: ctx)
+            case .picture:
+                drawPicture(annotation, pictures: pictures, ctx: ctx)
             case .blur:  break  // handled in the first pass
             }
         }
+    }
+
+    /// A picture placed on the page: drawn to fill the rectangle it was given,
+    /// which is the rectangle the user dragged it to.
+    ///
+    /// Nothing is drawn when the document does not have the pixels — a name
+    /// without an image is a picture that was never loaded, and an outline
+    /// standing in for it would be a second thing to explain.
+    private static func drawPicture(_ a: Annotation, pictures: [UUID: CGImage],
+                                    ctx: CGContext) {
+        guard let id = a.pictureID, let picture = pictures[id] else { return }
+        let rect = a.rect
+        let radius = min(max(0, a.pictureCornerRadius) * min(rect.width, rect.height),
+                         min(rect.width, rect.height) / 2)
+        let path = CGPath(roundedRect: rect, cornerWidth: radius, cornerHeight: radius,
+                          transform: nil)
+
+        // The lights first, cast by the picture's own shape and drawn the way
+        // the page casts the screenshot's: an opaque stand-in inside a
+        // transparency layer, then cut away, because Core Graphics scales a
+        // shadow by the source alpha. The glow underneath the shadow, so a dark
+        // shadow reads over the halo rather than being washed out by it — the
+        // same order the page uses.
+        let short = min(rect.width, rect.height)
+        if a.pictureGlow > 0 {
+            castLight(under: path, blur: short * 0.09 * min(1, a.pictureGlow),
+                      offset: .zero,
+                      color: CGColor(srgbRed: a.pictureGlowColor.red,
+                                     green: a.pictureGlowColor.green,
+                                     blue: a.pictureGlowColor.blue,
+                                     alpha: min(1, a.pictureGlow)),
+                      ctx: ctx)
+        }
+        if a.pictureShadow > 0 {
+            let strength = min(1, a.pictureShadow)
+            castLight(under: path, blur: short * 0.06 * strength,
+                      offset: CGSize(width: 0, height: -short * 0.02 * strength),
+                      color: CGColor(srgbRed: a.pictureShadowColor.red,
+                                     green: a.pictureShadowColor.green,
+                                     blue: a.pictureShadowColor.blue,
+                                     alpha: 0.55 * strength), ctx: ctx)
+        }
+
+        ctx.saveGState()
+        ctx.interpolationQuality = .high
+        if radius > 0 {
+            ctx.addPath(path)
+            ctx.clip()
+        }
+        // The picture's own effects are pixel work on the picture alone, so
+        // they are baked into it before it is drawn — the same arrangement the
+        // background uses, and cached the same way, keyed on the pixels rather
+        // than on where they happen to sit. That is what lets a picture with
+        // grain on it be dragged about without re-baking on every frame.
+        let treated = EffectBaker.object(a.pictureEffects, over: picture, named: id) ?? picture
+        drawImageInFlippedSpace(treated, in: rect, ctx: ctx)
+        ctx.restoreGState()
+    }
+
+    /// A shadow or a glow cast by a shape, with the shape itself cut back out
+    /// of it — Core Graphics scales a shadow by the source alpha, so the caster
+    /// has to be opaque and then removed.
+    private static func castLight(under path: CGPath, blur: CGFloat, offset: CGSize,
+                                  color: CGColor, ctx: CGContext) {
+        ctx.saveGState()
+        ctx.beginTransparencyLayer(auxiliaryInfo: nil)
+        ctx.setShadow(offset: offset, blur: blur, color: color)
+        ctx.setFillColor(CGColor(gray: 0, alpha: 1))
+        ctx.addPath(path)
+        ctx.fillPath()
+        ctx.setShadow(offset: .zero, blur: 0, color: nil)
+        ctx.setBlendMode(.clear)
+        ctx.addPath(path)
+        ctx.fillPath()
+        ctx.setBlendMode(.normal)
+        ctx.endTransparencyLayer()
+        ctx.restoreGState()
     }
 
     /// `CGContext.draw` renders images bottom-up; under our flipped (top-left)
     /// transform that would mirror them. Un-flip locally around the full
     /// canvas: correct everywhere, including inside clip regions (the clip
     /// stays fixed in device space).
-    private static func drawImageInFlippedSpace(_ image: CGImage, in rect: CGRect, ctx: CGContext) {
+    /// Not private: `PresentationRenderer` draws its baked background through
+    /// this same helper, so a bitmap and the picture land in the flipped space
+    /// by one rule rather than two.
+    static func drawImageInFlippedSpace(_ image: CGImage, in rect: CGRect, ctx: CGContext) {
         ctx.saveGState()
         ctx.translateBy(x: 0, y: rect.maxY)
         ctx.scaleBy(x: 1, y: -1)
@@ -662,6 +751,7 @@ nonisolated enum AnnotationRenderer {
     nonisolated static func renderBitmap(
         base: CGImage,
         blurSources: [BlurSource: CGImage] = [:],
+        pictures: [UUID: CGImage] = [:],
         annotations: [Annotation],
         presentation: Presentation? = nil
     ) -> NSBitmapImageRep? {
@@ -696,6 +786,7 @@ nonisolated enum AnnotationRenderer {
         PresentationRenderer.draw(in: ctx,
                                   base: base,
                                   blurSources: blurSources,
+                                  pictures: pictures,
                                   annotations: annotations,
                                   presentation: resolvedPresentation,
                                   layout: layout)
@@ -711,6 +802,7 @@ nonisolated enum AnnotationRenderer {
         guard let rep = renderBitmap(
             base: snapshot.baseImage,
             blurSources: snapshot.blurSources,
+            pictures: snapshot.pictures,
             annotations: snapshot.annotations,
             presentation: snapshot.presentation
         ) else { return nil }

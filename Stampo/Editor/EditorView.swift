@@ -21,6 +21,8 @@ struct EditorView: View {
     static let presentationInspectorMaximumWidth: CGFloat = 460
 
     var document: EditorDocument
+    /// What this editor's own window can answer. See `EditorWindowContext`.
+    var windowContext: EditorWindowContext = .detached
     /// Wired by EditorWindowController in the save/copy commit; nil disables Save.
     var saveHandler: ((EditorDocument) async -> Bool)?
     /// Save As: runs a save panel, so it reports back through its own sheet
@@ -33,6 +35,10 @@ struct EditorView: View {
     /// Lets the window controller keep its AppKit minimum in step with the
     /// native inspector column without making the view own window policy.
     var presentationInspectorChanged: ((Bool) -> Void)? = nil
+    /// The app's colours — the archive, seen through the one protocol the
+    /// editor needs. nil only in previews and tests: the decor inspector then
+    /// shows its built-in palette alone.
+    var colorShelf: (any PresentationColorShelf)? = nil
 
     @State private var tool: EditorTool = .select
     @State private var style = ToolStyle()
@@ -74,7 +80,8 @@ struct EditorView: View {
                 cropRect: $cropRect,
                 onCropApply: applyCrop,
                 onCropCancel: cancelCrop,
-                imageScreenGeometry: $imageScreenGeometry
+                imageScreenGeometry: $imageScreenGeometry,
+                windowContext: windowContext
             )
             .background(Color(nsColor: .underPageBackgroundColor))
         }
@@ -114,7 +121,7 @@ struct EditorView: View {
         .frame(minWidth: Self.minimumContentSize.width,
                minHeight: Self.minimumContentSize.height)
         .inspector(isPresented: $presentationInspectorPresented) {
-            PresentationInspector(document: document)
+            PresentationInspector(document: document, colorShelf: colorShelf)
                 .inspectorColumnWidth(
                     min: Self.presentationInspectorMinimumWidth,
                     ideal: Self.presentationInspectorIdealWidth,
@@ -320,9 +327,10 @@ struct EditorView: View {
                 thicknessSlider
                 arrowHeadSizeSlider
             default:
-                // Select tool with nothing selected: there is nothing to
-                // restyle, so the row offers a hint instead of orphaned
-                // controls.
+                // Select tool with nothing selected. Nothing to restyle — so
+                // the row belongs to the page, which is what is selected when
+                // nothing else is. Without a decoration there is no page to
+                // speak of either, and the row goes back to saying so.
                 // `cursorarrow.rays` (a pointer with selection rays) reads as
                 // "select", distinct from the arrow tool's plain arrow.
                 // pointer.arrow.rays would be closer but is macOS 26-only.
@@ -331,10 +339,14 @@ struct EditorView: View {
                 // in any one annotation's controls.
                 snapPicker
                 Divider().frame(height: 18)
-                Label("Select an annotation to edit its style",
-                      systemImage: "cursorarrow.rays")
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
+                if document.presentation != nil {
+                    CanvasRatioBar(document: document)
+                } else {
+                    Label("Select an annotation to edit its style",
+                          systemImage: "cursorarrow.rays")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                }
         }
     }
 
@@ -361,7 +373,13 @@ struct EditorView: View {
 
     /// String-catalog keys for the preset names, aligned with
     /// `AnnotationColor.presets`.
-    private let colorNames: [String] =
+    private var colorNames: [String] { Self.annotationColorNames }
+
+    /// The swatch names, in the order of `AnnotationColor.presets`. Static, so
+    /// the test that keeps every hover tooltip translated can read them: they
+    /// reach `hoverTip` as values, and a key nobody wrote at a call site is a
+    /// key nothing else can find.
+    static let annotationColorNames: [String] =
         ["Red", "Orange", "Yellow", "Green", "Blue", "Black", "White"]
 
     /// Which swatch is ringed: the selected annotation's own colour, falling
@@ -1831,7 +1849,7 @@ struct EditorView: View {
         scanOverlayActive = true
         scanOverlay.start(over: geometry.visibleScreenRect,
                           on: screen,
-                          parent: EditorWindowController.shared.overlayParentWindow)
+                          parent: windowContext.overlayParent())
     }
 
     private func scanRegion(_ pixelRect: CGRect,
@@ -1874,8 +1892,7 @@ struct EditorView: View {
     /// Routes recognition outcomes through the same toast the notch flows use,
     /// on the screen hosting the editor window.
     private func showCaptureHUD(_ outcome: TextCaptureHUD.Outcome) {
-        let controller = EditorWindowController.shared
-        controller.captureHUD.show(outcome, on: controller.screen)
+        windowContext.showCaptureOutcome(outcome)
     }
 
     /// Crops the base image to an image-pixel rect (top-left origin, matching
@@ -2030,25 +2047,4 @@ private enum ToolButtonMetrics {
 /// accent colour in front.
 ///
 /// The tool picker's buttons are built by one function and wore this already.
-/// Crop and Scan are toggles rather than picker entries, so they build their
-/// own buttons — and had only half of it, colouring the icon while staying
-/// flat. "This tool is on" has to look the same wherever it is said, so the
-/// look lives here and all three ask for it.
-private struct ActiveToolChrome: ViewModifier {
-    let isActive: Bool
 
-    func body(content: Content) -> some View {
-        content
-            .background(
-                RoundedRectangle(cornerRadius: 5, style: .continuous)
-                    .fill(isActive ? Color.accentColor.opacity(0.22) : .clear)
-            )
-            .foregroundStyle(isActive ? Color.accentColor : Color.primary)
-    }
-}
-
-private extension View {
-    func activeToolChrome(_ isActive: Bool) -> some View {
-        modifier(ActiveToolChrome(isActive: isActive))
-    }
-}

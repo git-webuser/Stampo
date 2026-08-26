@@ -2,7 +2,10 @@ import SwiftUI
 
 struct ArchiveSettingsView: View {
     @AppStorage(AppSettings.Keys.trayMaxItems)       private var trayMaxItems       = 20
-    @AppStorage(AppSettings.Keys.persistTray)        private var persistTray        = false
+    // Must agree with `AppSettings.persistTray` — the toggle and the model read
+    // the same key, and two different defaults would show one thing and do the
+    // other until the user touched it.
+    @AppStorage(AppSettings.Keys.persistTray)        private var persistTray        = true
     @AppStorage(AppSettings.Keys.defaultColorFormat) private var defaultColorFormat = ColorSchemeType.hex
     @AppStorage(AppSettings.Keys.archiveSpacePreview) private var spacePreview      = true
 

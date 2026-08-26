@@ -6,17 +6,138 @@ import Foundation
 /// one scale/translation and share every background, shadow and clipping rule
 /// with encoded exports.
 nonisolated enum PresentationRenderer {
+    /// Draws the whole page: background, lights, picture, annotations — and,
+    /// when the stack carries effects for the *page* layer, through an
+    /// offscreen so those effects can be laid over the finished thing.
+    ///
+    /// The offscreen is the price of that layer. A background effect is baked
+    /// once and kept, because the background is the one part that holds still
+    /// while the picture is dragged; over the whole page there is nothing to
+    /// keep, so every frame renders the page into a bitmap and filters it.
+    /// That is why the two layers are a choice a person makes, not a detail.
+    /// How much the page-layer pass is allowed to cost right now.
+    ///
+    /// The pass is not cached — a page that moves with the picture has nothing
+    /// worth keeping — so a gesture pays for it on every pointer sample.
+    /// Measured on a 1200×900 page: ASCII 38 ms, fluted glass 38 ms, dither
+    /// 14 ms.
+    ///
+    /// Halving the side leaves a quarter of the pixels, and the look survives
+    /// the trip because every size in an effect is a fraction of the short side
+    /// rather than a count of pixels — a half-size bake is the same picture,
+    /// drawn softer. The saving is **not** a quarter, though, and the first
+    /// version of this comment claimed it was: measured, fluted glass falls
+    /// from 38 ms to 19, ASCII only from 38 to 30, dither from 14 to 12. Work
+    /// that is counted in ribs or in character cells does not shrink with the
+    /// canvas, because the number of ribs and cells is a fraction of the page
+    /// too.
+    enum PageQuality {
+        /// What the file gets, and what the canvas shows when nothing moves.
+        case full
+        /// While a gesture is running.
+        case interactive
+
+        var divisor: CGFloat {
+            switch self {
+            case .full:        return 1
+            case .interactive: return 2
+            }
+        }
+    }
+
+    /// The bitmap the page pass renders into. Pulled out of `draw` so the rule
+    /// can be read — and tested — without an offscreen.
+    static func pageBitmapSize(device: CGSize, quality: PageQuality) -> (width: Int, height: Int) {
+        let divisor = quality.divisor
+        return (max(1, Int((abs(device.width) / divisor).rounded())),
+                max(1, Int((abs(device.height) / divisor).rounded())))
+    }
+
     static func draw(
         in ctx: CGContext,
         base: CGImage,
         blurSources: [BlurSource: CGImage],
+        /// The user's own pictures, by name. Carried beside the presentation
+        /// for the same reason the blurred copies are: the value model names an
+        /// image, the document holds it.
+        pictures: [UUID: CGImage] = [:],
+        annotations: [Annotation],
+        presentation: Presentation,
+        layout: PresentationLayout.Resolved,
+        skipping skippedID: UUID? = nil,
+        pageQuality: PageQuality = .full
+    ) {
+        guard !EffectStack.page(presentation.effects).isEmpty else {
+            drawContents(in: ctx, base: base, blurSources: blurSources,
+                         pictures: pictures,
+                         annotations: annotations, presentation: presentation,
+                         layout: layout, skipping: skippedID)
+            return
+        }
+
+        let canvasRect = CGRect(origin: .zero, size: layout.canvasSize)
+        // The same rule as the background bake: the size comes from the context
+        // itself, so the canvas gets screen pixels and the export the file's.
+        let device = ctx.convertToDeviceSpace(canvasRect)
+        let (width, height) = pageBitmapSize(device: device.size, quality: pageQuality)
+        guard canvasRect.width > 0, canvasRect.height > 0,
+              let offscreen = CGContext(
+                data: nil, width: width, height: height,
+                bitsPerComponent: 8, bytesPerRow: 0,
+                space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+              )
+        else {
+            drawContents(in: ctx, base: base, blurSources: blurSources,
+                         pictures: pictures,
+                         annotations: annotations, presentation: presentation,
+                         layout: layout, skipping: skippedID)
+            return
+        }
+
+        // Into the renderer's own space: top-left, one unit per canvas pixel.
+        offscreen.translateBy(x: 0, y: CGFloat(height))
+        offscreen.scaleBy(x: 1, y: -1)
+        offscreen.scaleBy(x: CGFloat(width) / canvasRect.width,
+                          y: CGFloat(height) / canvasRect.height)
+        drawContents(in: offscreen, base: base, blurSources: blurSources,
+                     pictures: pictures,
+                     annotations: annotations, presentation: presentation,
+                     layout: layout, skipping: skippedID)
+
+        guard let rendered = offscreen.makeImage(),
+              let filtered = EffectBaker.page(presentation.effects, over: rendered)
+        else {
+            drawContents(in: ctx, base: base, blurSources: blurSources,
+                         pictures: pictures,
+                         annotations: annotations, presentation: presentation,
+                         layout: layout, skipping: skippedID)
+            return
+        }
+        AnnotationRenderer.drawImageInFlippedSpace(filtered, in: canvasRect, ctx: ctx)
+    }
+
+    private static func drawContents(
+        in ctx: CGContext,
+        base: CGImage,
+        blurSources: [BlurSource: CGImage],
+        pictures: [UUID: CGImage],
         annotations: [Annotation],
         presentation: Presentation,
         layout: PresentationLayout.Resolved,
         skipping skippedID: UUID? = nil
     ) {
         let canvasRect = CGRect(origin: .zero, size: layout.canvasSize)
-        drawBackground(presentation.background, in: canvasRect, ctx: ctx)
+        drawBackground(presentation.background, effects: presentation.effects,
+                       picture: pictures[presentation.background.pictureID ?? UUID()],
+                       in: canvasRect, ctx: ctx)
+        // The glow first, so a dark shadow reads *over* the halo rather than
+        // being washed out by it.
+        drawShadow(for: layout.imageRect,
+                   canvasSize: layout.canvasSize,
+                   cornerRadius: presentation.cornerRadius,
+                   shadow: presentation.glow.asShadow,
+                   in: ctx)
         drawShadow(for: layout.imageRect,
                    canvasSize: layout.canvasSize,
                    cornerRadius: presentation.cornerRadius,
@@ -59,6 +180,7 @@ nonisolated enum PresentationRenderer {
         AnnotationRenderer.drawAnnotationLayer(in: ctx,
                                                base: base,
                                                blurSources: blurSources,
+                                               pictures: pictures,
                                                annotations: annotations,
                                                skipping: skippedID,
                                                where: { $0.livesInImageSpace })
@@ -71,6 +193,7 @@ nonisolated enum PresentationRenderer {
         AnnotationRenderer.drawAnnotationLayer(in: ctx,
                                                base: base,
                                                blurSources: blurSources,
+                                               pictures: pictures,
                                                annotations: annotations,
                                                skipping: skippedID,
                                                where: { !$0.livesInImageSpace })
@@ -95,6 +218,7 @@ nonisolated enum PresentationRenderer {
         in ctx: CGContext,
         base: CGImage,
         blurSources: [BlurSource: CGImage],
+        pictures: [UUID: CGImage] = [:],
         annotations: [Annotation],
         layout: PresentationLayout.Resolved,
         cornerRadius: CGFloat = 0,
@@ -139,6 +263,7 @@ nonisolated enum PresentationRenderer {
         AnnotationRenderer.drawAnnotationLayer(in: ctx,
                                                base: base,
                                                blurSources: blurSources,
+                                               pictures: pictures,
                                                annotations: annotations,
                                                skipping: skippedID,
                                                where: { $0.livesInImageSpace })
@@ -147,6 +272,7 @@ nonisolated enum PresentationRenderer {
         AnnotationRenderer.drawAnnotationLayer(in: ctx,
                                                base: base,
                                                blurSources: blurSources,
+                                               pictures: pictures,
                                                annotations: annotations,
                                                skipping: skippedID,
                                                where: { !$0.livesInImageSpace })
@@ -165,9 +291,29 @@ nonisolated enum PresentationRenderer {
     /// same routine, so a tile can never promise a background the export would
     /// paint differently.
     static func drawBackground(_ background: Presentation.Background,
+                               effects: [Presentation.Effect] = [],
+                               picture: CGImage? = nil,
                                in rect: CGRect,
                                ctx: CGContext) {
         guard rect.width > 0, rect.height > 0 else { return }
+        // Effects are pixel work, so they are baked into a bitmap and drawn.
+        // The size comes from the context itself: on the canvas that is screen
+        // pixels, in an export it is the pixels of the file, and neither has to
+        // be told which it is. A nil answer — no effects, or a size nobody can
+        // hold — falls through to the plain drawing below, unchanged.
+        if !EffectStack.active(effects).isEmpty {
+            let deviceRect = ctx.convertToDeviceSpace(rect)
+            if let baked = EffectBaker.image(
+                background: background,
+                effects: effects,
+                picture: picture,
+                pixelSize: CGSize(width: abs(deviceRect.width),
+                                  height: abs(deviceRect.height))
+            ) {
+                AnnotationRenderer.drawImageInFlippedSpace(baked, in: rect, ctx: ctx)
+                return
+            }
+        }
         switch background {
         case .none:
             return
@@ -180,19 +326,111 @@ nonisolated enum PresentationRenderer {
             drawRadialGradient(stops: stops, in: rect, ctx: ctx)
         case .mesh(let colors):
             drawMesh(colors: colors, in: rect, ctx: ctx)
+        case .picture(_, let backing, let fit):
+            // The colour first, so a page whose picture is missing — still
+            // loading, or gone from a document that outlived it — is a page and
+            // not a hole. It is also what shows through around a picture that
+            // was asked to fit rather than fill.
+            ctx.setFillColor(cgColor(backing))
+            ctx.fill(rect)
+            guard let picture else { return }
+            drawPicture(picture, fit: fit, in: rect, ctx: ctx)
+        }
+    }
+
+    /// The picture, met with the page the way the user asked.
+    ///
+    /// Filling is the default and the one a photograph almost always wants: a
+    /// background has to reach every corner, and the crop is the price. The
+    /// others exist because a background is not always a photograph — a whole
+    /// picture with air around it, a deliberately squashed one, a texture meant
+    /// to repeat.
+    private static func drawPicture(_ picture: CGImage,
+                                    fit: Presentation.Background.PictureFit,
+                                    in rect: CGRect, ctx: CGContext) {
+        let size = CGSize(width: picture.width, height: picture.height)
+        guard size.width > 0, size.height > 0, rect.width > 0, rect.height > 0 else { return }
+        ctx.saveGState()
+        ctx.clip(to: rect)
+        ctx.interpolationQuality = .high
+
+        func centred(_ scale: CGFloat) -> CGRect {
+            CGRect(x: rect.midX - size.width * scale / 2,
+                   y: rect.midY - size.height * scale / 2,
+                   width: size.width * scale, height: size.height * scale)
+        }
+
+        switch fit {
+        case .fill:
+            AnnotationRenderer.drawImageInFlippedSpace(
+                picture, in: centred(max(rect.width / size.width, rect.height / size.height)),
+                ctx: ctx)
+        case .fit:
+            AnnotationRenderer.drawImageInFlippedSpace(
+                picture, in: centred(min(rect.width / size.width, rect.height / size.height)),
+                ctx: ctx)
+        case .stretch:
+            AnnotationRenderer.drawImageInFlippedSpace(picture, in: rect, ctx: ctx)
+        case .tile:
+            drawTiled(picture, size: size, in: rect, ctx: ctx)
+        }
+        ctx.restoreGState()
+    }
+
+    /// The picture repeated at its own size, from the top-left corner.
+    ///
+    /// Scaled up first if it would otherwise repeat more times than anyone
+    /// could see: a 16-pixel texture on a 4000-pixel page is a quarter of a
+    /// million draws and a grey haze, so the tile is grown until the page holds
+    /// at most this many of it. A picture already big enough tiles at its own
+    /// pixels, which is what "repeat" means everywhere else.
+    private static func drawTiled(_ picture: CGImage, size: CGSize,
+                                  in rect: CGRect, ctx: CGContext) {
+        let mostTiles: CGFloat = 24
+        let scale = max(1, max(rect.width / (size.width * mostTiles),
+                               rect.height / (size.height * mostTiles)))
+        let tile = CGSize(width: size.width * scale, height: size.height * scale)
+        var y = rect.minY
+        while y < rect.maxY {
+            var x = rect.minX
+            while x < rect.maxX {
+                AnnotationRenderer.drawImageInFlippedSpace(
+                    picture,
+                    in: CGRect(x: x, y: y, width: tile.width, height: tile.height),
+                    ctx: ctx)
+                x += tile.width
+            }
+            y += tile.height
         }
     }
 
     /// A gradient of `stops` spread evenly from 0 to 1. One stop degenerates to
     /// a flat fill rather than to nothing, which is what a user who deleted the
     /// second stop expects to see.
-    private static func gradient(for stops: [Presentation.Color]) -> CGGradient? {
+    /// `CGGradient` insists on positions that only climb, so the list is
+    /// sorted and clamped on the way in. A single stop is a flat fill drawn as
+    /// a gradient from itself to itself — the ends have to differ for the
+    /// gradient to exist at all, not for the picture to look right.
+    private static func gradient(for stops: [Presentation.Stop]) -> CGGradient? {
         guard let first = stops.first else { return nil }
-        let colors = stops.count == 1 ? [first, first] : stops
-        let last = CGFloat(colors.count - 1)
-        let locations = colors.indices.map { CGFloat($0) / last }
+        let ordered = (stops.count == 1 ? [first, first] : stops)
+            .sorted { $0.location < $1.location }
+        var locations: [CGFloat] = []
+        var previous: CGFloat = 0
+        for stop in ordered {
+            let clamped = max(previous, min(1, max(0, stop.location)))
+            locations.append(clamped)
+            previous = clamped
+        }
+        // Two stops in the same spot are a hard edge, which is a legitimate
+        // thing to ask for — but every stop in the same spot leaves nothing to
+        // interpolate, and Core Graphics draws that as nothing at all.
+        if let firstLocation = locations.first, let lastLocation = locations.last,
+           firstLocation == lastLocation {
+            locations = ordered.indices.map { CGFloat($0) / CGFloat(max(1, ordered.count - 1)) }
+        }
         return CGGradient(colorsSpace: sRGB,
-                          colors: colors.map(cgColor) as CFArray,
+                          colors: ordered.map { cgColor($0.color) } as CFArray,
                           locations: locations)
     }
 
@@ -200,7 +438,7 @@ nonisolated enum PresentationRenderer {
     /// handed — so without this clip a gradient floods the live preview well
     /// past the canvas it belongs to. The export never showed it because there
     /// the context *is* the canvas.
-    private static func drawLinearGradient(stops: [Presentation.Color],
+    private static func drawLinearGradient(stops: [Presentation.Stop],
                                            angle: CGFloat,
                                            in rect: CGRect,
                                            ctx: CGContext) {
@@ -221,7 +459,7 @@ nonisolated enum PresentationRenderer {
 
     /// Centred radial gradient reaching the far corner, so the outermost stop
     /// still covers the corners of a non-square canvas.
-    private static func drawRadialGradient(stops: [Presentation.Color],
+    private static func drawRadialGradient(stops: [Presentation.Stop],
                                            in rect: CGRect,
                                            ctx: CGContext) {
         guard let gradient = gradient(for: stops) else { return }

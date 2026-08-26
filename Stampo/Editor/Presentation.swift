@@ -1,4 +1,5 @@
 import CoreGraphics
+import Foundation
 
 /// Immutable, renderable dressing for an editor document.
 ///
@@ -44,7 +45,7 @@ nonisolated struct Presentation: Equatable, Sendable {
 
     /// A color value safe to carry through a detached render without bringing
     /// `NSColor` or `CGColor` into the document model.
-    struct Color: Equatable, Sendable {
+    struct Color: Equatable, Hashable, Sendable {
         var red: CGFloat
         var green: CGFloat
         var blue: CGFloat
@@ -55,32 +56,146 @@ nonisolated struct Presentation: Equatable, Sendable {
         static let black = Color(red: 0, green: 0, blue: 0, alpha: 1)
     }
 
+    /// One colour of a gradient, and where along it that colour sits.
+    ///
+    /// The position is what makes a gradient editable rather than merely
+    /// orderable: without it the stops are spread evenly and the only thing a
+    /// person can change is which comes first, so "this colour holds to the
+    /// middle and then falls away" cannot be said at all.
+    struct Stop: Equatable, Hashable, Sendable {
+        var color: Color
+        /// 0 at the start of the ramp, 1 at its end.
+        var location: CGFloat
+
+        init(_ color: Color, at location: CGFloat) {
+            self.color = color
+            self.location = location
+        }
+
+        /// Colours laid out evenly — how every gradient was built before
+        /// positions existed, and still the right answer for a preset, for a
+        /// mesh unfolded into a ramp, and for anything else that has colours
+        /// but no opinion about where they go.
+        static func spread(_ colors: [Color]) -> [Stop] {
+            guard colors.count > 1 else {
+                return colors.map { Stop($0, at: 0) }
+            }
+            let last = CGFloat(colors.count - 1)
+            return colors.enumerated().map { Stop($1, at: CGFloat($0) / last) }
+        }
+    }
+
     /// Background recipes are values, not live SwiftUI gradients.
     ///
     /// Both gradients carry a *list* of stops rather than a start/end pair:
     /// two stops is the ordinary gradient and three or more is the layered one,
     /// so the renderer, the inspector and the model need no separate case for
-    /// "complex". Stops are distributed evenly; the list is never empty.
-    enum Background: Equatable, Sendable {
+    /// "complex". Each stop carries its own position; the list is never empty.
+    enum Background: Equatable, Hashable, Sendable {
         /// Nothing is painted, so the canvas around the image stays
         /// transparent and PNG export carries that transparency through.
         case none
         case solid(Color)
-        case linearGradient(stops: [Color], angle: CGFloat)
-        case radialGradient(stops: [Color])
+        case linearGradient(stops: [Stop], angle: CGFloat)
+        case radialGradient(stops: [Stop])
         /// Four corner colours. Where they came from — a preset, the picture,
         /// the user — is not the model's business; a separate "sampled" case
         /// only meant the same drawing twice.
         case mesh(colors: [Color])
+        /// A picture of the user's own, held by name rather than by bytes.
+        ///
+        /// The presentation is a value that crosses into the export task and is
+        /// compared on every undo step, so it carries an identifier and the
+        /// document carries the pixels — exactly as the base screenshot and its
+        /// blurred copies are carried. The colour travels with it as what to
+        /// paint while the picture is not there: a page mid-load, or one whose
+        /// image the document no longer has.
+        case picture(id: UUID, backing: Color, fit: PictureFit)
 
-        /// The colors a user-facing stop editor works with. Empty for the
-        /// cases that have no editable stop list.
-        var stops: [Color] {
+        /// The stops a user-facing editor works with. Empty for the cases that
+        /// have no ramp — the mesh included: its four corners are colours in a
+        /// square, not points on a line, and handing them back as "stops" is
+        /// what made one accessor mean two different things.
+        var stops: [Stop] {
             switch self {
-            case .none, .solid:                  return []
+            case .none, .solid, .mesh, .picture: return []
             case .linearGradient(let stops, _):  return stops
             case .radialGradient(let stops):     return stops
-            case .mesh(let colors):                return colors
+            }
+        }
+
+        /// How a picture meets the page it is the background of.
+        enum PictureFit: String, CaseIterable, Identifiable, Sendable {
+            /// Covers the page and is cropped: the default, because a
+            /// background has to reach every corner.
+            case fill
+            /// Whole picture, letterboxed against the backing colour.
+            case fit
+            /// Covers the page by being squashed into it.
+            case stretch
+            /// Repeated at its own size, for a texture rather than a photo.
+            case tile
+
+            var id: String { rawValue }
+        }
+
+        /// The picture this background is made of, if it is made of one.
+        var pictureID: UUID? {
+            if case .picture(let id, _, _) = self { return id }
+            return nil
+        }
+
+        /// How that picture meets the page.
+        var pictureFit: PictureFit {
+            if case .picture(_, _, let fit) = self { return fit }
+            return .fill
+        }
+
+        /// The same background with its picture fitted another way.
+        func settingPictureFit(_ fit: PictureFit) -> Background {
+            guard case .picture(let id, let backing, _) = self else { return self }
+            return .picture(id: id, backing: backing, fit: fit)
+        }
+
+        /// The four corners of a mesh, or nothing.
+        var meshColors: [Color] {
+            if case .mesh(let colors) = self { return colors }
+            return []
+        }
+
+        /// How light this background is, 0…1, averaged over the colours it is
+        /// made of.
+        ///
+        /// Rough on purpose: it exists to answer one question — should ink laid
+        /// over this be dark or light — and a gradient that runs from black to
+        /// white has no better answer than "halfway".
+        var luminance: CGFloat {
+            let colors = self.colors
+            guard !colors.isEmpty else { return 1 }
+            let total = colors.reduce(CGFloat.zero) { sum, color in
+                sum + (0.299 * color.red + 0.587 * color.green + 0.114 * color.blue)
+            }
+            return total / CGFloat(colors.count)
+        }
+
+        /// Ink that will be seen on this background: dark on light, light on
+        /// dark. The threshold sits above the middle because ink is laid on at
+        /// low opacity, and a mid-grey background carries dark ink better than
+        /// light.
+        var contrastingInk: Color {
+            luminance > 0.45 ? .black : .white
+        }
+
+        /// Every colour this background is made of, wherever it keeps them —
+        /// what a switch between kinds carries across.
+        var colors: [Color] {
+            switch self {
+            case .none:                  return []
+            case .solid(let color):      return [color]
+            case .mesh(let colors):      return colors
+            case .picture(_, let color, _): return [color]
+            case .linearGradient(let stops, _), .radialGradient(let stops):
+                return stops.map(\.color)
             }
         }
     }
@@ -145,11 +260,22 @@ nonisolated struct Presentation: Equatable, Sendable {
         }
     }
 
-    /// The margin a picture is framed with the moment a format is chosen — a
-    /// real number of pixels rather than a share of the canvas, so a small
-    /// format and a large one start out looking the same rather than one of
-    /// them swimming in white.
-    static let defaultMargin: CGFloat = 10
+    /// The margin a picture is framed with when a decoration starts.
+    ///
+    /// A share of the picture's short side rather than a fixed number of
+    /// pixels: ten pixels — what this used to be — is a thick outline on a
+    /// 2400-wide screenshot, not a background, and there is nothing to judge a
+    /// background by. An absolute number lies in both directions, though, so it
+    /// cannot simply be raised: 50 is half a 300-pixel crop and still an
+    /// outline on a retina screen. Twelve percent of the short side is a
+    /// seventh of the height on an ordinary window shot, and the clamps keep
+    /// the extremes sane — a panorama's short side is small, a full retina
+    /// screen's is large.
+    static func defaultMargin(for imagePixelSize: CGSize) -> CGFloat {
+        let short = min(imagePixelSize.width, imagePixelSize.height)
+        guard short.isFinite, short > 0 else { return 32 }
+        return min(240, max(32, (short * 0.12).rounded()))
+    }
 
     /// The four gaps between the picture and the canvas edges, in canvas
     /// pixels. Derived, never stored; negative means the picture reaches past
@@ -176,11 +302,127 @@ nonisolated struct Presentation: Equatable, Sendable {
         static let none = Shadow(radius: 0, offset: .zero, opacity: 0)
     }
 
+    /// One treatment laid over the background, and how strongly.
+    ///
+    /// The parameters are a small fixed set rather than a payload per kind, and
+    /// each kind says which of them it actually has (`EffectStack.parameters`).
+    /// That keeps the panel general — a slider per declared parameter — where a
+    /// case with its own associated values would need a form per case and a
+    /// switch in every place that touches one.
+    ///
+    /// Sizes are **fractions of the short side**, never pixels. The preview is
+    /// baked at screen resolution and the export at the file's, so a grain
+    /// measured in pixels would be a different grain in the two — the same
+    /// mistake the margins made before they became 12%.
+    struct Effect: Identifiable, Equatable, Hashable, Sendable {
+        var id: UUID
+        var kind: Kind
+        var isEnabled: Bool
+        /// How strongly the effect is felt, 0…1.
+        var amount: CGFloat
+        /// Grain, cell, or step — as a fraction of the short side.
+        var scale: CGFloat
+        /// In **degrees**, because that is what the panel shows and what a
+        /// person types. Radians here cost a bug: the field printed "1", "2",
+        /// "3" under a label that said degrees. The renderer converts, which is
+        /// one line in one place.
+        var angleInDegrees: CGFloat
+        var color: Color
+        /// The one number that is neither a strength nor a size: how many
+        /// colours a quantizer leaves, how deep a relief is cut. Named for what
+        /// it is rather than for one of its uses, because the alternative was a
+        /// fifth slot every time a kind needed a second dial.
+        var detail: CGFloat
+        /// How far the colour channels are pulled apart — a lens spreads the
+        /// spectrum, and so does thick glass. Named rather than filed under
+        /// "the second number", because two kinds mean the same thing by it.
+        var aberration: CGFloat
+        /// What the effect is laid over.
+        ///
+        /// Two layers, and the difference is not a matter of taste: the
+        /// background is the one thing that holds still while the picture is
+        /// dragged about, so its effects are baked once and kept. Over the whole
+        /// page there is nothing to keep — the picture moves — and every frame
+        /// pays for the pass.
+        var layer: Layer
+        /// Which characters an ASCII pass draws with. A choice, not a dial:
+        /// blocks and letters are different pictures, not more or less of one.
+        var glyphs: GlyphSet
+        /// Fixes the noise, so the preview and the file get the same one. A
+        /// filter reseeded per call would shimmer while the panel redrew and
+        /// export something different again.
+        let seed: UInt32
+
+        /// Which of the two layers an effect works on.
+        enum Layer: String, CaseIterable, Identifiable, Sendable {
+            /// Behind the picture: only what the page is painted with.
+            case background
+            /// Over everything, the screenshot included.
+            case page
+
+            var id: String { rawValue }
+        }
+
+        /// The characters a page can be written in, darkest first — the order
+        /// *is* the ramp, so a set is read as a scale of brightness.
+        enum GlyphSet: String, CaseIterable, Identifiable, Sendable {
+            case classic, blocks, dots, binary
+
+            var id: String { rawValue }
+
+            var characters: [Character] {
+                switch self {
+                case .classic: return Array("@%#*+=-:. ")
+                case .blocks:  return Array("█▓▒░ ")
+                case .dots:    return Array("●◉◎○· ")
+                // Two characters and a space: the picture comes out as code
+                // rather than as shading, which is the point of it.
+                case .binary:  return Array("10 ")
+                }
+            }
+        }
+
+        /// Only kinds that are actually computed live here. A case that draws
+        /// nothing would still be offered in the panel's grid, and a tile that
+        /// promises nothing is worse than a missing tile.
+        enum Kind: String, CaseIterable, Identifiable, Sendable {
+            var id: String { rawValue }
+
+            case blur, dim, grain, dots, grid, stripes, vignette, pixelate,
+                 dither, halftone, fluted, glass, lens, ascii
+        }
+    }
+
+    /// Light spilling out from behind the picture.
+    ///
+    /// A shadow with no offset and a bright colour would look much the same,
+    /// and that is deliberate — it is drawn by the very same routine. It is a
+    /// *second* light rather than a setting of the first because the two are
+    /// wanted together: a dark shadow below for depth, and a coloured halo all
+    /// round for the mood. One value could only ever be one of them.
+    struct Glow: Equatable, Sendable {
+        var radius: CGFloat
+        var opacity: CGFloat
+        var color: Color
+
+        static let none = Glow(radius: 0.06, opacity: 0,
+                               color: Color(red: 0.35, green: 0.6, blue: 1, alpha: 1))
+
+        /// The same thing said as a shadow, which is what the renderer draws.
+        var asShadow: Shadow {
+            Shadow(radius: radius, offset: .zero, opacity: opacity, color: color)
+        }
+    }
+
     var canvas: Canvas
     var background: Background
     var image: ImagePlacement
     var cornerRadius: CGFloat
     var shadow: Shadow
+    var glow: Glow = .none
+    /// Applied in order, bottom of the list last: filters do not commute, so
+    /// the list is a recipe rather than a set.
+    var effects: [Effect] = []
 
     /// The identity value used when an optional presentation is absent.
     /// A plain white page is the neutral starting point; transparency is a
@@ -297,6 +539,40 @@ nonisolated enum PresentationLayout {
         )
     }
 
+    /// The gap a pointer is asking for on `edge`, in canvas pixels.
+    ///
+    /// Dragging the middle of a side is the same act as typing into that
+    /// margin field — the distance from the page's edge to the pointer *is* the
+    /// margin — so both doors lead to `placement(_:settingGap:to:)` and neither
+    /// invents a second rule. Negative is allowed and means the picture reaches
+    /// past that edge, exactly as it does when the number is typed.
+    static func gap(forPointer point: CGPoint, on edge: Edge,
+                    canvasSize: CGSize) -> CGFloat {
+        switch edge {
+        case .leading:  return point.x
+        case .top:      return point.y
+        case .trailing: return canvasSize.width - point.x
+        case .bottom:   return canvasSize.height - point.y
+        }
+    }
+
+    /// The corner radius a pointer is asking for, as the model keeps it: a
+    /// share of the canvas's short side.
+    ///
+    /// Measured from whichever corner the hand is on, along whichever axis the
+    /// pointer travelled less — that is how a rounded corner grows, since the
+    /// arc can only use what both sides give it. The radius is one number for
+    /// the picture, but every corner can set it. Capped at half the short side,
+    /// the same ceiling the renderer applies when it clips.
+    static func cornerRadius(forPointer point: CGPoint, from corner: ImageCorner,
+                             in imageRect: CGRect, canvasSize: CGSize) -> CGFloat {
+        let short = min(canvasSize.width, canvasSize.height)
+        guard short > 0 else { return 0 }
+        let anchor = corner.point(in: imageRect)
+        let reach = min(abs(point.x - anchor.x), abs(point.y - anchor.y))
+        return min(0.5, max(0, reach / short))
+    }
+
     /// The placement that puts a given gap at `value` on that edge, **keeping
     /// the opposite edge where it is** — so the picture resizes rather than
     /// slides.
@@ -351,7 +627,19 @@ nonisolated enum PresentationLayout {
         return moved
     }
 
-    enum Edge: CaseIterable, Sendable { case top, leading, bottom, trailing }
+    enum Edge: CaseIterable, Sendable {
+        case top, leading, bottom, trailing
+
+        /// The edge across the picture from this one.
+        var opposite: Edge {
+            switch self {
+            case .top:      return .bottom
+            case .bottom:   return .top
+            case .leading:  return .trailing
+            case .trailing: return .leading
+            }
+        }
+    }
 
     /// Splits `delta` between the two margins of one axis, keeping whatever
     /// bias they already have. A picture deliberately pushed left stays pushed
@@ -428,11 +716,95 @@ nonisolated enum EditorCanvasGeometry {
         let imageDrawSize: CGSize
     }
 
+    /// `canvasOriginOverride` puts the page somewhere other than the middle —
+    /// see `canvasOrigin(pinning:)`, which is the only thing that asks.
+    /// Where the page has to sit for `edge` to stay under the pointer — as far
+    /// as that is possible without pushing the page out of the window.
+    ///
+    /// An auto page has no size of its own — it *is* the picture plus its
+    /// margins — so dragging a margin resizes the page, and a page that resizes
+    /// is re-fitted and re-centred on the next pass. Left alone, that moves the
+    /// very edge the hand is holding: it travels at half the speed of the
+    /// mouse, the other half going into recentring.
+    ///
+    /// Two things were tried and each broke the other way. Holding the fit made
+    /// the page grow straight out of the window, taking the margin being set
+    /// with it. Pinning the edge without a clamp kept that edge under the hand
+    /// and walked the page out of the *opposite* side. So the pin is clamped:
+    /// the page is placed for the pointer while it can be, and never past the
+    /// point where a side of it would leave the window. Visibility outranks
+    /// tracking, because a page you cannot see is not one you can judge.
+    ///
+    /// Only the axis being dragged is pinned; the other stays centred, since
+    /// nothing on it changed.
+    static func canvasOrigin(pinning edge: PresentationLayout.Edge,
+                             at viewPoint: CGPoint,
+                             imageRect: CGRect,
+                             canvasScale: CGFloat,
+                             canvasDrawSize: CGSize,
+                             viewport: CGSize,
+                             centred: CGPoint) -> CGPoint {
+        func held(_ value: CGFloat, drawn: CGFloat, available: CGFloat) -> CGFloat {
+            let near = edgeInset
+            let far = available - edgeInset - drawn
+            return min(max(value, min(near, far)), max(near, far))
+        }
+        switch edge {
+        case .leading, .trailing:
+            let anchor = edge == .leading ? imageRect.minX : imageRect.maxX
+            return CGPoint(x: held(viewPoint.x - anchor * canvasScale,
+                                   drawn: canvasDrawSize.width,
+                                   available: viewport.width),
+                           y: centred.y)
+        case .top, .bottom:
+            let anchor = edge == .top ? imageRect.minY : imageRect.maxY
+            return CGPoint(x: centred.x,
+                           y: held(viewPoint.y - anchor * canvasScale,
+                                   drawn: canvasDrawSize.height,
+                                   available: viewport.height))
+        }
+    }
+
+    /// `canvasOriginOverride` puts the page somewhere other than the middle —
+    /// see `canvasOrigin(pinning:)`, which is the only thing that asks.
+    /// Where the page has to sit for `edge` to stay under the pointer.
+    ///
+    /// An auto page has no size of its own — it *is* the picture plus its
+    /// margins — so dragging a margin resizes the page, and a page that resizes
+    /// is re-fitted and re-centred on the next pass. Left alone, that moves the
+    /// very edge the hand is holding: it travels at half the speed of the
+    /// mouse, the other half going into recentring, and it slides sideways as
+    /// the fit shrinks.
+    ///
+    /// Holding the fit instead was worse in its own way: the page grew straight
+    /// out of the window and the margin being set could not be seen. So the fit
+    /// is left alone — the whole page stays visible, as everywhere else in this
+    /// editor — and the page is placed so that the edge in hand lands under the
+    /// pointer. Only the axis being dragged is pinned; the other one stays
+    /// centred, since nothing on it changed.
+    static func canvasOrigin(pinning edge: PresentationLayout.Edge,
+                             at viewPoint: CGPoint,
+                             imageRect: CGRect,
+                             canvasScale: CGFloat,
+                             centred: CGPoint) -> CGPoint {
+        switch edge {
+        case .leading:
+            return CGPoint(x: viewPoint.x - imageRect.minX * canvasScale, y: centred.y)
+        case .trailing:
+            return CGPoint(x: viewPoint.x - imageRect.maxX * canvasScale, y: centred.y)
+        case .top:
+            return CGPoint(x: centred.x, y: viewPoint.y - imageRect.minY * canvasScale)
+        case .bottom:
+            return CGPoint(x: centred.x, y: viewPoint.y - imageRect.maxY * canvasScale)
+        }
+    }
+
     static func resolve(viewport: CGSize,
                         imagePixelSize: CGSize,
                         presentation: Presentation?,
                         zoom: CGFloat,
-                        pan: CGSize) -> Resolved {
+                        pan: CGSize,
+                        canvasOriginOverride: CGPoint? = nil) -> Resolved {
         let layout = PresentationLayout.resolve(
             imagePixelSize: imagePixelSize,
             presentation
@@ -458,7 +830,7 @@ nonisolated enum EditorCanvasGeometry {
             width: canvasBaseDrawSize.width * zoomScale,
             height: canvasBaseDrawSize.height * zoomScale
         )
-        let canvasOffset = CGPoint(
+        let canvasOffset = canvasOriginOverride ?? CGPoint(
             x: (finite(viewport.width) - canvasDrawSize.width) / 2
                 + finite(pan.width),
             y: (finite(viewport.height) - canvasDrawSize.height) / 2

@@ -36,6 +36,10 @@ enum MenuIcon: String, CaseIterable {
     case selectAll = "checkmark.rectangle.stack"
     case remove   = "xmark.circle"
     case trash    = "trash"
+    /// Reordering one thing inside a row — the decor inspector's gradient
+    /// stops. The same two arrows wherever a list is ordered by hand.
+    case moveLeft  = "arrow.left"
+    case moveRight = "arrow.right"
     /// The "⋯" menu's own two rows. They are commands like any other, and a
     /// menu where some rows carry a glyph and some do not sets its titles in
     /// two different columns.

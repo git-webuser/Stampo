@@ -39,8 +39,10 @@ import Testing
         assertSymbols(PresentationInspector.alignmentSystemImages)
     }
 
-    @Test func marginUnlockSymbolExists() {
-        assertSymbols(["link.badge.plus"])
+    /// The margin link, in both of its states — there is no "link.slash", so
+    /// the unlinked state wears the badge instead.
+    @Test func marginLinkSymbolsExist() {
+        assertSymbols(["link", "link.badge.plus"])
     }
 
     /// The two whole-section buttons: the canvas rotate and the shadow's

@@ -400,7 +400,7 @@ struct ScreenshotThumbnailView: View {
         .onTapGesture {
             switch AppSettings.thumbnailClickAction {
             case .editor:
-                EditorWindowController.shared.open(url: imageURL)
+                EditorWindowController.open(url: imageURL)
             case .preview:
                 let cfg = NSWorkspace.OpenConfiguration()
                 cfg.activates = true
@@ -410,7 +410,7 @@ struct ScreenshotThumbnailView: View {
         }
         .contextMenu {
             MenuCommandButton("Edit", icon: .edit) {
-                EditorWindowController.shared.open(url: imageURL)
+                EditorWindowController.open(url: imageURL)
                 if !isPinned { onDismiss() }
             }
             MenuCommandButton("Copy", icon: .copy) {

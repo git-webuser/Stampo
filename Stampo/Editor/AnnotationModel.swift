@@ -17,6 +17,11 @@ nonisolated enum AnnotationKind: Equatable, Sendable {
     case blur
     case step
     case loupe
+    /// A picture of the user's own, placed on the page beside the screenshot —
+    /// a second shot for a before-and-after, a logo, anything droppable. Held
+    /// by name like the background picture is: the annotation is a value that
+    /// crosses into the export task, and the pixels live in the document.
+    case picture
 
     /// Closed-region shapes whose outline is a computed `CGPath` over the
     /// bounding rect (unlike rect/oval, which stroke CG primitives directly).
@@ -406,6 +411,36 @@ nonisolated struct Annotation: Identifiable, Equatable, Sendable {
     var blurLevel: Int = BlurIntensity.defaultLevel
     /// 0 is outline-only; rect and oval use a translucent fill above 0.
     var fillOpacity: CGFloat = 0
+    /// Which picture a `.picture` annotation draws — the document holds the
+    /// pixels under this name.
+    var pictureID: UUID?
+    /// How round a placed picture's corners are, as a fraction of its short
+    /// side — the same rule the page uses for the screenshot's corners, so the
+    /// two look like the same treatment when they sit side by side.
+    var pictureCornerRadius: CGFloat = 0
+    /// How strong the shadow under a placed picture is, 0…1. One number rather
+    /// than four: a picture on a page wants the same shadow the screenshot has,
+    /// only more or less of it, and the radius and offset follow from its size.
+    var pictureShadow: CGFloat = 0
+    /// What colour that shadow is. Black by default, as a shadow is, but a
+    /// coloured one is how a picture is bedded into a coloured page instead of
+    /// looking cut out and dropped onto it.
+    var pictureShadowColor: Presentation.Color = Presentation.Shadow.none.color
+    /// How strong the light behind a placed picture is, 0…1, and its colour.
+    /// Its own rather than the page's: giving every object the same glow is a
+    /// blunt rule, and a second picture is often placed precisely because it
+    /// should read differently from the first.
+    var pictureGlow: CGFloat = 0
+    var pictureGlowColor: Presentation.Color = Presentation.Glow.none.color
+    /// The picture's own stack of effects, run over its pixels alone.
+    ///
+    /// Its own rather than the page's, for the reason the user gave when the
+    /// page-wide treatment was turned down: a page has one background and one
+    /// screenshot, but it may have any number of pictures, and grain that
+    /// belongs to all of them is a different request from grain that belongs to
+    /// this one. `Effect.layer` means nothing here — an object has one layer,
+    /// itself — so every switched-on effect in the list is applied.
+    var pictureEffects: [Presentation.Effect] = []
     /// Number of sides of a `.polygon` (ShapeCounts.polygonSides).
     var polygonSides: Int = ShapeCounts.defaultPolygonSides
     /// Number of points of a `.star` (ShapeCounts.starPoints).
@@ -852,7 +887,7 @@ nonisolated struct Annotation: Identifiable, Equatable, Sendable {
         case .line, .arrow:
             return hypot(end.x - start.x, end.y - start.y) < 4
         case .rect, .oval, .roundedRect, .polygon, .star, .bubble,
-             .blur, .loupe:
+             .blur, .loupe, .picture:
             return rect.width < 4 || rect.height < 4
         case .text:
             return text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -907,7 +942,7 @@ nonisolated struct Annotation: Identifiable, Equatable, Sendable {
             return outline.copy(strokingWithWidth: lineWidth + tolerance * 2,
                                 lineCap: .round, lineJoin: .round,
                                 miterLimit: 10).contains(p)
-        case .text, .blur:
+        case .text, .blur, .picture:
             return rect.insetBy(dx: -tolerance, dy: -tolerance).contains(p)
         case .freehand:
             guard let first = freehandPoints.first else { return false }
@@ -1017,7 +1052,7 @@ nonisolated struct Annotation: Identifiable, Equatable, Sendable {
         case .line:
             return [(.start, start), (.end, end)]
         case .rect, .oval, .roundedRect, .polygon, .star, .bubble,
-             .blur, .loupe:
+             .blur, .loupe, .picture:
             var result = Self.corners(of: rect,
                                       (.topLeft, .topRight, .bottomLeft, .bottomRight))
             if let sourceRect = loupeSourceRect {
@@ -1185,7 +1220,18 @@ nonisolated struct Annotation: Identifiable, Equatable, Sendable {
             let lockAspect = aspectLocked
                 && (kind == .rect || kind == .oval || kind == .loupe
                     || kind.isPathShape)
-            let target = lockAspect ? Self.aspectLockedEnd(from: anchor, to: p) : p
+            let target: CGPoint
+            if aspectLocked, kind == .picture {
+                // A picture keeps its own proportions rather than becoming a
+                // square: squashing a photograph is the one thing Shift is
+                // there to prevent. The ratio is the one it has at this moment
+                // — locked from the first step of the drag, and kept by every
+                // step after, since each one reads back what the last wrote.
+                target = Self.ratioLockedEnd(from: anchor, to: p,
+                                             ratio: r.height / max(r.width, 0.0001))
+            } else {
+                target = lockAspect ? Self.aspectLockedEnd(from: anchor, to: p) : p
+            }
             let (dx, crossedX) = Self.resolvedDelta(raw: target.x - anchor.x,
                                                     side: direction.x)
             let (dy, crossedY) = Self.resolvedDelta(raw: target.y - anchor.y,
@@ -1608,6 +1654,41 @@ nonisolated struct Annotation: Identifiable, Equatable, Sendable {
                        y: from.y + (dy < 0 ? -side : side))
     }
 
+    /// A rectangle given a new width, a new height, or both, from its
+    /// top-left corner — what the size fields in the panel do.
+    ///
+    /// `keepingRatio` is the fields' chain, and it is the same promise Shift
+    /// makes on the canvas: whichever number was typed leads, and the other
+    /// follows it. Nothing may collapse to nothing, so both sides keep at
+    /// least a pixel.
+    static func resized(_ rect: CGRect, width: CGFloat? = nil, height: CGFloat? = nil,
+                        keepingRatio: Bool) -> CGRect {
+        let ratio = rect.width > 0 ? rect.height / rect.width : 1
+        var size = CGSize(width: max(1, width ?? rect.width),
+                          height: max(1, height ?? rect.height))
+        if keepingRatio, ratio > 0 {
+            if width != nil, height == nil {
+                size.height = max(1, size.width * ratio)
+            } else if height != nil, width == nil {
+                size.width = max(1, size.height / ratio)
+            }
+        }
+        return CGRect(origin: rect.origin, size: size)
+    }
+
+    /// The corner that keeps a given height-to-width ratio, in whichever
+    /// quadrant the drag is heading. The longer side of the drag leads, so the
+    /// picture follows the pointer rather than lagging behind it.
+    static func ratioLockedEnd(from: CGPoint, to point: CGPoint,
+                               ratio: CGFloat) -> CGPoint {
+        let dx = point.x - from.x, dy = point.y - from.y
+        guard ratio > 0, dx != 0 || dy != 0 else { return point }
+        let width = max(abs(dx), abs(dy) / ratio)
+        let height = width * ratio
+        return CGPoint(x: from.x + (dx < 0 ? -width : width),
+                       y: from.y + (dy < 0 ? -height : height))
+    }
+
     // MARK: Arrow binding (pure resolver — unit-testable)
 
     /// Shapes an arrow endpoint can bind to. Closed regions with a meaningful
@@ -1890,7 +1971,12 @@ nonisolated struct Annotation: Identifiable, Equatable, Sendable {
 }
 
 /// The four grab points of the picture's frame.
-enum ImageCorner: CaseIterable, Sendable {
+///
+/// `nonisolated`, because it is pure geometry and `PresentationLayout` — which
+/// is nonisolated by design, so preview and export can share it — asks a corner
+/// where it is. The default isolation in this project is the main actor, so
+/// without this the layout maths would be calling into it from outside.
+nonisolated enum ImageCorner: CaseIterable, Sendable {
     case topLeft, topRight, bottomLeft, bottomRight
 
     var isTop: Bool { self == .topLeft || self == .topRight }
@@ -1936,6 +2022,11 @@ struct DocumentSnapshot: Equatable, Sendable {
 nonisolated struct EditorRenderSnapshot: Sendable {
     let baseImage: CGImage
     let blurSources: [BlurSource: CGImage]
+    /// The user's own pictures — the page's background and anything placed on
+    /// it. Carried by the snapshot for the same reason the blurred copies are:
+    /// the values name them, the document holds them, and the export task gets
+    /// neither unless they are handed over.
+    let pictures: [UUID: CGImage]
     let annotations: [Annotation]
     let revision: UInt64
     let format: String
@@ -2030,6 +2121,7 @@ nonisolated struct RenderedArtifact: Sendable {
         EditorRenderSnapshot(
             baseImage: baseImage,
             blurSources: blurSources,
+            pictures: pictures,
             annotations: annotations,
             revision: revision,
             format: format,
@@ -2348,7 +2440,9 @@ nonisolated struct RenderedArtifact: Sendable {
         pendingSnapshot = nil
         guard snapshot != currentSnapshot else { return }
         undoStack.append(snapshot)
+        // The redo stack was the last thing holding an undone picture.
         redoStack.removeAll()
+        forgetUnreachablePictures()
     }
 
     /// Abandon a change without pushing (e.g. cancelled gesture).
@@ -2390,14 +2484,21 @@ nonisolated struct RenderedArtifact: Sendable {
 
     func deleteSelected() {
         guard let selectedID else { return }
+        delete(id: selectedID)
+    }
+
+    /// Removes one annotation by name — the panel's own way of throwing a
+    /// placed picture away, which must not depend on it being selected.
+    func delete(id: UUID) {
+        guard annotations.contains(where: { $0.id == id }) else { return }
         beginChange()
         // Freeze bound arrows at their current point before the target (which
         // might be this selection) disappears, so they hold place rather than
         // snapping to a stale fallback. Undo restores the target and the
         // pre-freeze fallbacks together via the snapshot.
         refreshBindingFallbacks()
-        annotations.removeAll { $0.id == selectedID }
-        self.selectedID = nil
+        annotations.removeAll { $0.id == id }
+        if selectedID == id { selectedID = nil }
         commitChange()
     }
 
@@ -2496,7 +2597,8 @@ nonisolated struct RenderedArtifact: Sendable {
     /// fired at editor launch and decorated documents nobody had asked to
     /// decorate (measured: presentation set, document dirty, one undo entry,
     /// without a single click). The button that opens the panel is the event.
-    func startDecorationIfNeeded(margin: CGFloat = Presentation.defaultMargin) {
+    func startDecorationIfNeeded(margin: CGFloat? = nil) {
+        let margin = margin ?? Presentation.defaultMargin(for: pixelSize)
         guard presentation == nil, margin > 0 else { return }
         beginChange()
         // An auto page: the picture keeps every one of its own pixels and the
@@ -2504,6 +2606,375 @@ nonisolated struct RenderedArtifact: Sendable {
         presentation = Presentation(canvas: .auto(margins: .init(all: margin), scale: 1),
                                     background: .solid(.white))
         commitChange()
+    }
+
+    // MARK: Background pictures
+
+    /// The user's own pictures, by the name that refers to them — a page's
+    /// background and a picture placed on the page alike.
+    ///
+    /// Beside the picture rather than inside it, exactly as the blurred copies
+    /// of the screenshot are: `Presentation` is a value that crosses into the
+    /// export task and is compared on every undo step, and an image in it would
+    /// be neither cheap to compare nor pleasant to carry. Undo therefore takes
+    /// the *name* back and the pixels stay — which is what makes undoing a
+    /// change of background instant rather than a second trip to the disk.
+    private(set) var pictures: [UUID: CGImage] = [:]
+
+    func picture(for id: UUID?) -> CGImage? {
+        guard let id else { return nil }
+        return pictures[id]
+    }
+
+    /// Kept, not owned: an undo that takes a picture off the page leaves the
+    /// pixels here, so putting it back is instant rather than another trip to
+    /// the disk. They go when nothing can reach them any more — see
+    /// `forgetUnreachablePictures` — and, failing that, when the document does.
+    ///
+    /// The one door in, and a narrow one: what is kept is the picture cut down
+    /// to what a page can show (`fitted`).
+    func keepPicture(_ picture: CGImage, id: UUID) {
+        pictures[id] = Self.fitted(picture)
+    }
+
+    /// The most pixels a picture is kept at: 4096 on the long side.
+    ///
+    /// A page is a screenshot with margins, and a picture placed on one starts
+    /// at half the page and can be pulled out to the whole of it — so above
+    /// this the pixels are being carried for a resolution nobody will ever see.
+    /// A phone photograph is 4000 across and a camera's is 8000; the second one
+    /// costs 190 MB held as a bitmap, to be drawn 1200 points wide.
+    ///
+    /// Cut once, on the way in, rather than on the way out: the export, the
+    /// preview, the effects bake and the panel's thumbnail all read the same
+    /// stored picture, and a document that holds one number of pixels and draws
+    /// another is a document whose weight nobody can predict.
+    nonisolated static let pictureSizeLimit = 4096
+
+    /// A picture at no more than `pictureSizeLimit` on its long side, keeping
+    /// its shape. Anything already smaller is passed straight through — most
+    /// pictures are, and re-drawing them would cost quality for nothing.
+    nonisolated static func fitted(_ picture: CGImage) -> CGImage {
+        let longest = max(picture.width, picture.height)
+        guard longest > pictureSizeLimit else { return picture }
+        let scale = CGFloat(pictureSizeLimit) / CGFloat(longest)
+        let width = max(1, Int((CGFloat(picture.width) * scale).rounded()))
+        let height = max(1, Int((CGFloat(picture.height) * scale).rounded()))
+        guard let context = CGContext(
+            data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+            space: picture.colorSpace ?? CGColorSpace(name: CGColorSpace.sRGB)!,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        else { return picture }
+        context.interpolationQuality = .high
+        context.draw(picture, in: CGRect(x: 0, y: 0, width: width, height: height))
+        return context.makeImage() ?? picture
+    }
+
+    /// The names any state can still reach: what is on the page now, what the
+    /// history can put back on it, and what the document was last saved as.
+    private var reachablePictureNames: Set<UUID> {
+        var names: Set<UUID> = []
+        func collect(annotations: [Annotation], presentation: Presentation?) {
+            for annotation in annotations {
+                if let id = annotation.pictureID { names.insert(id) }
+            }
+            if let id = presentation?.background.pictureID { names.insert(id) }
+        }
+        collect(annotations: annotations, presentation: presentation)
+        for snapshot in undoStack + redoStack {
+            collect(annotations: snapshot.annotations, presentation: snapshot.presentation)
+        }
+        if let pendingSnapshot {
+            collect(annotations: pendingSnapshot.annotations,
+                    presentation: pendingSnapshot.presentation)
+        }
+        collect(annotations: savedSnapshot.annotations, presentation: savedSnapshot.presentation)
+        return names
+    }
+
+    /// Lets go of the pixels no state can reach any more.
+    ///
+    /// Deleting a picture is not that moment: the history still holds it, and
+    /// undo has to put it back without another trip to the disk. The moment
+    /// comes later — a picture undone and then written over by the next change,
+    /// which empties the redo stack — and until this ran, those pixels stayed
+    /// for the life of the window. A session of trying pictures on a page and
+    /// undoing them held every one of them.
+    private func forgetUnreachablePictures() {
+        // The common case is a document whose every picture is on the page, and
+        // it costs one count rather than a walk of the whole history.
+        guard !pictures.isEmpty else { return }
+        let reachable = reachablePictureNames
+        guard pictures.count > reachable.count else { return }
+        pictures = pictures.filter { reachable.contains($0.key) }
+    }
+
+    /// Takes the file as the page's background, in one undo step.
+    ///
+    /// The one road in, used by the panel's file dialog and by a file dropped
+    /// on the canvas alike: loading, keeping the pixels and naming them in the
+    /// presentation are three things that must happen together or not at all.
+    /// Returns false when the file is not an image anyone can read, which is
+    /// the caller's cue to say so.
+    @discardableResult
+    func useBackgroundPicture(at url: URL) -> Bool {
+        guard let picture = Self.picture(at: url) else { return false }
+        beginChange()
+        // Dropping a picture on an undecorated shot is a decision to decorate,
+        // exactly as touching any other decor control is.
+        startDecorationForEditing()
+        let id = UUID()
+        keepPicture(picture, id: id)
+        // However the last picture met the page, this one meets it the same:
+        // somebody who tiles textures is usually about to tile another.
+        presentation?.background = .picture(id: id,
+                                            backing: presentation?.background.colors.first ?? .white,
+                                            fit: presentation?.background.pictureFit ?? .fill)
+        commitChange()
+        return true
+    }
+
+    /// Places a picture on the page, centred where it was dropped.
+    ///
+    /// It becomes an ordinary annotation, and that is the whole design: the
+    /// canvas is where objects live and the panel is where the page is
+    /// designed, so a picture brought to the canvas is a thing on the page —
+    /// movable, resizable, deletable and annotatable like everything else —
+    /// while the page's *background* is chosen in the panel. Two screenshots
+    /// side by side with an arrow across them needs nothing else.
+    ///
+    /// Returns false when the file is not an image anyone can read.
+    @discardableResult
+    func placePicture(at url: URL, centredOn point: CGPoint, canvasSize: CGSize) -> Bool {
+        guard let picture = Self.picture(at: url) else { return false }
+        return placePicture(picture, centredOn: point, canvasSize: canvasSize)
+    }
+
+    /// The same, for pixels that never came from a file — the clipboard.
+    @discardableResult
+    func placePicture(_ picture: CGImage, centredOn point: CGPoint,
+                      canvasSize: CGSize) -> Bool {
+        let id = UUID()
+        beginChange()
+        keepPicture(picture, id: id)
+        // Of the picture as kept, which is not always the picture as handed
+        // over: a photograph too big to hold is cut down on the way in.
+        let size = Self.placedPictureSize(of: pictures[id] ?? picture, on: canvasSize)
+        var placed = Annotation(
+            kind: .picture,
+            start: CGPoint(x: point.x - size.width / 2, y: point.y - size.height / 2),
+            end: CGPoint(x: point.x + size.width / 2, y: point.y + size.height / 2),
+            color: .red, lineWidth: 0
+        )
+        placed.pictureID = id
+        annotations.append(placed)
+        selectedID = placed.id
+        commitChange()
+        return true
+    }
+
+    /// The picture on the clipboard, if there is one.
+    ///
+    /// A copied *file* counts: Finder puts a URL on the pasteboard rather than
+    /// the pixels, and to a person who copied a screenshot in Finder the two
+    /// are the same act.
+    nonisolated static func pictureOnPasteboard(
+        _ pasteboard: NSPasteboard = .general
+    ) -> CGImage? {
+        if let urls = pasteboard.readObjects(forClasses: [NSURL.self]) as? [URL],
+           let picture = urls.lazy.compactMap({ Self.picture(at: $0) }).first {
+            return picture
+        }
+        guard let image = NSImage(pasteboard: pasteboard) else { return nil }
+        return image.cgImage(forProposedRect: nil, context: nil, hints: nil)
+    }
+
+    /// How big a dropped picture arrives.
+    ///
+    /// Its own pixels, unless that would cover more than half the page: a
+    /// screenshot dropped beside another is usually the same size as the one
+    /// already there, and something enormous would land as a wall with no
+    /// visible handles to shrink it by.
+    nonisolated static func placedPictureSize(of picture: CGImage,
+                                              on canvasSize: CGSize) -> CGSize {
+        let size = CGSize(width: CGFloat(picture.width), height: CGFloat(picture.height))
+        guard size.width > 0, size.height > 0,
+              canvasSize.width > 0, canvasSize.height > 0 else { return size }
+        let room = min(canvasSize.width * 0.5 / size.width,
+                       canvasSize.height * 0.5 / size.height)
+        let scale = min(1, room)
+        return CGSize(width: (size.width * scale).rounded(),
+                      height: (size.height * scale).rounded())
+    }
+
+    /// A picture read from a file, in the form the renderer draws.
+    nonisolated static func picture(at url: URL) -> CGImage? {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let image = CGImageSourceCreateImageAtIndex(source, 0, nil)
+        else { return nil }
+        return image
+    }
+
+    /// A decor control was used, so there is a decoration.
+    ///
+    /// «Remove Decor» leaves the document undecorated with the panel still
+    /// open, and every setter below used to answer that state by doing nothing:
+    /// margins took a number and dropped it, the canvas size could not be set
+    /// at all, and the only way out was to close the panel and open it again.
+    /// Touching one of these controls *is* the decision to decorate, exactly as
+    /// pressing the decor button is.
+    ///
+    /// No undo step of its own: each caller either wraps one or is part of a
+    /// gesture that does, and a second step here would make one action take two
+    /// presses of ⌘Z.
+    func startDecorationForEditing() {
+        guard presentation == nil else { return }
+        let margin = Presentation.defaultMargin(for: pixelSize)
+        guard margin > 0 else { return }
+        presentation = Presentation(canvas: .auto(margins: .init(all: margin), scale: 1),
+                                    background: .solid(.white))
+    }
+
+    /// Puts the page into a ratio, as one undo step.
+    ///
+    /// The page is worked out from what is on screen — see `CanvasRatio.page` —
+    /// so the picture keeps the size it is drawn at and only gains air. A
+    /// format used to be a pixel size, which meant "Instagram 4:5" resampled a
+    /// retina screenshot down to 1080 wide before anyone reached the export.
+    func setCanvasRatio(_ ratio: CanvasRatio) {
+        startDecorationForEditing()
+        guard let presentation else { return }
+        let layout = PresentationLayout.resolve(imagePixelSize: pixelSize, presentation)
+        let page = CanvasRatio.page(for: ratio, in: layout)
+        guard page.width > 0, page.height > 0 else { return }
+
+        var updated = presentation
+        updated.canvas = .preset(pixelSize: page)
+        updated.image = CanvasRatio.placement(keepingDrawnSizeOf: layout,
+                                              from: presentation.image,
+                                              imagePixelSize: pixelSize,
+                                              on: page)
+        // A transparent canvas is a deliberate choice, not a starting point:
+        // the first format a picture is given should show it on a real
+        // background. `.fitted` is the placement nobody has touched yet.
+        if presentation.image == .fitted, case .none = presentation.background {
+            updated.background = .solid(.white)
+        }
+        guard updated != presentation else { return }
+        beginChange()
+        self.presentation = updated
+        commitChange()
+    }
+
+    /// Sets one of the page's two numbers, as one undo step.
+    ///
+    /// Moved here from the inspector when the canvas controls went into the
+    /// toolbar's second row; the rule is unchanged. On an auto page the size is
+    /// still yours to set — the margins take up the difference and the picture
+    /// is left alone. On a fixed page it simply sets that page's size.
+    ///
+    /// The equality guard is not an optimisation. A field writes its parsed
+    /// value back as it appears, and without this the canvas changed the moment
+    /// the row was merely drawn — measured, not supposed.
+    func setCanvasDimension(_ dimension: CanvasDimension, to value: Int) {
+        startDecorationForEditing()
+        guard let presentation else { return }
+        let safeValue = CGFloat(min(16384, max(1, value)))
+        let live = PresentationLayout.resolve(imagePixelSize: pixelSize, presentation).canvasSize
+        let current = dimension == .width ? live.width : live.height
+        guard safeValue != current.rounded() else { return }
+
+        var updated = presentation
+        if case .auto(var margins, let scale) = presentation.canvas {
+            let delta = safeValue - current
+            if dimension == .width {
+                let split = PresentationLayout.absorb(delta, into: margins.leading,
+                                                      and: margins.trailing)
+                margins.leading = split.near
+                margins.trailing = split.far
+            } else {
+                let split = PresentationLayout.absorb(delta, into: margins.top,
+                                                      and: margins.bottom)
+                margins.top = split.near
+                margins.bottom = split.far
+            }
+            updated.canvas = .auto(margins: margins, scale: scale)
+        } else {
+            var size = live
+            if dimension == .width { size.width = safeValue } else { size.height = safeValue }
+            updated.canvas = .preset(pixelSize: size)
+        }
+        guard updated != presentation else { return }
+        beginChange()
+        self.presentation = updated
+        commitChange()
+    }
+
+    /// Hands the page back to its margins, as one undo step.
+    ///
+    /// Auto takes over exactly what is on screen — the margins *and* the size
+    /// the picture was left at — so nothing moves when the format is dropped;
+    /// ⌘Z is what goes back to the page before it. Rewinding to whatever Auto
+    /// held earlier would move the picture under the cursor for no reason the
+    /// user could see.
+    func setAutoPage() {
+        guard let presentation, case .preset = presentation.canvas else { return }
+        let layout = PresentationLayout.resolve(imagePixelSize: pixelSize, presentation)
+        let gaps = PresentationLayout.gaps(layout)
+        let image = pixelSize
+        guard image.width > 0, layout.imageRect.width > 0 else { return }
+
+        var updated = presentation
+        updated.canvas = .auto(
+            margins: Presentation.Margins(top: gaps.top.rounded(),
+                                          leading: gaps.leading.rounded(),
+                                          bottom: gaps.bottom.rounded(),
+                                          trailing: gaps.trailing.rounded()),
+            scale: layout.imageRect.width / image.width
+        )
+        updated.image = .fitted
+        guard updated != presentation else { return }
+        beginChange()
+        self.presentation = updated
+        commitChange()
+    }
+
+    /// Sets one gap, from wherever the number came from — a field in the panel
+    /// or the side of the picture being dragged on the canvas.
+    ///
+    /// On an auto page the margins *are* the page, so the gap is simply itself.
+    /// On a fixed page there is a size to respect, so the picture resizes
+    /// against the opposite edge — which is what dragging a side looks like
+    /// anyway.
+    ///
+    /// Live, like `moveImage` and `resizeImage`: the undo step belongs to the
+    /// gesture, and opening one here would push an entry per pointer sample.
+    func setGap(_ edge: PresentationLayout.Edge, to value: CGFloat) {
+        startDecorationForEditing()
+        guard let presentation else { return }
+        let canvasSize = PresentationLayout.resolve(imagePixelSize: pixelSize,
+                                                    presentation).canvasSize
+        if case .auto(var margins, let scale) = presentation.canvas {
+            guard margins[edge] != value else { return }
+            margins[edge] = value
+            self.presentation?.canvas = .auto(margins: margins, scale: scale)
+            return
+        }
+        let placement = PresentationLayout.placement(
+            presentation.image, settingGap: edge, to: value,
+            imagePixelSize: pixelSize, canvasSize: canvasSize, in: presentation
+        )
+        guard placement != presentation.image else { return }
+        self.presentation?.image = placement
+    }
+
+    /// Live, for the same reason as `setGap`.
+    func setCornerRadius(_ radius: CGFloat) {
+        startDecorationForEditing()
+        guard presentation != nil else { return }
+        let clamped = min(0.5, max(0, radius.isFinite ? radius : 0))
+        guard presentation?.cornerRadius != clamped else { return }
+        presentation?.cornerRadius = clamped
     }
 
     /// Moves the picture on its canvas by a delta in canvas pixels — the same

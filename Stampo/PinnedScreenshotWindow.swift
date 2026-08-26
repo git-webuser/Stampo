@@ -365,7 +365,7 @@ struct PinnedScreenshotView: View {
         .onTapGesture(count: 2) { onClose() }
         .contextMenu {
             MenuCommandButton("Edit", icon: .edit) {
-                EditorWindowController.shared.open(url: imageURL)
+                EditorWindowController.open(url: imageURL)
             }
             MenuCommandButton("Copy", icon: .copy) {
                 NSPasteboard.general.writeImage(at: imageURL)

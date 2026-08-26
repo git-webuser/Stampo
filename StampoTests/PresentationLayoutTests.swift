@@ -239,15 +239,15 @@ import Testing
     }
 
     @Test func ratioLabelsReduceWhenAPersonWouldSayThem() {
-        #expect(PresentationInspector.ratioLabel(for: CGSize(width: 1600, height: 900)) == "16:9")
-        #expect(PresentationInspector.ratioLabel(for: CGSize(width: 1080, height: 1350)) == "4:5")
-        #expect(PresentationInspector.ratioLabel(for: CGSize(width: 1080, height: 1920)) == "9:16")
+        #expect(CanvasRatio.label(for: CGSize(width: 1600, height: 900)) == "16:9")
+        #expect(CanvasRatio.label(for: CGSize(width: 1080, height: 1350)) == "4:5")
+        #expect(CanvasRatio.label(for: CGSize(width: 1080, height: 1920)) == "9:16")
         // 1200×630 reduces only to 40:21, which nobody says out loud, so the
         // decimal form wins — this is the cutoff the 32-per-side cap draws.
-        #expect(PresentationInspector.ratioLabel(for: CGSize(width: 1200, height: 630)) == "1.90:1")
+        #expect(CanvasRatio.label(for: CGSize(width: 1200, height: 630)) == "1.90:1")
         // A screenshot size that reduces to nothing useful falls back to decimals.
-        #expect(PresentationInspector.ratioLabel(for: CGSize(width: 1237, height: 641)) == "1.93:1")
-        #expect(PresentationInspector.ratioLabel(for: CGSize(width: 0, height: 10)) == "—")
+        #expect(CanvasRatio.label(for: CGSize(width: 1237, height: 641)) == "1.93:1")
+        #expect(CanvasRatio.label(for: CGSize(width: 0, height: 10)) == "—")
     }
 
     // MARK: Gaps are measured, never stored
@@ -391,7 +391,7 @@ import Testing
         let image = CGSize(width: 1600, height: 900)      // same shape as the canvas
         let canvas = CGSize(width: 1600, height: 900)
         let placement = PresentationLayout.placement(
-            framingWith: Presentation.defaultMargin,
+            framingWith: 10,
             imagePixelSize: image, canvasSize: canvas
         )
         let gaps = PresentationLayout.gaps(
@@ -407,7 +407,7 @@ import Testing
         // the axis that binds and more on the other — the aspect is locked, so
         // there is no third option.
         let wide = PresentationLayout.placement(
-            framingWith: Presentation.defaultMargin,
+            framingWith: 10,
             imagePixelSize: CGSize(width: 1600, height: 400),
             canvasSize: canvas
         )
@@ -632,6 +632,9 @@ import Testing
             case .linearGradient, .radialGradient: return "gradient"
             case .mesh: return "mesh"
             case .none: return "none"
+            // A picture is nobody's preset: the gallery is made of colours the
+            // app ships, and the user's own file is not one of them.
+            case .picture: return "picture"
             }
         }
         #expect(kinds.filter { $0 == "solid" }.count >= 4)
@@ -667,5 +670,25 @@ import Testing
             #expect((corner?.alphaComponent ?? 0) > 0.99)   // opaque, never a hole
         }
         #expect(PresentationInspector.backgroundPresetsForTesting.count == 32)
+    }
+
+    /// The page-layer pass is not cached, so a gesture pays for it on every
+    /// pointer sample. While something is being dragged the canvas asks for
+    /// half the side, which is a quarter of the pixels — though not a quarter
+    /// of the time, since ribs and character cells are counted in fractions of
+    /// the page and there are just as many of them at any size.
+    @Test func aGestureRendersThePageAtHalfTheSide() {
+        let device = CGSize(width: 1200, height: 800)
+        let full = PresentationRenderer.pageBitmapSize(device: device, quality: .full)
+        let moving = PresentationRenderer.pageBitmapSize(device: device, quality: .interactive)
+
+        #expect(full.width == 1200 && full.height == 800)
+        #expect(moving.width == 600 && moving.height == 400)
+        #expect(full.width * full.height == moving.width * moving.height * 4)
+
+        // A page too small to halve still has a bitmap to draw into.
+        let tiny = PresentationRenderer.pageBitmapSize(device: CGSize(width: 1, height: 1),
+                                                       quality: .interactive)
+        #expect(tiny.width == 1 && tiny.height == 1)
     }
 }

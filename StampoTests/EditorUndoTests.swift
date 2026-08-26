@@ -794,4 +794,58 @@ import Testing
         doc.sendSelectedToBack()            // already at the back: no-op
         #expect(doc.undoStack.count == 2)
     }
+
+    /// Reported: after «Remove Decor» the panel stays open and nothing in it
+    /// works — margins take a number and drop it, the canvas size cannot be set
+    /// at all, and only closing the panel and opening it again brings the
+    /// controls back. Touching a decor control *is* the decision to decorate.
+    @Test func aDecorControlBringsBackARemovedDecoration() {
+        let ctx = CGContext(data: nil, width: 800, height: 600, bitsPerComponent: 8,
+                            bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        let document = EditorDocument(baseImage: ctx.makeImage()!,
+                                      sourceURL: URL(fileURLWithPath: "/tmp/removed.png"))
+
+        func removed() {
+            document.startDecorationIfNeeded()
+            document.beginChange()
+            document.presentation = nil
+            document.commitChange()
+            #expect(document.presentation == nil)
+        }
+
+        removed()
+        document.beginChange()
+        document.setGap(.top, to: 120)
+        document.commitChange()
+        let gaps = PresentationLayout.gaps(
+            PresentationLayout.resolve(imagePixelSize: document.pixelSize, document.presentation))
+        #expect(document.presentation != nil, "a margin did not bring the page back")
+        #expect(gaps.top == 120)
+
+        removed()
+        document.setCanvasDimension(.width, to: 1400)
+        #expect(document.presentation != nil, "a canvas width did not bring the page back")
+        #expect(PresentationLayout.resolve(imagePixelSize: document.pixelSize,
+                                           document.presentation).canvasSize.width == 1400)
+
+        removed()
+        document.setCanvasRatio(CanvasRatio.presets[0])   // Square
+        #expect(document.presentation != nil, "a ratio did not bring the page back")
+
+        removed()
+        document.setCornerRadius(0.05)
+        #expect(document.presentation?.cornerRadius == 0.05)
+
+        // And one action is still one press of ⌘Z: the page that came back
+        // goes away with the value that brought it.
+        removed()
+        let steps = document.undoStack.count
+        document.beginChange()
+        document.setGap(.leading, to: 90)
+        document.commitChange()
+        #expect(document.undoStack.count == steps + 1)
+        document.undo()
+        #expect(document.presentation == nil)
+    }
 }

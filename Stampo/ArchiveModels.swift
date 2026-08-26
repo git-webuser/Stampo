@@ -125,6 +125,36 @@ enum ColorSchemeType: CaseIterable, Equatable {
         }
     }
 
+    /// Reads a colour written in this notation. The mirror of `convert`, and
+    /// the reason it lives beside it: a notation the app prints and cannot read
+    /// back is a field the user can only look at.
+    func parse(_ text: String) -> NSColor? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        switch self {
+        case .hex:  return NSColor(hexString: trimmed)
+        case .rgb:  return NSColor(rgbString: trimmed)
+        case .hsl:  return NSColor(hslString: trimmed)
+        case .hsb:  return NSColor(hsbString: trimmed)
+        case .cmyk: return NSColor(cmykString: trimmed)
+        }
+    }
+
+    /// The colour a piece of text describes, read in the user's own notation
+    /// first and then in every other one.
+    ///
+    /// Trying the rest matters because text arrives from the clipboard as often
+    /// as from the keyboard: a `#3A7BD5` pasted from a brand sheet should work
+    /// while the panel is set to RGB. The preferred notation goes first because
+    /// HSL and HSB are written identically — "30° 33% 89%" is a valid pair of
+    /// different colours, and the setting is the only thing that can say which.
+    static func color(from text: String, preferring format: ColorSchemeType) -> NSColor? {
+        if let parsed = format.parse(text) { return parsed }
+        return allCases.first { $0 != format }.flatMap { _ in
+            allCases.lazy.compactMap { $0 == format ? nil : $0.parse(text) }.first
+        }
+    }
+
     func convert(_ color: NSColor) -> String {
         let c = color.usingColorSpace(.sRGB) ?? color
         switch self {
@@ -649,5 +679,20 @@ private struct PersistedArchiveItem: Codable {
             deferredRestoreObserver = nil
         }
         attachFileResources()
+    }
+}
+
+// MARK: - PresentationColorShelf
+
+/// The archive is the app's one list of colours, so it is also the editor's.
+/// A colour saved from the decor inspector shows up in the panel and is
+/// removed there, like any other entry — no second palette to keep in sync.
+extension NotchArchiveModel: PresentationColorShelf {
+    var shelfColors: [Presentation.Color] {
+        colors.map { Presentation.Color($0.color) }
+    }
+
+    func addShelfColor(_ color: Presentation.Color) {
+        add(color: color.nsColor)
     }
 }
