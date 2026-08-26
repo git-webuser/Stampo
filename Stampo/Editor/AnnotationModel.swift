@@ -2440,7 +2440,9 @@ nonisolated struct RenderedArtifact: Sendable {
         pendingSnapshot = nil
         guard snapshot != currentSnapshot else { return }
         undoStack.append(snapshot)
+        // The redo stack was the last thing holding an undone picture.
         redoStack.removeAll()
+        forgetUnreachablePictures()
     }
 
     /// Abandon a change without pushing (e.g. cancelled gesture).
@@ -2626,9 +2628,85 @@ nonisolated struct RenderedArtifact: Sendable {
 
     /// Kept, not owned: an undo that takes a picture off the page leaves the
     /// pixels here, so putting it back is instant rather than another trip to
-    /// the disk. They go when the document does.
+    /// the disk. They go when nothing can reach them any more — see
+    /// `forgetUnreachablePictures` — and, failing that, when the document does.
+    ///
+    /// The one door in, and a narrow one: what is kept is the picture cut down
+    /// to what a page can show (`fitted`).
     func keepPicture(_ picture: CGImage, id: UUID) {
-        pictures[id] = picture
+        pictures[id] = Self.fitted(picture)
+    }
+
+    /// The most pixels a picture is kept at: 4096 on the long side.
+    ///
+    /// A page is a screenshot with margins, and a picture placed on one starts
+    /// at half the page and can be pulled out to the whole of it — so above
+    /// this the pixels are being carried for a resolution nobody will ever see.
+    /// A phone photograph is 4000 across and a camera's is 8000; the second one
+    /// costs 190 MB held as a bitmap, to be drawn 1200 points wide.
+    ///
+    /// Cut once, on the way in, rather than on the way out: the export, the
+    /// preview, the effects bake and the panel's thumbnail all read the same
+    /// stored picture, and a document that holds one number of pixels and draws
+    /// another is a document whose weight nobody can predict.
+    nonisolated static let pictureSizeLimit = 4096
+
+    /// A picture at no more than `pictureSizeLimit` on its long side, keeping
+    /// its shape. Anything already smaller is passed straight through — most
+    /// pictures are, and re-drawing them would cost quality for nothing.
+    nonisolated static func fitted(_ picture: CGImage) -> CGImage {
+        let longest = max(picture.width, picture.height)
+        guard longest > pictureSizeLimit else { return picture }
+        let scale = CGFloat(pictureSizeLimit) / CGFloat(longest)
+        let width = max(1, Int((CGFloat(picture.width) * scale).rounded()))
+        let height = max(1, Int((CGFloat(picture.height) * scale).rounded()))
+        guard let context = CGContext(
+            data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+            space: picture.colorSpace ?? CGColorSpace(name: CGColorSpace.sRGB)!,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        else { return picture }
+        context.interpolationQuality = .high
+        context.draw(picture, in: CGRect(x: 0, y: 0, width: width, height: height))
+        return context.makeImage() ?? picture
+    }
+
+    /// The names any state can still reach: what is on the page now, what the
+    /// history can put back on it, and what the document was last saved as.
+    private var reachablePictureNames: Set<UUID> {
+        var names: Set<UUID> = []
+        func collect(annotations: [Annotation], presentation: Presentation?) {
+            for annotation in annotations {
+                if let id = annotation.pictureID { names.insert(id) }
+            }
+            if let id = presentation?.background.pictureID { names.insert(id) }
+        }
+        collect(annotations: annotations, presentation: presentation)
+        for snapshot in undoStack + redoStack {
+            collect(annotations: snapshot.annotations, presentation: snapshot.presentation)
+        }
+        if let pendingSnapshot {
+            collect(annotations: pendingSnapshot.annotations,
+                    presentation: pendingSnapshot.presentation)
+        }
+        collect(annotations: savedSnapshot.annotations, presentation: savedSnapshot.presentation)
+        return names
+    }
+
+    /// Lets go of the pixels no state can reach any more.
+    ///
+    /// Deleting a picture is not that moment: the history still holds it, and
+    /// undo has to put it back without another trip to the disk. The moment
+    /// comes later — a picture undone and then written over by the next change,
+    /// which empties the redo stack — and until this ran, those pixels stayed
+    /// for the life of the window. A session of trying pictures on a page and
+    /// undoing them held every one of them.
+    private func forgetUnreachablePictures() {
+        // The common case is a document whose every picture is on the page, and
+        // it costs one count rather than a walk of the whole history.
+        guard !pictures.isEmpty else { return }
+        let reachable = reachablePictureNames
+        guard pictures.count > reachable.count else { return }
+        pictures = pictures.filter { reachable.contains($0.key) }
     }
 
     /// Takes the file as the page's background, in one undo step.
@@ -2677,9 +2755,11 @@ nonisolated struct RenderedArtifact: Sendable {
     func placePicture(_ picture: CGImage, centredOn point: CGPoint,
                       canvasSize: CGSize) -> Bool {
         let id = UUID()
-        let size = Self.placedPictureSize(of: picture, on: canvasSize)
         beginChange()
         keepPicture(picture, id: id)
+        // Of the picture as kept, which is not always the picture as handed
+        // over: a photograph too big to hold is cut down on the way in.
+        let size = Self.placedPictureSize(of: pictures[id] ?? picture, on: canvasSize)
         var placed = Annotation(
             kind: .picture,
             start: CGPoint(x: point.x - size.width / 2, y: point.y - size.height / 2),

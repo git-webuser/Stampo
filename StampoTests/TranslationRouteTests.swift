@@ -71,13 +71,23 @@ import Testing
     }
 
     @Test func oneWordNeverAsksForADownload() {
-        // "Download" ranks Indonesian first — real ambiguity that no scan
-        // quality fixes. Asking for several hundred megabytes on the strength
-        // of one common word is worse than quietly using the best installed
-        // language, so the offer needs two words and this falls through to
-        // English, which the ranking puts ninth.
+        // "Download" ranks Indonesian first on some systems and English on
+        // others — real ambiguity that no scan quality fixes. Asking for
+        // several hundred megabytes on the strength of one common word is
+        // worse than quietly using the best installed language, so the offer
+        // needs two words.
         #expect(detect("Download") == .installed(en))
-        #expect(detect("Download", installed: ["en", "ru", "id"]) == .installed(id: "id"))
+
+        // Which installed language wins is the recognizer's ranking, and that
+        // is a system model rather than a rule of ours: it moved between macOS
+        // versions and took this test down with it on a machine that was not
+        // this one. What must hold on every machine is that one word produces
+        // no offer at all.
+        for installed: Set<String> in [["en", "ru"], ["en", "ru", "id"]] {
+            if case .notInstalled = detect("Download", installed: installed) {
+                Issue.record("one word asked for a download, with \(installed) installed")
+            }
+        }
     }
 
     @Test func digitsAndPunctuationCannotTalkTheAppIntoADownload() {

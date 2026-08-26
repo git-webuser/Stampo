@@ -20,6 +20,15 @@ import Testing
         return url
     }
 
+    private func makePicture(width: Int, height: Int) -> CGImage? {
+        let ctx = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
+                            bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        ctx?.setFillColor(CGColor(red: 0.9, green: 0.4, blue: 0.1, alpha: 1))
+        ctx?.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        return ctx?.makeImage()
+    }
+
     private func document() -> EditorDocument {
         let ctx = CGContext(data: nil, width: 200, height: 140, bitsPerComponent: 8,
                             bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!,
@@ -329,5 +338,77 @@ import Testing
         picture.pictureCornerRadius = 0
         let atZero = EditorCanvasView.pictureRadiusHandlePoint(.topLeft, of: picture)
         #expect(atZero.x > 100 && atZero.x <= 114)
+    }
+
+    /// What a document is allowed to weigh.
+    ///
+    /// Pictures live beside the presentation rather than inside it, and used to
+    /// live there for the life of the window: every photograph ever dropped,
+    /// at every pixel it arrived with. Two rules now bound that — a picture is
+    /// cut down on the way in, and pixels nothing can reach are let go.
+    @Test func aPictureIsCutDownOnTheWayIn() throws {
+        let wide = try #require(makePicture(width: 6000, height: 3000))
+        let document = document()
+        document.startDecorationIfNeeded()
+        document.placePicture(wide, centredOn: CGPoint(x: 200, y: 150),
+                              canvasSize: CGSize(width: 400, height: 300))
+        let name = try #require(document.annotations.last?.pictureID)
+        let kept = try #require(document.picture(for: name))
+
+        #expect(kept.width == EditorDocument.pictureSizeLimit)
+        #expect(kept.height == EditorDocument.pictureSizeLimit / 2, "the shape changed")
+
+        // A picture that already fits is passed through untouched rather than
+        // redrawn — the same object, not a copy of the same size.
+        let small = try #require(makePicture(width: 300, height: 200))
+        #expect(EditorDocument.fitted(small) === small)
+    }
+
+    @Test func pixelsNothingCanReachAreLetGo() throws {
+        let document = document()
+        document.startDecorationIfNeeded()
+        let canvas = CGSize(width: 400, height: 300)
+        document.placePicture(try #require(makePicture(width: 100, height: 80)),
+                              centredOn: CGPoint(x: 100, y: 100), canvasSize: canvas)
+        let first = try #require(document.annotations.last?.pictureID)
+        #expect(document.pictures.count == 1)
+
+        // Deleting is not the moment: undo has to put it back without another
+        // trip to the disk, so the pixels stay while the history holds them.
+        document.delete(id: try #require(document.annotations.last?.id))
+        #expect(document.pictures[first] != nil, "undo would have nothing to put back")
+        document.undo()
+        #expect(document.annotations.last?.pictureID == first)
+
+        // Undone and then written over — the redo stack was the last thing
+        // holding it, and this is the moment it can go.
+        document.undo()
+        #expect(document.annotations.isEmpty)
+        document.placePicture(try #require(makePicture(width: 100, height: 80)),
+                              centredOn: CGPoint(x: 200, y: 200), canvasSize: canvas)
+        let second = try #require(document.annotations.last?.pictureID)
+        #expect(document.pictures[first] == nil, "the first picture was kept for nobody")
+        #expect(document.pictures[second] != nil)
+        #expect(document.pictures.count == 1)
+    }
+
+    /// A background picture is reachable through the presentation rather than
+    /// through an annotation, and the sweep has to see it there too — losing
+    /// it would blank the page.
+    @Test func theBackgroundsPixelsAreNotSweptAway() throws {
+        let document = document()
+        let url = try writePNG("kept-background.png", width: 60, height: 60)
+        defer { try? FileManager.default.removeItem(at: url) }
+        document.startDecorationIfNeeded()
+        #expect(document.useBackgroundPicture(at: url))
+        let name = try #require(document.presentation?.background.pictureID)
+
+        // Several unrelated changes, each one a sweep.
+        for radius in [0.1, 0.2, 0.3] {
+            document.beginChange()
+            document.presentation?.cornerRadius = CGFloat(radius)
+            document.commitChange()
+        }
+        #expect(document.picture(for: name) != nil, "the page lost its own background")
     }
 }
