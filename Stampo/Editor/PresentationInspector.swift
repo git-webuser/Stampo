@@ -306,6 +306,31 @@ struct PresentationInspector: View {
         let id: String
         let background: Presentation.Background
 
+        /// What the tile is called on hover. Derived from the id rather than
+        /// written beside it: the ids are already English names — `amberGlow`,
+        /// `sandMesh` — so a second list of the same words would only be a
+        /// second place to forget one. The derived name is the catalogue key,
+        /// and `everyPresetIsNamed` keeps every one of them translated.
+        var titleKey: String {
+            id == "fromImage" ? "From Image" : Self.spelled(id)
+        }
+
+        /// `amberGlow` → `Amber Glow`.
+        static func spelled(_ id: String) -> String {
+            var words: [String] = []
+            var word = ""
+            for character in id {
+                if character.isUppercase, !word.isEmpty {
+                    words.append(word)
+                    word = String(character)
+                } else {
+                    word.append(word.isEmpty ? Character(character.uppercased()) : character)
+                }
+            }
+            if !word.isEmpty { words.append(word) }
+            return words.joined(separator: " ")
+        }
+
         /// Which list this belongs to. Derived from the value rather than
         /// stated beside it: a preset that claimed one kind and carried another
         /// would put a gradient in the solid drawer.
@@ -416,6 +441,12 @@ struct PresentationInspector: View {
         backgroundPresets.map(\.background)
     }
 
+    /// Every name the gallery can show, for the test that keeps them all
+    /// translated.
+    static var backgroundPresetNamesForTesting: [String] {
+        backgroundPresets.map(\.titleKey)
+    }
+
     /// The eight built-in swatches, for the test that keeps the gallery above
     /// them from repeating any of these.
     static var paletteColorsForTesting: [Presentation.Color] {
@@ -442,7 +473,6 @@ struct PresentationInspector: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: Self.sectionSpacing) {
-                header
                 backgroundSection
                 // The picture before the treatments on it: the page, then the
                 // thing on the page, then what is done to both.
@@ -461,16 +491,9 @@ struct PresentationInspector: View {
         }
     }
 
-    private var header: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Label("Decor", systemImage: Self.decorSystemImage)
-                .font(.title3.weight(.semibold))
-            Text("Canvas and image presentation")
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-        }
-        .accessibilityElement(children: .combine)
-    }
+    // No header of its own. "Decor / Canvas and image presentation" said
+    // again, in forty points of height, what the button that opens this panel
+    // already says — and it said it above every section, on every opening.
 
     // MARK: Background
 
@@ -693,8 +716,11 @@ struct PresentationInspector: View {
                                 }
                         }
                         .buttonStyle(.plain)
-                        .help(preset.id == "fromImage" ? "From Image" : "Presets")
-                        .accessibilityLabel(Text(preset.id == "fromImage" ? "From Image" : "Presets"))
+                        // Its own name, not "Presets" — which is what all
+                        // thirty-one of them used to say on hover, in a gallery
+                        // whose whole difficulty is telling one from another.
+                        .help(Text(LocalizedStringKey(preset.titleKey)))
+                        .accessibilityLabel(Text(LocalizedStringKey(preset.titleKey)))
                     }
                 }
             }

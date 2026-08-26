@@ -669,6 +669,23 @@
         }
       }
     },
+    "Amber Glow" : {
+      "comment" : "Decor inspector — the name of one background in the gallery",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Amber Glow"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Янтарное сияние"
+          }
+        }
+      }
+    },
     "Angle" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -856,6 +873,23 @@
         }
       }
     },
+    "Aurora Mesh" : {
+      "comment" : "Decor inspector — the name of one background in the gallery",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aurora Mesh"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Северное сияние"
+          }
+        }
+      }
+    },
     "Auto" : {
       "comment" : "Canvas that grows with the picture and its margins",
       "extractionState" : "stale",
@@ -953,6 +987,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Поведение"
+          }
+        }
+      }
+    },
+    "Berry Mesh" : {
+      "comment" : "Decor inspector — the name of one background in the gallery",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Berry Mesh"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ягодная сетка"
           }
         }
       }
@@ -1448,6 +1499,23 @@
         }
       }
     },
+    "Charcoal" : {
+      "comment" : "Decor inspector — the name of one background in the gallery",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Charcoal"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Уголь"
+          }
+        }
+      }
+    },
     "Check for updates automatically" : {
       "comment" : "Toggle title in General settings",
       "localizations" : {
@@ -1565,6 +1633,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Классический 3:4"
+          }
+        }
+      }
+    },
+    "Clay" : {
+      "comment" : "Decor inspector — the name of one background in the gallery",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Clay"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Глина"
           }
         }
       }
@@ -1820,6 +1905,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Компактный"
+          }
+        }
+      }
+    },
+    "Cool Mesh" : {
+      "comment" : "Decor inspector — the name of one background in the gallery",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cool Mesh"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Холодная сетка"
           }
         }
       }
@@ -2254,6 +2356,23 @@
         }
       }
     },
+    "Deep" : {
+      "comment" : "Decor inspector — the name of one background in the gallery",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deep"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Глубина"
+          }
+        }
+      }
+    },
     "Default format" : {
       "localizations" : {
         "en" : {
@@ -2300,6 +2419,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Удалить"
+          }
+        }
+      }
+    },
+    "Denim" : {
+      "comment" : "Decor inspector — the name of one background in the gallery",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Denim"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Деним"
           }
         }
       }
@@ -2601,6 +2737,23 @@
         }
       }
     },
+    "Dusk Mesh" : {
+      "comment" : "Decor inspector — the name of one background in the gallery",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dusk Mesh"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сумеречная сетка"
+          }
+        }
+      }
+    },
     "Each language is downloaded once by macOS, usually a few hundred megabytes" : {
       "comment" : "Description of the Add language row: what pressing it actually costs",
       "localizations" : {
@@ -2700,6 +2853,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Управление элементами"
+          }
+        }
+      }
+    },
+    "Ember" : {
+      "comment" : "Decor inspector — the name of one background in the gallery",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ember"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Угли"
           }
         }
       }
@@ -3032,6 +3202,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Для снимков, сканирования и пипетки"
+          }
+        }
+      }
+    },
+    "Forest Mesh" : {
+      "comment" : "Decor inspector — the name of one background in the gallery",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Forest Mesh"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Лесная сетка"
           }
         }
       }
@@ -3757,6 +3944,23 @@
         }
       }
     },
+    "Ink" : {
+      "comment" : "Decor inspector — the name of one background in the gallery",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ink"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Чернила"
+          }
+        }
+      }
+    },
     "Input Monitoring" : {
       "comment" : "Permission name: Input Monitoring",
       "extractionState" : "stale",
@@ -4071,6 +4275,23 @@
         }
       }
     },
+    "Lavender" : {
+      "comment" : "Decor inspector — the name of one background in the gallery",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lavender"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Лаванда"
+          }
+        }
+      }
+    },
     "Left and Right Margins" : {
       "comment" : "Decor inspector — the horizontal margin field",
       "localizations" : {
@@ -4101,6 +4322,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Левое поле"
+          }
+        }
+      }
+    },
+    "Lemon" : {
+      "comment" : "Decor inspector — the name of one background in the gallery",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lemon"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Лимон"
           }
         }
       }
@@ -4240,6 +4478,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Линейный"
+          }
+        }
+      }
+    },
+    "Linen" : {
+      "comment" : "Decor inspector — the name of one background in the gallery",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Linen"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Лён"
           }
         }
       }
@@ -4460,6 +4715,74 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Меш"
+          }
+        }
+      }
+    },
+    "Midnight" : {
+      "comment" : "Decor inspector — the name of one background in the gallery",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Midnight"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Полночь"
+          }
+        }
+      }
+    },
+    "Mint" : {
+      "comment" : "Decor inspector — the name of one background in the gallery",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mint"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Мята"
+          }
+        }
+      }
+    },
+    "Mint Glow" : {
+      "comment" : "Decor inspector — the name of one background in the gallery",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mint Glow"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Мятное сияние"
+          }
+        }
+      }
+    },
+    "Mist" : {
+      "comment" : "Decor inspector — the name of one background in the gallery",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mist"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Дымка"
           }
         }
       }
@@ -4811,6 +5134,23 @@
         }
       }
     },
+    "Ocean" : {
+      "comment" : "Decor inspector — the name of one background in the gallery",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ocean"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Океан"
+          }
+        }
+      }
+    },
     "OK" : {
       "comment" : "Generic OK button in NSAlert dialogs",
       "localizations" : {
@@ -5158,6 +5498,23 @@
         }
       }
     },
+    "Paper" : {
+      "comment" : "Decor inspector — the name of one background in the gallery",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Paper"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Бумага"
+          }
+        }
+      }
+    },
     "Partly selected" : {
       "comment" : "VoiceOver value of a stack's checkbox — some members picked",
       "localizations" : {
@@ -5243,6 +5600,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Шаг узора"
+          }
+        }
+      }
+    },
+    "Peach" : {
+      "comment" : "Decor inspector — the name of one background in the gallery",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Peach"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Персик"
           }
         }
       }
@@ -6132,6 +6506,23 @@
         }
       }
     },
+    "Rose" : {
+      "comment" : "Decor inspector — the name of one background in the gallery",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rose"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Роза"
+          }
+        }
+      }
+    },
     "Rotate Left" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -6183,6 +6574,23 @@
         }
       }
     },
+    "Sage" : {
+      "comment" : "Decor inspector — the name of one background in the gallery",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sage"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Шалфей"
+          }
+        }
+      }
+    },
     "Sand" : {
       "comment" : "Color name.",
       "isCommentAutoGenerated" : true,
@@ -6197,6 +6605,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Песочный"
+          }
+        }
+      }
+    },
+    "Sand Mesh" : {
+      "comment" : "Decor inspector — the name of one background in the gallery",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sand Mesh"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Песчаная сетка"
           }
         }
       }
@@ -7298,6 +7723,23 @@
         }
       }
     },
+    "Slate" : {
+      "comment" : "Decor inspector — the name of one background in the gallery",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slate"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сланец"
+          }
+        }
+      }
+    },
     "Snapping" : {
       "comment" : "A picker choosing free placement or snapping to the layout grid.",
       "localizations" : {
@@ -7471,6 +7913,23 @@
         }
       }
     },
+    "Steel" : {
+      "comment" : "Decor inspector — the name of one background in the gallery",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Steel"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сталь"
+          }
+        }
+      }
+    },
     "Stop" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -7588,6 +8047,40 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Стиль"
+          }
+        }
+      }
+    },
+    "Sunset" : {
+      "comment" : "Decor inspector — the name of one background in the gallery",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sunset"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Закат"
+          }
+        }
+      }
+    },
+    "Sunset Mesh" : {
+      "comment" : "Decor inspector — the name of one background in the gallery",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sunset Mesh"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Закатная сетка"
           }
         }
       }
@@ -8529,6 +9022,57 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Радиус виньетки"
+          }
+        }
+      }
+    },
+    "Violet" : {
+      "comment" : "Decor inspector — the name of one background in the gallery",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Violet"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Фиалка"
+          }
+        }
+      }
+    },
+    "Violet Glow" : {
+      "comment" : "Decor inspector — the name of one background in the gallery",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Violet Glow"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Фиалковое сияние"
+          }
+        }
+      }
+    },
+    "Warm Mesh" : {
+      "comment" : "Decor inspector — the name of one background in the gallery",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Warm Mesh"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Тёплая сетка"
           }
         }
       }

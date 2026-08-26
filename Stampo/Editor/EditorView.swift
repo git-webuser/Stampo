@@ -373,7 +373,13 @@ struct EditorView: View {
 
     /// String-catalog keys for the preset names, aligned with
     /// `AnnotationColor.presets`.
-    private let colorNames: [String] =
+    private var colorNames: [String] { Self.annotationColorNames }
+
+    /// The swatch names, in the order of `AnnotationColor.presets`. Static, so
+    /// the test that keeps every hover tooltip translated can read them: they
+    /// reach `hoverTip` as values, and a key nobody wrote at a call site is a
+    /// key nothing else can find.
+    static let annotationColorNames: [String] =
         ["Red", "Orange", "Yellow", "Green", "Blue", "Black", "White"]
 
     /// Which swatch is ringed: the selected annotation's own colour, falling
