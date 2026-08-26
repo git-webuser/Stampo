@@ -512,4 +512,47 @@ import Testing
         }
         #expect(document.picture(for: name) != nil, "the page lost its own background")
     }
+
+    /// The chain belongs to the picture, not to the panel, because it decides
+    /// what a drag on the canvas does as much as what a typed number does — a
+    /// switch obeyed by one of the two roads to a size is a switch that lies.
+    /// It arrives on, survives undo, and Shift inverts it for one gesture.
+    @Test func theProportionChainIsTheObjectsOwn() throws {
+        let document = document()
+        let url = try writePNG("chain.png", width: 80, height: 40)
+        defer { try? FileManager.default.removeItem(at: url) }
+        document.startDecorationIfNeeded()
+        #expect(document.placePicture(at: url, centredOn: CGPoint(x: 100, y: 100),
+                                      canvasSize: CGSize(width: 400, height: 300)))
+        let placed = try #require(document.annotations.last)
+        #expect(placed.pictureKeepsProportions, "a picture arrives with its sides tied")
+
+        // Chained and no Shift: the corner keeps the shape.
+        var chained = placed
+        let ratio = chained.rect.height / chained.rect.width
+        let corner = CGPoint(x: chained.rect.minX, y: chained.rect.minY)
+        chained.apply(handle: .bottomRight,
+                      to: CGPoint(x: corner.x + 200, y: corner.y + 30),
+                      aspectLocked: chained.pictureKeepsProportions,
+                      minimumSide: 24, lockedRatio: ratio)
+        #expect(abs(chained.rect.height / chained.rect.width - ratio) < 0.01)
+
+        // Unchained, the same drag stretches it — which is what unchaining is.
+        var free = placed
+        free.pictureKeepsProportions = false
+        free.apply(handle: .bottomRight,
+                   to: CGPoint(x: corner.x + 200, y: corner.y + 30),
+                   aspectLocked: free.pictureKeepsProportions,
+                   minimumSide: 24, lockedRatio: ratio)
+        #expect(abs(free.rect.height - 30) < 1)
+
+        // And the panel's press is one undo step on the document.
+        let steps = document.undoStack.count
+        document.beginChange()
+        document.annotations[document.annotations.count - 1].pictureKeepsProportions = false
+        document.commitChange()
+        #expect(document.undoStack.count == steps + 1)
+        document.undo()
+        #expect(document.annotations.last?.pictureKeepsProportions == true)
+    }
 }

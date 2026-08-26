@@ -1499,8 +1499,15 @@ struct EditorCanvasView: View {
                                 break
                             }
                         } else {
+                            // A picture answers to its own chain, and Shift
+                            // inverts it for the length of the gesture: the
+                            // panel's switch would be a switch that lies if the
+                            // corner ignored it.
+                            let locked = annotation.kind == .picture
+                                ? annotation.pictureKeepsProportions != isShiftHeld
+                                : isShiftHeld
                             continuedHandle = annotation.apply(
-                                handle: handle, to: target, aspectLocked: isShiftHeld,
+                                handle: handle, to: target, aspectLocked: locked,
                                 minimumSide: pictureResize?.minimumSide,
                                 lockedRatio: pictureResize?.ratio)
                         }

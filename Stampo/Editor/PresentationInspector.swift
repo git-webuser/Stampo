@@ -92,10 +92,6 @@ struct PresentationInspector: View {
     /// a preference: it is about the objects of this document, which outlive
     /// neither it nor the panel.
     @State private var openObjects: Set<UUID> = []
-    /// Which objects have their two size fields untied. Linked is the default,
-    /// and the exception is the one worth remembering — for this session only,
-    /// like every other way of *looking* at the panel.
-    @State private var unlinkedObjects: Set<UUID> = []
     /// What a light was worth before its eye was closed, so opening it again
     /// returns the one you had rather than a stock one — exactly what the
     /// page's shadow does.
@@ -2046,7 +2042,7 @@ struct PresentationInspector: View {
     /// squashed by being given a round width. Turning it off is how a picture
     /// is deliberately stretched — rare, and it should take a decision.
     private func objectSizeRow(_ picture: Annotation) -> some View {
-        let linked = !unlinkedObjects.contains(picture.id)
+        let linked = picture.pictureKeepsProportions
         return VStack(alignment: .leading, spacing: Self.captionGap) {
             Text("Size, px")
                 .font(.system(size: 11))
@@ -2073,8 +2069,7 @@ struct PresentationInspector: View {
                 panelIconButton(linked ? "personalhotspot" : "personalhotspot.slash",
                                 role: .quiet,
                                 label: linked ? "Free Proportions" : "Keep Proportions") {
-                    if linked { unlinkedObjects.insert(picture.id) }
-                    else { unlinkedObjects.remove(picture.id) }
+                    updateObject(picture.id) { $0.pictureKeepsProportions = !linked }
                 }
             }
         }

@@ -432,6 +432,18 @@ nonisolated struct Annotation: Identifiable, Equatable, Sendable {
     /// should read differently from the first.
     var pictureGlow: CGFloat = 0
     var pictureGlowColor: Presentation.Color = Presentation.Glow.none.color
+    /// Whether this picture's two sides are tied together — the panel's chain,
+    /// and the same answer wherever a size is asked for.
+    ///
+    /// On the object rather than in the panel's own state, because it decides
+    /// what a *drag on the canvas* does as much as what a typed number does. A
+    /// switch that says "keep proportions" and is obeyed by one of the two
+    /// roads to a size is a switch that lies.
+    ///
+    /// Shift inverts it for the length of a gesture, which is what Shift means
+    /// everywhere else here: chained, it lets the picture go free; unchained,
+    /// it holds the shape.
+    var pictureKeepsProportions = true
     /// The picture's own stack of effects, run over its pixels alone.
     ///
     /// Its own rather than the page's, for the reason the user gave when the
