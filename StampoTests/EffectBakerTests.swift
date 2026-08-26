@@ -607,4 +607,71 @@ import Testing
         let variance = values.reduce(0) { $0 + ($1 - mean) * ($1 - mean) } / Double(values.count)
         return variance.squareRoot()
     }
+
+    /// What an object's bake is worth, in pixels.
+    ///
+    /// It used to be the picture's own size, whatever size it was drawn at:
+    /// measured 897 ms a frame for fluted glass on a 4096-pixel photograph
+    /// shown three hundred points wide, and two such bakes filled the whole
+    /// cache — so the fourteen tiles in the effects picker evicted the canvas's
+    /// own bake and then each other.
+    @Test func anObjectIsBakedAtTheSizeItIsDrawn() {
+        let source = CGSize(width: 4096, height: 2304)
+
+        // The size asked for, rounded up to the step, keeping the shape.
+        let swatch = EffectBaker.bakeSize(of: source, drawnAt: CGSize(width: 56, height: 40))
+        #expect(swatch.width == 64)
+        #expect(swatch.height == 36)
+
+        // Never more than the picture has: an effect is a fraction of the short
+        // side, so grain baked on a stretched copy would come out finer than
+        // the page promises.
+        let huge = EffectBaker.bakeSize(of: source, drawnAt: CGSize(width: 9000, height: 9000))
+        #expect(huge.width == 4096 && huge.height == 2304)
+
+        // The step is what makes a resize or a zoom land on a bake that already
+        // exists rather than missing by three pixels.
+        #expect(EffectBaker.bakeSize(of: source, drawnAt: CGSize(width: 600, height: 340)).width
+                == EffectBaker.bakeSize(of: source, drawnAt: CGSize(width: 603,
+                                                                    height: 341)).width)
+    }
+
+    /// And the bake really is that size, cached per size, and the canvas's own
+    /// bake is not the tiles' bake.
+    @Test func anObjectsBakeIsCachedPerSize() throws {
+        let picture = flat(width: 800, height: 600, gray: 0.5)
+        let name = UUID()
+        let grain = EffectStack.make(.grain)
+
+        EffectBaker.emptyCache()
+        EffectBaker.resetBakeCount()
+        let tile = try #require(EffectBaker.object([grain], over: picture, named: name,
+                                                   drawnAt: CGSize(width: 60, height: 45)))
+        #expect(tile.width == 64, "the tile was baked at some other size")
+        #expect(EffectBaker.bakeCount == 1)
+
+        // The same request again is the cache's.
+        _ = EffectBaker.object([grain], over: picture, named: name,
+                               drawnAt: CGSize(width: 60, height: 45))
+        #expect(EffectBaker.bakeCount == 1)
+
+        // The canvas asks for a different size and gets its own, without
+        // throwing the tile away.
+        let canvas = try #require(EffectBaker.object([grain], over: picture, named: name,
+                                                      drawnAt: CGSize(width: 400, height: 300)))
+        #expect(canvas.width == 448)
+        #expect(EffectBaker.bakeCount == 2)
+        _ = EffectBaker.object([grain], over: picture, named: name,
+                               drawnAt: CGSize(width: 60, height: 45))
+        #expect(EffectBaker.bakeCount == 2, "the tile's bake was evicted by the canvas's")
+    }
+
+    private func flat(width: Int, height: Int, gray: CGFloat) -> CGImage {
+        let ctx = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
+                            bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        ctx.setFillColor(CGColor(gray: gray, alpha: 1))
+        ctx.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        return ctx.makeImage()!
+    }
 }

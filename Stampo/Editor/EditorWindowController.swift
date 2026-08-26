@@ -3,9 +3,18 @@ import SwiftUI
 import OSLog
 
 extension Notification.Name {
+    /// Posted by the editor when a save begins. The panel answers with its
+    /// wait strip, the same one a translation raises — a save renders the whole
+    /// page and writes it, and until this the only sign it had happened at all
+    /// was the file appearing in the archive.
+    static let editorWillSaveImage = Notification.Name("editorWillSaveImage")
     /// Posted by the editor after saving an edited image; object is the URL.
-    /// NotchPanelController observes it to add the file to the archive.
+    /// NotchPanelController observes it to add the file to the archive and to
+    /// finish the wait.
     static let editorDidSaveImage = Notification.Name("editorDidSaveImage")
+    /// Posted when a save ended without a file — refused, failed to render, or
+    /// failed to write. The strip has to come down either way.
+    static let editorSaveDidFail = Notification.Name("editorSaveDidFail")
     /// Posted once per finding after the editor's Scan succeeds — each barcode
     /// payload separately, then the recognized text. Object is the inert
     /// string that should be added to the archive as a text entity.
@@ -276,7 +285,14 @@ final class EditorWindowController: NSObject, NSWindowDelegate {
     private func performSave(_ document: EditorDocument) async -> Bool {
         guard !isSaving else { return false }
         isSaving = true
-        defer { isSaving = false }
+        NotificationCenter.default.post(name: .editorWillSaveImage, object: nil)
+        // Every road out of here says so: the strip is up, and a save that ends
+        // in an alert or in a refusal must not leave it turning.
+        var landed = false
+        defer {
+            isSaving = false
+            if !landed { NotificationCenter.default.post(name: .editorSaveDidFail, object: nil) }
+        }
 
         guard let artifact = await renderArtifact(for: document) else {
             Log.capture.error("editor: render for save failed")
@@ -290,6 +306,7 @@ final class EditorWindowController: NSObject, NSWindowDelegate {
             // The artifact is still useful even if the user edited meanwhile,
             // but the current document must remain dirty in that case.
             if document.revision == artifact.revision { document.markSaved() }
+            landed = true
             NotificationCenter.default.post(name: .editorDidSaveImage, object: url)
             return true
         } catch {

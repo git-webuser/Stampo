@@ -231,8 +231,107 @@ import Testing
 
         // Without the key it goes wherever it is dragged.
         picture.apply(handle: .bottomRight,
-                      to: CGPoint(x: corner.x + 300, y: corner.y + 20))
+                      to: CGPoint(x: corner.x + 300, y: corner.y + 20),
+                      minimumSide: 1)
         #expect(abs(picture.rect.height - 20) < 1)
+    }
+
+    /// Shift held all the way in and all the way out again leaves the shape
+    /// exactly as it was.
+    ///
+    /// It did not: the ratio was read from the rectangle on every sample, and
+    /// the corner clamped at the minimum on each axis separately — so the clamp
+    /// distorted the picture and the next sample locked to the distortion.
+    /// Measured before the fix: 200×100 → 40×20 → 12×8 → 8×8, and back out to
+    /// 400×400. A photograph made square by the one key whose whole promise is
+    /// that it will not be squashed.
+    @Test func shiftSurvivesTheJourneyToTheMinimumAndBack() {
+        var picture = Annotation(kind: .picture,
+                                 start: CGPoint(x: 100, y: 100),
+                                 end: CGPoint(x: 300, y: 200),   // 200 × 100, 2:1
+                                 color: .blue, lineWidth: 2)
+        let ratio = picture.rect.height / picture.rect.width
+        let floor: CGFloat = 24
+
+        for target in [CGPoint(x: 140, y: 120), CGPoint(x: 112, y: 104),
+                       CGPoint(x: 104, y: 102), CGPoint(x: 500, y: 400)] {
+            picture.apply(handle: .bottomRight, to: target, aspectLocked: true,
+                          minimumSide: floor, lockedRatio: ratio)
+            #expect(abs(picture.rect.height / picture.rect.width - ratio) < 0.001,
+                    "the shape drifted at \(picture.rect)")
+            #expect(min(picture.rect.width, picture.rect.height) >= floor - 0.5,
+                    "the picture went below its floor: \(picture.rect)")
+        }
+        // And it is large again, not stuck at the minimum it passed through.
+        #expect(picture.rect.width > 300)
+        // The anchor never moved.
+        #expect(picture.rect.origin == CGPoint(x: 100, y: 100))
+    }
+
+    /// The floor holds for a free drag too, and dragging past the anchor stops
+    /// there rather than mirroring the picture — the editor does not offer to
+    /// flip a photograph anywhere else either.
+    @Test func aPictureStopsAtItsFloorRatherThanFlipping() {
+        var picture = Annotation(kind: .picture,
+                                 start: CGPoint(x: 100, y: 100),
+                                 end: CGPoint(x: 300, y: 200),
+                                 color: .blue, lineWidth: 2)
+        picture.apply(handle: .bottomRight, to: CGPoint(x: 40, y: 30), minimumSide: 24)
+        #expect(picture.rect == CGRect(x: 100, y: 100, width: 24, height: 24))
+        #expect(picture.flippedVertically == false)
+    }
+
+    /// The floor is a fraction of the screenshot, like the margins are, so it
+    /// means the same thing on a phone shot and on a 6K one.
+    @Test func theFloorIsAFractionOfTheScreenshot() {
+        let small = Presentation.minimumPictureSide(for: CGSize(width: 800, height: 600))
+        let large = Presentation.minimumPictureSide(for: CGSize(width: 6016, height: 3384))
+        #expect(small == 48)                       // 8% of 600
+        #expect(large > small)
+        #expect(large <= 160)                      // and it stops rising
+        // A degenerate page cannot produce a floor of nothing.
+        #expect(Presentation.minimumPictureSide(for: .zero) >= 24)
+    }
+
+    /// Both roads to a size hold the same floor: the corner on the canvas, and
+    /// the number typed into the panel.
+    @Test func aTypedSizeCannotGoBelowTheFloor() {
+        let rect = CGRect(x: 10, y: 10, width: 200, height: 100)
+        let tiny = Annotation.resized(rect, width: 4, keepingRatio: true, minimumShortSide: 24)
+        #expect(min(tiny.width, tiny.height) >= 24)
+        #expect(abs(tiny.height / tiny.width - 0.5) < 0.01, "the floor squashed it")
+        // Unchained, each side is held up on its own.
+        let free = Annotation.resized(rect, height: 2, keepingRatio: false,
+                                      minimumShortSide: 24)
+        #expect(free.height >= 24)
+    }
+
+    /// A picture arrives no smaller than it may be dragged to — one rule, at
+    /// both ends of its life. A favicon on a page was a speck with eight
+    /// overlapping grips on it.
+    @Test func aTinyPictureArrivesAtTheFloor() throws {
+        let document = document()
+        document.startDecorationIfNeeded()
+        let layout = PresentationLayout.resolve(imagePixelSize: document.pixelSize,
+                                                document.presentation)
+        let floor = Presentation.minimumPictureSide(for: layout.imageRect.size)
+        document.placePicture(try #require(makePicture(width: 16, height: 16)),
+                              centredOn: CGPoint(x: 100, y: 100),
+                              canvasSize: layout.canvasSize)
+        let placed = try #require(document.annotations.last)
+        #expect(min(placed.rect.width, placed.rect.height) >= floor - 0.5)
+    }
+
+    /// The cap holds whatever colour space the file came in: a CMYK scan could
+    /// not be drawn into a CMYK context with an alpha channel, so the context
+    /// failed to build and the picture came back uncut.
+    @Test func theSizeCapHoldsForCMYK() throws {
+        let cmyk = CGContext(data: nil, width: 6000, height: 4000, bitsPerComponent: 8,
+                             bytesPerRow: 0, space: CGColorSpaceCreateDeviceCMYK(),
+                             bitmapInfo: CGImageAlphaInfo.none.rawValue)
+        let image = try #require(cmyk?.makeImage())
+        let fitted = EditorDocument.fitted(image)
+        #expect(fitted.width == EditorDocument.pictureSizeLimit)
     }
 
     /// A picture's own effects are its own: baked over its pixels alone, so
@@ -251,7 +350,8 @@ import Testing
         // An empty stack is not a bake at all — the old path, byte for byte.
         EffectBaker.emptyCache()
         EffectBaker.resetBakeCount()
-        #expect(EffectBaker.object([], over: picture, named: name) == nil)
+        let full = CGSize(width: CGFloat(picture.width), height: CGFloat(picture.height))
+        #expect(EffectBaker.object([], over: picture, named: name, drawnAt: full) == nil)
         #expect(EffectBaker.bakeCount == 0)
 
         // Layer means nothing inside an object: a "page" effect still applies,
@@ -259,16 +359,17 @@ import Testing
         var dim = EffectStack.make(.dim)
         dim.layer = .page
         dim.amount = 1
-        let treated = try #require(EffectBaker.object([dim], over: picture, named: name))
+        let treated = try #require(EffectBaker.object([dim], over: picture, named: name,
+                                                      drawnAt: full))
         #expect(EffectBaker.bakeCount == 1)
         #expect(treated.width == picture.width && treated.height == picture.height)
         // …and the second identical request is the cache's, not the GPU's.
-        _ = EffectBaker.object([dim], over: picture, named: name)
+        _ = EffectBaker.object([dim], over: picture, named: name, drawnAt: full)
         #expect(EffectBaker.bakeCount == 1)
 
         // Switched off is not applied.
         dim.isEnabled = false
-        #expect(EffectBaker.object([dim], over: picture, named: name) == nil)
+        #expect(EffectBaker.object([dim], over: picture, named: name, drawnAt: full) == nil)
 
         // And it reaches the page: the picture goes dark where it is drawn.
         let plain = AnnotationRenderer.renderBitmap(base: document.baseImage,
@@ -410,5 +511,48 @@ import Testing
             document.commitChange()
         }
         #expect(document.picture(for: name) != nil, "the page lost its own background")
+    }
+
+    /// The chain belongs to the picture, not to the panel, because it decides
+    /// what a drag on the canvas does as much as what a typed number does — a
+    /// switch obeyed by one of the two roads to a size is a switch that lies.
+    /// It arrives on, survives undo, and Shift inverts it for one gesture.
+    @Test func theProportionChainIsTheObjectsOwn() throws {
+        let document = document()
+        let url = try writePNG("chain.png", width: 80, height: 40)
+        defer { try? FileManager.default.removeItem(at: url) }
+        document.startDecorationIfNeeded()
+        #expect(document.placePicture(at: url, centredOn: CGPoint(x: 100, y: 100),
+                                      canvasSize: CGSize(width: 400, height: 300)))
+        let placed = try #require(document.annotations.last)
+        #expect(placed.pictureKeepsProportions, "a picture arrives with its sides tied")
+
+        // Chained and no Shift: the corner keeps the shape.
+        var chained = placed
+        let ratio = chained.rect.height / chained.rect.width
+        let corner = CGPoint(x: chained.rect.minX, y: chained.rect.minY)
+        chained.apply(handle: .bottomRight,
+                      to: CGPoint(x: corner.x + 200, y: corner.y + 30),
+                      aspectLocked: chained.pictureKeepsProportions,
+                      minimumSide: 24, lockedRatio: ratio)
+        #expect(abs(chained.rect.height / chained.rect.width - ratio) < 0.01)
+
+        // Unchained, the same drag stretches it — which is what unchaining is.
+        var free = placed
+        free.pictureKeepsProportions = false
+        free.apply(handle: .bottomRight,
+                   to: CGPoint(x: corner.x + 200, y: corner.y + 30),
+                   aspectLocked: free.pictureKeepsProportions,
+                   minimumSide: 24, lockedRatio: ratio)
+        #expect(abs(free.rect.height - 30) < 1)
+
+        // And the panel's press is one undo step on the document.
+        let steps = document.undoStack.count
+        document.beginChange()
+        document.annotations[document.annotations.count - 1].pictureKeepsProportions = false
+        document.commitChange()
+        #expect(document.undoStack.count == steps + 1)
+        document.undo()
+        #expect(document.annotations.last?.pictureKeepsProportions == true)
     }
 }

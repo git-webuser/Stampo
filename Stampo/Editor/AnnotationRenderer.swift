@@ -218,10 +218,17 @@ nonisolated enum AnnotationRenderer {
         }
         // The picture's own effects are pixel work on the picture alone, so
         // they are baked into it before it is drawn — the same arrangement the
-        // background uses, and cached the same way, keyed on the pixels rather
-        // than on where they happen to sit. That is what lets a picture with
-        // grain on it be dragged about without re-baking on every frame.
-        let treated = EffectBaker.object(a.pictureEffects, over: picture, named: id) ?? picture
+        // background uses, and cached the same way.
+        //
+        // At the size it is drawn, taken from the context itself, exactly as
+        // the background and the page layer take theirs: the canvas asks in
+        // screen pixels and the export in the file's, so both get the same
+        // picture rather than the same numbers read at two resolutions. Baking
+        // at the picture's own size instead cost 897 ms a frame for fluted
+        // glass on a 4096-pixel photograph.
+        let drawn = ctx.convertToDeviceSpace(rect).size
+        let treated = EffectBaker.object(a.pictureEffects, over: picture, named: id,
+                                         drawnAt: drawn) ?? picture
         drawImageInFlippedSpace(treated, in: rect, ctx: ctx)
         ctx.restoreGState()
     }

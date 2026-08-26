@@ -164,11 +164,12 @@ enum PanelState {
     case translate
     case hiding
     case countdown
-    /// A translation is running and the panel is showing the wait. Its own
-    /// state because the panel must not auto-hide out from under it: it was
-    /// raised by the app, not by the pointer, so the pointer is nowhere near
-    /// it and the ordinary "mouse left" rule would close it mid-thought.
-    case translating
+    /// Work is running and the panel is showing the wait — a translation, or
+    /// an edited screenshot being written. Its own state because the panel must
+    /// not auto-hide out from under it: it was raised by the app, not by the
+    /// pointer, so the pointer is nowhere near it and the ordinary "mouse left"
+    /// rule would close it mid-thought.
+    case waiting
     /// Panel hidden, an external selection overlay (rect or window) is up.
     /// The overlay session is part of the panel lifecycle so the hover
     /// controller knows to suppress auto-close while it's active.
@@ -177,6 +178,44 @@ enum PanelState {
     /// reconfiguration, or a Space switch while hidden). The next show
     /// must rebind, and the hover controller cannot trust panel.isVisible.
     case stale(reason: StaleReason)
+}
+
+/// What the wait strip is waiting for, and how it says so.
+///
+/// One strip, two errands. It was built for a translation and is the right
+/// shape for any short piece of work the app starts on its own: the panel comes
+/// down, says what it is doing, and leaves. Only the glyph differs — every morph
+/// around it already exists.
+enum PanelWait: Equatable {
+    /// A translation is running.
+    case translating
+    /// An edited screenshot is being rendered and written.
+    case saving
+    /// …and it landed. The one state with something to say *after* the work is
+    /// done, which is the whole reason it exists: a save can take eighty
+    /// milliseconds, and a strip that appears and leaves inside a tenth of a
+    /// second is a flicker rather than an answer.
+    case saved
+
+    var systemImage: String {
+        switch self {
+        case .translating: return "translate"
+        case .saving:      return "square.and.arrow.down"
+        case .saved:       return "checkmark"
+        }
+    }
+
+    /// Whether the strip turns a spinner. Something that has already happened
+    /// is not still happening.
+    var isWorking: Bool { self != .saved }
+
+    /// How long the strip holds this before it may leave.
+    var hold: TimeInterval {
+        switch self {
+        case .translating, .saving: return 0
+        case .saved:                return 0.7
+        }
+    }
 }
 
 enum TransitionTarget { case archive, translate, main }
@@ -189,7 +228,7 @@ extension PanelState {
     /// an outside click should auto-close the panel.
     var allowsAutoHide: Bool {
         switch self {
-        case .transitioning, .countdown, .translating, .preSelection: return false
+        case .transitioning, .countdown, .waiting, .preSelection: return false
         case .hidden, .showing, .main, .archive, .translate, .hiding, .stale: return true
         }
     }
@@ -212,7 +251,7 @@ extension PanelState {
     func wantsEscapeHotkey(isSharePickerOpen: Bool) -> Bool {
         guard !isSharePickerOpen else { return false }
         switch self {
-        case .showing, .main, .archive, .translate, .countdown, .translating: return true
+        case .showing, .main, .archive, .translate, .countdown, .waiting: return true
         case .hidden, .transitioning, .hiding, .preSelection, .stale: return false
         }
     }
@@ -232,7 +271,7 @@ extension PanelState {
         switch self {
         case .archive, .translate: return true
         case .hidden, .showing, .main, .transitioning, .hiding,
-             .countdown, .translating, .preSelection, .stale: return false
+             .countdown, .waiting, .preSelection, .stale: return false
         }
     }
 
@@ -285,16 +324,18 @@ enum EscapeAction: Equatable {
     var countdownSeconds: Int = 0
     var countdownTotal: Int = 0
     var isArchivePinned: Bool = false
-    /// 0 = Main visible, 1 = the "translating" strip's contents visible.
+    /// 0 = Main visible, 1 = the wait strip's contents visible.
     /// Crossfaded over Main without a morph, exactly as the countdown is.
-    var translatingVisible: CGFloat = 0.0
+    var waitingVisible: CGFloat = 0.0
     /// Whether the panel is *shaped* as the strip — its own width and its own
     /// fixed-radius outline. Separate from the opacity above because the two
     /// have to move at different moments: the glyphs dissolve first, and only
     /// once they are gone does the panel stop being a strip and start morphing
     /// into the Translator. Sharing one value snapped them away at the instant
     /// the morph began.
-    var translatingStripVisible: Bool = false
+    var waitingStripVisible: Bool = false
+    /// Which errand the strip is showing. Only the glyph changes with it.
+    var wait: PanelWait = .translating
 }
 
 private struct NotchPanelRootView: View {
@@ -364,7 +405,7 @@ private struct NotchPanelRootView: View {
                                                             dampingFraction: 0.88)
 
     /// The panel is showing the wait rather than any route.
-    private var isTranslating: Bool { rootState.translatingStripVisible }
+    private var isWaiting: Bool { rootState.waitingStripVisible }
 
     var body: some View {
         // Notch style on a notch-less screen renders the whole panel at its 34pt
@@ -405,7 +446,7 @@ private struct NotchPanelRootView: View {
             //   • notch style: pinned to the top edge → square top corners flush
             //     with the screen edge, rounded bottom corners (a clean "tab").
             //   • rounded style: a full rounded rectangle below the menu bar.
-            if isTranslating {
+            if isWaiting {
                 // Fixed radii, drawn at whatever width the strip is. The morph
                 // keyframes are an X-scaled 536-wide viewBox, and at the
                 // strip's width their corners come out half as wide as they
@@ -484,12 +525,12 @@ private struct NotchPanelRootView: View {
             // update that sets the route, leaving no frame in between.
             .opacity(max(0.0, min(1.0, (0.6 - p) / 0.6))
                      * (1.0 - rootState.countdownVisible)
-                     * (rootState.translatingStripVisible ? 0.0 : 1.0)
+                     * (rootState.waitingStripVisible ? 0.0 : 1.0)
                      * (rootState.route == .translate ? 0.0 : 1.0))
             .animation(.easeOut(duration: PanelTiming.crossfade), value: rootState.countdownVisible)
-            .animation(.easeOut(duration: PanelTiming.crossfade), value: rootState.translatingStripVisible)
+            .animation(.easeOut(duration: PanelTiming.crossfade), value: rootState.waitingStripVisible)
             .allowsHitTesting(p < 0.5 && rootState.countdownVisible < 0.5
-                              && !rootState.translatingStripVisible
+                              && !rootState.waitingStripVisible
                               && rootState.route != .translate)
 
             // Countdown — crossfades over Main without resizing the panel
@@ -507,9 +548,9 @@ private struct NotchPanelRootView: View {
             .frame(height: m.panelHeight)
 
             // The wait — same crossfade, same strip, no morph.
-            TranslatingView(metrics: m, interaction: interaction)
-                .opacity(rootState.translatingVisible)
-                .animation(.easeOut(duration: PanelTiming.crossfade), value: rootState.translatingVisible)
+            WaitingView(metrics: m, interaction: interaction, wait: rootState.wait)
+                .opacity(rootState.waitingVisible)
+                .animation(.easeOut(duration: PanelTiming.crossfade), value: rootState.waitingVisible)
                 .frame(height: m.panelHeight)
 
             // Archive — appears as p→1; content is pre-faded via routeContentVisible.
@@ -982,6 +1023,39 @@ final class NotchPanelController: NSObject {
                 self?.archiveModel.add(screenshotURL: url)
             }
         }
+        // A save renders the whole page and writes it, and until now the only
+        // sign it had happened was the file turning up in the archive. Same
+        // strip as a translation's, same rule about when it may be raised: only
+        // with the panel down, since a panel already up is showing something
+        // worth more than a spinner.
+        let tSaveStart = NotificationCenter.default.addObserver(
+            forName: .editorWillSaveImage,
+            object: nil, queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            MainActor.assumeIsolated { self.raiseWaitStrip(.saving) }
+        }
+        // It landed: the glyph becomes a tick and the strip holds it long
+        // enough to be read before it goes. That hold is the whole point — the
+        // write itself can be over in eighty milliseconds, and a strip that
+        // appears and leaves inside a tenth of a second is a flicker rather
+        // than an answer.
+        let tSaveEnd = NotificationCenter.default.addObserver(
+            forName: .editorDidSaveImage,
+            object: nil, queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            MainActor.assumeIsolated { self.finishWaitStrip(with: .saved, thenHide: true) }
+        }
+        let tSaveFail = NotificationCenter.default.addObserver(
+            forName: .editorSaveDidFail,
+            object: nil, queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            // Nothing to show for it — an alert is already saying what went
+            // wrong, so the strip simply leaves.
+            MainActor.assumeIsolated { self.finishWaitStrip(with: nil, thenHide: true) }
+        }
         // Only when the panel is down. Raised from the archive by right-click,
         // the archive is already on screen and worth more than a spinner —
         // replacing it with one would take away what the user was looking at.
@@ -991,12 +1065,7 @@ final class NotchPanelController: NSObject {
         ) { [weak self] _ in
             guard let self else { return }
             MainActor.assumeIsolated {
-                guard !self.isVisible, let screen = self.currentScreen
-                        ?? NSScreen.main ?? NSScreen.screens.first else { return }
-                self.rootState.translatingStripVisible = true
-                self.rootState.translatingVisible = 1.0
-                self.showAnimated(on: screen, forceRebind: self.needsSpaceRebind)
-                self.state = .translating
+                self.raiseWaitStrip(.translating)
             }
         }
         // Nowhere to send the text automatically, so it is put in front of the
@@ -1024,13 +1093,12 @@ final class NotchPanelController: NSObject {
                 // panel's menu never raises the strip, and its dimming has to
                 // come back off whether or not a translation arrived.
                 TranslationPanelModel.shared.endRework()
-                guard self.rootState.translatingStripVisible else { return }
+                guard self.rootState.waitingStripVisible else { return }
                 // Nothing to show for it — a failed or empty translation. The
-                // glyphs still leave the way they would have on success.
-                self.dissolveStrip { [weak self] in
-                    guard let self else { return }
-                    if case .translating = self.state { self.state = .main }
-                }
+                // glyphs still leave the way they would have on success, and
+                // the panel goes with them: it was pulled down by the app to
+                // say something, and it turned out to have nothing to say.
+                self.dissolveWaitStrip(thenHide: true)
             }
         }
 
@@ -1045,7 +1113,7 @@ final class NotchPanelController: NSObject {
                 TranslationPanelModel.shared.present(result, bodyWidth: self.translateBodyWidth)
                 // Already showing: only the text changes, no morph.
                 guard self.route != .translate else { return }
-                guard self.rootState.translatingStripVisible else {
+                guard self.rootState.waitingStripVisible else {
                     self.presentTranslation(on: self.currentScreen)
                     return
                 }
@@ -1121,7 +1189,8 @@ final class NotchPanelController: NSObject {
         }
 
         notificationObservers = [t1, t2, t3, t4, t5, t6, t7, t8, t9, t9b, t10, t11, t12, t13,
-                                 tTranslate, tTranslateStart, tTranslateEnd, tTranslatePreview]
+                                 tTranslate, tTranslateStart, tTranslateEnd, tTranslatePreview,
+                                 tSaveStart, tSaveEnd, tSaveFail]
     }
 
     isolated deinit {
@@ -1344,14 +1413,116 @@ final class NotchPanelController: NSObject {
     /// `next`. The two steps are ordered rather than simultaneous for the same
     /// reason every other body in this panel is: content never moves while the
     /// shape does.
+    /// Brings the wait strip down over whatever is on screen — or rather, over
+    /// nothing: only with the panel down, because a panel already up is showing
+    /// something worth more than a spinner.
+    private func raiseWaitStrip(_ wait: PanelWait) {
+        guard !isVisible,
+              let screen = currentScreen ?? NSScreen.main ?? NSScreen.screens.first
+        else { return }
+        rootState.wait = wait
+        rootState.waitingStripVisible = true
+        rootState.waitingVisible = 1.0
+        showAnimated(on: screen, forceRebind: needsSpaceRebind)
+        state = .waiting
+    }
+
+    /// Ends a wait the app raised. `last` is what the strip says before it goes
+    /// — a tick for a save that landed — and it is held long enough to be read.
+    /// Nothing to say (`nil`) leaves at once.
+    private func finishWaitStrip(with last: PanelWait?, thenHide: Bool = false) {
+        guard rootState.waitingStripVisible else { return }
+        guard let last else { return dissolveWaitStrip(thenHide: thenHide) }
+        rootState.wait = last
+        let token = makePanelTransitionToken()
+        schedulePanelAction(after: last.hold, token: token) { [weak self] in
+            self?.dissolveWaitStrip(thenHide: thenHide)
+        }
+    }
+
+    /// Takes the strip down, and the panel with it when the panel came down
+    /// only to show it.
+    ///
+    /// A translation ends by *showing* something — the panel stays up because
+    /// there is a translation on it to read. A save has nothing to leave
+    /// behind, so the panel that was pulled down by the app must go back up:
+    /// it was standing half-open over the desktop with the capture buttons on
+    /// it, waiting for a pointer that was in the editor all along.
+    ///
+    /// Unless the pointer did come: someone who reached for the panel while it
+    /// was up gets to keep it, and the ordinary rule closes it when they leave.
+    private func dissolveWaitStrip(thenHide: Bool = false) {
+        dissolveStrip { [weak self] in
+            guard let self else { return }
+            if case .waiting = self.state { self.state = .main }
+            guard thenHide, !self.pointerIsOverThePanel else {
+                // Staying: the strip is only as wide as two glyphs, and the
+                // panel is still standing at that width. Clearing the flag
+                // hands the width back but moves nothing — somebody has to ask
+                // for the new frame.
+                self.growIntoMain()
+                return
+            }
+            self.hideAnimated(reason: .waitFinished)
+        }
+    }
+
+    /// Opens a panel that is standing at the wait strip's width out to Main's.
+    ///
+    /// The strip is 270 points of two glyphs; Main is the whole row of buttons.
+    /// A panel left at the strip's width after the wait ends is a panel that
+    /// looks half-open — which is exactly what it was, since the width follows
+    /// `waitingStripVisible` and nothing re-applied the frame when that flag
+    /// cleared.
+    private func growIntoMain() {
+        guard let panel, panel.isVisible,
+              let screen = currentScreen ?? panel.screen ?? NSScreen.main
+        else { return }
+        // Everything Main is, not just its width: the route, the shape at rest,
+        // its content on and its controls live. Half of these were already
+        // right; setting them all here is what makes this a panel that is Main
+        // rather than a strip standing where Main goes.
+        route = .main
+        rootState.routeContentVisible = 1.0
+        let target = frameForWidth(clampedWidth(currentWidthForCurrentRoute, on: screen),
+                                   on: screen, height: panelWindowHeight)
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = PanelTiming.archiveCloseMorph
+            ctx.timingFunction = PanelTiming.settle
+            withAnimation(PanelTiming.contentFadeIn) {
+                self.interactionState.contentVisibility = 1.0
+            }
+            panel.animator().setFrame(target, display: true)
+        } completionHandler: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.state = .main
+                self.interactionState.isEnabled = true
+            }
+        }
+        // The shape settles back to the strip's own outline — the wait borrowed
+        // the panel, it did not open a route.
+        withAnimation(.spring(response: 0.34, dampingFraction: 0.9)) {
+            self.rootState.progress = 0.0
+        }
+    }
+
+    /// Whether the pointer is on the panel right now, asked of the screen
+    /// rather than of a hover flag: this is called from a scheduled action, and
+    /// the flag belongs to a view that may never have seen the pointer enter.
+    private var pointerIsOverThePanel: Bool {
+        guard let panel, panel.isVisible else { return false }
+        return panel.frame.insetBy(dx: -4, dy: -4).contains(NSEvent.mouseLocation)
+    }
+
     private func dissolveStrip(_ next: @escaping () -> Void) {
         let token = makePanelTransitionToken()
         withAnimation(.easeOut(duration: PanelTiming.contentDissolve)) {
-            rootState.translatingVisible = 0.0
+            rootState.waitingVisible = 0.0
         }
         schedulePanelAction(after: PanelTiming.contentDissolve, token: token) { [weak self] in
             guard let self else { return }
-            self.rootState.translatingStripVisible = false
+            self.rootState.waitingStripVisible = false
             next()
         }
     }

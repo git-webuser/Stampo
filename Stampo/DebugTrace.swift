@@ -102,6 +102,7 @@ enum PanelHideReason: String {
     case closeButton
     case captureStart
     case colorPickerStart
+    case waitFinished
     case environmentInvalidation
     case unknown
 }
@@ -118,7 +119,7 @@ extension PanelState: CustomStringConvertible {
         case .translate:                    return "translate"
         case .hiding:                       return "hiding"
         case .countdown:                    return "countdown"
-        case .translating:                  return "translating"
+        case .waiting:                      return "waiting"
         case .transitioning(let t):         return "transitioning(\(t))"
         case .preSelection(let k):          return "preSelection(\(k))"
         case .stale(let r):                 return "stale(\(r))"

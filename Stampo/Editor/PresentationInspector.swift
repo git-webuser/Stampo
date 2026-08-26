@@ -92,10 +92,6 @@ struct PresentationInspector: View {
     /// a preference: it is about the objects of this document, which outlive
     /// neither it nor the panel.
     @State private var openObjects: Set<UUID> = []
-    /// Which objects have their two size fields untied. Linked is the default,
-    /// and the exception is the one worth remembering — for this session only,
-    /// like every other way of *looking* at the panel.
-    @State private var unlinkedObjects: Set<UUID> = []
     /// What a light was worth before its eye was closed, so opening it again
     /// returns the one you had rather than a stock one — exactly what the
     /// page's shadow does.
@@ -1476,9 +1472,16 @@ struct PresentationInspector: View {
             Canvas { context, size in
                 context.withCGContext { cg in
                     guard let name, let picture = document.picture(for: name) else { return }
-                    let treated = EffectBaker.object(stack, over: picture, named: name) ?? picture
-                    AnnotationRenderer.drawImageInFlippedSpace(
-                        treated, in: CGRect(origin: .zero, size: size), ctx: cg)
+                    let rect = CGRect(origin: .zero, size: size)
+                    // A swatch is 28 points wide and a tile about sixty, and
+                    // that is what they ask to be baked at. Asking for the
+                    // picture's own size — which is what a grid of fourteen
+                    // tiles used to do — is a second of frozen panel and a
+                    // cache with the canvas's own bake evicted out of it.
+                    let treated = EffectBaker.object(
+                        stack, over: picture, named: name,
+                        drawnAt: cg.convertToDeviceSpace(rect).size) ?? picture
+                    AnnotationRenderer.drawImageInFlippedSpace(treated, in: rect, ctx: cg)
                 }
             }
         }
@@ -2039,7 +2042,7 @@ struct PresentationInspector: View {
     /// squashed by being given a round width. Turning it off is how a picture
     /// is deliberately stretched — rare, and it should take a decision.
     private func objectSizeRow(_ picture: Annotation) -> some View {
-        let linked = !unlinkedObjects.contains(picture.id)
+        let linked = picture.pictureKeepsProportions
         return VStack(alignment: .leading, spacing: Self.captionGap) {
             Text("Size, px")
                 .font(.system(size: 11))
@@ -2066,8 +2069,7 @@ struct PresentationInspector: View {
                 panelIconButton(linked ? "personalhotspot" : "personalhotspot.slash",
                                 role: .quiet,
                                 label: linked ? "Free Proportions" : "Keep Proportions") {
-                    if linked { unlinkedObjects.insert(picture.id) }
-                    else { unlinkedObjects.remove(picture.id) }
+                    updateObject(picture.id) { $0.pictureKeepsProportions = !linked }
                 }
             }
         }
@@ -2195,8 +2197,11 @@ struct PresentationInspector: View {
     /// A typed size, applied from the picture's top-left corner.
     private func resizeObject(_ picture: Annotation, width: CGFloat? = nil,
                               height: CGFloat? = nil, keepingRatio: Bool) {
-        let resized = Annotation.resized(picture.rect, width: width, height: height,
-                                         keepingRatio: keepingRatio)
+        let resized = Annotation.resized(
+            picture.rect, width: width, height: height, keepingRatio: keepingRatio,
+            // The floor the corner drag holds to, so a number typed here cannot
+            // reach a size the canvas would refuse.
+            minimumShortSide: Presentation.minimumPictureSide(for: resolvedLayout.imageRect.size))
         guard resized != picture.rect else { return }
         updateObject(picture.id) {
             $0.start = resized.origin

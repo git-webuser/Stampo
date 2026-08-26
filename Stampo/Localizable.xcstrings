@@ -671,6 +671,7 @@
     },
     "Amber Glow" : {
       "comment" : "Decor inspector — the name of one background in the gallery",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -875,6 +876,7 @@
     },
     "Aurora Mesh" : {
       "comment" : "Decor inspector — the name of one background in the gallery",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -993,6 +995,7 @@
     },
     "Berry Mesh" : {
       "comment" : "Decor inspector — the name of one background in the gallery",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -1501,6 +1504,7 @@
     },
     "Charcoal" : {
       "comment" : "Decor inspector — the name of one background in the gallery",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -1639,6 +1643,7 @@
     },
     "Clay" : {
       "comment" : "Decor inspector — the name of one background in the gallery",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -1911,6 +1916,7 @@
     },
     "Cool Mesh" : {
       "comment" : "Decor inspector — the name of one background in the gallery",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -2358,6 +2364,7 @@
     },
     "Deep" : {
       "comment" : "Decor inspector — the name of one background in the gallery",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -2425,6 +2432,7 @@
     },
     "Denim" : {
       "comment" : "Decor inspector — the name of one background in the gallery",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -2739,6 +2747,7 @@
     },
     "Dusk Mesh" : {
       "comment" : "Decor inspector — the name of one background in the gallery",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -2859,6 +2868,7 @@
     },
     "Ember" : {
       "comment" : "Decor inspector — the name of one background in the gallery",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -3208,6 +3218,7 @@
     },
     "Forest Mesh" : {
       "comment" : "Decor inspector — the name of one background in the gallery",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -3946,6 +3957,7 @@
     },
     "Ink" : {
       "comment" : "Decor inspector — the name of one background in the gallery",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -4277,6 +4289,7 @@
     },
     "Lavender" : {
       "comment" : "Decor inspector — the name of one background in the gallery",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -4328,6 +4341,7 @@
     },
     "Lemon" : {
       "comment" : "Decor inspector — the name of one background in the gallery",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -4484,6 +4498,7 @@
     },
     "Linen" : {
       "comment" : "Decor inspector — the name of one background in the gallery",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -4721,6 +4736,7 @@
     },
     "Midnight" : {
       "comment" : "Decor inspector — the name of one background in the gallery",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -4738,6 +4754,7 @@
     },
     "Mint" : {
       "comment" : "Decor inspector — the name of one background in the gallery",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -4755,6 +4772,7 @@
     },
     "Mint Glow" : {
       "comment" : "Decor inspector — the name of one background in the gallery",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -4772,6 +4790,7 @@
     },
     "Mist" : {
       "comment" : "Decor inspector — the name of one background in the gallery",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -5136,6 +5155,7 @@
     },
     "Ocean" : {
       "comment" : "Decor inspector — the name of one background in the gallery",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -5500,6 +5520,7 @@
     },
     "Paper" : {
       "comment" : "Decor inspector — the name of one background in the gallery",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -5606,6 +5627,7 @@
     },
     "Peach" : {
       "comment" : "Decor inspector — the name of one background in the gallery",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -6508,6 +6530,7 @@
     },
     "Rose" : {
       "comment" : "Decor inspector — the name of one background in the gallery",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -6576,6 +6599,7 @@
     },
     "Sage" : {
       "comment" : "Decor inspector — the name of one background in the gallery",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -6611,6 +6635,7 @@
     },
     "Sand Mesh" : {
       "comment" : "Decor inspector — the name of one background in the gallery",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -7725,6 +7750,7 @@
     },
     "Slate" : {
       "comment" : "Decor inspector — the name of one background in the gallery",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -7915,6 +7941,7 @@
     },
     "Steel" : {
       "comment" : "Decor inspector — the name of one background in the gallery",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -8053,6 +8080,7 @@
     },
     "Sunset" : {
       "comment" : "Decor inspector — the name of one background in the gallery",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -8070,6 +8098,7 @@
     },
     "Sunset Mesh" : {
       "comment" : "Decor inspector — the name of one background in the gallery",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -9028,6 +9057,7 @@
     },
     "Violet" : {
       "comment" : "Decor inspector — the name of one background in the gallery",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -9045,6 +9075,7 @@
     },
     "Violet Glow" : {
       "comment" : "Decor inspector — the name of one background in the gallery",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -9062,6 +9093,7 @@
     },
     "Warm Mesh" : {
       "comment" : "Decor inspector — the name of one background in the gallery",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {

@@ -68,8 +68,8 @@ extension NotchPanelController {
         // inside itself, while the panel is in `.showing` on its way to
         // `.main` — so a state set around that call is never the state read
         // during it, and the strip opened at the main strip's width.
-        if rootState.translatingStripVisible {
-            return TranslatingView.stripWidth(metrics)
+        if rootState.waitingStripVisible {
+            return WaitingView.stripWidth(metrics)
         }
         switch route {
         case .main:      return expandedWidth
