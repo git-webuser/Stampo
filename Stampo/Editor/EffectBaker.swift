@@ -53,18 +53,64 @@ nonisolated enum EffectBaker {
     /// numbers read at two resolutions. A picture is small next to a page, and
     /// this is the layer where holding the result is worth most.
     static func object(_ effects: [Presentation.Effect], over picture: CGImage,
-                       named name: UUID) -> CGImage? {
+                       named name: UUID, drawnAt drawn: CGSize) -> CGImage? {
         let active = EffectStack.active(effects)
         guard !active.isEmpty else { return nil }
-        let width = picture.width, height = picture.height
-        guard width > 0, height > 0, width <= maximumSide, height <= maximumSide else { return nil }
+        let source = CGSize(width: CGFloat(picture.width), height: CGFloat(picture.height))
+        guard source.width > 0, source.height > 0,
+              picture.width <= maximumSide, picture.height <= maximumSide else { return nil }
+        let size = bakeSize(of: source, drawnAt: drawn)
+        guard size.width > 0, size.height > 0 else { return nil }
 
         let recipes = active.map(Recipe.init)
-        let key = ObjectKey(picture: name, effects: recipes)
+        let key = ObjectKey(picture: name, effects: recipes,
+                            width: size.width, height: size.height)
         if let held = objectCache.value(for: key) { return held }
-        guard let baked = run(recipes, over: picture) else { return nil }
+        guard let scaled = scaled(picture, to: size),
+              let baked = run(recipes, over: scaled) else { return nil }
         objectCache.store(baked, for: key)
         return baked
+    }
+
+    /// How many pixels an object's bake is worth.
+    ///
+    /// The size it is drawn at, and never more than it has: a 4096-pixel
+    /// photograph shown three hundred points wide was baked at 4096 and cost
+    /// 897 ms a frame for fluted glass, where the size it is actually drawn at
+    /// costs twenty — and two such bakes filled the whole cache, so the tiles
+    /// in the picker evicted the canvas's own. Upwards never: every size inside
+    /// an effect is a fraction of the short side, so grain baked on a stretched
+    /// copy would come out finer than the page promises.
+    ///
+    /// Rounded up to a multiple of 64, which is what makes a resize or a zoom
+    /// land on a bake that already exists instead of missing by three pixels.
+    static func bakeSize(of source: CGSize, drawnAt drawn: CGSize) -> (width: Int, height: Int) {
+        let wanted = max(drawn.width, drawn.height)
+        let longest = max(source.width, source.height)
+        guard wanted.isFinite, wanted > 0, longest > 0 else {
+            return (Int(source.width.rounded()), Int(source.height.rounded()))
+        }
+        let step: CGFloat = 64
+        let asked = min(longest, (wanted / step).rounded(.up) * step)
+        let scale = asked / longest
+        return (max(1, Int((source.width * scale).rounded())),
+                max(1, Int((source.height * scale).rounded())))
+    }
+
+    /// The picture at the size its bake wants, or itself when that is the size
+    /// it already is. Lanczos, like the ASCII pass's own downsample: it averages
+    /// what it drops rather than taking whichever pixel lands under the sample.
+    private static func scaled(_ picture: CGImage, to size: (width: Int, height: Int))
+        -> CGImage? {
+        guard size.width != picture.width || size.height != picture.height else { return picture }
+        let filter = CIFilter.lanczosScaleTransform()
+        filter.inputImage = CIImage(cgImage: picture)
+        filter.scale = Float(CGFloat(size.height) / CGFloat(picture.height))
+        filter.aspectRatio = Float((CGFloat(size.width) / CGFloat(picture.width))
+                                   / (CGFloat(size.height) / CGFloat(picture.height)))
+        guard let output = filter.outputImage else { return nil }
+        let extent = CGRect(x: 0, y: 0, width: size.width, height: size.height)
+        return ciContext.createCGImage(output.cropped(to: extent), from: extent)
     }
 
     /// A stack, run over a bitmap, with the bitmap's own silhouette put back —
@@ -1079,6 +1125,8 @@ nonisolated enum EffectBaker {
         /// stands for the same pixels for as long as the document holds them.
         let picture: UUID
         let effects: [Recipe]
+        let width: Int
+        let height: Int
     }
 
     private struct Key: Hashable {

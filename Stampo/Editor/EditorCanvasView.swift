@@ -378,6 +378,13 @@ struct EditorCanvasView: View {
     /// `EditorCanvasGeometry.canvasOrigin(pinning:)`. Nil the rest of the time,
     /// when the page centres itself in the window as it always has.
     @State private var gapDragPointer: CGPoint?
+    /// The shape a placed picture had when its resize began, and the smallest
+    /// it may become. Beside the drag mode rather than inside it, exactly as
+    /// `gapDragPointer` is: read afresh on every sample, the shape drifted —
+    /// the corner clamps at the minimum, the clamp distorts the picture, and
+    /// the next sample locks to the distorted shape. A 2:1 photograph dragged
+    /// in and back out came away square.
+    @State private var pictureResize: (ratio: CGFloat, minimumSide: CGFloat)?
     /// Whether the pointer is wearing a cursor we set — see `updateCursor`.
     @State private var cursorIsOurs = false
     /// Whether the pointer is over something it can pick up. Drives both the
@@ -1493,7 +1500,9 @@ struct EditorCanvasView: View {
                             }
                         } else {
                             continuedHandle = annotation.apply(
-                                handle: handle, to: target, aspectLocked: isShiftHeld)
+                                handle: handle, to: target, aspectLocked: isShiftHeld,
+                                minimumSide: pictureResize?.minimumSide,
+                                lockedRatio: pictureResize?.ratio)
                         }
                     }
                     if continuedHandle != handle {
@@ -1703,6 +1712,7 @@ struct EditorCanvasView: View {
                     document.refreshBindingFallbacks()
                     document.commitChange()
                 case .resizing(let id, let handle):
+                    pictureResize = nil
                     // Dropping an arrow/line endpoint over (or near) a shape
                     // binds it; empty space clears any prior binding. Part of
                     // the same undo step as the drag.
@@ -1760,6 +1770,15 @@ struct EditorCanvasView: View {
         if let selected = document.selectedAnnotation,
            let handle = selected.handle(at: p, tolerance: grabPx, in: document.annotations) {
             document.beginChange()
+            if selected.kind == .picture {
+                let rect = selected.rect
+                let layout = PresentationLayout.resolve(imagePixelSize: document.pixelSize,
+                                                        document.presentation)
+                pictureResize = (
+                    ratio: rect.width > 0 ? rect.height / rect.width : 1,
+                    minimumSide: Presentation.minimumPictureSide(for: layout.imageRect.size)
+                )
+            }
             return .resizing(selected.id, handle)
         }
 

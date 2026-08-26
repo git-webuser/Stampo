@@ -1178,9 +1178,21 @@ nonisolated struct Annotation: Identifiable, Equatable, Sendable {
     /// shape), while a decisive push through the opposite edge mirrors the
     /// geometry — the grabbed corner takes the mirrored handle's role and a
     /// polygon/star flips its apex.
+    /// - Parameters:
+    ///   - minimumSide: the smallest a `.picture` may be dragged to. Its own
+    ///     rule rather than `minimumShapeSize`, because it is a fraction of the
+    ///     screenshot (see `Presentation.minimumPictureSide`) and the caller is
+    ///     the one that knows the page.
+    ///   - lockedRatio: the shape Shift keeps for a `.picture`, captured once
+    ///     when the drag began. Read afresh from the rectangle on every sample
+    ///     it drifted: the corner clamps at the minimum, the clamp distorts the
+    ///     shape, and the next sample then locked to the distorted one — a 2:1
+    ///     photograph dragged in to the minimum and back out came away square.
     @discardableResult
     mutating func apply(handle: Handle, to p: CGPoint,
-                        aspectLocked: Bool = false) -> Handle {
+                        aspectLocked: Bool = false,
+                        minimumSide: CGFloat? = nil,
+                        lockedRatio: CGFloat? = nil) -> Handle {
         switch handle {
         case .start: start = p
         case .end:   end = p
@@ -1215,23 +1227,27 @@ nonisolated struct Annotation: Identifiable, Equatable, Sendable {
             default: return handle
             }
             start = anchor
+            // A picture is not a shape: it has no dead zone at the minimum and
+            // no mirrored twin on the far side of the anchor, because the
+            // editor does not offer to flip a photograph anywhere. One rule
+            // does the whole of it — keep the shape, keep the floor.
+            if kind == .picture {
+                let floor = minimumSide ?? Self.minimumShapeSize
+                let ratio = aspectLocked
+                    ? (lockedRatio ?? r.height / max(r.width, 0.0001))
+                    : nil
+                let resized = Self.resizedPicture(from: anchor, to: p, direction: direction,
+                                                  ratio: ratio, minimumShortSide: floor)
+                start = resized.origin
+                end = CGPoint(x: resized.maxX, y: resized.maxY)
+                return handle
+            }
             // Shift locks the aspect for area shapes (a loupe's oval becomes
             // a circle, its rounded rect a square, a polygon/star regular).
             let lockAspect = aspectLocked
                 && (kind == .rect || kind == .oval || kind == .loupe
                     || kind.isPathShape)
-            let target: CGPoint
-            if aspectLocked, kind == .picture {
-                // A picture keeps its own proportions rather than becoming a
-                // square: squashing a photograph is the one thing Shift is
-                // there to prevent. The ratio is the one it has at this moment
-                // — locked from the first step of the drag, and kept by every
-                // step after, since each one reads back what the last wrote.
-                target = Self.ratioLockedEnd(from: anchor, to: p,
-                                             ratio: r.height / max(r.width, 0.0001))
-            } else {
-                target = lockAspect ? Self.aspectLockedEnd(from: anchor, to: p) : p
-            }
+            let target: CGPoint = lockAspect ? Self.aspectLockedEnd(from: anchor, to: p) : p
             let (dx, crossedX) = Self.resolvedDelta(raw: target.x - anchor.x,
                                                     side: direction.x)
             let (dy, crossedY) = Self.resolvedDelta(raw: target.y - anchor.y,
@@ -1662,7 +1678,8 @@ nonisolated struct Annotation: Identifiable, Equatable, Sendable {
     /// follows it. Nothing may collapse to nothing, so both sides keep at
     /// least a pixel.
     static func resized(_ rect: CGRect, width: CGFloat? = nil, height: CGFloat? = nil,
-                        keepingRatio: Bool) -> CGRect {
+                        keepingRatio: Bool,
+                        minimumShortSide floor: CGFloat = 1) -> CGRect {
         let ratio = rect.width > 0 ? rect.height / rect.width : 1
         var size = CGSize(width: max(1, width ?? rect.width),
                           height: max(1, height ?? rect.height))
@@ -1672,6 +1689,14 @@ nonisolated struct Annotation: Identifiable, Equatable, Sendable {
             } else if height != nil, width == nil {
                 size.width = max(1, size.height / ratio)
             }
+        }
+        // The same floor the corner drag holds to, so a number typed into the
+        // panel cannot reach a size the canvas would refuse.
+        let smallest = min(size.width, size.height)
+        if smallest < floor, smallest > 0 {
+            let lift = floor / smallest
+            size = CGSize(width: (size.width * lift).rounded(),
+                          height: (size.height * lift).rounded())
         }
         return CGRect(origin: rect.origin, size: size)
     }
@@ -1687,6 +1712,47 @@ nonisolated struct Annotation: Identifiable, Equatable, Sendable {
         let height = width * ratio
         return CGPoint(x: from.x + (dx < 0 ? -width : width),
                        y: from.y + (dy < 0 ? -height : height))
+    }
+
+    /// Where a placed picture's corner lands: the anchor stays put, the shape
+    /// is whatever was asked for (nil — free), and neither side goes below the
+    /// floor.
+    ///
+    /// The floor is applied *along the locked shape* rather than to each side
+    /// on its own, which is the whole difference from `resolvedDelta`: clamping
+    /// the sides separately is what turned a 2:1 photograph into a square.
+    /// Dragging past the anchor does not mirror the picture; it stops at the
+    /// smallest it may be, on the side it started.
+    static func resizedPicture(from anchor: CGPoint, to point: CGPoint,
+                               direction: CGPoint, ratio: CGFloat?,
+                               minimumShortSide floor: CGFloat) -> CGRect {
+        // Measured along the side the grabbed corner is on, so a pointer taken
+        // past the anchor asks for a negative size rather than for the picture
+        // on the other side of it.
+        var width = max(0, (point.x - anchor.x) * direction.x)
+        var height = max(0, (point.y - anchor.y) * direction.y)
+        let toTheLeft = direction.x < 0, above = direction.y < 0
+        if let ratio, ratio > 0 {
+            // The longer side of the drag leads, so the corner follows the
+            // pointer rather than lagging behind it.
+            width = max(width, height / ratio)
+            height = width * ratio
+            let smallest = min(width, height)
+            if smallest < floor, smallest > 0 {
+                let lift = floor / smallest
+                width *= lift
+                height *= lift
+            } else if smallest <= 0 {
+                width = ratio >= 1 ? floor / ratio : floor
+                height = width * ratio
+            }
+        } else {
+            width = max(width, floor)
+            height = max(height, floor)
+        }
+        return CGRect(x: toTheLeft ? anchor.x - width : anchor.x,
+                      y: above ? anchor.y - height : anchor.y,
+                      width: width, height: height)
     }
 
     // MARK: Arrow binding (pure resolver — unit-testable)
@@ -2660,9 +2726,14 @@ nonisolated struct RenderedArtifact: Sendable {
         let scale = CGFloat(pictureSizeLimit) / CGFloat(longest)
         let width = max(1, Int((CGFloat(picture.width) * scale).rounded()))
         let height = max(1, Int((CGFloat(picture.height) * scale).rounded()))
+        // sRGB whatever came in, rather than the source's own space. Core
+        // Graphics converts on the draw, and the cap stops depending on the
+        // file: a CMYK scan cannot be drawn into a CMYK context with an alpha
+        // channel, so the context failed to build and a 6000-pixel photograph
+        // came back uncut — the exact weight the cap is here to prevent.
         guard let context = CGContext(
             data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
-            space: picture.colorSpace ?? CGColorSpace(name: CGColorSpace.sRGB)!,
+            space: CGColorSpace(name: CGColorSpace.sRGB)!,
             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
         else { return picture }
         context.interpolationQuality = .high
@@ -2759,7 +2830,11 @@ nonisolated struct RenderedArtifact: Sendable {
         keepPicture(picture, id: id)
         // Of the picture as kept, which is not always the picture as handed
         // over: a photograph too big to hold is cut down on the way in.
-        let size = Self.placedPictureSize(of: pictures[id] ?? picture, on: canvasSize)
+        let imageRect = PresentationLayout.resolve(imagePixelSize: pixelSize,
+                                                   presentation).imageRect
+        let size = Self.placedPictureSize(
+            of: pictures[id] ?? picture, on: canvasSize,
+            minimumShortSide: Presentation.minimumPictureSide(for: imageRect.size))
         var placed = Annotation(
             kind: .picture,
             start: CGPoint(x: point.x - size.width / 2, y: point.y - size.height / 2),
@@ -2796,15 +2871,26 @@ nonisolated struct RenderedArtifact: Sendable {
     /// already there, and something enormous would land as a wall with no
     /// visible handles to shrink it by.
     nonisolated static func placedPictureSize(of picture: CGImage,
-                                              on canvasSize: CGSize) -> CGSize {
+                                              on canvasSize: CGSize,
+                                              minimumShortSide floor: CGFloat = 0) -> CGSize {
         let size = CGSize(width: CGFloat(picture.width), height: CGFloat(picture.height))
         guard size.width > 0, size.height > 0,
               canvasSize.width > 0, canvasSize.height > 0 else { return size }
         let room = min(canvasSize.width * 0.5 / size.width,
                        canvasSize.height * 0.5 / size.height)
-        let scale = min(1, room)
-        return CGSize(width: (size.width * scale).rounded(),
-                      height: (size.height * scale).rounded())
+        var placed = CGSize(width: (size.width * min(1, room)).rounded(),
+                            height: (size.height * min(1, room)).rounded())
+        // One floor, at both ends of a picture's life: what may not be dragged
+        // to may not be arrived at either. A favicon dropped on a page lands at
+        // the smallest size the page allows rather than as a speck with eight
+        // overlapping grips on it.
+        let smallest = min(placed.width, placed.height)
+        if floor > 0, smallest > 0, smallest < floor {
+            let lift = floor / smallest
+            placed = CGSize(width: (placed.width * lift).rounded(),
+                            height: (placed.height * lift).rounded())
+        }
+        return placed
     }
 
     /// A picture read from a file, in the form the renderer draws.

@@ -1476,9 +1476,16 @@ struct PresentationInspector: View {
             Canvas { context, size in
                 context.withCGContext { cg in
                     guard let name, let picture = document.picture(for: name) else { return }
-                    let treated = EffectBaker.object(stack, over: picture, named: name) ?? picture
-                    AnnotationRenderer.drawImageInFlippedSpace(
-                        treated, in: CGRect(origin: .zero, size: size), ctx: cg)
+                    let rect = CGRect(origin: .zero, size: size)
+                    // A swatch is 28 points wide and a tile about sixty, and
+                    // that is what they ask to be baked at. Asking for the
+                    // picture's own size — which is what a grid of fourteen
+                    // tiles used to do — is a second of frozen panel and a
+                    // cache with the canvas's own bake evicted out of it.
+                    let treated = EffectBaker.object(
+                        stack, over: picture, named: name,
+                        drawnAt: cg.convertToDeviceSpace(rect).size) ?? picture
+                    AnnotationRenderer.drawImageInFlippedSpace(treated, in: rect, ctx: cg)
                 }
             }
         }
@@ -2195,8 +2202,11 @@ struct PresentationInspector: View {
     /// A typed size, applied from the picture's top-left corner.
     private func resizeObject(_ picture: Annotation, width: CGFloat? = nil,
                               height: CGFloat? = nil, keepingRatio: Bool) {
-        let resized = Annotation.resized(picture.rect, width: width, height: height,
-                                         keepingRatio: keepingRatio)
+        let resized = Annotation.resized(
+            picture.rect, width: width, height: height, keepingRatio: keepingRatio,
+            // The floor the corner drag holds to, so a number typed here cannot
+            // reach a size the canvas would refuse.
+            minimumShortSide: Presentation.minimumPictureSide(for: resolvedLayout.imageRect.size))
         guard resized != picture.rect else { return }
         updateObject(picture.id) {
             $0.start = resized.origin

@@ -277,6 +277,24 @@ nonisolated struct Presentation: Equatable, Sendable {
         return min(240, max(32, (short * 0.12).rounded()))
     }
 
+    /// The smallest a picture placed on the page may be, in canvas pixels.
+    ///
+    /// Eight per cent of the screenshot's short side as it lies on the page,
+    /// with a floor and a ceiling in pixels — the same shape of rule as the
+    /// margins above, and for the same reason: a size that means the same
+    /// thing on a phone shot and on a 6K one cannot be a number of pixels.
+    ///
+    /// Below this a picture is not an object any more: its four corner grips
+    /// and four radius dots are 8 points across and would overlap each other,
+    /// so the thing becomes hard to grab and impossible to round. It holds at
+    /// both ends — a picture arrives no smaller, and cannot be dragged or
+    /// typed below it.
+    static func minimumPictureSide(for imageRect: CGSize) -> CGFloat {
+        let short = min(imageRect.width, imageRect.height)
+        guard short.isFinite, short > 0 else { return 24 }
+        return min(160, max(24, (short * 0.08).rounded()))
+    }
+
     /// The four gaps between the picture and the canvas edges, in canvas
     /// pixels. Derived, never stored; negative means the picture reaches past
     /// that edge and the canvas crops it.
