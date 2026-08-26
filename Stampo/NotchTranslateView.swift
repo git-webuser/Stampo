@@ -120,7 +120,7 @@ extension Notification.Name {
     static let translationDidEnd = Notification.Name("Stampo.translationDidEnd")
 }
 
-// MARK: - TranslatingView
+// MARK: - WaitingView
 
 /// The wait. A strip the height of the notch row: the translator's glyph on
 /// the left shoulder, a turning ring on the right where the countdown puts its
@@ -131,9 +131,13 @@ extension Notification.Name {
 /// finishes: a first run after launch can take seconds, a second one is
 /// instant, and there is no fraction to report. An arc filling towards a
 /// completion it cannot see would be a guess drawn as a fact.
-struct TranslatingView: View {
+/// The strip the panel wears while the app is doing something short of its own
+/// — a translation, or an edited screenshot being written. One strip, because
+/// they are the same thing to look at: a glyph, a spinner, and a wait that ends.
+struct WaitingView: View {
     let metrics: NotchMetrics
     var interaction: NotchPanelInteractionState
+    var wait: PanelWait = .translating
 
     @Environment(\.colorSchemeContrast) private var contrast
     @State private var isTurning = false
@@ -150,6 +154,10 @@ struct TranslatingView: View {
         .allowsHitTesting(false)
         .onAppear { isTurning = true }
         .onDisappear { isTurning = false }
+        // The glyph changes under the same strip rather than the strip being
+        // rebuilt: the panel is already the right shape, and what the user
+        // watches is one thing finishing.
+        .animation(.easeInOut(duration: 0.18), value: wait)
     }
 
     /// Both layouts are the same: the strip is its own width, narrow enough
@@ -173,7 +181,7 @@ struct TranslatingView: View {
     }
 
     private var glyph: some View {
-        Image(systemName: "translate")
+        Image(systemName: wait.systemImage)
             .font(.system(size: 14, weight: .semibold))
             .foregroundStyle(PanelChrome.foreground(0.9, contrast))
             .frame(width: metrics.cellWidth, height: metrics.iconSize)
@@ -189,7 +197,7 @@ struct TranslatingView: View {
                 .trim(from: 0, to: 0.3)
                 .stroke(PanelChrome.stroke(0.8, contrast),
                         style: StrokeStyle(lineWidth: 2, lineCap: .round))
-                .rotationEffect(.degrees(isTurning ? 360 : 0))
+                .rotationEffect(.degrees(isTurning && wait.isWorking ? 360 : 0))
                 .animation(isTurning
                            ? .linear(duration: 0.9).repeatForever(autoreverses: false)
                            : .default,

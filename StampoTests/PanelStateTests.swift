@@ -11,7 +11,7 @@ import Testing
         // therefore nowhere near it. Left to the ordinary "mouse left" rule
         // the panel would close itself in the middle of the translation it
         // opened to report.
-        #expect(!PanelState.translating.allowsAutoHide)
+        #expect(!PanelState.waiting.allowsAutoHide)
         #expect(!PanelState.preSelection(.selection).allowsAutoHide)
         #expect(!PanelState.preSelection(.window).allowsAutoHide)
     }
@@ -115,7 +115,7 @@ import Testing
             translateCameFromArchive: false) == .hidePanel)
     }
 
-    @Test(arguments: [PanelState.showing, .main, .archive, .translate, .countdown, .translating])
+    @Test(arguments: [PanelState.showing, .main, .archive, .translate, .countdown, .waiting])
     func visibleStatesHoldTheHotkey(state: PanelState) {
         #expect(state.wantsEscapeHotkey(isSharePickerOpen: false))
     }
@@ -137,7 +137,7 @@ import Testing
     /// registered hotkey consumes ⇥ for every app on the machine, and the
     /// panel can be pinned open for hours.
     @Test(arguments: [PanelState.hidden, .showing, .main, .hiding, .countdown,
-                      .translating, .transitioning(to: .translate),
+                      .waiting, .transitioning(to: .translate),
                       .preSelection(.selection), .stale(reason: .sleep)])
     func everyOtherStateHandsTheCycleKeyBack(state: PanelState) {
         #expect(!state.wantsCycleHotkey)
@@ -148,5 +148,26 @@ import Testing
     @Test(arguments: [PanelState.showing, .main, .archive, .countdown])
     func anOpenShareSheetTakesTheHotkeyBack(state: PanelState) {
         #expect(!state.wantsEscapeHotkey(isSharePickerOpen: true))
+    }
+
+    /// One strip, two errands: it was built for a translation and now also
+    /// carries a save. Only the glyph differs — which is the whole reason it
+    /// could be reused, since every morph around it already existed.
+    @Test func theWaitStripSaysWhatItIsWaitingFor() {
+        #expect(PanelWait.translating.systemImage == "translate")
+        #expect(PanelWait.saving.systemImage != PanelWait.translating.systemImage)
+        #expect(PanelWait.saved.systemImage != PanelWait.saving.systemImage)
+
+        // A spinner is for something that is still happening.
+        #expect(PanelWait.translating.isWorking)
+        #expect(PanelWait.saving.isWorking)
+        #expect(!PanelWait.saved.isWorking)
+
+        // And only the finished one waits to be read: a save can be over in
+        // eighty milliseconds, and a strip that appears and leaves inside a
+        // tenth of a second is a flicker rather than an answer.
+        #expect(PanelWait.saved.hold > 0.3)
+        #expect(PanelWait.translating.hold == 0)
+        #expect(PanelWait.saving.hold == 0)
     }
 }

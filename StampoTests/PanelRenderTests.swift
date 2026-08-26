@@ -137,11 +137,11 @@ import Testing
     // MARK: The waiting strip
 
     @Test func theStripPutsItsGlyphsInTheShoulders() throws {
-        let width = TranslatingView.stripWidth(metrics)
+        let width = WaitingView.stripWidth(metrics)
         let rep = try render(
             ZStack(alignment: .top) {
                 Color.black
-                TranslatingView(metrics: metrics, interaction: NotchPanelInteractionState())
+                WaitingView(metrics: metrics, interaction: NotchPanelInteractionState())
             },
             size: NSSize(width: width, height: metrics.panelHeight))
 
@@ -159,7 +159,7 @@ import Testing
     @Test func theStripIsNarrowerThanEveryRoute() {
         // Two glyphs do not need the main strip's width, and the arithmetic is
         // what puts them 5pt inside the shape's walls.
-        let width = TranslatingView.stripWidth(metrics)
+        let width = WaitingView.stripWidth(metrics)
         #expect(width < metrics.notchGap + 2 * 182)
         #expect(width == metrics.edgeSafe * 2 + metrics.cellWidth * 2 + 166)
     }

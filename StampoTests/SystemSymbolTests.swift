@@ -19,6 +19,10 @@ import Testing
         assertSymbols(ArchiveDropZone.allCases.map(\.icon))
     }
 
+    @Test func waitStripSymbolsExist() {
+        assertSymbols([PanelWait.translating, .saving, .saved].map(\.systemImage))
+    }
+
     @Test func decorSymbolExists() {
         assertSymbols([PresentationInspector.decorSystemImage])
     }
