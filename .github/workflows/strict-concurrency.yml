@@ -3,6 +3,11 @@ name: Strict concurrency
 on:
   push:
   pull_request:
+  # Asked for by hand, on any branch. Added the day GitHub Actions dropped a
+  # merge's push event during an outage: the suite had been green on the pull
+  # request, the tree on main was byte for byte the same, and there was still
+  # no way to ask main itself for the run a release waits on.
+  workflow_dispatch:
 
 jobs:
   swift-strict-concurrency:
