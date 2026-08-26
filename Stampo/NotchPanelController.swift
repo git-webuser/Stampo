@@ -1045,7 +1045,7 @@ final class NotchPanelController: NSObject {
             object: nil, queue: .main
         ) { [weak self] _ in
             guard let self else { return }
-            MainActor.assumeIsolated { self.finishWaitStrip(with: .saved) }
+            MainActor.assumeIsolated { self.finishWaitStrip(with: .saved, thenHide: true) }
         }
         let tSaveFail = NotificationCenter.default.addObserver(
             forName: .editorSaveDidFail,
@@ -1054,7 +1054,7 @@ final class NotchPanelController: NSObject {
             guard let self else { return }
             // Nothing to show for it — an alert is already saying what went
             // wrong, so the strip simply leaves.
-            MainActor.assumeIsolated { self.finishWaitStrip(with: nil) }
+            MainActor.assumeIsolated { self.finishWaitStrip(with: nil, thenHide: true) }
         }
         // Only when the panel is down. Raised from the archive by right-click,
         // the archive is already on screen and worth more than a spinner —
@@ -1095,11 +1095,10 @@ final class NotchPanelController: NSObject {
                 TranslationPanelModel.shared.endRework()
                 guard self.rootState.waitingStripVisible else { return }
                 // Nothing to show for it — a failed or empty translation. The
-                // glyphs still leave the way they would have on success.
-                self.dissolveStrip { [weak self] in
-                    guard let self else { return }
-                    if case .waiting = self.state { self.state = .main }
-                }
+                // glyphs still leave the way they would have on success, and
+                // the panel goes with them: it was pulled down by the app to
+                // say something, and it turned out to have nothing to say.
+                self.dissolveWaitStrip(thenHide: true)
             }
         }
 
@@ -1431,21 +1430,42 @@ final class NotchPanelController: NSObject {
     /// Ends a wait the app raised. `last` is what the strip says before it goes
     /// — a tick for a save that landed — and it is held long enough to be read.
     /// Nothing to say (`nil`) leaves at once.
-    private func finishWaitStrip(with last: PanelWait?) {
+    private func finishWaitStrip(with last: PanelWait?, thenHide: Bool = false) {
         guard rootState.waitingStripVisible else { return }
-        guard let last else { return dissolveWaitStrip() }
+        guard let last else { return dissolveWaitStrip(thenHide: thenHide) }
         rootState.wait = last
         let token = makePanelTransitionToken()
         schedulePanelAction(after: last.hold, token: token) { [weak self] in
-            self?.dissolveWaitStrip()
+            self?.dissolveWaitStrip(thenHide: thenHide)
         }
     }
 
-    private func dissolveWaitStrip() {
+    /// Takes the strip down, and the panel with it when the panel came down
+    /// only to show it.
+    ///
+    /// A translation ends by *showing* something — the panel stays up because
+    /// there is a translation on it to read. A save has nothing to leave
+    /// behind, so the panel that was pulled down by the app must go back up:
+    /// it was standing half-open over the desktop with the capture buttons on
+    /// it, waiting for a pointer that was in the editor all along.
+    ///
+    /// Unless the pointer did come: someone who reached for the panel while it
+    /// was up gets to keep it, and the ordinary rule closes it when they leave.
+    private func dissolveWaitStrip(thenHide: Bool = false) {
         dissolveStrip { [weak self] in
             guard let self else { return }
             if case .waiting = self.state { self.state = .main }
+            guard thenHide, !self.pointerIsOverThePanel else { return }
+            self.hideAnimated(reason: .waitFinished)
         }
+    }
+
+    /// Whether the pointer is on the panel right now, asked of the screen
+    /// rather than of a hover flag: this is called from a scheduled action, and
+    /// the flag belongs to a view that may never have seen the pointer enter.
+    private var pointerIsOverThePanel: Bool {
+        guard let panel, panel.isVisible else { return false }
+        return panel.frame.insetBy(dx: -4, dy: -4).contains(NSEvent.mouseLocation)
     }
 
     private func dissolveStrip(_ next: @escaping () -> Void) {

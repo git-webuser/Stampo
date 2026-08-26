@@ -102,6 +102,7 @@ enum PanelHideReason: String {
     case closeButton
     case captureStart
     case colorPickerStart
+    case waitFinished
     case environmentInvalidation
     case unknown
 }
