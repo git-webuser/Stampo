@@ -148,13 +148,52 @@ nonisolated struct VectorPath: Equatable {
 
     /// The same drawing, flipped left to right inside a box of `width`.
     ///
-    /// Three of the nine poses are another pose seen in a mirror, and Figma
-    /// exports them as their own paths — with the anchors running the other way
-    /// round the outline. Mirroring here instead keeps one drawing, and keeps
-    /// the anchors in the order every other pose has them, which is the only
-    /// order a morph can pair.
+    /// This alone is not enough to morph with. A mirror keeps the anchors in
+    /// the order they were written, so every point's partner ends up directly
+    /// across the axis — and a morph walks them all straight onto it: at
+    /// halfway the hare is a vertical line. `mirroredForMorphing` is the one to
+    /// pair with; this is the plain geometry it is built from.
     func mirrored(in width: CGFloat) -> VectorPath {
         applying(CGAffineTransform(scaleX: -1, y: 1).translatedBy(x: -width, y: 0))
+    }
+
+    /// The mirror image, with its anchors put back in anatomical order.
+    ///
+    /// A mirror reverses which way the outline is travelled: a hare drawn from
+    /// the left skirt up the left ear, across, and down to the right skirt
+    /// becomes, in the mirror, one drawn from the right skirt up the right ear.
+    /// Reversing that puts the left ear back at the start — so anchor for
+    /// anchor the two poses now agree about *which ear is which*, and morphing
+    /// between them lowers one ear while the other rises. Which is the whole
+    /// point: the shape changes, the hare does not turn and does not melt.
+    func mirroredForMorphing(in width: CGFloat) -> VectorPath {
+        mirrored(in: width).reversed()
+    }
+
+    /// The same drawing, travelled backwards.
+    ///
+    /// Every curve is walked the other way — its two control points swap, and
+    /// it ends where the one before it began — so the shape is identical and
+    /// only the order of the anchors changes.
+    func reversed() -> VectorPath {
+        var anchors: [CGPoint] = []
+        var controls: [(CGPoint, CGPoint)] = []
+        for segment in segments {
+            switch segment {
+            case .move(let p):
+                anchors.append(p)
+            case .curve(let c1, let c2, let end):
+                controls.append((c1, c2))
+                anchors.append(end)
+            }
+        }
+        guard anchors.count > 1 else { return self }
+        var flipped: [Segment] = [.move(anchors[anchors.count - 1])]
+        for index in stride(from: controls.count - 1, through: 0, by: -1) {
+            let (c1, c2) = controls[index]
+            flipped.append(.curve(c2, c1, anchors[index]))
+        }
+        return VectorPath(segments: flipped)
     }
 
     var cgPath: CGPath {

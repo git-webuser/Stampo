@@ -20,14 +20,7 @@ import Testing
 @Suite struct MascotMorphTests {
 
     @Test func everyPoseTravelsToTheNextWithoutFallingApart() throws {
-        // Only the poses that face the same way. A pose and its mirror image
-        // cannot be morphed into each other: every point travels straight to
-        // its counterpart across the axis, so at halfway they all meet on it
-        // and the hare is a vertical line. Turning to face the other way is a
-        // flip of the layer, not a change of shape.
-        let all = MascotArtwork.agreeingPaths()
-        let facing = Set(MascotArtwork.poses.filter { !$0.mirrored }.map(\.name))
-        let poses = all.filter { facing.contains($0.name) }
+        let poses = MascotArtwork.agreeingPaths()
         let scale: CGFloat = 6
         let cell = Int(MascotArtwork.side * scale) + 8
         let steps = 5                       // t = 0, ¼, ½, ¾, 1
@@ -72,27 +65,43 @@ import Testing
         print("STAND /tmp/mascot-facing.png \(width)x\(height)")
     }
 
-    /// Why the sheet above leaves the mirrors out.
+    /// The trap the mirrored poses used to fall into, and the way out.
     ///
-    /// A pose and its mirror image agree on their structure, so nothing refuses
-    /// the morph — and at halfway every point has travelled straight to its
-    /// counterpart across the axis, which is to say they have all arrived on
-    /// the axis. The hare is a vertical line. Turning to face the other way is
-    /// a flip of the layer, not a change of shape, and it is also the truer
-    /// animation: the hare turns rather than melting.
-    @Test func aPoseAndItsMirrorCollapseIntoALine() throws {
-        let poses = MascotArtwork.agreeingPaths()
-        let right = try #require(poses.first { $0.name == "earsWide" })
-        let left = try #require(poses.first { $0.name == "earsWideLeft" })
+    /// A mirror alone keeps the anchors in the order they were written, so
+    /// every point's partner sits directly across the axis — and the morph
+    /// walks them all onto it: at halfway the hare is a vertical line, eleven
+    /// points tall and none wide. Travelling the mirror backwards puts the
+    /// anchors back in anatomical order, and then the same journey lowers one
+    /// ear while the other rises, which is what it should have been describing
+    /// all along.
+    @Test func aMirroredPoseMorphsByChangingShapeRatherThanCollapsing() throws {
+        let wide = try #require(VectorPath.parse(
+            MascotArtwork.earsWide.replacingOccurrences(of: "\n", with: "")))
 
-        let halfway = try #require(right.path.interpolated(to: left.path, at: 0.5))
-        let box = halfway.cgPath.boundingBoxOfPath
-        #expect(box.width < 1, "the mirrors did not collapse — has the pairing changed?")
-        #expect(box.height > 8, "…but it is still as tall as the hare")
+        // Mirrored the plain way: the two agree on their structure, nothing
+        // refuses the morph, and the middle of it is a line.
+        let acrossTheAxis = wide.mirrored(in: MascotArtwork.side)
+        let collapsing = try #require(wide.interpolated(to: acrossTheAxis, at: 0.5))
+        #expect(collapsing.cgPath.boundingBoxOfPath.width < 1)
+        #expect(collapsing.cgPath.boundingBoxOfPath.height > 8)
 
-        // Where they face the same way, the middle of the journey is a hare.
-        let folded = try #require(poses.first { $0.name == "foldedRight" })
-        let travelling = try #require(right.path.interpolated(to: folded.path, at: 0.5))
-        #expect(travelling.cgPath.boundingBoxOfPath.width > 8)
+        // Mirrored for morphing: the middle of the journey is a hare.
+        let anatomical = wide.mirroredForMorphing(in: MascotArtwork.side)
+        let travelling = try #require(wide.interpolated(to: anatomical, at: 0.5))
+        let box = travelling.cgPath.boundingBoxOfPath
+        #expect(box.width > 8, "the hare lost its width on the way")
+        #expect(box.height > 8, "the hare lost its height on the way")
+        // And it is still standing where the poses stand.
+        #expect(box.minX > -0.01 && box.maxX < MascotArtwork.side + 0.01)
+    }
+
+    /// Travelling a path backwards draws the same path.
+    @Test func reversingChangesTheOrderAndNothingElse() throws {
+        let path = try #require(VectorPath.parse(
+            MascotArtwork.earsUp.replacingOccurrences(of: "\n", with: "")))
+        let back = path.reversed()
+        #expect(back.structure == path.structure)
+        #expect(back.reversed() == path, "twice round is not where it started")
+        #expect(back.start == path.cgPath.currentPoint, "it does not start where the other ended")
     }
 }

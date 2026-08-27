@@ -54,9 +54,10 @@ nonisolated enum MascotArtwork {
     struct Pose: Equatable {
         let name: String
         let drawing: String
-        /// Seen in a mirror. Three of the nine are, and Figma exports them as
-        /// their own paths with the anchors running the other way round the
-        /// outline — the one order a morph cannot pair.
+        /// Seen in a mirror — and travelled backwards with it, so the anchors
+        /// still describe the same ear in the same order. Mirrored alone, a
+        /// pose pairs every point with the one across the axis and the morph
+        /// walks the hare into a vertical line.
         var mirrored = false
         /// How far down the box it stands. Sleeping is the same drawing as
         /// awake, sitting 0.57 lower.
@@ -80,7 +81,7 @@ nonisolated enum MascotArtwork {
             guard var path = VectorPath.parse(pose.drawing.replacingOccurrences(of: "\n", with: "")) else {
                 return (pose.name, VectorPath(segments: []))
             }
-            if pose.mirrored { path = path.mirrored(in: side) }
+            if pose.mirrored { path = path.mirroredForMorphing(in: side) }
             if pose.drop != 0 {
                 path = path.applying(CGAffineTransform(translationX: 0, y: pose.drop))
             }
