@@ -50,6 +50,26 @@ nonisolated enum MascotArtwork {
     11.25 8.5153C11.5357 9.5153 11.5 10.5155 11.5 11.2655
     """
 
+    /// The eyes, in the same 12 × 12 box as the bodies.
+    ///
+    /// Their own shapes rather than part of the pose: an eye opens and closes
+    /// on its own schedule — blinking, looking about — and a body that had to
+    /// carry its eyes would need a pose for every pairing of the two.
+    enum Eye {
+        /// Open: a 2pt circle with a glint carved out of its side.
+        static let open = """
+        M1.00098 0C1.30938 0.000147368 1.58505 0.139959 1.76835 0.359578C1.80492 0.403399         1.82321 0.42531 1.826 0.456464C1.82818 0.480855 1.81776 0.512826 1.80163         0.53125C1.78103 0.554782 1.74865 0.562889 1.6839 0.579102L1.24316 0.689453C1.19302         0.701989 1.16758 0.708151 1.14648 0.717773C1.07289 0.751623 1.01987 0.81981 1.00488         0.899414C1.00065 0.922235 1.00098 0.948251 1.00098 1C1.00098 1.05175 1.00065 1.07776         1.00488 1.10059C1.01987 1.18019 1.07289 1.24838 1.14648 1.28223C1.16758 1.29185         1.19302 1.29801 1.24316 1.31055L1.68371 1.42018C1.74853 1.43631 1.78093 1.44437         1.80157 1.46788C1.81774 1.48629 1.82819 1.51825 1.82604 1.54265C1.82329 1.57381         1.80501 1.59576 1.76845 1.63966C1.58526 1.85966 1.30965 1.99985 1.00098 2C0.448692         2 0 1.55228 0 1C0 0.447715 0.448692 0 1.00098 0Z
+        """
+
+        /// Closed: the little arc a sleeping eye is.
+        static let closed = "M0 0.25C0 0.25 0.375 0 0.75 0.0003C1.125 0.0006 1.5 0.25 1.5 0.25"
+
+        /// Where the two of them sit, in the box. The row is centred four
+        /// points below the middle, which is where every pose puts it.
+        static let left = CGPoint(x: 4, y: 10)
+        static let right = CGPoint(x: 8, y: 10)
+    }
+
     /// Which drawing a pose is made of, and what is done to it.
     struct Pose: Equatable {
         let name: String
