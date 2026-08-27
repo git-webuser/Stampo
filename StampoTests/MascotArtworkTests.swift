@@ -52,10 +52,10 @@ import Testing
         for (index, pose) in MascotArtwork.poses.enumerated() {
             var before = try #require(
                 VectorPath.parse(pose.drawing.replacingOccurrences(of: "\n", with: "")))
-            if pose.mirrored { before = before.mirrored(in: MascotArtwork.side) }
-            if pose.drop != 0 {
-                before = before.applying(CGAffineTransform(translationX: 0, y: pose.drop))
-            }
+            if pose.mirrored { before = before.mirroredForMorphing(in: MascotArtwork.side) }
+            let feet = before.cgPath.boundingBoxOfPath.maxY
+            before = before.applying(
+                CGAffineTransform(translationX: 0, y: MascotArtwork.baseline - feet))
             let after = MascotArtwork.agreeingPaths()[index].path
             #expect(apart(before, after) < 0.01, "\(pose.name) moved")
         }
@@ -148,6 +148,19 @@ import Testing
                             "\(poses[index].name) puts an anchor at \(theirs) where the first pose puts one at \(mine)")
                 }
             }
+        }
+    }
+
+    /// Every pose stands on the same line.
+    ///
+    /// The drawings are not the same height — an ear that folds over needs less
+    /// room above it — so hung from the top of the box, as they arrive, the
+    /// *body* rises and falls to make room for the ears and the hare bobs while
+    /// it wiggles them.
+    @Test func everyPoseStandsOnTheSameLine() {
+        for (name, path) in MascotArtwork.agreeingPaths() {
+            let feet = path.cgPath.boundingBoxOfPath.maxY
+            #expect(abs(feet - MascotArtwork.baseline) < 0.01, "\(name) stands at \(feet)")
         }
     }
 }

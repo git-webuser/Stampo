@@ -79,15 +79,27 @@ nonisolated enum MascotArtwork {
         /// pose pairs every point with the one across the axis and the morph
         /// walks the hare into a vertical line.
         var mirrored = false
-        /// How far down the box it stands. Sleeping is the same drawing as
-        /// awake, sitting 0.57 lower.
-        var drop: CGFloat = 0
     }
 
+    /// Where every pose's feet are, in the box.
+    ///
+    /// The drawings are not the same height — ten and a half points for the
+    /// ears up, eleven and a half for an ear folded over — because an ear that
+    /// bends needs less room above it. Placed by their top edge, as they arrive
+    /// from Figma, the *body* then rises and falls to make room for the ears:
+    /// the hare bobs while it wiggles. Stood on one line instead, only the ears
+    /// move, which is what an ear-wiggle is.
+    static let baseline: CGFloat = 11.5
+
     /// The nine, by the name each will answer to.
+    /// The poses, by the name each will answer to.
+    ///
+    /// Sleeping is not in the list: it is the same body as awake — Figma drew
+    /// it as that drawing moved down the frame, which stopping the bobbing has
+    /// now undone — and what makes it sleeping is its eyes, which are their own
+    /// shapes.
     static let poses: [Pose] = [
         Pose(name: "awake",        drawing: earsUp),
-        Pose(name: "sleeping",     drawing: earsUp, drop: 0.5738),
         Pose(name: "earsWide",     drawing: earsWide),
         Pose(name: "earsWideLeft", drawing: earsWide, mirrored: true),
         Pose(name: "foldedRight",  drawing: earFolded),
@@ -104,9 +116,9 @@ nonisolated enum MascotArtwork {
                 return (pose.name, VectorPath(segments: []))
             }
             if pose.mirrored { path = path.mirroredForMorphing(in: side) }
-            if pose.drop != 0 {
-                path = path.applying(CGAffineTransform(translationX: 0, y: pose.drop))
-            }
+            // Stood on the baseline rather than hung from the top of the box.
+            let feet = path.cgPath.boundingBoxOfPath.maxY
+            path = path.applying(CGAffineTransform(translationX: 0, y: baseline - feet))
             return (pose.name, path)
         }
         let agreed = VectorPath.aligned(parsed.map(\.1))
