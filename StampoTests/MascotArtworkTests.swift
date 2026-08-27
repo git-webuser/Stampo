@@ -1,0 +1,103 @@
+import CoreGraphics
+import Testing
+@testable import Stampo
+
+/// The mascot's own poses, brought into agreement.
+///
+/// This is the test that decides whether the animation is possible at all: a
+/// morph pairs points by their place in the list, and the poses arrive from
+/// Figma with twelve, fourteen and fifteen segments.
+@Suite struct MascotArtworkTests {
+
+    @Test func everyPoseIsADrawingThatCanBeRead() {
+        for pose in MascotArtwork.poses {
+            let d = pose.drawing.replacingOccurrences(of: "\n", with: "")
+            #expect(VectorPath.parse(d) != nil, "\(pose.name) could not be read")
+        }
+    }
+
+    /// The three drawings really do disagree — the reason the normaliser is
+    /// here at all. If Figma ever ships them in agreement this fails, and the
+    /// normaliser becomes a no-op rather than a mystery.
+    @Test func theDrawingsArriveDisagreeing() throws {
+        func structure(_ d: String) throws -> String {
+            try #require(VectorPath.parse(d.replacingOccurrences(of: "\n", with: ""))).structure
+        }
+        let up = try structure(MascotArtwork.earsUp)
+        let folded = try structure(MascotArtwork.earFolded)
+        let wide = try structure(MascotArtwork.earsWide)
+        #expect(up.count == 12)
+        #expect(folded.count == 14)
+        #expect(wide.count == 15)
+        #expect(Set([up, folded, wide]).count == 3)
+    }
+
+    @Test func inAgreementEveryPoseCanMorphIntoEveryOther() {
+        let paths = MascotArtwork.agreeingPaths()
+        #expect(paths.count == MascotArtwork.poses.count)
+        let structures = Set(paths.map(\.path.structure))
+        #expect(structures.count == 1,
+                "poses still disagree: \(paths.map { "\($0.name)=\($0.path.structure.count)" })")
+        // Everything ends up at the longest of them, not at some average.
+        #expect(paths.first?.path.curveCount == 14)
+    }
+
+    /// Agreement may not redraw the mascot. Each pose is compared with the
+    /// drawing it came from, measured as a drawing: every point of one lies on
+    /// the other.
+    @Test func agreementLeavesEveryPoseWhereItWas() throws {
+        for (index, pose) in MascotArtwork.poses.enumerated() {
+            var before = try #require(
+                VectorPath.parse(pose.drawing.replacingOccurrences(of: "\n", with: "")))
+            if pose.mirrored { before = before.mirrored(in: MascotArtwork.side) }
+            if pose.drop != 0 {
+                before = before.applying(CGAffineTransform(translationX: 0, y: pose.drop))
+            }
+            let after = MascotArtwork.agreeingPaths()[index].path
+            #expect(apart(before, after) < 0.01, "\(pose.name) moved")
+        }
+    }
+
+    /// Every pose stays inside the box it is drawn in — a pose that grew a
+    /// point outside 12 × 12 would be clipped in the menu bar.
+    @Test func everyPoseFitsItsBox() {
+        for (name, path) in MascotArtwork.agreeingPaths() {
+            let box = path.cgPath.boundingBoxOfPath
+            #expect(box.minX >= -0.01 && box.minY >= -0.01, "\(name) starts outside the box")
+            #expect(box.maxX <= MascotArtwork.side + 0.01, "\(name) is too wide")
+            #expect(box.maxY <= MascotArtwork.side + 0.01, "\(name) is too tall")
+        }
+    }
+
+    private func apart(_ a: VectorPath, _ b: VectorPath) -> CGFloat {
+        // Sparse questions against a dense answer: the measure is bounded below
+        // by how far a polyline's chords cut the corners it is standing in for,
+        // so the path being measured *against* has to be drawn finely. At 300
+        // points each, two of the mascot's poses read 0.04 apart when they are
+        // the same drawing — the ear tips are where the chords cut.
+        func polyline(_ path: VectorPath, _ count: Int) -> [CGPoint] {
+            (0...count).map { path.point(at: CGFloat($0) / CGFloat(count)) }
+        }
+        let (firstSparse, firstDense) = (polyline(a, 200), polyline(a, 2000))
+        let (secondSparse, secondDense) = (polyline(b, 200), polyline(b, 2000))
+        func distance(from point: CGPoint, toEdgeBetween a: CGPoint, _ b: CGPoint) -> CGFloat {
+            let dx = b.x - a.x, dy = b.y - a.y
+            let lengthSquared = dx * dx + dy * dy
+            guard lengthSquared > 0 else { return hypot(point.x - a.x, point.y - a.y) }
+            let t = min(1, max(0, ((point.x - a.x) * dx + (point.y - a.y) * dy) / lengthSquared))
+            return hypot(point.x - (a.x + t * dx), point.y - (a.y + t * dy))
+        }
+        func distance(from points: [CGPoint], to others: [CGPoint]) -> CGFloat {
+            points.reduce(0) { worst, point in
+                var nearest = CGFloat.greatestFiniteMagnitude
+                for index in others.indices.dropLast() {
+                    nearest = min(nearest, distance(from: point, toEdgeBetween: others[index],
+                                                    others[index + 1]))
+                }
+                return max(worst, nearest)
+            }
+        }
+        return max(distance(from: firstSparse, to: secondDense),
+                   distance(from: secondSparse, to: firstDense))
+    }
+}
