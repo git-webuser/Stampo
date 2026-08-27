@@ -119,4 +119,35 @@ import Testing
         // Five of them: the two ends of the outline, the shoulder, and the ears.
         #expect(corners.first?.count == 5)
     }
+
+    /// The anchors of every pose sit at the same places along the outline.
+    ///
+    /// This is the invariant that stops the wobble, and the one a count cannot
+    /// express. Two poses whose shoulder is the same shape used to spend their
+    /// anchors on it differently — one a third of the way along, the other
+    /// almost at the corner — so the morph slid an anchor along an outline that
+    /// was not changing, and dragged the curve out of shape as it went. Sharing
+    /// the positions means an unchanging stretch has unchanging anchors.
+    @Test func everyPoseKeepsItsAnchorsInTheSamePlacesAlongTheOutline() {
+        let poses = MascotArtwork.agreeingPaths()
+        guard let corners = poses.first?.path.corners(sharperThan: 60) else {
+            Issue.record("no poses"); return
+        }
+        for stretch in 0..<(corners.count - 1) {
+            let from = corners[stretch], to = corners[stretch + 1]
+            let fractions = poses.map { pose -> [CGFloat] in
+                let curves = Array(pose.path.segments[(from + 1)...to])
+                return VectorPath.anchorFractions(of: curves, from: pose.path.anchors[from])
+            }
+            guard let first = fractions.first else { continue }
+            for (index, other) in fractions.enumerated().dropFirst() {
+                #expect(other.count == first.count,
+                        "\(poses[index].name) has a different number of anchors on stretch \(stretch)")
+                for (mine, theirs) in zip(first, other) {
+                    #expect(abs(mine - theirs) < 0.05,
+                            "\(poses[index].name) puts an anchor at \(theirs) where the first pose puts one at \(mine)")
+                }
+            }
+        }
+    }
 }

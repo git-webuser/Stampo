@@ -271,6 +271,147 @@ nonisolated struct VectorPath: Equatable {
         return CGPoint(x: vector.x / length, y: vector.y / length)
     }
 
+    // MARK: Arc length
+
+    /// How long a curve is, near enough to place a cut by: its chord walked in
+    /// small steps. Exact length has no closed form for a cubic, and this is
+    /// accurate to a fraction of a per cent at sixteen steps — far finer than
+    /// the twelve-point box the mascot is drawn in.
+    static func length(from p0: CGPoint, _ p1: CGPoint, _ p2: CGPoint, _ p3: CGPoint,
+                       steps: Int = 16) -> CGFloat {
+        var total: CGFloat = 0
+        var previous = p0
+        for step in 1...steps {
+            let t = CGFloat(step) / CGFloat(steps)
+            let u = 1 - t
+            let point = CGPoint(
+                x: u*u*u*p0.x + 3*u*u*t*p1.x + 3*u*t*t*p2.x + t*t*t*p3.x,
+                y: u*u*u*p0.y + 3*u*u*t*p1.y + 3*u*t*t*p2.y + t*t*t*p3.y)
+            total += hypot(point.x - previous.x, point.y - previous.y)
+            previous = point
+        }
+        return total
+    }
+
+    /// Where in a curve a given length along it falls, as the curve's own `t`.
+    private static func parameter(at distance: CGFloat, from p0: CGPoint, _ p1: CGPoint,
+                                  _ p2: CGPoint, _ p3: CGPoint, steps: Int = 64) -> CGFloat {
+        var walked: CGFloat = 0
+        var previous = p0
+        for step in 1...steps {
+            let t = CGFloat(step) / CGFloat(steps)
+            let u = 1 - t
+            let point = CGPoint(
+                x: u*u*u*p0.x + 3*u*u*t*p1.x + 3*u*t*t*p2.x + t*t*t*p3.x,
+                y: u*u*u*p0.y + 3*u*u*t*p1.y + 3*u*t*t*p2.y + t*t*t*p3.y)
+            let piece = hypot(point.x - previous.x, point.y - previous.y)
+            if walked + piece >= distance, piece > 0 {
+                let inside = (distance - walked) / piece
+                return (CGFloat(step - 1) + inside) / CGFloat(steps)
+            }
+            walked += piece
+            previous = point
+        }
+        return 1
+    }
+
+    /// De Casteljau at any `t`, not only the middle.
+    static func split(from p0: CGPoint, _ p1: CGPoint, _ p2: CGPoint, _ p3: CGPoint,
+                      at t: CGFloat) -> (Segment, Segment) {
+        func between(_ a: CGPoint, _ b: CGPoint) -> CGPoint {
+            CGPoint(x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t)
+        }
+        let p01 = between(p0, p1), p12 = between(p1, p2), p23 = between(p2, p3)
+        let p012 = between(p01, p12), p123 = between(p12, p23)
+        let middle = between(p012, p123)
+        return (.curve(p01, p012, middle), .curve(p123, p23, p3))
+    }
+
+    /// Where a stretch's own anchors sit along it, as fractions of its length.
+    /// The two ends are left out: every pose has those already.
+    static func anchorFractions(of curves: [Segment], from start: CGPoint) -> [CGFloat] {
+        var lengths: [CGFloat] = []
+        var cursor = start
+        for segment in curves {
+            guard case .curve(let c1, let c2, let end) = segment else { continue }
+            lengths.append(length(from: cursor, c1, c2, end))
+            cursor = end
+        }
+        let total = lengths.reduce(0, +)
+        guard total > 0 else { return [] }
+        var fractions: [CGFloat] = []
+        var walked: CGFloat = 0
+        for piece in lengths.dropLast() {
+            walked += piece
+            fractions.append(walked / total)
+        }
+        return fractions
+    }
+
+    /// The same stretch, cut at each of `fractions` of its length.
+    ///
+    /// Exact: a cubic cut anywhere is two cubics that draw the cubic. What the
+    /// cuts change is only where the anchors are — which is the whole point,
+    /// since two poses can only be morphed anchor to anchor.
+    static func cutting(_ curves: [Segment], from start: CGPoint,
+                        at fractions: [CGFloat]) -> [Segment] {
+        guard !fractions.isEmpty else { return curves }
+        var lengths: [CGFloat] = []
+        var cursor = start
+        for segment in curves {
+            guard case .curve(let c1, let c2, let end) = segment else { continue }
+            lengths.append(length(from: cursor, c1, c2, end))
+            cursor = end
+        }
+        let total = lengths.reduce(0, +)
+        guard total > 0 else { return curves }
+
+        // Which curve each cut lands in, and how far along it.
+        var wanted: [Int: [CGFloat]] = [:]
+        for fraction in fractions.sorted() {
+            let distance = fraction * total
+            var walked: CGFloat = 0
+            for (index, piece) in lengths.enumerated() {
+                if walked + piece >= distance || index == lengths.count - 1 {
+                    wanted[index, default: []].append(distance - walked)
+                    break
+                }
+                walked += piece
+            }
+        }
+
+        var result: [Segment] = []
+        cursor = start
+        for (index, segment) in curves.enumerated() {
+            guard case .curve(let c1, let c2, let end) = segment else { continue }
+            let start = cursor
+            cursor = end
+            guard let distances = wanted[index]?.sorted() else {
+                result.append(segment)
+                continue
+            }
+            // Cut this curve at each distance in turn, walking what is left.
+            var head = (p0: start, p1: c1, p2: c2, p3: end)
+            var consumed: CGFloat = 0
+            var remaining = lengths[index]
+            for distance in distances {
+                let inside = distance - consumed
+                guard inside > 0.0001, remaining > 0.0001 else { continue }
+                let t = parameter(at: inside, from: head.p0, head.p1, head.p2, head.p3)
+                guard t > 0.001, t < 0.999 else { continue }
+                let (left, right) = split(from: head.p0, head.p1, head.p2, head.p3, at: t)
+                result.append(left)
+                guard case .curve(let r1, let r2, let r3) = right,
+                      case .curve(_, _, let leftEnd) = left else { break }
+                head = (p0: leftEnd, p1: r1, p2: r2, p3: r3)
+                consumed = distance
+                remaining = lengths[index] - consumed
+            }
+            result.append(.curve(head.p1, head.p2, head.p3))
+        }
+        return result
+    }
+
     // MARK: Agreement
 
     /// Every path given back with the same structure, and none of them moved —
@@ -294,15 +435,77 @@ nonisolated struct VectorPath: Equatable {
               landmarks.allSatisfy({ $0.count == count }), count > 1
         else { return agreeing(paths) }
 
-        // How many curves each stretch needs: the most any pose spends on it,
-        // so nothing is ever coarsened.
-        var target: [Int] = []
+        // Where every pose keeps an anchor on each stretch, as a fraction of
+        // that stretch's length — gathered from all of them, so each pose ends
+        // up with its own anchors *and* everybody else's.
+        //
+        // This is what stops the wobble. Two poses whose shoulder is the same
+        // shape used to spend their anchors on it differently — one a third of
+        // the way along, the other almost at the corner — and the morph slid
+        // that anchor along an outline that was not changing, dragging the
+        // curve out of shape as it went. Sharing the positions means an
+        // unchanging stretch has unchanging anchors: nothing moves, so nothing
+        // wobbles.
+        var shared: [[CGFloat]] = []
         for stretch in 0..<(count - 1) {
-            target.append(landmarks.map { $0[stretch + 1] - $0[stretch] }.max() ?? 1)
+            var fractions: [CGFloat] = []
+            for (index, path) in paths.enumerated() {
+                let from = landmarks[index][stretch], to = landmarks[index][stretch + 1]
+                guard from < to else { continue }
+                let curves = Array(path.segments[(from + 1)...to])
+                fractions += anchorFractions(of: curves, from: path.anchors[from])
+            }
+            shared.append(merged(fractions))
         }
         return paths.enumerated().map { index, path in
-            path.subdividingStretches(at: landmarks[index], to: target)
+            path.cuttingStretches(at: landmarks[index], toShare: shared)
         }
+    }
+
+    /// Cut positions that are the same position, made one. Two poses that put
+    /// an anchor a hundredth of a stretch apart do not need two anchors there,
+    /// and a pair that close would leave a curve too short to be worth a point.
+    private static func merged(_ fractions: [CGFloat], within tolerance: CGFloat = 0.02)
+        -> [CGFloat] {
+        var result: [CGFloat] = []
+        for fraction in fractions.sorted() where fraction > tolerance && fraction < 1 - tolerance {
+            if let last = result.last, fraction - last < tolerance {
+                result[result.count - 1] = (last + fraction) / 2
+            } else {
+                result.append(fraction)
+            }
+        }
+        return result
+    }
+
+    /// Every stretch cut at the positions all the poses share.
+    ///
+    /// A pose keeps every anchor its designer drew and gains one for each
+    /// position another pose keeps — nothing is taken away, so no bend is
+    /// lost. Which leaves every pose with the same number: its own anchors are
+    /// part of the shared list, so it ends up with exactly the shared list,
+    /// however the two were distributed to start with.
+    ///
+    /// Coincidence is decided on the fraction, not on the curve's own `t`: the
+    /// same position on a slightly shorter stretch lands at a slightly
+    /// different `t`, and deciding there made one pose take a cut its neighbour
+    /// skipped — which is how they came out with four different structures.
+    func cuttingStretches(at landmarks: [Int], toShare shared: [[CGFloat]],
+                          within tolerance: CGFloat = 0.02) -> VectorPath {
+        let points = anchors
+        guard let first = points.first, landmarks.count == shared.count + 1 else { return self }
+        var result: [Segment] = [.move(first)]
+        for stretch in 0..<shared.count {
+            let from = landmarks[stretch], to = landmarks[stretch + 1]
+            guard from < to, to < segments.count else { continue }
+            let curves = Array(segments[(from + 1)...to])
+            let mine = Self.anchorFractions(of: curves, from: points[from])
+            let missing = shared[stretch].filter { wanted in
+                !mine.contains { abs($0 - wanted) < tolerance }
+            }
+            result += Self.cutting(curves, from: points[from], at: missing)
+        }
+        return VectorPath(segments: result)
     }
 
     /// Cut at the landmarks, each stretch brought up to its target count.
