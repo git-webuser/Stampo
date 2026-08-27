@@ -25,12 +25,12 @@ import Testing
 
         // Ears first: the hare is awake, listens, flicks one ear, settles.
         let beats = [
-            Beat(pose: "awake",        travel: 0.0,  hold: 1.6),
-            Beat(pose: "earsWide",     travel: 0.22, hold: 0.5),
-            Beat(pose: "awake",        travel: 0.26, hold: 1.1),
-            Beat(pose: "foldedRight",  travel: 0.20, hold: 0.4),
-            Beat(pose: "foldedLeft",   travel: 0.30, hold: 0.4),
-            Beat(pose: "awake",        travel: 0.24, hold: 1.8)
+            Beat(pose: "earsUp",        travel: 0.0,  hold: 1.6),
+            Beat(pose: "earsSpreadRight",     travel: 0.22, hold: 0.5),
+            Beat(pose: "earsUp",        travel: 0.26, hold: 1.1),
+            Beat(pose: "earFoldedLeft",  travel: 0.20, hold: 0.4),
+            Beat(pose: "earFoldedRight",   travel: 0.30, hold: 0.4),
+            Beat(pose: "earsUp",        travel: 0.24, hold: 1.8)
         ]
 
         let fps = 30.0

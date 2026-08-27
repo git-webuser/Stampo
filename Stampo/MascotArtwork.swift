@@ -25,8 +25,9 @@ nonisolated enum MascotArtwork {
     7.42614 11.25 8.17614C11.5357 9.17614 11.5 10.1764 11.5 10.9264
     """
 
-    /// One ear folded over — the same silhouette with the left ear brought
-    /// down. Drawn with two anchors more than `earsUp`, which is the whole
+    /// The left ear folded over — the same silhouette with that ear brought
+    /// down. (Measured, not guessed: its tip sits at 1.91 where the other's is
+    /// at 0.59.) Drawn with two anchors more than `earsUp`, which is the whole
     /// reason `VectorPath.agreeing` exists.
     static let earFolded = """
     M0.5 11.4106C0.500006 10.6604 0.500017 9.16036 0.875 8.41036C1.21502 7.73028 1.94562 \
@@ -99,11 +100,11 @@ nonisolated enum MascotArtwork {
     /// now undone — and what makes it sleeping is its eyes, which are their own
     /// shapes.
     static let poses: [Pose] = [
-        Pose(name: "awake",        drawing: earsUp),
-        Pose(name: "earsWide",     drawing: earsWide),
-        Pose(name: "earsWideLeft", drawing: earsWide, mirrored: true),
-        Pose(name: "foldedRight",  drawing: earFolded),
-        Pose(name: "foldedLeft",   drawing: earFolded, mirrored: true)
+        Pose(name: "earsUp",          drawing: earsUp),
+        Pose(name: "earsSpreadRight",  drawing: earsWide),
+        Pose(name: "earsSpreadLeft",   drawing: earsWide, mirrored: true),
+        Pose(name: "earFoldedLeft",    drawing: earFolded),
+        Pose(name: "earFoldedRight",   drawing: earFolded, mirrored: true)
     ]
 
     /// Every pose as a path, all of them in agreement — same segments, same
