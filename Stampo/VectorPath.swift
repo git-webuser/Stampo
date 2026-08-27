@@ -200,6 +200,34 @@ nonisolated struct VectorPath: Equatable {
         return VectorPath(segments: result)
     }
 
+    /// This path a fraction of the way to another, which is what CoreAnimation
+    /// draws while it morphs: every control point moved in a straight line
+    /// towards its opposite number.
+    ///
+    /// Reproduced here so the travel can be looked at — and tested — without
+    /// asking the animation what it is about to do. Two paths that agree on
+    /// their structure can still turn inside out on the way, if the anchors of
+    /// one run round the outline in a different order from the other's, and
+    /// that is invisible in the two ends.
+    func interpolated(to other: VectorPath, at t: CGFloat) -> VectorPath? {
+        guard segments.count == other.segments.count else { return nil }
+        func between(_ a: CGPoint, _ b: CGPoint) -> CGPoint {
+            CGPoint(x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t)
+        }
+        var moved: [Segment] = []
+        for (mine, theirs) in zip(segments, other.segments) {
+            switch (mine, theirs) {
+            case (.move(let a), .move(let b)):
+                moved.append(.move(between(a, b)))
+            case (.curve(let a1, let a2, let a3), .curve(let b1, let b2, let b3)):
+                moved.append(.curve(between(a1, b1), between(a2, b2), between(a3, b3)))
+            default:
+                return nil   // structures disagree after all
+            }
+        }
+        return VectorPath(segments: moved)
+    }
+
     // MARK: Curve arithmetic
 
     /// De Casteljau at the middle: the two halves of a cubic, which together
