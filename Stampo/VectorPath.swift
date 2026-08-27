@@ -209,14 +209,149 @@ nonisolated struct VectorPath: Equatable {
         return path
     }
 
+    // MARK: Landmarks
+
+    /// Every anchor, in order — where the curves meet.
+    var anchors: [CGPoint] {
+        segments.compactMap { segment in
+            switch segment {
+            case .move(let p):          return p
+            case .curve(_, _, let end): return end
+            }
+        }
+    }
+
+    /// The anchors where the outline turns a corner rather than flowing on.
+    ///
+    /// These are the mascot's landmarks: the tips of the ears, the notch
+    /// between them, the shoulders. They are what a morph has to pair with each
+    /// other — an ear tip must travel to an ear tip, not to whatever anchor
+    /// happens to share its number.
+    ///
+    /// The first and last anchors are always landmarks: the outline is open,
+    /// and its two ends are the one correspondence nothing can argue with.
+    func corners(sharperThan degrees: CGFloat = 40) -> [Int] {
+        let points = anchors
+        guard points.count > 2 else { return Array(points.indices) }
+        var found = [0]
+        let limit = degrees * .pi / 180
+        for index in 1..<(points.count - 1) {
+            let incoming = direction(into: index)
+            let outgoing = direction(outOf: index)
+            guard let incoming, let outgoing else { continue }
+            let turn = abs(atan2(incoming.x * outgoing.y - incoming.y * outgoing.x,
+                                 incoming.x * outgoing.x + incoming.y * outgoing.y))
+            if turn > limit { found.append(index) }
+        }
+        found.append(points.count - 1)
+        return found
+    }
+
+    /// The direction a curve arrives at an anchor from, and leaves it in —
+    /// taken from the control point beside it, falling back to the anchor
+    /// before when a control sits exactly on top of its anchor.
+    private func direction(into index: Int) -> CGPoint? {
+        guard index > 0, index < segments.count,
+              case .curve(let c1, let c2, let end) = segments[index] else { return nil }
+        let from = c2 == end ? c1 : c2
+        return normalised(CGPoint(x: end.x - from.x, y: end.y - from.y))
+    }
+
+    private func direction(outOf index: Int) -> CGPoint? {
+        guard index + 1 < segments.count,
+              case .curve(let c1, let c2, _) = segments[index + 1] else { return nil }
+        let start = anchors[index]
+        let to = c1 == start ? c2 : c1
+        return normalised(CGPoint(x: to.x - start.x, y: to.y - start.y))
+    }
+
+    private func normalised(_ vector: CGPoint) -> CGPoint? {
+        let length = hypot(vector.x, vector.y)
+        guard length > 0.0001 else { return nil }
+        return CGPoint(x: vector.x / length, y: vector.y / length)
+    }
+
     // MARK: Agreement
+
+    /// Every path given back with the same structure, and none of them moved —
+    /// with the new points landing in the same *place on the outline* in each.
+    ///
+    /// This is the difference between a morph and a mess. Splitting each path's
+    /// longest curve independently gives them all the same number of anchors,
+    /// and pairs an ear of one with a skirt of another: on the way across, the
+    /// ear is pulled sideways and grows a kink. So the outline is cut at its
+    /// corners first — the tips of the ears, the notch, the shoulders, which
+    /// every pose has in the same order — and the stretch between one corner
+    /// and the next is subdivided to the same count in every pose. An ear then
+    /// travels to an ear.
+    ///
+    /// A pose whose corners do not match the others' falls back to the plain
+    /// agreement, which is at least a morph that runs.
+    static func aligned(_ paths: [VectorPath]) -> [VectorPath] {
+        guard paths.count > 1 else { return paths }
+        let landmarks = paths.map { $0.corners(sharperThan: 60) }
+        guard let count = landmarks.first?.count,
+              landmarks.allSatisfy({ $0.count == count }), count > 1
+        else { return agreeing(paths) }
+
+        // How many curves each stretch needs: the most any pose spends on it,
+        // so nothing is ever coarsened.
+        var target: [Int] = []
+        for stretch in 0..<(count - 1) {
+            target.append(landmarks.map { $0[stretch + 1] - $0[stretch] }.max() ?? 1)
+        }
+        return paths.enumerated().map { index, path in
+            path.subdividingStretches(at: landmarks[index], to: target)
+        }
+    }
+
+    /// Cut at the landmarks, each stretch brought up to its target count.
+    func subdividingStretches(at landmarks: [Int], to target: [Int]) -> VectorPath {
+        let points = anchors
+        guard let first = points.first, landmarks.count == target.count + 1 else { return self }
+        var result: [Segment] = [.move(first)]
+        for stretch in 0..<target.count {
+            let from = landmarks[stretch], to = landmarks[stretch + 1]
+            guard from < to, to < segments.count || to <= segments.count - 1 else { continue }
+            let curves = Array(segments[(from + 1)...to])
+            result += Self.subdivided(curves, from: points[from], to: target[stretch])
+        }
+        return VectorPath(segments: result)
+    }
+
+    /// One stretch of curves, split until there are `count` of them. The
+    /// longest goes first, so the points that are added land where the drawing
+    /// has the most room for them rather than crowding one corner.
+    private static func subdivided(_ curves: [Segment], from start: CGPoint,
+                                   to count: Int) -> [Segment] {
+        var result = curves
+        while result.count < count {
+            var longest = 0
+            var best: CGFloat = -1
+            var cursor = start
+            for (index, segment) in result.enumerated() {
+                guard case .curve(let c1, let c2, let end) = segment else { continue }
+                let length = hypot(c1.x - cursor.x, c1.y - cursor.y)
+                    + hypot(c2.x - c1.x, c2.y - c1.y)
+                    + hypot(end.x - c2.x, end.y - c2.y)
+                if length > best { best = length; longest = index }
+                cursor = end
+            }
+            guard case .curve(let c1, let c2, let end) = result[longest] else { break }
+            var from = start
+            for index in 0..<longest {
+                if case .curve(_, _, let previous) = result[index] { from = previous }
+            }
+            let (a, b) = halved(from: from, c1, c2, end)
+            result.replaceSubrange(longest...longest, with: [a, b])
+        }
+        return result
+    }
 
     /// Every path given back with the same structure, and none of them moved.
     ///
-    /// The longest curve is split first, so the points that are added land
-    /// where the drawing has the most room for them rather than crowding one
-    /// corner. Splitting is exact: a cubic cut at its middle is two cubics that
-    /// draw the same line.
+    /// The plain version, kept as the fallback for drawings whose corners do
+    /// not correspond: same count, no promise about where the new points land.
     static func agreeing(_ paths: [VectorPath]) -> [VectorPath] {
         guard let most = paths.map(\.curveCount).max() else { return paths }
         return paths.map { $0.split(toReach: most) }

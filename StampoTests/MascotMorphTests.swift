@@ -21,9 +21,9 @@ import Testing
 
     @Test func everyPoseTravelsToTheNextWithoutFallingApart() throws {
         let poses = MascotArtwork.agreeingPaths()
-        let scale: CGFloat = 6
+        let scale: CGFloat = 9
         let cell = Int(MascotArtwork.side * scale) + 8
-        let steps = 5                       // t = 0, ¼, ½, ¾, 1
+        let steps = 9                       // t = 0 … 1 in eighths
         let rows = poses.count              // each pose travelling to the next
         let width = cell * steps, height = cell * rows
 

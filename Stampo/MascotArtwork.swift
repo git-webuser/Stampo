@@ -75,7 +75,9 @@ nonisolated enum MascotArtwork {
     ]
 
     /// Every pose as a path, all of them in agreement — same segments, same
-    /// order — so any one of them morphs into any other.
+    /// order, and each new anchor in the same place on the outline as its
+    /// opposite number — so any one of them morphs into any other without an
+    /// ear being pulled towards somebody's shoulder.
     static func agreeingPaths() -> [(name: String, path: VectorPath)] {
         let parsed = poses.map { pose -> (String, VectorPath) in
             guard var path = VectorPath.parse(pose.drawing.replacingOccurrences(of: "\n", with: "")) else {
@@ -87,7 +89,7 @@ nonisolated enum MascotArtwork {
             }
             return (pose.name, path)
         }
-        let agreed = VectorPath.agreeing(parsed.map(\.1))
+        let agreed = VectorPath.aligned(parsed.map(\.1))
         return zip(parsed.map(\.0), agreed).map { (name: $0, path: $1) }
     }
 }

@@ -38,8 +38,11 @@ import Testing
         let structures = Set(paths.map(\.path.structure))
         #expect(structures.count == 1,
                 "poses still disagree: \(paths.map { "\($0.name)=\($0.path.structure.count)" })")
-        // Everything ends up at the longest of them, not at some average.
-        #expect(paths.first?.path.curveCount == 14)
+        // At least as many curves as the busiest drawing arrived with — and
+        // more is expected, not a fault: the count is the sum of what each
+        // stretch between two corners needs, and no two poses spend their
+        // anchors on the same stretches.
+        #expect((paths.first?.path.curveCount ?? 0) >= 14)
     }
 
     /// Agreement may not redraw the mascot. Each pose is compared with the
@@ -99,5 +102,21 @@ import Testing
         }
         return max(distance(from: firstSparse, to: secondDense),
                    distance(from: secondSparse, to: firstDense))
+    }
+
+    /// An ear travels to an ear.
+    ///
+    /// The point of aligning at the corners: after it, the anchor numbers mean
+    /// the same thing in every pose. Splitting each drawing's longest curve
+    /// instead gave them equal counts and paired an ear of one with the skirt
+    /// of another — on the way across the ear was pulled sideways and grew a
+    /// kink, which is what the sheet showed and what a count alone cannot see.
+    @Test func theCornersOfEveryPoseLandOnTheSameAnchors() {
+        let poses = MascotArtwork.agreeingPaths()
+        let corners = poses.map { $0.path.corners(sharperThan: 60) }
+        #expect(Set(corners.map { $0.description }).count == 1,
+                "the poses' corners sit at different anchors: \(corners)")
+        // Five of them: the two ends of the outline, the shoulder, and the ears.
+        #expect(corners.first?.count == 5)
     }
 }
