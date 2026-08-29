@@ -21,7 +21,7 @@ import Testing
             ("countdown", .countdown)
         ]
         let cell = CGSize(width: 22, height: 18)
-        let zooms: [CGFloat] = [1, 2, 4]
+        let zooms: [CGFloat] = [1, 2, 8]
         let gap: CGFloat = 6
         let rowHeight = cell.height * (zooms.max() ?? 1) + gap
         let width = zooms.reduce(0) { $0 + cell.width * $1 + gap } + gap
