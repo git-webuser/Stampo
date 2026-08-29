@@ -41,16 +41,30 @@ import Testing
     /// strokes meeting there grew a spike ten line-widths long, straight down
     /// the face and past the eyes. The body it replaced was a squircle, so
     /// nothing had ever asked the question.
+    ///
+    /// Read from the drawing rather than from pixel counts: the band between
+    /// where the notch ends and where the eyes begin, which is clean in the
+    /// artwork and is where the spike ran. The notch itself is a narrow V and
+    /// fills the middle column for its whole depth, so its length says
+    /// nothing.
     @Test func theNotchBetweenTheEarsIsNotASpike() throws {
         let rep = try #require(render(.sleeping))
-        // The middle of the face, between where the notch ends and where the
-        // eyes begin — clean in the drawing, and where the spike ran. Below the
-        // eyes there is nowhere to look: their own stroke reaches the middle.
+        let toView = MascotStatusView.artworkToViewForTesting
+
+        /// An image row for a place on the hare, in the artwork's own units.
+        func row(at artworkY: CGFloat) -> Int {
+            let viewY = CGPoint(x: 0, y: artworkY).applying(toView).y
+            return Int((18 - viewY) * CGFloat(zoom))
+        }
+        // The notch bottoms out at 6.18 in the drawing, and the stroke it is
+        // drawn with reaches half its width further — call it 7.4 to be clear
+        // of the round join. The eyes begin at 9.
+        let from = row(at: 7.4), to = row(at: 8.9)
         let middle = 11 * zoom
-        for y in (10 * zoom + 4)..<(12 * zoom) {
+        for y in from...to {
             for x in (middle - 1)...(middle + 1) {
                 #expect(!isInked(rep, x, y),
-                        "ink at \(x),\(y): the notch is drawing a spike again")
+                        "ink below the notch: it is drawing a spike again")
             }
         }
     }

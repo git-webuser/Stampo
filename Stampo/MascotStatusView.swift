@@ -49,8 +49,13 @@ final class MascotStatusView: NSView {
     /// another without re-deriving a single coordinate: the drawing and the
     /// places its eyes go are in the same space.
     private enum G {
-        /// The hare drawn ten points tall, out of the eleven it is.
-        static let scale: CGFloat = 10.0 / 11.0
+        /// How tall the hare stands, in the eighteen points the status item
+        /// gives. Ten was the artwork's own size and read as a small mark in
+        /// the menu bar beside everything else; the body this replaced filled
+        /// its box, and so does this one — with a point of air above the ears
+        /// and below the feet.
+        static let bodyHeight: CGFloat = 15.5
+        static let scale: CGFloat = bodyHeight / 11
 
         /// Artwork (y down, 12 × 12) into the view (y up, 22 × 18), centred.
         static let toView: CGAffineTransform = {
@@ -97,6 +102,10 @@ final class MascotStatusView: NSView {
     /// Where the pointer is, from −1 (far to the left of the mascot) to +1.
     /// The ear nearest it folds away: an ear is the one part of a hare that
     /// points at what has its attention.
+    /// Which side of the eye the glint sits on. It is a highlight, not a
+    /// pupil, so it belongs away from what the hare is looking at — but it may
+    /// only change while the eyes are shut, or it reads as a flip.
+    private var glintOnTheRight = true
     private var lean: CGFloat = 0
     private var pointerTimer: Timer?
     /// True while a loop owns the body — the wait's spread ears, or the idle
@@ -106,6 +115,9 @@ final class MascotStatusView: NSView {
     /// What the body is drawing right now — for the test that compares it with
     /// the artwork it is supposed to be drawing.
     var bodyPathForTesting: CGPath? { bodyLayer.path }
+    /// The one transform that takes the artwork's box into the view, so a test
+    /// can ask about a place on the hare rather than about a pixel.
+    static var artworkToViewForTesting: CGAffineTransform { G.toView }
     var eyePathsForTesting: (CGPath?, CGPath?) { (leftEyeLayer.path, rightEyeLayer.path) }
 
     // MARK: Poses
@@ -363,6 +375,8 @@ final class MascotStatusView: NSView {
     private func applyOpenEyes(dir: EyeDirection, popAnim: Bool) {
         eyesOpen = true
         lastOpenDirection = dir
+        // They were shut a moment ago, so the light may take its new side now.
+        glintOnTheRight = dir.isLeft
         setBodyShape(for: dir, duration: 0.15)
         let (lc, rc) = eyeConfig(dir)
 
@@ -370,8 +384,8 @@ final class MascotStatusView: NSView {
             self.leftEyeLayer.transform  = CATransform3DIdentity
             self.rightEyeLayer.transform = CATransform3DIdentity
 
-            self.leftEyeLayer.path  = self.eyePath(center: lc, lookingLeft: dir.isLeft)
-            self.rightEyeLayer.path = self.eyePath(center: rc, lookingLeft: dir.isLeft)
+            self.leftEyeLayer.path  = self.eyePath(center: lc)
+            self.rightEyeLayer.path = self.eyePath(center: rc)
 
             self.leftEyeLayer.lineWidth   = 0.8 * G.scale
             self.leftEyeLayer.fillColor   = self.ink
@@ -418,7 +432,7 @@ final class MascotStatusView: NSView {
                 self.leftEyeLayer.strokeColor = self.ink
                 // Right stays open
                 let rc = eyeConfig(.rightCenter).rEye
-                self.rightEyeLayer.path        = self.eyePath(center: rc, lookingLeft: false)
+                self.rightEyeLayer.path        = self.eyePath(center: rc)
                 self.rightEyeLayer.lineWidth   = 0.8 * G.scale
                 self.rightEyeLayer.fillColor   = self.ink
                 self.rightEyeLayer.strokeColor = .clear
@@ -431,7 +445,7 @@ final class MascotStatusView: NSView {
                 self.rightEyeLayer.strokeColor = self.ink
                 // Left stays open
                 let lc = eyeConfig(.leftCenter).lEye
-                self.leftEyeLayer.path        = self.eyePath(center: lc, lookingLeft: true)
+                self.leftEyeLayer.path        = self.eyePath(center: lc)
                 self.leftEyeLayer.lineWidth   = 0.8 * G.scale
                 self.leftEyeLayer.fillColor   = self.ink
                 self.leftEyeLayer.strokeColor = .clear
@@ -442,12 +456,46 @@ final class MascotStatusView: NSView {
     // MARK: - Eye movement
 
     private func animateMoveEyes(to dir: EyeDirection, duration: CFTimeInterval) {
+        // Looking the other way means the glint changes sides, and a glint that
+        // moves in plain sight reads as the eye flipping over. So the eyes
+        // blink on the way: they shut, the light changes side while nobody can
+        // see it, and they open looking the other way. Which is also what a
+        // hare does when it turns its head.
+        let crossing = dir.isLeft != lastOpenDirection.isLeft
         lastOpenDirection = dir
         setBodyShape(for: dir, duration: duration)
         let (lc, rc) = eyeConfig(dir)
 
-        animPath(leftEyeLayer,  to: eyePath(center: lc, lookingLeft: dir.isLeft), dur: duration)
-        animPath(rightEyeLayer, to: eyePath(center: rc, lookingLeft: dir.isLeft), dur: duration)
+        guard crossing, eyesOpen else {
+            animPath(leftEyeLayer,  to: eyePath(center: lc), dur: duration)
+            animPath(rightEyeLayer, to: eyePath(center: rc), dur: duration)
+            return
+        }
+
+        let gen = bumpGen()
+        blink { [weak self] in
+            guard let self, self.sequenceGen == gen else { return }
+            self.glintOnTheRight = dir.isLeft
+            self.noAnim {
+                self.leftEyeLayer.path = self.eyePath(center: lc)
+                self.rightEyeLayer.path = self.eyePath(center: rc)
+            }
+        }
+    }
+
+    /// One blink, with something done at the moment the eyes are shut.
+    private func blink(atTheClosedMoment change: @escaping @MainActor () -> Void) {
+        let shut = CAKeyframeAnimation(keyPath: "transform.scale.y")
+        shut.values   = [1.0, 0.05, 1.0]
+        shut.keyTimes = [0, 0.42, 1.0]
+        shut.duration = 0.22
+        shut.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        leftEyeLayer.add(shut,  forKey: "blink")
+        rightEyeLayer.add(shut, forKey: "blink")
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(92))   // shut
+            change()
+        }
     }
 
     // MARK: - Blink / squeeze
@@ -536,17 +584,17 @@ final class MascotStatusView: NSView {
     /// motion that reads as the eyes flip-flopping. Instead one constant shape
     /// translates with the gaze, so the glint moves like a pupil — gaze
     /// changes are pure movement, never a flip.
-    private func eyePath(center: CGPoint, lookingLeft: Bool = true) -> CGPath {
+    private func eyePath(center: CGPoint) -> CGPath {
         // The artwork's own eye: two points across, with a small bite taken out
         // of its side for the glint. The eye this replaces was three by four,
         // drawn for a body twice this size — squeezed down to two points its
         // glint ate the pupil and what was left read as the letter C.
-        // The carve is a highlight, not a pupil: it belongs on the side away
-        // from what the hare is looking at, the way a light does not move when
-        // the eye does. The drawing carves its own right side, which is the
-        // gaze to the left; looking the other way, it is mirrored.
+        // One shape, mirrored only while the eyes are shut — see
+        // `animateMoveEyes`. A glint that flips in plain sight reads as the
+        // eyes flip-flopping, which is why the drawing before this one kept a
+        // single shape and simply moved it.
         let half = G.eyeW / 2
-        let eye = lookingLeft ? Self.openEye : Self.openEye.mirrored(in: G.eyeW)
+        let eye = glintOnTheRight ? Self.openEye : Self.openEye.mirrored(in: G.eyeW)
         let place = CGAffineTransform(translationX: center.x - half, y: center.y - half)
         let p = CGMutablePath()
         p.addPath(eye.cgPath, transform: place.concatenating(G.toView))
