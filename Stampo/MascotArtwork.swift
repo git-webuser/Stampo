@@ -107,6 +107,15 @@ nonisolated enum MascotArtwork {
         Pose(name: "earFoldedRight",   drawing: earFolded, mirrored: true)
     ]
 
+    /// One pose by name, in agreement with all the others.
+    static func agreeing(named name: String) -> VectorPath {
+        cache[name] ?? cache["earsUp"] ?? VectorPath(segments: [])
+    }
+
+    private static let cache: [String: VectorPath] = {
+        Dictionary(uniqueKeysWithValues: agreeingPaths().map { ($0.name, $0.path) })
+    }()
+
     /// Every pose as a path, all of them in agreement — same segments, same
     /// order, and each new anchor in the same place on the outline as its
     /// opposite number — so any one of them morphs into any other without an

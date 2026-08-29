@@ -18,6 +18,9 @@ enum EyeDirection: Equatable {
 enum MascotState: Equatable {
     case sleeping
     case awake
+    /// Something the app started is running — a translation, a save, an
+    /// update. The ears spread and hold, which is what listening looks like.
+    case waiting
     case colorPicking(EyeDirection)
     case celebrating
     case countdown
@@ -37,43 +40,41 @@ final class MascotStatusView: NSView {
 
     // MARK: Geometry (all in CALayer coords: y from bottom, view 22×18)
 
+    /// Everything is stated in the artwork's own box — 12 × 12, y downward,
+    /// exactly as Figma drew it — and mapped into the view at the last moment.
+    ///
+    /// The view is 22 × 18 because that is the room a status item gives; the
+    /// hare is 11 points tall and stands about ten of them, centred. Keeping
+    /// the numbers in the artwork's units is what lets a pose be swapped for
+    /// another without re-deriving a single coordinate: the drawing and the
+    /// places its eyes go are in the same space.
     private enum G {
-        // Eye box: 3 × 4 pt (Figma component, exact glint-carved paths below)
-        static let eyeW: CGFloat = 3
-        static let eyeH: CGFloat = 4
+        /// The hare drawn ten points tall, out of the eleven it is.
+        static let scale: CGFloat = 10.0 / 11.0
 
-        // Eye X positions: left-series and right-series (gaze drives position),
-        // shifted +1 to recenter inside the larger 22×18 body. Gap kept at 7 pt;
-        // the wider Figma spacing read too far apart at menu-bar size.
-        static let lEyeX: (CGFloat, CGFloat) = (6, 13)   // left-eye, right-eye when gaze=left
-        static let rEyeX: (CGFloat, CGFloat) = (9, 16)   // gaze=right
+        /// Artwork (y down, 12 × 12) into the view (y up, 22 × 18), centred.
+        static let toView: CGAffineTransform = {
+            let drawn = MascotArtwork.side * scale
+            let inset = (CGSize(width: 22, height: 18).width - drawn) / 2
+            let top = (18 - drawn) / 2 + drawn
+            return CGAffineTransform(a: scale, b: 0, c: 0, d: -scale, tx: inset, ty: top)
+        }()
 
-        // Eye Y centers (y from bottom). Looking up raises the eyes,
-        // looking down lowers them.
-        static let eyeYup: CGFloat = 12
-        static let eyeYmd: CGFloat = 11
-        static let eyeYdn: CGFloat = 10
+        /// Where the eyes sit, in artwork units, and how far the gaze moves
+        /// them. The row is the artwork's own; the travel is what a two-point
+        /// eye has room for without leaving the face.
+        static let eyeRow = MascotArtwork.Eye.left.y
+        static let eyeGap: CGFloat = 0.9      // sideways, per gaze
+        static let eyeRise: CGFloat = 0.55    // up or down, per gaze
 
-        // Sleep arcs: quadratic bezier. Shifted +1/+1 with the eyes.
-        static let arcY:   CGFloat = 10.75
-        static let arcTop: CGFloat = 11.25
+        /// The open eye, kept from the drawing before this one: a rounded shape
+        /// with its glint carved out rather than drawn on. Two artwork points
+        /// wide, which is what the new body has room for.
+        static let eyeW: CGFloat = 2
+        static let eyeH: CGFloat = 2
 
-        struct Arc {
-            let s, c, e: CGPoint
-            var path: CGPath {
-                let p = CGMutablePath()
-                p.move(to: s)
-                p.addQuadCurve(to: e, control: c)
-                return p
-            }
-        }
-
-        // Left-series arcs (eyes at x = 6, 13)
-        static let lsL = Arc(s: .init(x: 4.75,  y: arcY), c: .init(x: 6.25,  y: arcTop), e: .init(x: 7.75,  y: arcY))
-        static let lsR = Arc(s: .init(x: 11.25, y: arcY), c: .init(x: 12.75, y: arcTop), e: .init(x: 14.25, y: arcY))
-        // Right-series arcs (eyes at x = 9, 16; x values shifted +3 from left-series)
-        static let rsL = Arc(s: .init(x: 7.75,  y: arcY), c: .init(x: 9.25,  y: arcTop), e: .init(x: 10.75, y: arcY))
-        static let rsR = Arc(s: .init(x: 14.25, y: arcY), c: .init(x: 15.75, y: arcTop), e: .init(x: 17.25, y: arcY))
+        /// The closed eye, as the artwork draws it.
+        static let closedEyeWidth: CGFloat = 1.5
     }
 
     // MARK: State
@@ -93,6 +94,54 @@ final class MascotStatusView: NSView {
 
     private var ink: CGColor = CGColor(gray: 0.05, alpha: 1)
 
+    /// Where the pointer is, from −1 (far to the left of the mascot) to +1.
+    /// The ear nearest it folds away: an ear is the one part of a hare that
+    /// points at what has its attention.
+    private var lean: CGFloat = 0
+    private var pointerTimer: Timer?
+    /// True while a loop owns the body — the wait's spread ears, or the idle
+    /// flick — so the pointer does not fight it for the same layer.
+    private var bodyIsLooping = false
+
+    // MARK: Poses
+
+    /// Every pose in view coordinates, ready to be handed to a layer.
+    ///
+    /// Built once: the agreement between them — same anchors, in the same
+    /// places along the outline — is arithmetic nobody should pay for twice,
+    /// and it is what lets any pose morph into any other.
+    private static let poses: [String: CGPath] = {
+        var built: [String: CGPath] = [:]
+        for (name, path) in MascotArtwork.agreeingPaths() {
+            built[name] = path.applying(G.toView).cgPath
+        }
+        return built
+    }()
+
+    private static func pose(_ name: String) -> CGPath {
+        poses[name] ?? poses["earsUp"] ?? CGMutablePath()
+    }
+
+    /// The body as the pointer leaves it: upright in the middle, one ear
+    /// folded away as the pointer goes to that side. Continuous, because the
+    /// pointer is — a lean that snapped between three poses would read as a
+    /// twitch rather than as attention.
+    private static func leaning(_ lean: CGFloat) -> CGPath {
+        let up = MascotArtwork.agreeing(named: "earsUp")
+        guard abs(lean) > 0.01 else { return up.applying(G.toView).cgPath }
+        let side = MascotArtwork.agreeing(named: lean < 0 ? "earFoldedLeft" : "earFoldedRight")
+        let between = up.interpolated(to: side, at: min(1, abs(lean))) ?? up
+        return between.applying(G.toView).cgPath
+    }
+
+    /// The pose a gaze leans into: the ear nearest what the hare is looking at
+    /// folds away, which is what an ear does and what makes the head read as
+    /// turned. Asleep it is neither — both ears up.
+    private static func pose(forGaze direction: EyeDirection?) -> CGPath {
+        guard let direction else { return pose("earsUp") }
+        return pose(direction.isLeft ? "earFoldedLeft" : "earFoldedRight")
+    }
+
     // MARK: Init
 
     override init(frame: NSRect) { super.init(frame: frame); setup() }
@@ -108,14 +157,14 @@ final class MascotStatusView: NSView {
         // trapezoid variants when the mascot looks up/down (perspective metaphor).
         // All three paths share the same segment structure, so CoreAnimation
         // morphs between them cleanly.
-        bodyLayer.path      = MascotStatusView.bodyCenter
+        bodyLayer.path      = MascotStatusView.pose("earsUp")
         bodyLayer.fillColor = .clear
-        bodyLayer.lineWidth = 2
+        bodyLayer.lineWidth = G.scale
         layer!.addSublayer(bodyLayer)
 
         // Eye layers
         for eye in [leftEyeLayer, rightEyeLayer] {
-            eye.lineWidth  = 1.75
+            eye.lineWidth  = 0.8 * G.scale
             eye.lineCap    = .round
             eye.fillColor  = .clear
             eye.strokeColor = .clear
@@ -149,6 +198,37 @@ final class MascotStatusView: NSView {
         }
     }
 
+    // MARK: - Pointer
+
+    /// Follows the pointer while the hare is awake, and lets go when it sleeps.
+    ///
+    /// Polled rather than monitored: a global event monitor wakes this process
+    /// for every mouse move on the machine, and what is wanted here is a lean
+    /// that settles — fifteen times a second is finer than an ear can be seen
+    /// to move.
+    private func followPointer(_ follow: Bool) {
+        pointerTimer?.invalidate()
+        pointerTimer = nil
+        guard follow else { return }
+        pointerTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 15, repeats: true) {
+            [weak self] _ in
+            Task { @MainActor [weak self] in self?.readPointer() }
+        }
+    }
+
+    private func readPointer() {
+        guard !bodyIsLooping, let window else { return }
+        let centre = window.convertPoint(toScreen: convert(CGPoint(x: bounds.midX,
+                                                                   y: bounds.midY), to: nil))
+        // Fully leant a third of a screen away; nearer than that it is partial,
+        // which is what makes it read as following rather than as snapping.
+        let reach = (window.screen ?? NSScreen.main)?.frame.width ?? 1440
+        let wanted = max(-1, min(1, (NSEvent.mouseLocation.x - centre.x) / (reach / 3)))
+        guard abs(wanted - lean) > 0.02 else { return }
+        lean = wanted
+        animPath(bodyLayer, to: Self.leaning(wanted), dur: 0.12)
+    }
+
     // MARK: - Public
 
     func setState(_ state: MascotState) {
@@ -158,6 +238,10 @@ final class MascotStatusView: NSView {
 
         switch state {
         case .sleeping:
+            followPointer(false)
+            bodyIsLooping = false
+            bodyLayer.removeAnimation(forKey: "loop")
+            lean = 0
             if eyesOpen {
                 let gen = sequenceGen
                 animateSqueeze {
@@ -172,6 +256,16 @@ final class MascotStatusView: NSView {
             let dir: EyeDirection = lastArcIsLeft ? .leftCenter : .rightCenter
             if !eyesOpen { applyOpenEyes(dir: dir, popAnim: true) }
             scheduleNextBlink()
+            bodyIsLooping = false
+            bodyLayer.removeAnimation(forKey: "loop")
+            followPointer(true)
+
+        case .waiting:
+            let dir: EyeDirection = lastArcIsLeft ? .leftCenter : .rightCenter
+            if !eyesOpen { applyOpenEyes(dir: dir, popAnim: true) }
+            scheduleNextBlink()
+            followPointer(false)
+            spreadEars()
 
         case .colorPicking(let dir):
             if !eyesOpen {
@@ -209,6 +303,22 @@ final class MascotStatusView: NSView {
         }
     }
 
+    /// The wait: ears spread, held, and let go again — over and over, slowly.
+    /// The same two poses the pointer uses would be a twitch; this is a breath.
+    private func spreadEars() {
+        bodyIsLooping = true
+        let loop = CAKeyframeAnimation(keyPath: "path")
+        loop.values = [Self.pose("earsUp"), Self.pose("earsSpreadRight"),
+                       Self.pose("earsUp"), Self.pose("earsSpreadLeft"),
+                       Self.pose("earsUp")]
+        loop.keyTimes = [0, 0.22, 0.44, 0.66, 1]
+        loop.duration = 2.6
+        loop.repeatCount = .infinity
+        loop.timingFunctions = Array(repeating: CAMediaTimingFunction(name: .easeInEaseOut),
+                                     count: 4)
+        bodyLayer.add(loop, forKey: "loop")
+    }
+
     // MARK: - Drawing helpers
 
     /// Show sleep arcs on both eyes. Resets all transforms.
@@ -216,21 +326,22 @@ final class MascotStatusView: NSView {
         eyesOpen = false
         lastArcIsLeft = leftSeries
         setBodyShape(for: nil, duration: 0.15)
-        let lArc = leftSeries ? G.lsL : G.rsL
-        let rArc = leftSeries ? G.lsR : G.rsR
+        let (lc, rc) = eyeConfig(leftSeries ? .leftCenter : .rightCenter)
+        let lArc = closedEyePath(center: lc)
+        let rArc = closedEyePath(center: rc)
 
         noAnim {
             // Reset any scale transform left over from squeeze / pop
             self.leftEyeLayer.transform  = CATransform3DIdentity
             self.rightEyeLayer.transform = CATransform3DIdentity
 
-            self.leftEyeLayer.path        = lArc.path
-            self.leftEyeLayer.lineWidth   = 1.75
+            self.leftEyeLayer.path        = lArc
+            self.leftEyeLayer.lineWidth   = 0.8 * G.scale
             self.leftEyeLayer.fillColor   = .clear
             self.leftEyeLayer.strokeColor = self.ink
 
-            self.rightEyeLayer.path        = rArc.path
-            self.rightEyeLayer.lineWidth   = 1.75
+            self.rightEyeLayer.path        = rArc
+            self.rightEyeLayer.lineWidth   = 0.8 * G.scale
             self.rightEyeLayer.fillColor   = .clear
             self.rightEyeLayer.strokeColor = self.ink
         }
@@ -250,10 +361,10 @@ final class MascotStatusView: NSView {
             self.leftEyeLayer.path  = self.eyePath(center: lc)
             self.rightEyeLayer.path = self.eyePath(center: rc)
 
-            self.leftEyeLayer.lineWidth   = 1.75
+            self.leftEyeLayer.lineWidth   = 0.8 * G.scale
             self.leftEyeLayer.fillColor   = self.ink
             self.leftEyeLayer.strokeColor = .clear
-            self.rightEyeLayer.lineWidth  = 1.75
+            self.rightEyeLayer.lineWidth  = 0.8 * G.scale
             self.rightEyeLayer.fillColor  = self.ink
             self.rightEyeLayer.strokeColor = .clear
 
@@ -288,26 +399,28 @@ final class MascotStatusView: NSView {
         noAnim {
             if leftWinks {
                 // Left eye → arc (right-series left-eye arc)
-                self.leftEyeLayer.path        = G.rsL.path
-                self.leftEyeLayer.lineWidth   = 1.75
+                self.leftEyeLayer.path        = self.closedEyePath(
+                    center: self.eyeConfig(.rightCenter).lEye)
+                self.leftEyeLayer.lineWidth   = 0.8 * G.scale
                 self.leftEyeLayer.fillColor   = .clear
                 self.leftEyeLayer.strokeColor = self.ink
                 // Right stays open
                 let rc = eyeConfig(.rightCenter).rEye
                 self.rightEyeLayer.path        = self.eyePath(center: rc)
-                self.rightEyeLayer.lineWidth   = 1.75
+                self.rightEyeLayer.lineWidth   = 0.8 * G.scale
                 self.rightEyeLayer.fillColor   = self.ink
                 self.rightEyeLayer.strokeColor = .clear
             } else {
                 // Right eye → arc (left-series right-eye arc)
-                self.rightEyeLayer.path        = G.lsR.path
-                self.rightEyeLayer.lineWidth   = 1.75
+                self.rightEyeLayer.path        = self.closedEyePath(
+                    center: self.eyeConfig(.leftCenter).rEye)
+                self.rightEyeLayer.lineWidth   = 0.8 * G.scale
                 self.rightEyeLayer.fillColor   = .clear
                 self.rightEyeLayer.strokeColor = self.ink
                 // Left stays open
                 let lc = eyeConfig(.leftCenter).lEye
                 self.leftEyeLayer.path        = self.eyePath(center: lc)
-                self.leftEyeLayer.lineWidth   = 1.75
+                self.leftEyeLayer.lineWidth   = 0.8 * G.scale
                 self.leftEyeLayer.fillColor   = self.ink
                 self.leftEyeLayer.strokeColor = .clear
             }
@@ -412,43 +525,37 @@ final class MascotStatusView: NSView {
     /// translates with the gaze, so the glint moves like a pupil — gaze
     /// changes are pure movement, never a flip.
     private func eyePath(center: CGPoint) -> CGPath {
-        // Maps the Figma 3×4 box (y down) onto CALayer coords around `center`.
-        let t = CGAffineTransform(
-            a: 1, b: 0,
-            c: 0, d: -1,
-            tx: center.x - G.eyeW / 2,
-            ty: center.y + G.eyeH / 2
-        )
-
+        // The artwork's own eye: two points across, with a small bite taken out
+        // of its side for the glint. The eye this replaces was three by four,
+        // drawn for a body twice this size — squeezed down to two points its
+        // glint ate the pupil and what was left read as the letter C.
+        let half = G.eyeW / 2
+        let place = CGAffineTransform(translationX: center.x - half, y: center.y - half)
         let p = CGMutablePath()
-        Self.addEyeOutlineCenter(to: p, t: t)
+        p.addPath(Self.openEye.cgPath, transform: place.concatenating(G.toView))
         return p
     }
 
-    /// Eye outline from Figma flatten (glint carved mid-right, vertically
-    /// symmetric). SVG path "Eye" of node 965:222, viewBox 0 0 3 4.
-    private static func addEyeOutlineCenter(to p: CGMutablePath, t: CGAffineTransform) {
-        p.move(to: .init(x: 1.50098, y: 0), transform: t)
-        p.addCurve(to: .init(x: 2.89642, y: 0.95195), control1: .init(x: 2.13572, y: 0.0002),  control2: .init(x: 2.67772, y: 0.39478), transform: t)
-        p.addCurve(to: .init(x: 2.93115, y: 1.10133), control1: .init(x: 2.92421, y: 1.02275), control2: .init(x: 2.9381, y: 1.05814), transform: t)
-        p.addCurve(to: .init(x: 2.87619, y: 1.19832), control1: .init(x: 2.92567, y: 1.13536), control2: .init(x: 2.90257, y: 1.17613), transform: t)
-        p.addCurve(to: .init(x: 2.7102, y: 1.24864),  control1: .init(x: 2.84272, y: 1.22648), control2: .init(x: 2.79855, y: 1.23387), transform: t)
-        p.addLine(to: .init(x: 2.39258, y: 1.30176), transform: t)
-        p.addCurve(to: .init(x: 2.0791, y: 1.375),    control1: .init(x: 2.22808, y: 1.32917), control2: .init(x: 2.14523, y: 1.34241), transform: t)
-        p.addCurve(to: .init(x: 1.82227, y: 1.67969), control1: .init(x: 1.9549, y: 1.43632),  control2: .init(x: 1.86224, y: 1.54706), transform: t)
-        p.addCurve(to: .init(x: 1.80078, y: 2),       control1: .init(x: 1.80108, y: 1.7502),  control2: .init(x: 1.80078, y: 1.83347), transform: t)
-        p.addCurve(to: .init(x: 1.82227, y: 2.32031), control1: .init(x: 1.80078, y: 2.16657), control2: .init(x: 1.80106, y: 2.24978), transform: t)
-        p.addCurve(to: .init(x: 2.0791, y: 2.625),    control1: .init(x: 1.86225, y: 2.45295), control2: .init(x: 1.95488, y: 2.56369), transform: t)
-        p.addCurve(to: .init(x: 2.39258, y: 2.69824), control1: .init(x: 2.14523, y: 2.65759), control2: .init(x: 2.22808, y: 2.67083), transform: t)
-        p.addLine(to: .init(x: 2.70987, y: 2.75077), transform: t)
-        p.addCurve(to: .init(x: 2.87607, y: 2.80086), control1: .init(x: 2.79831, y: 2.76541), control2: .init(x: 2.84253, y: 2.77273), transform: t)
-        p.addCurve(to: .init(x: 2.93116, y: 2.89785), control1: .init(x: 2.90249, y: 2.82304), control2: .init(x: 2.92565, y: 2.8638), transform: t)
-        p.addCurve(to: .init(x: 2.8965, y: 3.04737),  control1: .init(x: 2.93816, y: 2.94106), control2: .init(x: 2.92427, y: 2.9765), transform: t)
-        p.addCurve(to: .init(x: 1.50098, y: 4),       control1: .init(x: 2.678, y: 3.60489),   control2: .init(x: 2.13597, y: 3.9998), transform: t)
-        p.addCurve(to: .init(x: 0.00098, y: 2.5),     control1: .init(x: 0.67255, y: 4),       control2: .init(x: 0.00098, y: 3.32843), transform: t)
-        p.addLine(to: .init(x: 0.00098, y: 1.5), transform: t)
-        p.addCurve(to: .init(x: 1.50098, y: 0),       control1: .init(x: 0.00098, y: 0.67157), control2: .init(x: 0.67255, y: 0), transform: t)
-        p.closeSubpath()
+    /// Parsed once: the eye is the same drawing wherever it is put.
+    private static let openEye: VectorPath = {
+        VectorPath.parse(MascotArtwork.Eye.open.replacingOccurrences(of: "\n", with: ""))
+            ?? VectorPath(segments: [])
+    }()
+
+    /// The closed eye — the little arc the artwork draws for sleep — at a
+    /// centre given in artwork units.
+    private func closedEyePath(center: CGPoint) -> CGPath {
+        let half = G.closedEyeWidth / 2
+        let p = CGMutablePath()
+        let t = CGAffineTransform(translationX: center.x - half, y: center.y - 0.15)
+            .concatenating(G.toView)
+        let arc = CGMutablePath()
+        arc.move(to: CGPoint(x: 0, y: 0.25))
+        arc.addCurve(to: CGPoint(x: 1.5, y: 0.25),
+                     control1: CGPoint(x: 0.375, y: 0),
+                     control2: CGPoint(x: 1.125, y: 0))
+        p.addPath(arc, transform: t)
+        return p
     }
 
     // MARK: - Eye config
@@ -456,20 +563,16 @@ final class MascotStatusView: NSView {
     /// Eye-box centers per gaze. Glint shape is constant across states — only
     /// the eye position tracks the gaze (left/right series + up/center/down).
     private func eyeConfig(_ dir: EyeDirection) -> (lEye: CGPoint, rEye: CGPoint) {
-        let lx: CGFloat
-        let rx: CGFloat
-        let ey: CGFloat
-
+        let sideways: CGFloat = dir.isLeft ? -G.eyeGap : G.eyeGap
+        let rise: CGFloat
         switch dir {
-        case .leftCenter:  lx = G.lEyeX.0; rx = G.lEyeX.1; ey = G.eyeYmd
-        case .leftUp:      lx = G.lEyeX.0; rx = G.lEyeX.1; ey = G.eyeYup
-        case .leftDown:    lx = G.lEyeX.0; rx = G.lEyeX.1; ey = G.eyeYdn
-        case .rightCenter: lx = G.rEyeX.0; rx = G.rEyeX.1; ey = G.eyeYmd
-        case .rightUp:     lx = G.rEyeX.0; rx = G.rEyeX.1; ey = G.eyeYup
-        case .rightDown:   lx = G.rEyeX.0; rx = G.rEyeX.1; ey = G.eyeYdn
+        case .leftUp, .rightUp:         rise = -G.eyeRise
+        case .leftDown, .rightDown:     rise = G.eyeRise
+        case .leftCenter, .rightCenter: rise = 0
         }
-
-        return (CGPoint(x: lx, y: ey), CGPoint(x: rx, y: ey))
+        let y = G.eyeRow + rise
+        return (CGPoint(x: MascotArtwork.Eye.left.x + sideways, y: y),
+                CGPoint(x: MascotArtwork.Eye.right.x + sideways, y: y))
     }
 
     // MARK: - Sequence helpers
@@ -505,14 +608,10 @@ final class MascotStatusView: NSView {
     /// (move + line + 6 cubics + line + 6 cubics), so CoreAnimation
     /// interpolates between any pair cleanly.
     private func setBodyShape(for dir: EyeDirection?, duration: CFTimeInterval) {
-        let target: CGPath
-        switch dir {
-        case .leftUp:                        target = Self.bodyUpLeft
-        case .rightUp:                       target = Self.bodyUpRight
-        case .leftDown:                      target = Self.bodyDownLeft
-        case .rightDown:                     target = Self.bodyDownRight
-        case .leftCenter, .rightCenter, nil: target = Self.bodyCenter
-        }
+        // While the pointer or a loop owns the body, the gaze does not move it:
+        // two things writing one layer is a fight nobody wins.
+        guard !bodyIsLooping, pointerTimer == nil else { return }
+        let target = Self.pose(forGaze: dir)
         if duration <= 0 {
             noAnim { self.bodyLayer.path = target }
         } else {
@@ -520,112 +619,4 @@ final class MascotStatusView: NSView {
         }
     }
 
-    /// Figma exports body coords y-down in an 18-tall box; flip to CALayer y-up.
-    private static func flippedBody(_ build: (CGMutablePath) -> Void) -> CGPath {
-        let raw = CGMutablePath()
-        build(raw)
-        var flip = CGAffineTransform(a: 1, b: 0, c: 0, d: -1, tx: 0, ty: 18)
-        return raw.copy(using: &flip) ?? raw
-    }
-
-    /// Resting / centered body — perfectly symmetric squircle (Figma node 1087:307,
-    /// updated). Edges at x=1 / x=21, centered at 11; clean 1 pt margin each side.
-    private static let bodyCenter: CGPath = flippedBody { p in
-        p.move(to:    .init(x: 13.00000, y:  1.00004))
-        p.addLine(to: .init(x:  9.00004, y:  1.00004))
-        p.addCurve(to: .init(x:  5.44712, y:  1.20448), control1: .init(x:  7.14009, y:  1.00004), control2: .init(x:  6.21012, y:  1.00004))
-        p.addCurve(to: .init(x:  1.20448, y:  5.44712), control1: .init(x:  3.37657, y:  1.75928), control2: .init(x:  1.75928, y:  3.37657))
-        p.addCurve(to: .init(x:  1.00004, y:  9.00004), control1: .init(x:  1.00004, y:  6.21012), control2: .init(x:  1.00004, y:  7.14009))
-        p.addCurve(to: .init(x:  1.20448, y: 12.553),   control1: .init(x:  1.00004, y: 10.86),    control2: .init(x:  1.00004, y: 11.79))
-        p.addCurve(to: .init(x:  5.44712, y: 16.7956),  control1: .init(x:  1.75928, y: 14.6235),  control2: .init(x:  3.37657, y: 16.2408))
-        p.addCurve(to: .init(x:  9.00004, y: 17),       control1: .init(x:  6.21012, y: 17),       control2: .init(x:  7.14009, y: 17))
-        p.addLine(to: .init(x: 13.00000, y: 17))
-        p.addCurve(to: .init(x: 16.553,  y: 16.7956),  control1: .init(x: 14.86,    y: 17),       control2: .init(x: 15.79,    y: 17))
-        p.addCurve(to: .init(x: 20.7956, y: 12.553),   control1: .init(x: 18.6235,  y: 16.2408),  control2: .init(x: 20.2408,  y: 14.6235))
-        p.addCurve(to: .init(x: 21.00000, y:  9.00004), control1: .init(x: 21,       y: 11.79),    control2: .init(x: 21,       y: 10.86))
-        p.addCurve(to: .init(x: 20.7956, y:  5.44712), control1: .init(x: 21,       y:  7.14009), control2: .init(x: 21,       y:  6.21012))
-        p.addCurve(to: .init(x: 16.553,  y:  1.20448), control1: .init(x: 20.2408,  y:  3.37657), control2: .init(x: 18.6235,  y:  1.75928))
-        p.addCurve(to: .init(x: 13.00000, y:  1.00004), control1: .init(x: 15.79,    y:  1.00004), control2: .init(x: 14.86,    y:  1.00004))
-        p.closeSubpath()
-    }
-
-    /// Gaze up-left — lower-left corner pulls toward the viewer (Figma 1087:296).
-    private static let bodyUpLeft: CGPath = flippedBody { p in
-        p.move(to:    .init(x: 13.1815, y:  1.00004))
-        p.addLine(to: .init(x:  9.24373, y:  1.00004))
-        p.addCurve(to: .init(x:  6.04569, y:  1.17354), control1: .init(x:  7.58219, y:  1.00004), control2: .init(x:  6.75142, y:  1.00004))
-        p.addCurve(to: .init(x:  1.87434, y:  4.85594), control1: .init(x:  4.13573, y:  1.64312), control2: .init(x:  2.57719, y:  3.01897))
-        p.addCurve(to: .init(x:  1.30551, y:  8.00776), control1: .init(x:  1.61464, y:  5.5347),  control2: .init(x:  1.5116,  y:  6.35905))
-        p.addCurve(to: .init(x:  1.05306, y: 11.9451),  control1: .init(x:  1.04761, y: 10.0709),  control2: .init(x:  0.918664, y: 11.1025))
-        p.addCurve(to: .init(x:  5.30548, y: 16.7622),  control1: .init(x:  1.41885, y: 14.2384),  control2: .init(x:  3.07522, y: 16.1147))
-        p.addCurve(to: .init(x:  9.24373, y: 17),       control1: .init(x:  6.12491, y: 17),       control2: .init(x:  7.16451, y: 17))
-        p.addLine(to: .init(x: 13.1815, y: 17))
-        p.addCurve(to: .init(x: 16.7344, y: 16.7956),  control1: .init(x: 15.0414, y: 17),       control2: .init(x: 15.9714, y: 17))
-        p.addCurve(to: .init(x: 20.977,  y: 12.553),   control1: .init(x: 18.8049, y: 16.2408),  control2: .init(x: 20.4222, y: 14.6235))
-        p.addCurve(to: .init(x: 21.1815, y:  9.00004), control1: .init(x: 21.1815, y: 11.79),    control2: .init(x: 21.1815, y: 10.86))
-        p.addCurve(to: .init(x: 20.977,  y:  5.44712), control1: .init(x: 21.1815, y:  7.14009), control2: .init(x: 21.1815, y:  6.21012))
-        p.addCurve(to: .init(x: 16.7344, y:  1.20448), control1: .init(x: 20.4222, y:  3.37657), control2: .init(x: 18.8049, y:  1.75928))
-        p.addCurve(to: .init(x: 13.1815, y:  1.00004), control1: .init(x: 15.9714, y:  1.00004), control2: .init(x: 15.0414, y:  1.00004))
-        p.closeSubpath()
-    }
-
-    /// Gaze up-right — lower-right corner pulls toward the viewer (Figma 1087:322).
-    private static let bodyUpRight: CGPath = flippedBody { p in
-        p.move(to:    .init(x: 12.9378, y:  1.00004))
-        p.addLine(to: .init(x:  9.00004, y:  1.00004))
-        p.addCurve(to: .init(x:  5.44712, y:  1.20448), control1: .init(x:  7.14009, y:  1.00004), control2: .init(x:  6.21012, y:  1.00004))
-        p.addCurve(to: .init(x:  1.20448, y:  5.44712), control1: .init(x:  3.37657, y:  1.75928), control2: .init(x:  1.75928, y:  3.37657))
-        p.addCurve(to: .init(x:  1.00004, y:  9.00004), control1: .init(x:  1.00004, y:  6.21012), control2: .init(x:  1.00004, y:  7.14009))
-        p.addCurve(to: .init(x:  1.20448, y: 12.553),   control1: .init(x:  1.00004, y: 10.86),    control2: .init(x:  1.00004, y: 11.79))
-        p.addCurve(to: .init(x:  5.44712, y: 16.7956),  control1: .init(x:  1.75928, y: 14.6235),  control2: .init(x:  3.37657, y: 16.2408))
-        p.addCurve(to: .init(x:  9.00004, y: 17),       control1: .init(x:  6.21012, y: 17),       control2: .init(x:  7.14009, y: 17))
-        p.addLine(to: .init(x: 12.9378, y: 17))
-        p.addCurve(to: .init(x: 16.876,  y: 16.7622),  control1: .init(x: 15.017,  y: 17),       control2: .init(x: 16.0566, y: 17))
-        p.addCurve(to: .init(x: 21.1284, y: 11.9451),  control1: .init(x: 19.1063, y: 16.1147),  control2: .init(x: 20.7627, y: 14.2384))
-        p.addCurve(to: .init(x: 20.876,  y:  8.00778), control1: .init(x: 21.2628, y: 11.1025),  control2: .init(x: 21.1339, y: 10.0709))
-        p.addCurve(to: .init(x: 20.3072, y:  4.85594), control1: .init(x: 20.6699, y:  6.35905), control2: .init(x: 20.5669, y:  5.5347))
-        p.addCurve(to: .init(x: 16.1358, y:  1.17354), control1: .init(x: 19.6043, y:  3.01897), control2: .init(x: 18.0458, y:  1.64312))
-        p.addCurve(to: .init(x: 12.9378, y:  1.00004), control1: .init(x: 15.4301, y:  1.00004), control2: .init(x: 14.5993, y:  1.00004))
-        p.closeSubpath()
-    }
-
-    /// Gaze down-left — upper-left corner pulls toward the viewer (Figma 1087:311).
-    private static let bodyDownLeft: CGPath = flippedBody { p in
-        p.move(to:    .init(x: 13.1815, y:  1.00004))
-        p.addLine(to: .init(x:  9.24373, y:  1.00004))
-        p.addCurve(to: .init(x:  5.30548, y:  1.23792), control1: .init(x:  7.16451, y:  1.00004), control2: .init(x:  6.12491, y:  1.00004))
-        p.addCurve(to: .init(x:  1.05306, y:  6.05498), control1: .init(x:  3.07522, y:  1.88534), control2: .init(x:  1.41885, y:  3.76164))
-        p.addCurve(to: .init(x:  1.30551, y:  9.99232), control1: .init(x:  0.918664, y: 6.89758), control2: .init(x:  1.04761, y:  7.92916))
-        p.addCurve(to: .init(x:  1.87434, y: 13.1441),  control1: .init(x:  1.5116,  y: 11.641),   control2: .init(x:  1.61464, y: 12.4654))
-        p.addCurve(to: .init(x:  6.04569, y: 16.8265),  control1: .init(x:  2.57719, y: 14.9811),  control2: .init(x:  4.13573, y: 16.357))
-        p.addCurve(to: .init(x:  9.24373, y: 17),       control1: .init(x:  6.75142, y: 17),       control2: .init(x:  7.58219, y: 17))
-        p.addLine(to: .init(x: 13.1815, y: 17))
-        p.addCurve(to: .init(x: 16.7344, y: 16.7956),  control1: .init(x: 15.0414, y: 17),       control2: .init(x: 15.9714, y: 17))
-        p.addCurve(to: .init(x: 20.977,  y: 12.553),   control1: .init(x: 18.8049, y: 16.2408),  control2: .init(x: 20.4222, y: 14.6235))
-        p.addCurve(to: .init(x: 21.1815, y:  9.00004), control1: .init(x: 21.1815, y: 11.79),    control2: .init(x: 21.1815, y: 10.86))
-        p.addCurve(to: .init(x: 20.977,  y:  5.44713), control1: .init(x: 21.1815, y:  7.1401),  control2: .init(x: 21.1815, y:  6.21013))
-        p.addCurve(to: .init(x: 16.7344, y:  1.20449), control1: .init(x: 20.4222, y:  3.37658), control2: .init(x: 18.8049, y:  1.75929))
-        p.addCurve(to: .init(x: 13.1815, y:  1.00004), control1: .init(x: 15.9714, y:  1.00004), control2: .init(x: 15.0414, y:  1.00004))
-        p.closeSubpath()
-    }
-
-    /// Gaze down-right — upper-right corner pulls toward the viewer (Figma 1087:324).
-    private static let bodyDownRight: CGPath = flippedBody { p in
-        p.move(to:    .init(x: 12.9378, y:  1.00004))
-        p.addLine(to: .init(x:  9.00004, y:  1.00004))
-        p.addCurve(to: .init(x:  5.44712, y:  1.20449), control1: .init(x:  7.14009, y:  1.00004), control2: .init(x:  6.21012, y:  1.00004))
-        p.addCurve(to: .init(x:  1.20448, y:  5.44713), control1: .init(x:  3.37657, y:  1.75929), control2: .init(x:  1.75928, y:  3.37658))
-        p.addCurve(to: .init(x:  1.00004, y:  9.00004), control1: .init(x:  1.00004, y:  6.21013), control2: .init(x:  1.00004, y:  7.1401))
-        p.addCurve(to: .init(x:  1.20448, y: 12.553),   control1: .init(x:  1.00004, y: 10.86),    control2: .init(x:  1.00004, y: 11.79))
-        p.addCurve(to: .init(x:  5.44712, y: 16.7956),  control1: .init(x:  1.75928, y: 14.6235),  control2: .init(x:  3.37657, y: 16.2408))
-        p.addCurve(to: .init(x:  9.00004, y: 17),       control1: .init(x:  6.21012, y: 17),       control2: .init(x:  7.14009, y: 17))
-        p.addLine(to: .init(x: 12.9378, y: 17))
-        p.addCurve(to: .init(x: 16.1358, y: 16.8265),  control1: .init(x: 14.5993, y: 17),       control2: .init(x: 15.4301, y: 17))
-        p.addCurve(to: .init(x: 20.3072, y: 13.1441),  control1: .init(x: 18.0458, y: 16.357),   control2: .init(x: 19.6043, y: 14.9811))
-        p.addCurve(to: .init(x: 20.876,  y:  9.99232), control1: .init(x: 20.5669, y: 12.4654),  control2: .init(x: 20.6699, y: 11.641))
-        p.addCurve(to: .init(x: 21.1284, y:  6.05498), control1: .init(x: 21.1339, y:  7.92916), control2: .init(x: 21.2628, y:  6.89758))
-        p.addCurve(to: .init(x: 16.876,  y:  1.23792), control1: .init(x: 20.7627, y:  3.76164), control2: .init(x: 19.1063, y:  1.88534))
-        p.addCurve(to: .init(x: 12.9378, y:  1.00004), control1: .init(x: 16.0566, y:  1.00004), control2: .init(x: 15.017,  y:  1.00004))
-        p.closeSubpath()
-    }
 }
