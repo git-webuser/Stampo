@@ -2090,7 +2090,15 @@ final class NotchPanelController: NSObject {
         panel.ignoresMouseEvents = false
         panel.appearance = NSAppearance(named: .darkAqua)
 
-        panel.contentView = NSHostingView(rootView: makeRootView().managedLocale())
+        let hosting = NSHostingView(rootView: makeRootView().managedLocale())
+        // No safe areas: the panel is drawn over the menu bar and the notch on
+        // purpose, and its layout already knows where they are. Left on, a
+        // window at the top edge of a notched screen is handed a top inset the
+        // size of the menu bar, and SwiftUI lays the content out below it —
+        // the panel dropped off the screen edge and left a gap above itself,
+        // coming and going as the frame animated.
+        hosting.safeAreaRegions = []
+        panel.contentView = hosting
         // A first pass here so the view has a size at all; `showAnimated` runs
         // another one once it knows the width the panel is opening at.
         panel.updateConstraintsIfNeeded()
