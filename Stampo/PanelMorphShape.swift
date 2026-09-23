@@ -4,9 +4,10 @@ import QuartzCore
 
 // MARK: - PanelMorphShape
 //
-// 7 keyframes from Figma (Main + 5 transitions + Archive).
-// progress 0.0→1.0 interpolates between them pairwise.
-// Each keyframe is a flat array of 82 CGFloat values (41 points × 2 coordinates).
+// 7 keyframes (Main + 5 transitions + Archive), built from corner radii by
+// `PanelCorners.keyframe(height:flare:bottom:)`. progress 0.0→1.0
+// interpolates between them pairwise. Each keyframe is a flat array of 84
+// CGFloat values (42 points × 2 coordinates), of which the path reads 41.
 // Point order is identical across all frames — only the coordinates change.
 
 struct PanelMorphShape: Shape {
@@ -48,74 +49,22 @@ struct PanelMorphShape: Shape {
     //        C p21,p22→p23 → C p24,p25→p26 → C p27,p28→p29 →
     //        L p30 → C p31,p32→p33 → C p34,p35→p36 → C p37,p38→p39 →
     //        L p40 → close
-    // Total: 41 points = 82 values per keyframe.
+    // Total: 41 points = 82 values per keyframe, plus a trailing pair.
 
-    /// Internal, not private, so `extraFactor` can be pinned by a test.
-    static let archiveFrames: [[CGFloat]] = [
-        // 0: Main (536×34)
-        [7,0, 9.80026,0, 11.2004,0, 12.27,0.545, 13.2108,1.024, 13.9757,1.789, 14.455,2.730, 15,3.800, 15,5.200, 15,8,
-         15,18,
-         15,23.601, 15,26.401, 16.090,28.540, 17.049,30.422, 18.579,31.951, 20.460,32.910, 22.599,34, 25.400,34, 31,34,
-         505,34,
-         510.601,34, 513.401,34, 515.54,32.910, 517.422,31.951, 518.951,30.422, 519.910,28.540, 521,26.401, 521,23.601, 521,18,
-         521,8,
-         521,5.200, 521,3.800, 521.545,2.730, 522.024,1.789, 522.789,1.024, 523.730,0.545, 524.800,0, 526.200,0, 529,0,
-         536,0, 0,0],
-        // 1: Transit 1 (536×45)
-        [5.4,0, 8.760,0, 10.441,0, 11.724,0.654, 12.853,1.229, 13.771,2.147, 14.346,3.276, 15,4.560, 15,6.240, 15,9.6,
-         15,27.4,
-         15,33.561, 15,36.641, 16.199,38.994, 17.254,41.064, 18.936,42.747, 21.006,43.801, 23.359,45, 26.439,45, 32.6,45,
-         503.4,45,
-         509.561,45, 512.641,45, 514.994,43.801, 517.064,42.747, 518.747,41.064, 519.801,38.994, 521,36.641, 521,33.561, 521,27.4,
-         521,9.6,
-         521,6.240, 521,4.560, 521.654,3.276, 522.229,2.147, 523.147,1.229, 524.276,0.654, 525.560,0, 527.240,0, 530.6,0,
-         536,0, 0,0],
-        // 2: Transit 2 (536×56)
-        [3.8,0, 7.720,0, 9.681,0, 11.178,0.763, 12.495,1.434, 13.566,2.505, 14.237,3.822, 15,5.320, 15,7.280, 15,11.2,
-         15,36.8,
-         15,43.521, 15,46.881, 16.308,49.448, 17.458,51.706, 19.294,53.542, 21.552,54.692, 24.119,56, 27.479,56, 34.2,56,
-         501.8,56,
-         508.521,56, 511.881,56, 514.448,54.692, 516.706,53.542, 518.542,51.706, 519.692,49.448, 521,46.881, 521,43.521, 521,36.8,
-         521,11.2,
-         521,7.280, 521,5.320, 521.763,3.822, 522.434,2.505, 523.505,1.434, 524.822,0.763, 526.319,0, 528.280,0, 532.2,0,
-         536,0, 0,0],
-        // 3: Transit 3 (536×67)
-        [2.2,0, 6.680,0, 8.921,0, 10.632,0.872, 12.137,1.639, 13.361,2.863, 14.128,4.368, 15,6.079, 15,8.320, 15,12.8,
-         15,46.2,
-         15,53.481, 15,57.121, 16.417,59.902, 17.663,62.348, 19.652,64.337, 22.098,65.583, 24.879,67, 28.519,67, 35.8,67,
-         500.2,67,
-         507.481,67, 511.121,67, 513.902,65.583, 516.348,64.337, 518.337,62.348, 519.583,59.902, 521,57.121, 521,53.481, 521,46.2,
-         521,12.8,
-         521,8.320, 521,6.079, 521.872,4.368, 522.639,2.863, 523.863,1.639, 525.368,0.872, 527.079,0, 529.320,0, 533.8,0,
-         536,0, 0,0],
-        // 4: Transit 4 (536×78)
-        [0.6,0, 5.640,0, 8.161,0, 10.086,0.981, 11.779,1.844, 13.156,3.221, 14.019,4.914, 15,6.839, 15,9.360, 15,14.4,
-         15,55.6,
-         15,63.441, 15,67.361, 16.526,70.356, 17.868,72.990, 20.010,75.132, 22.644,76.474, 25.639,78, 29.559,78, 37.4,78,
-         498.6,78,
-         506.441,78, 510.361,78, 513.356,76.474, 515.990,75.132, 518.132,72.990, 519.474,70.356, 521,67.361, 521,63.441, 521,55.6,
-         521,14.4,
-         521,9.360, 521,6.839, 521.981,4.914, 522.844,3.221, 524.221,1.844, 525.914,0.981, 527.839,0, 530.360,0, 535.4,0,
-         536,0, 0,0],
-        // 5: Transit 5 (536×89)
-        [0,0, 4.659,0, 6.989,0, 8.827,0.761, 11.277,1.776, 13.224,3.723, 14.239,6.173, 15,8.011, 15,10.341, 15,15,
-         15,65,
-         15,73.401, 15,77.601, 16.635,80.810, 18.073,83.632, 20.368,85.927, 23.190,87.365, 26.399,89, 30.599,89, 39,89,
-         497,89,
-         505.401,89, 509.601,89, 512.810,87.365, 515.632,85.927, 517.927,83.632, 519.365,80.810, 521,77.601, 521,73.401, 521,65,
-         521,15,
-         521,10.341, 521,8.011, 521.761,6.173, 522.776,3.723, 524.723,1.776, 527.173,0.761, 529.011,0, 531.341,0, 536,0,
-         536,0, 0,0],
-        // 6: Archive (536×89)
-        [0,0, 4.659,0, 6.989,0, 8.827,0.761, 11.277,1.776, 13.224,3.723, 14.239,6.173, 15,8.011, 15,10.341, 15,15,
-         15,63.4,
-         15,72.361, 15,76.841, 16.744,80.264, 18.278,83.274, 20.726,85.722, 23.736,87.256, 27.159,89, 31.639,89, 40.6,89,
-         495.4,89,
-         504.361,89, 508.841,89, 512.264,87.256, 515.274,85.722, 517.722,83.274, 519.256,80.264, 521,76.841, 521,72.361, 521,63.4,
-         521,15,
-         521,10.341, 521,8.011, 521.761,6.173, 522.776,3.723, 524.723,1.776, 527.173,0.761, 529.011,0, 531.341,0, 536,0,
-         536,0, 0,0],
-    ]
+    /// Internal, not private, so the frames can be pinned by a test.
+    static let archiveFrames: [[CGFloat]] = (0...6).map { i in
+        // 34 → 89 in five equal steps; the last frame repeats the fifth.
+        let height = 34 + 11 * CGFloat(min(i, 5))
+        let reference = min(height, PanelCorners.ceiling)
+        return PanelCorners.keyframe(
+            height: height,
+            flare: SmoothCorner(radius: PanelCorners.flareShare * reference,
+                                smoothing: PanelCorners.smoothing)
+                .fitting(PanelCorners.shoulder),
+            bottom: SmoothCorner(radius: PanelCorners.bottomShare * reference,
+                                 smoothing: PanelCorners.smoothing)
+        )
+    }
 
     func path(in rect: CGRect) -> Path {
         let p = max(0, min(1, progress))
@@ -167,5 +116,120 @@ struct PanelMorphShape: Shape {
         path.addLine(to: pt(40))
         path.closeSubpath()
         return path
+    }
+}
+
+// MARK: - PanelCorners
+
+/// What the panel's corners are made of, in the 536-wide design space the
+/// keyframes are drawn in.
+nonisolated enum PanelCorners {
+    /// Figma's corner smoothing at 60% — its "iOS" preset — on every corner of
+    /// every frame. Only the radii change from frame to frame.
+    static let smoothing: CGFloat = 0.6
+
+    /// Corner radii as a share of the panel's height, from the macOS 27
+    /// reference traced in the Stampo Figma file (node 1822:1072): 46 at the bottom and 32 at
+    /// the flare, on a body 148 tall.
+    static let bottomShare: CGFloat = 46.0 / 148
+    static let flareShare: CGFloat = 32.0 / 148
+
+    /// The height past which the corners stop growing: the shortest panel the
+    /// shape is ever opened to, a one-line translation (34 + 40). There the
+    /// shares give 23 and 16, the bottom corner still fits inside the
+    /// translation's body, and anything taller — the archive, a longer
+    /// translation — only lengthens the straight sides.
+    static let ceiling: CGFloat = 74
+
+    /// The band between the frame's edge and the straight side, which is all
+    /// the room the flare has sideways. A flare that wants more keeps its
+    /// smoothing and gives up radius: 15 / 1.6 ≈ 9.4, short of the reference's
+    /// 16 at the ceiling. Past Main, every frame's flare is this one.
+    static let shoulder: CGFloat = 15
+
+    /// One keyframe: the four corners in path order — left flare, bottom left,
+    /// bottom right, right flare — then the far end of the top edge and the
+    /// trailing pair the path never reads.
+    static func keyframe(height: CGFloat, flare: SmoothCorner, bottom: SmoothCorner) -> [CGFloat] {
+        let width: CGFloat = 536
+        let left = shoulder
+        let right = width - shoulder
+
+        var points: [CGPoint] = []
+        points += flare.points(at: CGPoint(x: left, y: 0),
+                               along: CGVector(dx: 1, dy: 0), toward: CGVector(dx: 0, dy: 1))
+        points += bottom.points(at: CGPoint(x: left, y: height),
+                                along: CGVector(dx: 0, dy: 1), toward: CGVector(dx: 1, dy: 0))
+        points += bottom.points(at: CGPoint(x: right, y: height),
+                                along: CGVector(dx: 1, dy: 0), toward: CGVector(dx: 0, dy: -1))
+        points += flare.points(at: CGPoint(x: right, y: 0),
+                               along: CGVector(dx: 0, dy: -1), toward: CGVector(dx: 1, dy: 0))
+        points += [CGPoint(x: width, y: 0), CGPoint(x: 0, y: 0)]
+        return points.flatMap { [$0.x, $0.y] }
+    }
+}
+
+// MARK: - SmoothCorner
+
+/// One corner the way Figma draws it with corner smoothing: the arc of a
+/// circle of `radius` in the middle, eased into both straight edges by a cubic
+/// on either side, so the curvature never jumps the way it does where a plain
+/// rounded corner meets its edge. Smoothing 0 is that plain corner; the more
+/// smoothing, the further along each edge the corner starts — `span` instead of
+/// `radius` — and the shorter its circular middle.
+///
+/// The construction is Figma's (the figma-squircle derivation of it), and
+/// `PanelMorphFrameTests` holds it against frames Figma itself exported.
+nonisolated struct SmoothCorner: Sendable {
+    var radius: CGFloat
+    var smoothing: CGFloat
+
+    /// How far along each edge the corner starts before the vertex.
+    var span: CGFloat { (1 + smoothing) * radius }
+
+    /// The same smoothing on a smaller radius, if this corner would need more
+    /// than `room` along an edge.
+    func fitting(_ room: CGFloat) -> SmoothCorner {
+        span <= room ? self : SmoothCorner(radius: room / (1 + smoothing), smoothing: smoothing)
+    }
+
+    /// Ten points — a start, then three cubics as control, control, end — for
+    /// the corner at `vertex`, reached travelling `along` and left travelling
+    /// `toward`. Both are unit vectors.
+    func points(at vertex: CGPoint, along e1: CGVector, toward e2: CGVector) -> [CGPoint] {
+        let p = span
+        // The circle keeps what the smoothing leaves of the quarter turn.
+        let arc = CGFloat.pi / 2 * (1 - smoothing)
+        let arcSide = sin(arc / 2) * radius * CGFloat(2).squareRoot()
+        let angle = CGFloat.pi / 4 * smoothing
+        let c = radius * tan(angle / 2) * cos(angle)
+        let d = c * tan(angle)
+        let b = (p - arcSide - c - d) / 3
+        let a = 2 * b
+        // Handle length of a cubic standing in for the arc.
+        let k = 4 / 3 * tan(arc / 4) * radius
+        let length = (c * c + d * d).squareRoot()
+        let tangent: (u: CGFloat, v: CGFloat) = length > 0
+            ? (u: c / length, v: d / length)
+            : (u: 1, v: 0)
+
+        // u runs along the first edge from where the corner starts, v along
+        // the second. The corner is symmetric about its diagonal, so its second
+        // half is the first mirrored, (u, v) → (p − v, p − u), in reverse.
+        let arcStart: (u: CGFloat, v: CGFloat) = (u: a + b + c, v: d)
+        let firstHalf: [(u: CGFloat, v: CGFloat)] = [
+            (u: 0, v: 0), (u: a, v: 0), (u: a + b, v: 0), arcStart,
+            (u: arcStart.u + k * tangent.u, v: arcStart.v + k * tangent.v),
+        ]
+        let secondHalf: [(u: CGFloat, v: CGFloat)] = firstHalf.reversed().map { (u: p - $0.v, v: p - $0.u) }
+        let local = firstHalf + secondHalf
+
+        // Placed from the vertex rather than from the start, so the points on
+        // the second edge land on it exactly: (u − p) is zero there, not a
+        // rounding error away from zero.
+        return local.map { point in
+            CGPoint(x: vertex.x + (point.u - p) * e1.dx + point.v * e2.dx,
+                    y: vertex.y + (point.u - p) * e1.dy + point.v * e2.dy)
+        }
     }
 }
