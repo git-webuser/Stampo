@@ -64,12 +64,36 @@ struct EditorView: View {
     /// change selection, crop, or the active annotation gesture.
     @State private var presentationInspectorPresented = false
 
+    /// The window's toolbar and a floating settings bar on macOS 26 and later;
+    /// the rows the editor draws itself everywhere else. The drawn rows are
+    /// the shipped, tried layout and stay until the new one has settled —
+    /// `AppSettings.editorSystemToolbar` turns the new one off on any system.
+    /// Read once per editor: the two are different window chrome, not a style.
+    static var usesSystemToolbar: Bool {
+        guard #available(macOS 26, *) else { return false }
+        return AppSettings.editorSystemToolbar
+    }
+    private let systemToolbar = EditorView.usesSystemToolbar
+
     var body: some View {
+        if #available(macOS 26, *), systemToolbar {
+            editor.toolbar { systemToolbarContent }
+        } else {
+            editor
+        }
+    }
+
+    private var editor: some View {
         VStack(spacing: 0) {
-            toolbar
-            Divider()
-            contextBar
-            Divider()
+            if systemToolbar {
+                markupRow
+                Divider()
+            } else {
+                legacyToolbar
+                Divider()
+                legacyContextBar
+                Divider()
+            }
             EditorCanvasView(
                 document: document,
                 tool: $tool,
@@ -84,11 +108,9 @@ struct EditorView: View {
                 windowContext: windowContext
             )
             .background(Color(nsColor: .underPageBackgroundColor))
-            // On the canvas, not on the whole editor: the two rows above run
-            // the full width of the window and the inspector starts under
-            // them, the way the system's own inspectors do. Attached to the
-            // whole VStack it stood beside the rows, which then ended in a
-            // hard edge where the column began.
+            // On the canvas, not on the whole editor: the toolbar runs the
+            // full width of the window and the inspector starts under it, the
+            // way the system's own inspectors do.
             .inspector(isPresented: $presentationInspectorPresented) {
                 PresentationInspector(document: document, colorShelf: colorShelf)
                     .inspectorColumnWidth(
@@ -140,9 +162,184 @@ struct EditorView: View {
 
     private var textEditingActive: Bool { editingTextID != nil }
 
-    // MARK: Toolbar (top row: what you do; bottom row: how it looks)
+    // MARK: Toolbar (the window's: what you do; floating over the canvas: how it looks)
 
-    private var toolbar: some View {
+    /// The window's own toolbar, handed to AppKit through the hosting
+    /// controller's scene bridging (see `EditorWindowController`), laid out
+    /// the way Preview lays out its own on macOS 26: the title leads, then one
+    /// capsule per family of commands — zoom; rotate, crop and scan, the
+    /// operations on the image itself; decor, a switch like Preview's Markup;
+    /// history; and what leaves the editor. The buttons are the system's, not
+    /// the drawn row's, so the system sets their size and spacing. The drawing
+    /// tools are not here: like Preview's markup tools they have a row of
+    /// their own under the toolbar (`markupRow`).
+    @available(macOS 26, *)
+    @ToolbarContentBuilder private var systemToolbarContent: some ToolbarContent {
+        ToolbarItemGroup {
+            Button { adjustZoom(by: -0.25) } label: {
+                Label("Zoom Out", systemImage: "minus.magnifyingglass")
+            }
+            .keyboardShortcut("-", modifiers: .command)
+            .disabled(textEditingActive || zoomFactor <= 0.25)
+            .help("Zoom Out")
+
+            Button { fitZoom() } label: {
+                Label("Zoom to Fit", systemImage: "square.arrowtriangle.4.outward")
+            }
+            .keyboardShortcut("0", modifiers: .command)
+            .disabled(textEditingActive)
+            .help("Zoom to Fit")
+
+            Button { adjustZoom(by: 0.25) } label: {
+                Label("Zoom In", systemImage: "plus.magnifyingglass")
+            }
+            .keyboardShortcut("+", modifiers: .command)
+            .disabled(textEditingActive || zoomFactor >= 8)
+            .help("Zoom In")
+        }
+
+        ToolbarSpacer(.fixed)
+
+        ToolbarItemGroup {
+            Button {
+                rotate(clockwise: !NSEvent.modifierFlags.contains(.option))
+            } label: {
+                Label(LocalizedStringKey(rotateOptionHeld ? "Rotate Left" : "Rotate Right"),
+                      systemImage: rotateOptionHeld ? "rotate.left" : "rotate.right")
+            }
+            .disabled(textEditingActive)
+            .onModifierKeysChanged(mask: .option) { _, new in
+                rotateOptionHeld = !new.isEmpty
+            }
+            .help(LocalizedStringKey(rotateOptionHeld ? "Rotate Left" : "Rotate Right"))
+
+            Toggle(isOn: Binding(
+                get: { tool == .crop },
+                set: { $0 ? enterCropMode() : cancelCrop() }
+            )) {
+                Label("Crop", systemImage: "crop")
+            }
+            .toggleStyle(.button)
+            .disabled(textEditingActive)
+            .help("Crop")
+
+            Toggle(isOn: Binding(
+                get: { tool == .scan },
+                set: { if $0 { selectTool(.scan) } else { tool = .select } }
+            )) {
+                Label("Scan", systemImage: "doc.viewfinder")
+            }
+            .toggleStyle(.button)
+            .disabled(textEditingActive)
+            .help("Scan")
+        }
+
+        ToolbarSpacer(.fixed)
+
+        ToolbarItem {
+            Toggle(isOn: Binding(
+                get: { presentationInspectorPresented },
+                set: { on in
+                    // Turning it on is the decision to decorate, so the
+                    // picture arrives framed rather than edge to edge.
+                    if on { document.startDecorationIfNeeded() }
+                    presentationInspectorPresented = on
+                }
+            )) {
+                Label("Decor", systemImage: PresentationInspector.decorSystemImage)
+            }
+            .toggleStyle(.button)
+            .help("Decor")
+        }
+
+        ToolbarSpacer(.fixed)
+
+        ToolbarItemGroup {
+            Button { document.undo() } label: {
+                Label("Undo", systemImage: "arrow.uturn.backward")
+            }
+            .keyboardShortcut("z", modifiers: .command)
+            .disabled(!document.canUndo || textEditingActive)
+            .help("Undo")
+
+            Button { document.redo() } label: {
+                Label("Redo", systemImage: "arrow.uturn.forward")
+            }
+            .keyboardShortcut("z", modifiers: [.command, .shift])
+            .disabled(!document.canRedo || textEditingActive)
+            .help("Redo")
+        }
+
+        ToolbarSpacer(.fixed)
+
+        if tool == .crop {
+            ToolbarItemGroup {
+                Button { cancelCrop() } label: { Label("Cancel", systemImage: "xmark") }
+                    .help("Cancel")
+                Button { applyCrop() } label: { Label("Apply", systemImage: "checkmark") }
+                    .disabled(cropRect == nil)
+                    .help("Apply")
+            }
+        } else {
+            ToolbarItemGroup {
+                EditorShareButton(prepareItems: shareItems) {
+                    Label("Share", systemImage: "square.and.arrow.up")
+                }
+                .disabled(textEditingActive || isPreparingArtifact)
+                .help("Share")
+
+                // ⌘C and ⌘S are carried by `shortcutCarriers` under the
+                // markup row, the same buttons the drawn row uses.
+                Button { copyToClipboard() } label: {
+                    Label("Copy", systemImage: "doc.on.doc")
+                }
+                .disabled(textEditingActive || isPreparingArtifact)
+                .help("Copy")
+
+                Menu {
+                    Button("Save As…") { saveAs() }
+                        .disabled(saveAsHandler == nil || isPreparingArtifact)
+                    Divider()
+                    Button(role: .destructive) {
+                        copyToClipboard()
+                        delete()
+                    } label: {
+                        Text("Copy and Delete").foregroundStyle(.red)
+                    }
+                    .disabled(deleteHandler == nil || isPreparingArtifact)
+                    Button(role: .destructive) { delete() } label: {
+                        Text("Delete").foregroundStyle(.red)
+                    }
+                    .disabled(deleteHandler == nil || isPreparingArtifact)
+                } label: {
+                    Label("Save", systemImage: "square.and.arrow.down")
+                } primaryAction: {
+                    save()
+                }
+                .disabled(saveHandler == nil || textEditingActive || isPreparingArtifact)
+                .help("Save")
+            }
+        }
+    }
+
+    /// The drawing tools and the active tool's settings, one centred row
+    /// under the toolbar — where Preview puts its markup tools and their
+    /// style, tools first and style after a rule.
+    private var markupRow: some View {
+        HStack(spacing: 14) {
+            toolPicker
+            Divider().frame(height: 20)
+            contextRow
+        }
+        .fixedSize(horizontal: true, vertical: false)
+        .frame(maxWidth: .infinity)
+        .frame(height: 40)
+        .background(shortcutCarriers)
+    }
+
+    /// The row the editor draws itself — the layout before macOS 26, kept as
+    /// it shipped.
+    private var legacyToolbar: some View {
         HStack(spacing: 10) {
             toolPicker
             Divider().frame(height: 20)
@@ -208,17 +405,27 @@ struct EditorView: View {
         }
     }
 
-    /// Second toolbar row: settings for the active tool. A selected
-    /// annotation's kind wins over the tool so restyling a selection always
-    /// shows the matching controls. Fixed height — switching tools must not
-    /// reflow the canvas.
+    /// The settings row as a second full-width strip, before macOS 26.
+    private var legacyContextBar: some View {
+        HStack(spacing: 12) {
+            contextRow
+            Spacer()
+        }
+        .padding(.horizontal, 12)
+        .frame(height: 34)
+    }
+
+    /// Settings for the active tool. A selected annotation's kind wins over
+    /// the tool so restyling a selection always shows the matching controls.
+    /// Fixed height where it is placed — switching tools must not reflow the
+    /// canvas.
     ///
     /// Every row keeps one order, so the eye finds the same class of control
     /// in the same place whatever the tool: **color, then the discrete
     /// controls** (buttons, segmented pickers, steppers), **then sliders**.
     /// A row that leads with a control and ends in a hint puts a divider
     /// between the two.
-    private var contextBar: some View {
+    private var contextRow: some View {
         HStack(spacing: 12) {
             if tool == .scan, document.selectedAnnotation == nil {
                 // Control first, hint after the divider — the same shape as the
@@ -237,10 +444,7 @@ struct EditorView: View {
             } else {
                 contextControls
             }
-            Spacer()
         }
-        .padding(.horizontal, 12)
-        .frame(height: 34)
     }
 
     @ViewBuilder private var contextControls: some View {
@@ -2052,4 +2256,3 @@ private enum ToolButtonMetrics {
 /// accent colour in front.
 ///
 /// The tool picker's buttons are built by one function and wore this already.
-
