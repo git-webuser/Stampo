@@ -37,3 +37,9 @@ jobs:
         # hangs on "waiting for workers to materialize" in this project's
         # environment, and the whole suite finishes in seconds without it.
         run: bash Scripts/run-tests.sh
+      - name: Check that every tooltip is translated
+        # Read from the checkout by the shell, not by the hosted app: the test
+        # bundle runs inside Stampo.app, which is not always allowed to open
+        # the folder the checkout is in — and a denied read there waits rather
+        # than failing.
+        run: bash Scripts/check-tooltips.sh

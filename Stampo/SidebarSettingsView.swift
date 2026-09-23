@@ -67,6 +67,22 @@ enum SettingsTab: Int, CaseIterable, Identifiable, Hashable {
 
 struct SidebarSettingsView: View {
     @Bindable private var navigation = SettingsNavigation.shared
+    @Environment(\.colorScheme) private var colorScheme
+
+    /// The sidebar in the dark appearance, darker than the pane beside it the
+    /// way System Settings draws it. `.sidebar` on a bare List (there is no
+    /// split view here, see below) paints a translucent material that comes
+    /// out lighter than the pane instead. The light appearance keeps it.
+    /// Resolved under the dark appearance explicitly: blending a dynamic
+    /// system colour takes whichever appearance is current at the time.
+    private static let darkSidebar: Color = {
+        var color = NSColor.black
+        NSAppearance(named: .darkAqua)?.performAsCurrentDrawingAppearance {
+            color = NSColor.windowBackgroundColor.usingColorSpace(.sRGB)?
+                .blended(withFraction: 0.35, of: .black) ?? .black
+        }
+        return Color(nsColor: color)
+    }()
     private var selectedTab: SettingsTab? { navigation.selectedTab }
 
     /// Plain columns rather than a NavigationSplitView.
@@ -101,6 +117,8 @@ struct SidebarSettingsView: View {
                 .padding(.vertical, 3)
             }
             .listStyle(.sidebar)
+            .scrollContentBackground(colorScheme == .dark ? .hidden : .automatic)
+            .background(colorScheme == .dark ? Self.darkSidebar : .clear)
             .frame(width: Self.sidebarWidth)
 
             Divider()

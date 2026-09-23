@@ -136,10 +136,17 @@ struct PopUpMoreButtonWrapper: NSViewRepresentable {
     var accessibilityValue: String? = nil
     var onOpen:  () -> Void
     var onClose: () -> Void
+    /// Called once the menu has closed, with whether the pointer is over the
+    /// button now. The menu runs its own tracking loop, so SwiftUI never sees
+    /// the release or the pointer leaving; a caller that lights up on press or
+    /// hover has to be told, or it stays lit — until the pointer happens to
+    /// cross the button again, and never if the pick hid the panel.
+    var afterClose: (_ pointerIsInside: Bool) -> Void = { _ in }
     @Environment(\.locale) private var locale
 
     func makeNSView(context: Context) -> NSPopUpButton {
         let button = PanelPopUpButton()
+        context.coordinator.button = button
         button.isBordered       = false
         button.isTransparent    = true
         button.pullsDown        = false
@@ -189,6 +196,7 @@ struct PopUpMoreButtonWrapper: NSViewRepresentable {
 
     final class Coordinator: NSObject {
         var parent: PopUpMoreButtonWrapper
+        weak var button: NSPopUpButton?
         /// Live commands, re-assigned on every update so a menu item always
         /// runs the current closure.
         var commands: [PanelMenuCommand] = []
@@ -288,8 +296,24 @@ struct PopUpMoreButtonWrapper: NSViewRepresentable {
         }
 
         @objc func menuDidClose(_ notification: Notification) {
-            DispatchQueue.main.async { self.parent.onClose() }
+            DispatchQueue.main.async {
+                self.parent.onClose()
+                self.parent.afterClose(self.button?.isUnderPointer ?? false)
+            }
         }
+    }
+}
+
+extension NSView {
+    /// Whether the pointer is over this view right now, for the panel's menu
+    /// buttons to ask once their menu has closed (see
+    /// `PopUpMoreButtonWrapper.afterClose`). A view in a hidden window counts
+    /// as not under it: a pick that hides the panel leaves the view mounted,
+    /// and no exit would ever arrive.
+    var isUnderPointer: Bool {
+        guard let window, window.isVisible else { return false }
+        let frame = window.convertToScreen(convert(bounds, to: nil))
+        return frame.contains(NSEvent.mouseLocation)
     }
 }
 
@@ -310,7 +334,11 @@ struct PanelMoreMenuButton: View {
             PopUpMoreButtonWrapper(
                 extraCommands: extraCommands,
                 onOpen:  { isMenuOpen = true  },
-                onClose: { isMenuOpen = false }
+                onClose: { isMenuOpen = false },
+                afterClose: { inside in
+                    isPressed = false
+                    isHovered = inside
+                }
             )
             .frame(width: metrics.cellWidth, height: metrics.iconSize)
 

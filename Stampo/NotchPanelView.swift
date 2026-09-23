@@ -459,10 +459,14 @@ private struct PopUpModeButtonWrapper: NSViewRepresentable {
     var onScan: () -> Void
     var onOpen:  () -> Void
     var onClose: () -> Void
+    /// Whether the pointer is over the button once the menu has closed; see
+    /// `PopUpMoreButtonWrapper.afterClose`.
+    var afterClose: (_ pointerIsInside: Bool) -> Void = { _ in }
     @Environment(\.locale) private var locale
 
     func makeNSView(context: Context) -> NSPopUpButton {
         let button = PanelPopUpButton()
+        context.coordinator.button = button
         button.isBordered        = false
         button.isTransparent     = true
         // Pull-down, not pop-up: a pop-up menu positions itself so the selected
@@ -551,6 +555,7 @@ private struct PopUpModeButtonWrapper: NSViewRepresentable {
 
     final class Coordinator: NSObject {
         var parent: PopUpModeButtonWrapper
+        weak var button: NSPopUpButton?
 
         init(_ parent: PopUpModeButtonWrapper) { self.parent = parent }
 
@@ -577,7 +582,10 @@ private struct PopUpModeButtonWrapper: NSViewRepresentable {
         }
 
         @objc func menuDidClose(_ notification: Notification) {
-            DispatchQueue.main.async { self.parent.onClose() }
+            DispatchQueue.main.async {
+                self.parent.onClose()
+                self.parent.afterClose(self.button?.isUnderPointer ?? false)
+            }
         }
     }
 }
@@ -588,10 +596,14 @@ private struct PopUpButtonWrapper: NSViewRepresentable {
     @Binding var selection: CaptureDelay
     var onOpen:  () -> Void
     var onClose: () -> Void
+    /// Whether the pointer is over the button once the menu has closed; see
+    /// `PopUpMoreButtonWrapper.afterClose`.
+    var afterClose: (_ pointerIsInside: Bool) -> Void = { _ in }
     @Environment(\.locale) private var locale
 
     func makeNSView(context: Context) -> NSPopUpButton {
         let button = PanelPopUpButton()
+        context.coordinator.button = button
         button.isBordered        = false
         button.isTransparent     = true
         // Pull-down for the same reason as the mode menu: see
@@ -650,6 +662,7 @@ private struct PopUpButtonWrapper: NSViewRepresentable {
 
     final class Coordinator: NSObject {
         var parent: PopUpButtonWrapper
+        weak var button: NSPopUpButton?
 
         init(_ parent: PopUpButtonWrapper) { self.parent = parent }
 
@@ -668,7 +681,10 @@ private struct PopUpButtonWrapper: NSViewRepresentable {
         }
 
         @objc func menuDidClose(_ notification: Notification) {
-            DispatchQueue.main.async { self.parent.onClose() }
+            DispatchQueue.main.async {
+                self.parent.onClose()
+                self.parent.afterClose(self.button?.isUnderPointer ?? false)
+            }
         }
     }
 }
@@ -725,7 +741,11 @@ private struct PanelModeMenuButton: View {
                 onPickColor: onPickColor,
                 onScan: onScan,
                 onOpen:  { isMenuOpen = true; highlightSuppressed = false },
-                onClose: { isMenuOpen = false }
+                onClose: { isMenuOpen = false },
+                afterClose: { inside in
+                    isPressed = false
+                    isHovered = inside
+                }
             )
             .frame(width: metrics.cellWidth, height: metrics.iconSize)
 
@@ -812,7 +832,11 @@ private struct PanelTimerMenuButton: View {
             PopUpButtonWrapper(
                 selection: $model.delay,
                 onOpen:  { isMenuOpen = true; highlightSuppressed = false },
-                onClose: { isMenuOpen = false }
+                onClose: { isMenuOpen = false },
+                afterClose: { inside in
+                    isPressed = false
+                    isHovered = inside
+                }
             )
             .frame(width: cellWidth, height: metrics.iconSize)
 

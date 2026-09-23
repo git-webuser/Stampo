@@ -407,6 +407,22 @@ private struct NotchPanelRootView: View {
     /// The panel is showing the wait rather than any route.
     private var isWaiting: Bool { rootState.waitingStripVisible }
 
+    /// The notch shape itself, for clipping what the routes draw. A height is
+    /// not enough once the bottom corners are large: a hover label under the
+    /// first cell reached past the curve and drew its plate outside the panel.
+    /// Elsewhere the shapes are small enough that the height mask holds, so
+    /// this stays a plain fill there.
+    @ViewBuilder private var panelOutline: some View {
+        if m.hasNotch && !isWaiting {
+            PanelMorphShape(progress: p, pixel: m.pixel, extraHeight: extraH,
+                            wideFlares: m.wideFlares)
+                .fill(Color.black)
+                .animation(Self.routeHeightSpring, value: extraH)
+        } else {
+            Color.black
+        }
+    }
+
     var body: some View {
         // Notch style on a notch-less screen renders the whole panel at its 34pt
         // design size, then scales it uniformly (shape, buttons, fonts, paddings)
@@ -468,7 +484,8 @@ private struct NotchPanelRootView: View {
                 .frame(height: m.panelHeight)
                 .frame(height: windowH, alignment: .top)
             } else if m.hasNotch {
-                PanelMorphShape(progress: p, pixel: m.pixel, extraHeight: extraH)
+                PanelMorphShape(progress: p, pixel: m.pixel, extraHeight: extraH,
+                                wideFlares: m.wideFlares)
                     .fill(Color.black)
                     .compositingGroup()
                     .frame(height: windowH, alignment: .top)
@@ -591,6 +608,7 @@ private struct NotchPanelRootView: View {
                     .frame(height: revealH)
                     .frame(height: routeH, alignment: .top)
             )
+            .mask(panelOutline)
 
             // Translator — the same reveal as the archive, on the taller shape.
             NotchTranslateView(
@@ -613,6 +631,7 @@ private struct NotchPanelRootView: View {
                     .frame(height: revealH)
                     .frame(height: routeH, alignment: .top)
             )
+            .mask(panelOutline)
 
             // Notch close zone — always topmost, width = notchGap, height = panelHeight.
             // Lets the user close the panel by tapping the notch pill even when the archive
@@ -811,6 +830,9 @@ final class NotchPanelController: NSObject {
     private func postMascotNotification() {
         switch state {
         case .countdown:                             postMascotState(.countdown)
+        // The wait strip and the mascot are the same news told twice: the app
+        // is doing something of its own. The ears spread and hold while it is.
+        case .waiting:                               postMascotState(.waiting)
         case .main, .archive, .showing, .preSelection: postMascotState(.awake)
         case .hidden:                               postMascotState(.sleeping)
         default:                                    break
@@ -2067,6 +2089,12 @@ final class NotchPanelController: NSObject {
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = false
+        // The panel animates its own appearance. Left to the default, macOS 27
+        // plays its window-appear animation on orderFront as well: recorded,
+        // the panel's top edge sits 1–3 px below the screen edge for the first
+        // two frames and then snaps up — the "bounce" at the top, present in
+        // 0.9.0 too and untouched by anything done to the frame.
+        panel.animationBehavior = .none
         panel.hidesOnDeactivate = false
         panel.ignoresMouseEvents = false
         panel.appearance = NSAppearance(named: .darkAqua)
