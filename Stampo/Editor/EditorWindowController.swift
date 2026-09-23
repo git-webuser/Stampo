@@ -164,14 +164,7 @@ final class EditorWindowController: NSObject, NSWindowDelegate {
 
         let hosting = NSHostingController(rootView: root)
         let window = NSWindow(contentViewController: hosting)
-        // Full-size content under a transparent title bar, the way Preview and
-        // Xcode are built: the native inspector then runs up to the window's
-        // top edge instead of stopping under an opaque title bar, which in the
-        // light appearance left a white strip stepped over the grey column.
-        // The editor's own rows still sit below the title bar — SwiftUI keeps
-        // them in the safe area.
-        window.styleMask = [.titled, .closable, .resizable, .miniaturizable, .fullSizeContentView]
-        window.titlebarAppearsTransparent = true
+        window.styleMask = [.titled, .closable, .resizable, .miniaturizable]
         window.title = url.lastPathComponent
         window.isReleasedWhenClosed = false
         window.contentMinSize = EditorView.minimumContentSize
@@ -273,6 +266,15 @@ final class EditorWindowController: NSObject, NSWindowDelegate {
                               height: max(current.height, minimum.height))
         if expanded != current {
             window.setContentSize(expanded)
+        }
+        // Growing keeps the left edge, so a window near the right of the
+        // screen pushed the inspector off it. Slide it back on, left edge
+        // first if it has to give.
+        if let visible = window.screen?.visibleFrame {
+            var frame = window.frame
+            if frame.maxX > visible.maxX { frame.origin.x = visible.maxX - frame.width }
+            if frame.minX < visible.minX { frame.origin.x = visible.minX }
+            if frame != window.frame { window.setFrame(frame, display: true, animate: true) }
         }
     }
 
