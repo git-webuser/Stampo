@@ -14,6 +14,18 @@
 
 ---
 
+## 0. Full test run
+
+```bash
+bash Scripts/run-tests.sh
+```
+
+The whole suite, with no `-only-testing` filter. While a task is in progress
+only the suites touching the change are run (see `CLAUDE.md`), so this is the
+local run where everything is checked together.
+
+---
+
 ## 1. Update version
 
 In `Stampo.xcodeproj`:
