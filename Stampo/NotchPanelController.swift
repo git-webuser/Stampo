@@ -830,6 +830,9 @@ final class NotchPanelController: NSObject {
     private func postMascotNotification() {
         switch state {
         case .countdown:                             postMascotState(.countdown)
+        // The wait strip and the mascot are the same news told twice: the app
+        // is doing something of its own. The ears spread and hold while it is.
+        case .waiting:                               postMascotState(.waiting)
         case .main, .archive, .showing, .preSelection: postMascotState(.awake)
         case .hidden:                               postMascotState(.sleeping)
         default:                                    break
