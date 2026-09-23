@@ -298,17 +298,22 @@ struct PopUpMoreButtonWrapper: NSViewRepresentable {
         @objc func menuDidClose(_ notification: Notification) {
             DispatchQueue.main.async {
                 self.parent.onClose()
-                self.parent.afterClose(self.pointerIsInside)
+                self.parent.afterClose(self.button?.isUnderPointer ?? false)
             }
         }
+    }
+}
 
-        /// A hidden panel counts as not under the pointer: Settings hides it
-        /// without unmounting the view, and no exit would ever arrive.
-        private var pointerIsInside: Bool {
-            guard let button, let window = button.window, window.isVisible else { return false }
-            let frame = window.convertToScreen(button.convert(button.bounds, to: nil))
-            return frame.contains(NSEvent.mouseLocation)
-        }
+extension NSView {
+    /// Whether the pointer is over this view right now, for the panel's menu
+    /// buttons to ask once their menu has closed (see
+    /// `PopUpMoreButtonWrapper.afterClose`). A view in a hidden window counts
+    /// as not under it: a pick that hides the panel leaves the view mounted,
+    /// and no exit would ever arrive.
+    var isUnderPointer: Bool {
+        guard let window, window.isVisible else { return false }
+        let frame = window.convertToScreen(convert(bounds, to: nil))
+        return frame.contains(NSEvent.mouseLocation)
     }
 }
 
