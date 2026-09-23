@@ -2086,6 +2086,12 @@ final class NotchPanelController: NSObject {
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = false
+        // The panel animates its own appearance. Left to the default, macOS 27
+        // plays its window-appear animation on orderFront as well: recorded,
+        // the panel's top edge sits 1–3 px below the screen edge for the first
+        // two frames and then snaps up — the "bounce" at the top, present in
+        // 0.9.0 too and untouched by anything done to the frame.
+        panel.animationBehavior = .none
         panel.hidesOnDeactivate = false
         panel.ignoresMouseEvents = false
         panel.appearance = NSAppearance(named: .darkAqua)
