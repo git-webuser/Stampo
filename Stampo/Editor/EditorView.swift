@@ -66,10 +66,6 @@ struct EditorView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            toolbar
-            Divider()
-            contextBar
-            Divider()
             EditorCanvasView(
                 document: document,
                 tool: $tool,
@@ -84,11 +80,10 @@ struct EditorView: View {
                 windowContext: windowContext
             )
             .background(Color(nsColor: .underPageBackgroundColor))
-            // On the canvas, not on the whole editor: the two rows above run
-            // the full width of the window and the inspector starts under
-            // them, the way the system's own inspectors do. Attached to the
-            // whole VStack it stood beside the rows, which then ended in a
-            // hard edge where the column began.
+            .overlay(alignment: .top) { floatingContextBar }
+            // On the canvas, not on the whole editor: the toolbar runs the
+            // full width of the window and the inspector starts under it, the
+            // way the system's own inspectors do.
             .inspector(isPresented: $presentationInspectorPresented) {
                 PresentationInspector(document: document, colorShelf: colorShelf)
                     .inspectorColumnWidth(
@@ -98,6 +93,7 @@ struct EditorView: View {
                     )
             }
         }
+        .toolbar { windowToolbar }
         .onChange(of: tool) { _, newTool in
             if newTool == .scan {
                 beginScanSelection()
@@ -140,29 +136,28 @@ struct EditorView: View {
 
     private var textEditingActive: Bool { editingTextID != nil }
 
-    // MARK: Toolbar (top row: what you do; bottom row: how it looks)
+    // MARK: Toolbar (the window's: what you do; floating over the canvas: how it looks)
 
-    private var toolbar: some View {
-        HStack(spacing: 10) {
-            toolPicker
-            Divider().frame(height: 20)
+    /// The window's own toolbar, handed to AppKit through the hosting
+    /// controller's scene bridging (see `EditorWindowController`). It used to be
+    /// a row drawn by the editor, a flat full-width strip with rules between
+    /// groups, under a separate title bar; the system draws its groups as
+    /// capsules sharing one line with the window's controls, and takes care of
+    /// overflow when the window narrows. Each group below is one capsule.
+    @ToolbarContentBuilder private var windowToolbar: some ToolbarContent {
+        ToolbarItem(placement: .navigation) { toolPicker }
+        ToolbarItemGroup(placement: .automatic) {
             zoomControls
             fitButton
-            Divider().frame(height: 20)
-            rotateButtons
-            Divider().frame(height: 20)
-            cropButton
-            Divider().frame(height: 20)
-            scanButton
-            Divider().frame(height: 20)
-            decorButton
-            Spacer(minLength: 8)
-            undoRedoButtons
-            Divider().frame(height: 20)
-            actionButtons
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        ToolbarItemGroup(placement: .automatic) {
+            rotateButtons
+            cropButton
+            scanButton
+        }
+        ToolbarItem(placement: .automatic) { decorButton }
+        ToolbarItem(placement: .primaryAction) { undoRedoButtons }
+        ToolbarItem(placement: .primaryAction) { actionButtons }
     }
 
     /// Toolbar tools, left to right. Two low-frequency families are collapsed
@@ -237,10 +232,34 @@ struct EditorView: View {
             } else {
                 contextControls
             }
-            Spacer()
         }
-        .padding(.horizontal, 12)
+        .padding(.horizontal, 14)
         .frame(height: 34)
+        .fixedSize(horizontal: true, vertical: false)
+    }
+
+    /// The active tool's settings as a panel floating over the top of the
+    /// canvas, the way Freeform and Preview carry theirs, rather than a second
+    /// full-width strip under the toolbar. It is only as wide as the controls
+    /// in it — the widest row was sized for the window's minimum width, so it
+    /// fits over the canvas at any size the window allows.
+    private var floatingContextBar: some View {
+        contextBar
+            .background { contextBarPlate }
+            .frame(maxWidth: .infinity)
+        .padding(.top, 10)
+        .padding(.horizontal, 16)
+    }
+
+    /// System glass where the system has it, a material plate before that.
+    @ViewBuilder private var contextBarPlate: some View {
+        if #available(macOS 26, *) {
+            Color.clear.glassEffect(.regular, in: Capsule(style: .continuous))
+        } else {
+            Capsule(style: .continuous)
+                .fill(.regularMaterial)
+                .shadow(color: .black.opacity(0.12), radius: 6, y: 2)
+        }
     }
 
     @ViewBuilder private var contextControls: some View {

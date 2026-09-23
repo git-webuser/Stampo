@@ -163,8 +163,14 @@ final class EditorWindowController: NSObject, NSWindowDelegate {
         .managedLocale()
 
         let hosting = NSHostingController(rootView: root)
+        // The editor's `.toolbar` becomes the window's NSToolbar only if the
+        // hosting controller is told to hand it over; a window built by hand
+        // gets no scene to do it otherwise.
+        hosting.sceneBridgingOptions = [.toolbars]
         let window = NSWindow(contentViewController: hosting)
         window.styleMask = [.titled, .closable, .resizable, .miniaturizable]
+        // One line for the window's controls, its title and the toolbar.
+        window.toolbarStyle = .unified
         window.title = url.lastPathComponent
         window.isReleasedWhenClosed = false
         window.contentMinSize = EditorView.minimumContentSize
