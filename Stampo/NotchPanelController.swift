@@ -2073,7 +2073,7 @@ final class NotchPanelController: NSObject {
     // MARK: - Panel lifecycle
 
     private func create() {
-        let panel = NSPanel(
+        let panel = NotchPanelWindow(
             contentRect: NSRect(x: 0, y: 0, width: collapsedWidth, height: panelWindowHeight),
             styleMask: [.nonactivatingPanel, .borderless],
             backing: .buffered,
@@ -2564,5 +2564,21 @@ final class NotchPanelController: NSObject {
             ctx.timingFunction = CAMediaTimingFunction(name: .linear)
             panel.animator().setFrame(target, display: true)
         }
+    }
+}
+
+// MARK: - NotchPanelWindow
+
+/// The panel's window, which belongs over the menu bar and the notch.
+///
+/// AppKit keeps windows out from under the menu bar by passing every frame
+/// through `constrainFrameRect(_:to:)`, and it does so for the intermediate
+/// frames of an animated `setFrame` too. Those came back pushed down below
+/// the menu bar, so the panel dropped off the screen edge while it animated
+/// and sprang back when the animation ended. Every frame this window is given
+/// is already the one it should have.
+final class NotchPanelWindow: NSPanel {
+    override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
+        frameRect
     }
 }
