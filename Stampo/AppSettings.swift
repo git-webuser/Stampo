@@ -96,6 +96,7 @@ enum AppSettings {
         static let noNotchPanelStyle       = "noNotchPanelStyle"
         static let noNotchNotchScale       = "noNotchNotchScale"
         static let wideNotchFlares         = "wideNotchFlares"
+        static let editorSystemToolbar     = "editorSystemToolbar"
         static let preferredLanguage       = "preferredLanguage"
         // Hotkeys (the 5 global actions store combos via HotkeyAction; these two
         // are the local color-picker shortcuts, enable/disable only).
@@ -155,6 +156,16 @@ enum AppSettings {
     /// `defaults write com.hex000.Stampo wideNotchFlares -bool NO`, then relaunch.
     static var wideNotchFlares: Bool {
         UserDefaults.standard.object(forKey: Keys.wideNotchFlares) as? Bool ?? true
+    }
+
+    /// Whether the editor uses the window's toolbar and a floating settings
+    /// bar (see `EditorView.usesSystemToolbar`) — macOS 26 and later only;
+    /// earlier systems keep the drawn rows. No UI: the way back without a
+    /// rebuild while the new layout settles —
+    /// `defaults write com.hex000.Stampo editorSystemToolbar -bool NO`, then
+    /// reopen the editor.
+    static var editorSystemToolbar: Bool {
+        UserDefaults.standard.object(forKey: Keys.editorSystemToolbar) as? Bool ?? true
     }
 
     static var showThumbnailHUD: Bool {

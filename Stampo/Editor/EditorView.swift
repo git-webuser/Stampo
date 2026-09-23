@@ -64,8 +64,25 @@ struct EditorView: View {
     /// change selection, crop, or the active annotation gesture.
     @State private var presentationInspectorPresented = false
 
+    /// The window's toolbar and a floating settings bar on macOS 26 and later;
+    /// the rows the editor draws itself everywhere else. The drawn rows are
+    /// the shipped, tried layout and stay until the new one has settled —
+    /// `AppSettings.editorSystemToolbar` turns the new one off on any system.
+    /// Read once per editor: the two are different window chrome, not a style.
+    static var usesSystemToolbar: Bool {
+        guard #available(macOS 26, *) else { return false }
+        return AppSettings.editorSystemToolbar
+    }
+    private let systemToolbar = EditorView.usesSystemToolbar
+
     var body: some View {
         VStack(spacing: 0) {
+            if !systemToolbar {
+                legacyToolbar
+                Divider()
+                legacyContextBar
+                Divider()
+            }
             EditorCanvasView(
                 document: document,
                 tool: $tool,
@@ -80,7 +97,9 @@ struct EditorView: View {
                 windowContext: windowContext
             )
             .background(Color(nsColor: .underPageBackgroundColor))
-            .overlay(alignment: .top) { floatingContextBar }
+            .overlay(alignment: .top) {
+                if systemToolbar { floatingContextBar }
+            }
             // On the canvas, not on the whole editor: the toolbar runs the
             // full width of the window and the inspector starts under it, the
             // way the system's own inspectors do.
@@ -93,7 +112,7 @@ struct EditorView: View {
                     )
             }
         }
-        .toolbar { windowToolbar }
+        .editorWindowToolbar(systemToolbar) { windowToolbar }
         .onChange(of: tool) { _, newTool in
             if newTool == .scan {
                 beginScanSelection()
@@ -160,6 +179,31 @@ struct EditorView: View {
         ToolbarItem(placement: .primaryAction) { actionButtons }
     }
 
+    /// The row the editor draws itself — the layout before macOS 26, kept as
+    /// it shipped.
+    private var legacyToolbar: some View {
+        HStack(spacing: 10) {
+            toolPicker
+            Divider().frame(height: 20)
+            zoomControls
+            fitButton
+            Divider().frame(height: 20)
+            rotateButtons
+            Divider().frame(height: 20)
+            cropButton
+            Divider().frame(height: 20)
+            scanButton
+            Divider().frame(height: 20)
+            decorButton
+            Spacer(minLength: 8)
+            undoRedoButtons
+            Divider().frame(height: 20)
+            actionButtons
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+    }
+
     /// Toolbar tools, left to right. Two low-frequency families are collapsed
     /// behind popover buttons — shapes (rectangle, oval, polygon, star,
     /// bubble, blur, loupe) and drawing (pen, marker, eraser) — the rest stay
@@ -214,6 +258,23 @@ struct EditorView: View {
     /// A row that leads with a control and ends in a hint puts a divider
     /// between the two.
     private var contextBar: some View {
+        contextRow
+            .padding(.horizontal, 14)
+            .frame(height: 34)
+            .fixedSize(horizontal: true, vertical: false)
+    }
+
+    /// The same controls as the second full-width row, before macOS 26.
+    private var legacyContextBar: some View {
+        HStack(spacing: 12) {
+            contextRow
+            Spacer()
+        }
+        .padding(.horizontal, 12)
+        .frame(height: 34)
+    }
+
+    private var contextRow: some View {
         HStack(spacing: 12) {
             if tool == .scan, document.selectedAnnotation == nil {
                 // Control first, hint after the divider — the same shape as the
@@ -233,9 +294,6 @@ struct EditorView: View {
                 contextControls
             }
         }
-        .padding(.horizontal, 14)
-        .frame(height: 34)
-        .fixedSize(horizontal: true, vertical: false)
     }
 
     /// The active tool's settings as a panel floating over the top of the
@@ -2072,3 +2130,20 @@ private enum ToolButtonMetrics {
 ///
 /// The tool picker's buttons are built by one function and wore this already.
 
+// MARK: - Window toolbar
+
+private extension View {
+    /// `.toolbar` only where the editor hands its tools to the window. A
+    /// constant for the life of the editor, so the branch never flips.
+    @ViewBuilder
+    func editorWindowToolbar<Content: ToolbarContent>(
+        _ enabled: Bool,
+        @ToolbarContentBuilder _ content: () -> Content
+    ) -> some View {
+        if enabled {
+            toolbar(content: content)
+        } else {
+            self
+        }
+    }
+}
