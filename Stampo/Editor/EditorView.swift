@@ -84,6 +84,19 @@ struct EditorView: View {
                 windowContext: windowContext
             )
             .background(Color(nsColor: .underPageBackgroundColor))
+            // On the canvas, not on the whole editor: the two rows above run
+            // the full width of the window and the inspector starts under
+            // them, the way the system's own inspectors do. Attached to the
+            // whole VStack it stood beside the rows, which then ended in a
+            // hard edge where the column began.
+            .inspector(isPresented: $presentationInspectorPresented) {
+                PresentationInspector(document: document, colorShelf: colorShelf)
+                    .inspectorColumnWidth(
+                        min: Self.presentationInspectorMinimumWidth,
+                        ideal: Self.presentationInspectorIdealWidth,
+                        max: Self.presentationInspectorMaximumWidth
+                    )
+            }
         }
         .onChange(of: tool) { _, newTool in
             if newTool == .scan {
@@ -120,14 +133,6 @@ struct EditorView: View {
         }
         .frame(minWidth: Self.minimumContentSize.width,
                minHeight: Self.minimumContentSize.height)
-        .inspector(isPresented: $presentationInspectorPresented) {
-            PresentationInspector(document: document, colorShelf: colorShelf)
-                .inspectorColumnWidth(
-                    min: Self.presentationInspectorMinimumWidth,
-                    ideal: Self.presentationInspectorIdealWidth,
-                    max: Self.presentationInspectorMaximumWidth
-                )
-        }
         .onChange(of: presentationInspectorPresented) { _, presented in
             presentationInspectorChanged?(presented)
         }
