@@ -407,6 +407,22 @@ private struct NotchPanelRootView: View {
     /// The panel is showing the wait rather than any route.
     private var isWaiting: Bool { rootState.waitingStripVisible }
 
+    /// The notch shape itself, for clipping what the routes draw. A height is
+    /// not enough once the bottom corners are large: a hover label under the
+    /// first cell reached past the curve and drew its plate outside the panel.
+    /// Elsewhere the shapes are small enough that the height mask holds, so
+    /// this stays a plain fill there.
+    @ViewBuilder private var panelOutline: some View {
+        if m.hasNotch && !isWaiting {
+            PanelMorphShape(progress: p, pixel: m.pixel, extraHeight: extraH,
+                            wideFlares: m.wideFlares)
+                .fill(Color.black)
+                .animation(Self.routeHeightSpring, value: extraH)
+        } else {
+            Color.black
+        }
+    }
+
     var body: some View {
         // Notch style on a notch-less screen renders the whole panel at its 34pt
         // design size, then scales it uniformly (shape, buttons, fonts, paddings)
@@ -592,6 +608,7 @@ private struct NotchPanelRootView: View {
                     .frame(height: revealH)
                     .frame(height: routeH, alignment: .top)
             )
+            .mask(panelOutline)
 
             // Translator — the same reveal as the archive, on the taller shape.
             NotchTranslateView(
@@ -614,6 +631,7 @@ private struct NotchPanelRootView: View {
                     .frame(height: revealH)
                     .frame(height: routeH, alignment: .top)
             )
+            .mask(panelOutline)
 
             // Notch close zone — always topmost, width = notchGap, height = panelHeight.
             // Lets the user close the panel by tapping the notch pill even when the archive
