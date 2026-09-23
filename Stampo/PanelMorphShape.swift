@@ -25,6 +25,11 @@ struct PanelMorphShape: Shape {
     /// range, not two of them.
     var extraHeight: CGFloat = 0
 
+    /// Draw with `PanelCorners.wideShoulder` instead of the original 15pt, and
+    /// keep the corners their size at any panel width rather than stretching
+    /// them with it. Off is the shape exactly as it was before.
+    var wideFlares: Bool = false
+
     var animatableData: AnimatablePair<CGFloat, CGFloat> {
         get { AnimatablePair(progress, extraHeight) }
         set { progress = newValue.first; extraHeight = newValue.second }
@@ -52,23 +57,29 @@ struct PanelMorphShape: Shape {
     // Total: 41 points = 82 values per keyframe, plus a trailing pair.
 
     /// Internal, not private, so the frames can be pinned by a test.
-    static let archiveFrames: [[CGFloat]] = (0...6).map { i in
-        // 34 → 89 in five equal steps; the last frame repeats the fifth.
-        let height = 34 + 11 * CGFloat(min(i, 5))
-        let reference = min(height, PanelCorners.ceiling)
-        return PanelCorners.keyframe(
-            height: height,
-            flare: SmoothCorner(radius: PanelCorners.flareShare * reference,
-                                smoothing: PanelCorners.smoothing)
-                .fitting(PanelCorners.shoulder),
-            bottom: SmoothCorner(radius: PanelCorners.bottomShare * reference,
-                                 smoothing: PanelCorners.smoothing)
-        )
+    static let archiveFrames: [[CGFloat]] = frames(shoulder: PanelCorners.shoulder)
+    static let wideArchiveFrames: [[CGFloat]] = frames(shoulder: PanelCorners.wideShoulder)
+
+    nonisolated private static func frames(shoulder: CGFloat) -> [[CGFloat]] {
+        (0...6).map { i in
+            // 34 → 89 in five equal steps; the last frame repeats the fifth.
+            let height = 34 + 11 * CGFloat(min(i, 5))
+            let reference = min(height, PanelCorners.ceiling)
+            return PanelCorners.keyframe(
+                height: height,
+                flare: SmoothCorner(radius: PanelCorners.flareShare * reference,
+                                    smoothing: PanelCorners.smoothing)
+                    .fitting(shoulder),
+                bottom: SmoothCorner(radius: PanelCorners.bottomShare * reference,
+                                     smoothing: PanelCorners.smoothing),
+                shoulder: shoulder
+            )
+        }
     }
 
     func path(in rect: CGRect) -> Path {
         let p = max(0, min(1, progress))
-        let frames = Self.archiveFrames
+        let frames = wideFlares ? Self.wideArchiveFrames : Self.archiveFrames
         // Points 10…29 are the lower half of every frame: the two straight
         // sides and the bottom edge between them. Moving only those lengthens
         // the panel without touching a single corner radius.
@@ -84,13 +95,19 @@ struct PanelMorphShape: Shape {
 
         func lerp(_ ai: CGFloat, _ bi: CGFloat) -> CGFloat { ai + (bi - ai) * t }
 
-        // X is scaled to the panel width (SVG viewBox = 536).
-        // Y is 1:1 — SVG coordinates are already in logical pixels.
+        // Y is 1:1 — the frames are already in logical points. X is scaled to
+        // the panel width (viewBox = 536), corners and all; with wide flares
+        // the right half is shifted instead, so the corners keep their size and
+        // only the straight top and bottom edges take up the difference.
         let sx = rect.width / 536
+        func x(_ design: CGFloat) -> CGFloat {
+            guard wideFlares else { return design * sx }
+            return design <= 268 ? design : design + rect.width - 536
+        }
 
         func pt(_ idx: Int) -> CGPoint {
             CGPoint(
-                x: rect.minX + lerp(a[idx * 2],     b[idx * 2])     * sx,
+                x: rect.minX + x(lerp(a[idx * 2], b[idx * 2])),
                 y: rect.minY - pixel + lerp(a[idx * 2 + 1], b[idx * 2 + 1])
                     + ((10...29).contains(idx) ? drop : 0)
             )
@@ -147,10 +164,15 @@ nonisolated enum PanelCorners {
     /// 16 at the ceiling. Past Main, every frame's flare is this one.
     static let shoulder: CGFloat = 15
 
+    /// The shoulder of the widened panel (`NotchMetrics.wideFlares`): room for
+    /// the reference's flare, 16 at 60% smoothing, which spans 25.6.
+    static let wideShoulder: CGFloat = 26
+
     /// One keyframe: the four corners in path order — left flare, bottom left,
     /// bottom right, right flare — then the far end of the top edge and the
     /// trailing pair the path never reads.
-    static func keyframe(height: CGFloat, flare: SmoothCorner, bottom: SmoothCorner) -> [CGFloat] {
+    static func keyframe(height: CGFloat, flare: SmoothCorner, bottom: SmoothCorner,
+                         shoulder: CGFloat = PanelCorners.shoulder) -> [CGFloat] {
         let width: CGFloat = 536
         let left = shoulder
         let right = width - shoulder

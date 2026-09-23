@@ -118,7 +118,7 @@ struct NotchArchiveView: View {
     // unchanged. scrollPadH (header) stays aligned with the scroll content's
     // first cell (innerInset + contentInset).
     private var panelRounding: CGFloat { metrics.hasNotch ? 19 : 10 }  // clearance for panel corner radius
-    private var innerInset:    CGFloat { metrics.hasNotch ? 15 : 8 }   // scroll container inset from panel edge
+    private var innerInset:    CGFloat { metrics.hasNotch ? metrics.flareWidth : 8 }   // scroll container inset from panel edge: the notch shape's shoulder
     private var contentInset:  CGFloat { metrics.hasNotch ? 18 : 10 }  // leading/trailing padding (and fade width) inside scroll content
     private var scrollPadH:    CGFloat { panelRounding + innerInset }
     /// The notch tab tapers inward at the bottom shoulders (NotchTabShape: wall

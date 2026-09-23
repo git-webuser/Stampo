@@ -78,17 +78,41 @@ import Testing
         #expect(shortest < NotchTranslateView.maxBodyHeight)
     }
 
-    @Test func theSidesNeverFoldOnTheShortestTranslation() {
+    @Test(arguments: [false, true])
+    func theSidesNeverFoldOnTheShortestTranslation(wide: Bool) {
         // A one-line translation pulls the lower half up by 15pt. In every
         // frame of the morph the flare has to end above where the bottom
         // corner begins, on both sides, or the side would fold back on itself.
+        // The wide flares reach further down, so they are held to it too.
         let extra = 34 + NotchTranslateView.minBodyHeight - 89
-        for (i, frame) in PanelMorphShape.archiveFrames.enumerated() {
+        let frames = wide ? PanelMorphShape.wideArchiveFrames : PanelMorphShape.archiveFrames
+        for (i, frame) in frames.enumerated() {
             let p = points(frame)
             let drop = extra * PanelMorphShape.extraFactor(at: CGFloat(i) / 6)
             #expect(p[10].y + drop > p[9].y, "left side, frame \(i)")
             #expect(p[29].y + drop > p[30].y, "right side, frame \(i)")
         }
+    }
+
+    @Test func theWideShoulderHoldsTheReferenceFlare() {
+        // The point of widening: the open panel's flare is the reference's
+        // own, 16 at 60%, with nothing given up to fit — it spans 25.6 of 26.
+        let final = points(PanelMorphShape.wideArchiveFrames[6])
+        let flare = SmoothCorner(radius: PanelCorners.flareShare * PanelCorners.ceiling,
+                                 smoothing: PanelCorners.smoothing)
+        #expect(flare.fitting(PanelCorners.wideShoulder).radius == flare.radius)
+        #expect(abs(final[9].x - PanelCorners.wideShoulder) < 0.0001)
+        #expect(abs(final[9].y - flare.span) < 0.0001)
+        // The flare starts inside the frame, not past its edge.
+        #expect(final[0].x > -0.0001)
+        // The bottom corners are the same as in the narrow panel.
+        let narrow = points(PanelMorphShape.archiveFrames[6])
+        #expect(abs(final[10].y - narrow[10].y) < 0.0001)
+    }
+
+    @Test func aWidenedPanelMovesItsContentInByWhatItGained() {
+        #expect(NotchMetrics.flareGain(false) == 0)
+        #expect(NotchMetrics.flareGain(true) == PanelCorners.wideShoulder - PanelCorners.shoulder)
     }
 
     // MARK: Corners

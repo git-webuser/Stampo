@@ -468,7 +468,8 @@ private struct NotchPanelRootView: View {
                 .frame(height: m.panelHeight)
                 .frame(height: windowH, alignment: .top)
             } else if m.hasNotch {
-                PanelMorphShape(progress: p, pixel: m.pixel, extraHeight: extraH)
+                PanelMorphShape(progress: p, pixel: m.pixel, extraHeight: extraH,
+                                wideFlares: m.wideFlares)
                     .fill(Color.black)
                     .compositingGroup()
                     .frame(height: windowH, alignment: .top)

@@ -95,6 +95,7 @@ enum AppSettings {
         static let settingsStyle           = "settingsStyle"
         static let noNotchPanelStyle       = "noNotchPanelStyle"
         static let noNotchNotchScale       = "noNotchNotchScale"
+        static let wideNotchFlares         = "wideNotchFlares"
         static let preferredLanguage       = "preferredLanguage"
         // Hotkeys (the 5 global actions store combos via HotkeyAction; these two
         // are the local color-picker shortcuts, enable/disable only).
@@ -146,6 +147,14 @@ enum AppSettings {
     static var noNotchNotchScale: Double {
         let v = UserDefaults.standard.object(forKey: Keys.noNotchNotchScale) as? Double ?? 1.0
         return min(1.5, max(0.5, v))
+    }
+
+    /// Whether the panel in a real notch is widened so its flares are the
+    /// size macOS 27 draws them (see `PanelCorners.wideShoulder`). No UI: it
+    /// is the way back if the wider panel breaks something, without a rebuild —
+    /// `defaults write com.hex000.Stampo wideNotchFlares -bool NO`, then relaunch.
+    static var wideNotchFlares: Bool {
+        UserDefaults.standard.object(forKey: Keys.wideNotchFlares) as? Bool ?? true
     }
 
     static var showThumbnailHUD: Bool {

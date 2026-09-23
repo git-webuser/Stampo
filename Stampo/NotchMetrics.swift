@@ -23,6 +23,15 @@ struct NotchMetrics {
     /// floating rounded rectangle below the menu bar).
     let pinnedToTopEdge: Bool
 
+    /// Whether a real notch's panel is widened for full-size flares
+    /// (`AppSettings.wideNotchFlares`). Always false without a notch.
+    let wideFlares: Bool
+
+    /// The band between the panel's edge and its straight side, where the
+    /// flare lives. Content insets on a notch grow with it, so everything
+    /// keeps its distance from the side it sits next to.
+    var flareWidth: CGFloat { wideFlares ? PanelCorners.wideShoulder : PanelCorners.shoulder }
+
     /// Uniform scale applied to the whole panel (shape, buttons, fonts, paddings
     /// and the window frame). 1 for real notches and the rounded style; on a
     /// notch-less screen in notch style it shrinks the panel so the Main height
@@ -133,6 +142,11 @@ struct NotchMetrics {
 
     // MARK: - Factory
 
+    /// What a widened notch panel adds on each side.
+    static func flareGain(_ wide: Bool) -> CGFloat {
+        wide ? PanelCorners.wideShoulder - PanelCorners.shoulder : 0
+    }
+
     static func from(screen: NSScreen) -> NotchMetrics {
         let scale = screen.backingScaleFactor
         let notchGap = screen.notchGapWidth
@@ -155,11 +169,13 @@ struct NotchMetrics {
         let autoScale = menuBarHeight / 34
         let userScale = CGFloat(AppSettings.noNotchNotchScale)
         let panelScale: CGFloat = isNoNotchNotch ? min(1.5, max(0.5, autoScale * userScale)) : 1
+        let wideFlares = hasNotch && AppSettings.wideNotchFlares
 
         return NotchMetrics(
             scale: scale,
             hasNotch: hasNotch,
             pinnedToTopEdge: pinnedToTopEdge,
+            wideFlares: wideFlares,
             panelScale: panelScale,
             notchGap: notchGap,
             panelHeight: 34,
@@ -169,7 +185,8 @@ struct NotchMetrics {
             // shoulders, so their content needs a wider side inset to clear the
             // skews (and the padding then visually follows the taper). The plain
             // rounded style has straight sides, so 5pt matches the top/bottom.
-            edgeSafe: hasNotch ? 20 : (isNoNotchNotch ? 18 : 5),
+            // A widened notch panel moves its content in by what it gained.
+            edgeSafe: hasNotch ? 20 + Self.flareGain(wideFlares) : (isNoNotchNotch ? 18 : 5),
             leftMinToNotch: 36,
             rightMinFromNotch: 12,
             cellWidth: 32,
@@ -196,12 +213,13 @@ struct NotchMetrics {
             scale: 2.0,
             hasNotch: true,
             pinnedToTopEdge: true,
+            wideFlares: AppSettings.wideNotchFlares,
             panelScale: 1,
             notchGap: 184,
             panelHeight: 34,
             panelRadius: 10,
             noNotchTopInset: 5,
-            edgeSafe: 20,
+            edgeSafe: 20 + flareGain(AppSettings.wideNotchFlares),
             leftMinToNotch: 36,
             rightMinFromNotch: 12,
             cellWidth: 32,
