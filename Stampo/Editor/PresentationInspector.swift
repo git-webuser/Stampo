@@ -854,13 +854,14 @@ struct PresentationInspector: View {
             // back to, and replacing the picture is the once-in-a-while act at
             // the end of the row.
             ForEach(Presentation.Background.PictureFit.allCases) { fit in
-                panelIconButton(Self.symbol(for: fit), stretch: true,
+                panelIconButton(Self.symbol(for: fit), stretch: true, fieldHeight: true,
                                 label: Self.title(for: fit)) {
                     updateImmediately { $0.background = $0.background.settingPictureFit(fit) }
                 }
                 .activeToolChrome(draft.background.pictureFit == fit)
             }
-            panelIconButton("photo.badge.plus", stretch: true, label: "Choose Picture") {
+            panelIconButton("photo.badge.plus", stretch: true, fieldHeight: true,
+                            label: "Choose Picture") {
                 chooseBackgroundPicture()
             }
         }
@@ -1560,10 +1561,13 @@ struct PresentationInspector: View {
         }
     }
 
+    /// The height of the "+" beside a colour field: at the panel's square
+    /// height, six buttons sharing the width came out nearly round.
     private var alignmentRow: some View {
         HStack(spacing: 6) {
             ForEach(Alignment.allCases) { item in
-                panelIconButton(item.systemImage, stretch: true, label: item.titleKey) {
+                panelIconButton(item.systemImage, stretch: true, fieldHeight: true,
+                                label: item.titleKey) {
                     align(item)
                 }
             }
