@@ -388,6 +388,9 @@ struct EditorView: View {
     private var markupRow: some View {
         contextRow
             .fixedSize(horizontal: true, vertical: false)
+            // Room at the sides when the window is at its narrowest, the same
+            // 12pt the legacy row keeps.
+            .padding(.horizontal, 12)
             .frame(maxWidth: .infinity)
             .frame(height: 40)
             .background(shortcutCarriers)
@@ -853,7 +856,11 @@ struct EditorView: View {
         }
         .pickerStyle(.menu)
         .labelsHidden()
-        .frame(width: 142)
+        // The text row is the widest, and it ran edge to edge at the minimum
+        // window width; 24pt off the menu buy the row its side margins. The
+        // longest names ("American Typewriter") end in an ellipsis, as they
+        // already did at 142.
+        .frame(width: 118)
         .hoverTip("Font")
     }
 
