@@ -58,7 +58,11 @@ struct ShapeToolButton: View {
     @ViewBuilder private var trigger: some View {
         if systemStyle {
             Toggle(isOn: Binding(get: { isActive }, set: { _ in showPopover = true })) {
-                Label("Shapes", systemImage: isActive ? tool.systemImage : Self.familyGlyph)
+                Label {
+                    Text("Shapes")
+                } icon: {
+                    ToolbarToolIcon(isActive ? tool.systemImage : Self.familyGlyph)
+                }
             }
             .toggleStyle(.button)
             .help("Shapes")

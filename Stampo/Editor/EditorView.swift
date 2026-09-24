@@ -213,7 +213,7 @@ struct EditorView: View {
                 get: { tool == .crop },
                 set: { $0 ? enterCropMode() : cancelCrop() }
             )) {
-                Label("Crop", systemImage: "crop")
+                Label { Text("Crop") } icon: { ToolbarToolIcon("crop") }
             }
             .toggleStyle(.button)
             .disabled(textEditingActive)
@@ -223,7 +223,7 @@ struct EditorView: View {
                 get: { tool == .scan },
                 set: { if $0 { selectTool(.scan) } else { tool = .select } }
             )) {
-                Label("Scan", systemImage: "doc.viewfinder")
+                Label { Text("Scan") } icon: { ToolbarToolIcon("doc.viewfinder") }
             }
             .toggleStyle(.button)
             .disabled(textEditingActive)
@@ -376,7 +376,7 @@ struct EditorView: View {
     /// is the tool, and switching to it the same way the drawn row does.
     private func systemToolToggle(_ t: EditorTool) -> some View {
         Toggle(isOn: Binding(get: { tool == t }, set: { if $0 { selectTool(t) } })) {
-            Label(LocalizedStringKey(t.labelKey), systemImage: t.systemImage)
+            Label { Text(LocalizedStringKey(t.labelKey)) } icon: { ToolbarToolIcon(t.systemImage) }
         }
         .toggleStyle(.button)
         .help(Text(LocalizedStringKey(t.labelKey))
@@ -2313,3 +2313,23 @@ private enum ToolButtonMetrics {
 /// accent colour in front.
 ///
 /// The tool picker's buttons are built by one function and wore this already.
+
+// MARK: - Toolbar tool icon
+
+/// A tool's glyph in the window toolbar, in a box of one width for every tool.
+///
+/// SF Symbols come in their own widths, and two of the buttons change theirs
+/// as they go — the shape family shows the current shape, the drawing family
+/// the current brush — so a toolbar that let each glyph size its button
+/// shifted everything after it whenever one of those changed.
+struct ToolbarToolIcon: View {
+    static let width: CGFloat = 22
+
+    let systemName: String
+    init(_ systemName: String) { self.systemName = systemName }
+
+    var body: some View {
+        Image(systemName: systemName)
+            .frame(width: Self.width)
+    }
+}

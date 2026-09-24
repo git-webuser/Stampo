@@ -61,7 +61,11 @@ struct DrawingToolButton: View {
     @ViewBuilder private var trigger: some View {
         if systemStyle {
             Toggle(isOn: Binding(get: { isActive }, set: { _ in showPopover = true })) {
-                Label("Drawing", systemImage: emblem)
+                Label {
+                    Text("Drawing")
+                } icon: {
+                    ToolbarToolIcon(emblem)
+                }
             }
             .toggleStyle(.button)
             .help("Drawing")
