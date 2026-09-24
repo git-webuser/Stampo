@@ -182,13 +182,44 @@ struct EditorView: View {
     /// their size and spacing.
     @available(macOS 26, *)
     @ToolbarContentBuilder private var systemToolbarContent: some ToolbarContent {
-        ToolbarItem(placement: .navigation) {
-            HStack(spacing: 2) {
-                toolPicker
-                Divider().frame(height: 20).padding(.horizontal, 8)
-                cropButton
-                scanButton
+        // The drawing tools, then crop and scan: two capsules of system
+        // toggles, so the system spaces them and marks the one that is on.
+        ToolbarItemGroup(placement: .navigation) {
+            systemToolToggle(.select)
+            systemToolToggle(.line)
+            systemToolToggle(.arrow)
+            ShapeToolButton(tool: $tool, select: selectTool, systemStyle: true)
+            systemToolToggle(.text)
+            DrawingToolButton(tool: $tool, drawingMode: $style.drawingMode,
+                              strokeColor: Color(nsColor: style.color.nsColor),
+                              markerTip: style.markerTip,
+                              select: selectTool,
+                              systemStyle: true)
+            systemToolToggle(.step)
+        }
+
+        ToolbarSpacer(.fixed, placement: .navigation)
+
+        ToolbarItemGroup(placement: .navigation) {
+            Toggle(isOn: Binding(
+                get: { tool == .crop },
+                set: { $0 ? enterCropMode() : cancelCrop() }
+            )) {
+                Label("Crop", systemImage: "crop")
             }
+            .toggleStyle(.button)
+            .disabled(textEditingActive)
+            .help("Crop")
+
+            Toggle(isOn: Binding(
+                get: { tool == .scan },
+                set: { if $0 { selectTool(.scan) } else { tool = .select } }
+            )) {
+                Label("Scan", systemImage: "doc.viewfinder")
+            }
+            .toggleStyle(.button)
+            .disabled(textEditingActive)
+            .help("Scan")
         }
 
         ToolbarItemGroup {
@@ -325,6 +356,17 @@ struct EditorView: View {
                 .help("Save")
             }
         }
+    }
+
+    /// One drawing tool as a system toggle for the window toolbar: on while it
+    /// is the tool, and switching to it the same way the drawn row does.
+    private func systemToolToggle(_ t: EditorTool) -> some View {
+        Toggle(isOn: Binding(get: { tool == t }, set: { if $0 { selectTool(t) } })) {
+            Label(LocalizedStringKey(t.labelKey), systemImage: t.systemImage)
+        }
+        .toggleStyle(.button)
+        .help(Text(LocalizedStringKey(t.labelKey))
+              + Text(verbatim: t.shortcut.map { "  " + $0.label } ?? ""))
     }
 
     /// The active tool's settings, one centred row under the toolbar — where

@@ -20,6 +20,9 @@ struct DrawingToolButton: View {
     let markerTip: MarkerTip
     /// Selection is routed through the same path the inline tool buttons use.
     let select: (EditorTool) -> Void
+    /// Drawn as a system toggle, for the window toolbar on macOS 26 — see
+    /// `ShapeToolButton.systemStyle`.
+    var systemStyle = false
 
     @State private var showPopover = false
 
@@ -35,6 +38,39 @@ struct DrawingToolButton: View {
     }
 
     var body: some View {
+        trigger
+            .popover(isPresented: $showPopover, arrowEdge: .bottom) {
+                DrawingPopoverContent(
+                    activeBrush: tool == .drawing ? drawingMode : nil,
+                    eraserActive: tool == .eraser,
+                    strokeColor: strokeColor,
+                    markerTip: markerTip
+                ) { picked in
+                    switch picked {
+                    case .brush(let mode):
+                        drawingMode = mode
+                        select(.drawing)
+                    case .eraser:
+                        select(.eraser)
+                    }
+                    showPopover = false
+                }
+            }
+    }
+
+    @ViewBuilder private var trigger: some View {
+        if systemStyle {
+            Toggle(isOn: Binding(get: { isActive }, set: { _ in showPopover = true })) {
+                Label("Drawing", systemImage: emblem)
+            }
+            .toggleStyle(.button)
+            .help("Drawing")
+        } else {
+            drawnTrigger
+        }
+    }
+
+    private var drawnTrigger: some View {
         Button { showPopover = true } label: {
             HStack(spacing: 3) {
                 Image(systemName: emblem)
@@ -52,23 +88,6 @@ struct DrawingToolButton: View {
         )
         .foregroundStyle(isActive ? Color.accentColor : Color.primary)
         .hoverTip("Drawing")
-        .popover(isPresented: $showPopover, arrowEdge: .bottom) {
-            DrawingPopoverContent(
-                activeBrush: tool == .drawing ? drawingMode : nil,
-                eraserActive: tool == .eraser,
-                strokeColor: strokeColor,
-                markerTip: markerTip
-            ) { picked in
-                switch picked {
-                case .brush(let mode):
-                    drawingMode = mode
-                    select(.drawing)
-                case .eraser:
-                    select(.eraser)
-                }
-                showPopover = false
-            }
-        }
     }
 
     enum Pick {
