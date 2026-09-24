@@ -17,6 +17,10 @@ struct GeneralSettingsView: View {
 
     @State private var launchAtLogin = AppSettings.launchAtLoginEnabled
     @State private var screenRecordingGranted = CGPreflightScreenCaptureAccess()
+    /// Whether a display without a notch is connected. The panel's shape and
+    /// scale only change the panel on such a display, so on a Mac with only
+    /// its notched screen the two rows were settings that visibly did nothing.
+    @State private var hasNotchlessScreen = GeneralSettingsView.anyNotchlessScreen
 
     /// The user has been to the Privacy pane and the preflight still reads
     /// false — either they haven't flipped the toggle, or they have and this
@@ -113,35 +117,37 @@ struct GeneralSettingsView: View {
                     SettingsWindowController.shared.applyAppearance(newValue)
                 }
 
-                SettingRow(
-                    icon: "rectangle.tophalf.inset.filled",
-                    title: "Panel shape",
-                    description: "On displays without a notch — applies next time the panel opens"
-                ) {
-                    Picker("", selection: $noNotchPanelStyle) {
-                        Text("Pill").tag(NoNotchPanelStyle.rounded)
-                        Text("Notch").tag(NoNotchPanelStyle.notch)
-                    }
-                    .pickerStyle(.menu)
-                    .labelsHidden()
-                }
-
-                if noNotchPanelStyle == .notch {
+                if hasNotchlessScreen {
                     SettingRow(
-                        icon: "arrow.up.left.and.arrow.down.right",
-                        title: "Notch panel scale",
-                        description: "Fine-tune the size — applies next time the panel opens"
+                        icon: "rectangle.tophalf.inset.filled",
+                        title: "Panel shape",
+                        description: "On displays without a notch — applies next time the panel opens"
                     ) {
-                        Picker("", selection: $noNotchNotchScale) {
-                            Text(verbatim: "80%").tag(0.8)
-                            Text(verbatim: "90%").tag(0.9)
-                            Text(verbatim: "100%").tag(1.0)
-                            Text(verbatim: "110%").tag(1.1)
-                            Text(verbatim: "120%").tag(1.2)
-                            Text(verbatim: "130%").tag(1.3)
+                        Picker("", selection: $noNotchPanelStyle) {
+                            Text("Pill").tag(NoNotchPanelStyle.rounded)
+                            Text("Notch").tag(NoNotchPanelStyle.notch)
                         }
                         .pickerStyle(.menu)
                         .labelsHidden()
+                    }
+
+                    if noNotchPanelStyle == .notch {
+                        SettingRow(
+                            icon: "arrow.up.left.and.arrow.down.right",
+                            title: "Notch panel scale",
+                            description: "Fine-tune the size — applies next time the panel opens"
+                        ) {
+                            Picker("", selection: $noNotchNotchScale) {
+                                Text(verbatim: "80%").tag(0.8)
+                                Text(verbatim: "90%").tag(0.9)
+                                Text(verbatim: "100%").tag(1.0)
+                                Text(verbatim: "110%").tag(1.1)
+                                Text(verbatim: "120%").tag(1.2)
+                                Text(verbatim: "130%").tag(1.3)
+                            }
+                            .pickerStyle(.menu)
+                            .labelsHidden()
+                        }
                     }
                 }
 
@@ -195,6 +201,16 @@ struct GeneralSettingsView: View {
         )) { _ in
             refreshScreenRecordingStatus()
         }
+        // A monitor plugged in or out while Settings is open.
+        .onReceive(NotificationCenter.default.publisher(
+            for: NSApplication.didChangeScreenParametersNotification
+        )) { _ in
+            hasNotchlessScreen = Self.anyNotchlessScreen
+        }
+    }
+
+    private static var anyNotchlessScreen: Bool {
+        NSScreen.screens.contains { $0.notchGapWidth == 0 }
     }
 
     private func refreshScreenRecordingStatus() {
