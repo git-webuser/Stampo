@@ -167,19 +167,30 @@ struct EditorView: View {
     /// The window's own toolbar, handed to AppKit through the hosting
     /// controller's scene bridging (see `EditorWindowController`), on macOS 26.
     ///
-    /// It holds what acts on the document as a whole, left to right from
-    /// looking at it to leaving the editor: the title, zoom, rotate, undo and
-    /// redo; then, pushed to the trailing edge, the decor switch beside the
-    /// inspector it opens (where Preview keeps its Info button and Xcode its
-    /// inspector toggle), share and copy, and Save last and prominent — the
-    /// action this editor exists for. Crop and scan are not here: they are
-    /// modes worked on the canvas, like the drawing tools, and sit with them
-    /// in `markupRow`, as Preview's selection tools sit in its markup row.
+    /// It leads with the tools — the drawing tools, then crop and scan, the
+    /// modes worked on the canvas — in one capsule where the title would be
+    /// (the window keeps its title for the Window menu and tabs; the bar does
+    /// not show it). Then what acts on the document as a whole: zoom, rotate,
+    /// undo and redo; and, pushed to the trailing edge, the decor switch
+    /// beside the inspector it opens (where Preview keeps its Info button and
+    /// Xcode its inspector toggle), share and copy, and Save last and
+    /// prominent — the action this editor exists for. The row under the
+    /// toolbar is left to the active tool's settings (`markupRow`), which need
+    /// the width: an arrow's row did not fit beside the tools.
     ///
     /// The buttons are the system's, not the drawn row's, so the system sets
     /// their size and spacing.
     @available(macOS 26, *)
     @ToolbarContentBuilder private var systemToolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .navigation) {
+            HStack(spacing: 2) {
+                toolPicker
+                Divider().frame(height: 20).padding(.horizontal, 8)
+                cropButton
+                scanButton
+            }
+        }
+
         ToolbarItemGroup {
             Button { adjustZoom(by: -0.25) } label: {
                 Label("Zoom Out", systemImage: "minus.magnifyingglass")
@@ -316,25 +327,15 @@ struct EditorView: View {
         }
     }
 
-    /// Everything worked on the canvas, one centred row under the toolbar —
-    /// where Preview puts its markup tools and their style. The drawing tools,
-    /// then crop and scan (modes like them, entered and left on the canvas),
-    /// then, after a rule, the settings of whichever is active.
+    /// The active tool's settings, one centred row under the toolbar — where
+    /// Preview puts its markup style. The tools themselves are in the toolbar,
+    /// so the settings have the window's whole width.
     private var markupRow: some View {
-        HStack(spacing: 14) {
-            HStack(spacing: 2) {
-                toolPicker
-                Divider().frame(height: 20).padding(.horizontal, 8)
-                cropButton
-                scanButton
-            }
-            Divider().frame(height: 20)
-            contextRow
-        }
-        .fixedSize(horizontal: true, vertical: false)
-        .frame(maxWidth: .infinity)
-        .frame(height: 40)
-        .background(shortcutCarriers)
+        contextRow
+            .fixedSize(horizontal: true, vertical: false)
+            .frame(maxWidth: .infinity)
+            .frame(height: 40)
+            .background(shortcutCarriers)
     }
 
     /// The row the editor draws itself — the layout before macOS 26, kept as
