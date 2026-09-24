@@ -217,7 +217,7 @@ struct EditorView: View {
             }
             .toggleStyle(.button)
             .disabled(textEditingActive)
-            .help("Crop")
+            .help(Text(verbatim: tooltipText("Crop", shortcut: EditorTool.crop.shortcut?.label)))
 
             Toggle(isOn: Binding(
                 get: { tool == .scan },
@@ -227,7 +227,7 @@ struct EditorView: View {
             }
             .toggleStyle(.button)
             .disabled(textEditingActive)
-            .help("Scan")
+            .help(Text(verbatim: tooltipText("Scan", shortcut: EditorTool.scan.shortcut?.label)))
         }
     }
 
@@ -1806,7 +1806,7 @@ struct EditorView: View {
         .buttonStyle(.borderless)
         .activeToolChrome(tool == .crop)
         .disabled(textEditingActive)
-        .hoverTip("Crop")
+        .hoverTip("Crop", shortcut: EditorTool.crop.shortcut?.label)
     }
 
     /// Own group past the crop divider: the scanner is a marquee like the
@@ -1827,7 +1827,7 @@ struct EditorView: View {
         .buttonStyle(.borderless)
         .activeToolChrome(tool == .scan)
         .disabled(textEditingActive)
-        .hoverTip("Scan")
+        .hoverTip("Scan", shortcut: EditorTool.scan.shortcut?.label)
     }
 
     /// Opens the native trailing inspector. It is deliberately not an

@@ -207,7 +207,7 @@ import Testing
             (15, .rect, "R"), (31, .oval, "O"), (17, .text, "T"),
             (35, .drawing, "P"),
             (14, .eraser, "E"),
-            (11, .blur, "B"), (1, .step, "S"), (46, .loupe, "M")
+            (11, .blur, "B"), (45, .step, "N"), (46, .loupe, "M")
         ]
 
         #expect(expected.count == EditorTool.pickerCases.count)
@@ -216,11 +216,34 @@ import Testing
             #expect(tool.shortcut?.label == label)
         }
         #expect(EditorTool.tool(forShortcutKeyCode: 7) == nil)
-        #expect(EditorTool.scan.shortcut == nil)
+        // Scan keeps the letter of its global hotkey (⌃⌥⌘S); crop is Preview's K.
+        #expect(EditorTool.tool(forShortcutKeyCode: 1) == .scan)
+        #expect(EditorTool.scan.shortcut?.label == "S")
         #expect(EditorTool.scan.systemImage == "doc.viewfinder")
         #expect(EditorTool.scan.labelKey == "Scan")
-        #expect(EditorTool.crop.shortcut == nil)
+        #expect(EditorTool.tool(forShortcutKeyCode: 40) == .crop)
+        #expect(EditorTool.crop.shortcut?.label == "K")
         #expect(EditorTool.step.labelKey == "Numbering")
+    }
+
+    /// Every tool has a key: the shapes without a letter of their own are
+    /// reached by pressing R again, and the step comes back round to the
+    /// rectangle.
+    @Test func pressingRAgainStepsThroughTheRectangleShapes() {
+        #expect(EditorTool.allCases.allSatisfy { $0.shortcut != nil })
+        var tool = EditorTool.tool(forShortcutKeyCode: 15, current: .select)
+        var visited: [EditorTool] = []
+        for _ in EditorTool.rectangleCycle {
+            guard let current = tool else { break }
+            visited.append(current)
+            tool = EditorTool.tool(forShortcutKeyCode: 15, current: current)
+        }
+        #expect(visited == EditorTool.rectangleCycle)
+        #expect(tool == .rect)
+        // The oval has O; R from it is the rectangle, not the next shape.
+        #expect(EditorTool.tool(forShortcutKeyCode: 15, current: .oval) == .rect)
+        // Other keys ignore the tool that is on.
+        #expect(EditorTool.tool(forShortcutKeyCode: 31, current: .star) == .oval)
     }
 
     @Test func oneEraserGestureIsOneUndoStepAndIgnoresOtherKinds() {

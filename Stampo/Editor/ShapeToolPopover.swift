@@ -10,8 +10,8 @@ import SwiftUI
 ///
 /// Following the family principle used across the editor rework, the shape
 /// family is low-frequency, so it hides behind a popover; the high-frequency
-/// line/arrow tool stays visible on the toolbar. Keyboard shortcuts (R/O/B/M)
-/// are handled in the canvas independently, so collapsing these buttons only
+/// line/arrow tool stays visible on the toolbar. Keyboard shortcuts (R/O/B/M,
+/// R again for the rest of the rectangle's shapes) are handled in the canvas independently, so collapsing these buttons only
 /// declutters the toolbar — it does not remove direct access.
 struct ShapeToolButton: View {
     @Binding var tool: EditorTool

@@ -15,29 +15,46 @@ enum EditorTool: Equatable, CaseIterable {
     ]
 
     /// Layout-independent physical-key shortcuts used while the editor window
-    /// is active. Recognition and crop stay transient modes without shortcuts.
+    /// is active.
+    ///
+    /// Scan is S, the letter its global hotkey (⌃⌥⌘S) already taught; the
+    /// numbering that held it moved to N. Crop is K, Preview's ⌘K — C would
+    /// have been the obvious letter, but the eyedropper's ⌃⌥⌘C owns it. The
+    /// shapes that have no letter of their own share the rectangle's: R again
+    /// steps through them (`rectangleCycle`), the way design apps do it.
     var shortcut: (keyCode: UInt16, label: String)? {
         switch self {
         case .select: return (9, "V")
         case .line:   return (37, "L")
         case .arrow:  return (0, "A")
-        case .rect:   return (15, "R")
+        case .rect, .roundedRect, .polygon, .star, .bubble:
+                      return (15, "R")
         case .oval:   return (31, "O")
         case .text:   return (17, "T")
         case .drawing:return (35, "P")
         case .eraser: return (14, "E")
         case .blur:   return (11, "B")
-        case .step:   return (1, "S")
+        case .step:   return (45, "N")
         case .loupe:  return (46, "M")
-        // Popover-only shapes are low-frequency and stay shortcut-free;
-        // recognition and crop stay transient modes without shortcuts.
-        case .roundedRect, .polygon, .star, .bubble,
-             .scan, .crop: return nil
+        case .scan:   return (1, "S")
+        case .crop:   return (40, "K")
         }
     }
 
-    static func tool(forShortcutKeyCode keyCode: UInt16) -> EditorTool? {
-        pickerCases.first { $0.shortcut?.keyCode == keyCode }
+    /// What R steps through, in the order the shapes popover lists them. The
+    /// oval is left out: it has O.
+    static let rectangleCycle: [EditorTool] = [.rect, .roundedRect, .polygon, .star, .bubble]
+
+    /// The tool a key selects. `current` is the tool already on: pressing R
+    /// on one of the rectangle's shapes moves to the next of them rather than
+    /// back to the rectangle.
+    static func tool(forShortcutKeyCode keyCode: UInt16,
+                     current: EditorTool? = nil) -> EditorTool? {
+        if let current, let index = rectangleCycle.firstIndex(of: current),
+           keyCode == EditorTool.rect.shortcut?.keyCode {
+            return rectangleCycle[(index + 1) % rectangleCycle.count]
+        }
+        return (pickerCases + [.scan, .crop]).first { $0.shortcut?.keyCode == keyCode }
     }
 
     var systemImage: String {
@@ -2501,8 +2518,22 @@ struct EditorCanvasView: View {
             // combinations untouched.
             if event.type == .keyDown, !fieldHasFocus,
                commandModifiers.isEmpty,
-               let shortcutTool = EditorTool.tool(forShortcutKeyCode: event.keyCode) {
-                self.activateTool(shortcutTool)
+               let shortcutTool = EditorTool.tool(forShortcutKeyCode: event.keyCode,
+                                                  current: self.tool) {
+                if shortcutTool == .crop {
+                    // The frame starts on the whole image, as the toolbar's
+                    // Crop starts it; pressed again, K leaves a frame already
+                    // being dragged alone.
+                    if self.tool != .crop {
+                        self.document.selectedID = nil
+                        self.cropRect = CGRect(origin: .zero, size: self.document.pixelSize)
+                        self.tool = .crop
+                    }
+                } else {
+                    // Scan needs nothing more: the editor opens the overlay
+                    // when the tool becomes Scan, whoever set it.
+                    self.activateTool(shortcutTool)
+                }
                 return nil
             }
 
