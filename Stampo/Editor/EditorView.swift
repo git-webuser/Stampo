@@ -162,17 +162,22 @@ struct EditorView: View {
 
     private var textEditingActive: Bool { editingTextID != nil }
 
-    // MARK: Toolbar (the window's: what you do; floating over the canvas: how it looks)
+    // MARK: Toolbar (the window's: the document; the row under it: the canvas)
 
     /// The window's own toolbar, handed to AppKit through the hosting
-    /// controller's scene bridging (see `EditorWindowController`), laid out
-    /// the way Preview lays out its own on macOS 26: the title leads, then one
-    /// capsule per family of commands — zoom; rotate, crop and scan, the
-    /// operations on the image itself; decor, a switch like Preview's Markup;
-    /// history; and what leaves the editor. The buttons are the system's, not
-    /// the drawn row's, so the system sets their size and spacing. The drawing
-    /// tools are not here: like Preview's markup tools they have a row of
-    /// their own under the toolbar (`markupRow`).
+    /// controller's scene bridging (see `EditorWindowController`), on macOS 26.
+    ///
+    /// It holds what acts on the document as a whole, left to right from
+    /// looking at it to leaving the editor: the title, zoom, rotate, undo and
+    /// redo; then, pushed to the trailing edge, the decor switch beside the
+    /// inspector it opens (where Preview keeps its Info button and Xcode its
+    /// inspector toggle), share and copy, and Save last and prominent — the
+    /// action this editor exists for. Crop and scan are not here: they are
+    /// modes worked on the canvas, like the drawing tools, and sit with them
+    /// in `markupRow`, as Preview's selection tools sit in its markup row.
+    ///
+    /// The buttons are the system's, not the drawn row's, so the system sets
+    /// their size and spacing.
     @available(macOS 26, *)
     @ToolbarContentBuilder private var systemToolbarContent: some ToolbarContent {
         ToolbarItemGroup {
@@ -200,7 +205,7 @@ struct EditorView: View {
 
         ToolbarSpacer(.fixed)
 
-        ToolbarItemGroup {
+        ToolbarItem {
             Button {
                 rotate(clockwise: !NSEvent.modifierFlags.contains(.option))
             } label: {
@@ -212,44 +217,6 @@ struct EditorView: View {
                 rotateOptionHeld = !new.isEmpty
             }
             .help(LocalizedStringKey(rotateOptionHeld ? "Rotate Left" : "Rotate Right"))
-
-            Toggle(isOn: Binding(
-                get: { tool == .crop },
-                set: { $0 ? enterCropMode() : cancelCrop() }
-            )) {
-                Label("Crop", systemImage: "crop")
-            }
-            .toggleStyle(.button)
-            .disabled(textEditingActive)
-            .help("Crop")
-
-            Toggle(isOn: Binding(
-                get: { tool == .scan },
-                set: { if $0 { selectTool(.scan) } else { tool = .select } }
-            )) {
-                Label("Scan", systemImage: "doc.viewfinder")
-            }
-            .toggleStyle(.button)
-            .disabled(textEditingActive)
-            .help("Scan")
-        }
-
-        ToolbarSpacer(.fixed)
-
-        ToolbarItem {
-            Toggle(isOn: Binding(
-                get: { presentationInspectorPresented },
-                set: { on in
-                    // Turning it on is the decision to decorate, so the
-                    // picture arrives framed rather than edge to edge.
-                    if on { document.startDecorationIfNeeded() }
-                    presentationInspectorPresented = on
-                }
-            )) {
-                Label("Decor", systemImage: PresentationInspector.decorSystemImage)
-            }
-            .toggleStyle(.button)
-            .help("Decor")
         }
 
         ToolbarSpacer(.fixed)
@@ -270,13 +237,34 @@ struct EditorView: View {
             .help("Redo")
         }
 
+        ToolbarSpacer(.flexible)
+
+        ToolbarItem {
+            Toggle(isOn: Binding(
+                get: { presentationInspectorPresented },
+                set: { on in
+                    // Turning it on is the decision to decorate, so the
+                    // picture arrives framed rather than edge to edge.
+                    if on { document.startDecorationIfNeeded() }
+                    presentationInspectorPresented = on
+                }
+            )) {
+                Label("Decor", systemImage: PresentationInspector.decorSystemImage)
+            }
+            .toggleStyle(.button)
+            .help("Decor")
+        }
+
         ToolbarSpacer(.fixed)
 
         if tool == .crop {
-            ToolbarItemGroup {
+            ToolbarItem {
                 Button { cancelCrop() } label: { Label("Cancel", systemImage: "xmark") }
                     .help("Cancel")
+            }
+            ToolbarItem {
                 Button { applyCrop() } label: { Label("Apply", systemImage: "checkmark") }
+                    .buttonStyle(.glassProminent)
                     .disabled(cropRect == nil)
                     .help("Apply")
             }
@@ -295,7 +283,11 @@ struct EditorView: View {
                 }
                 .disabled(textEditingActive || isPreparingArtifact)
                 .help("Copy")
+            }
 
+            ToolbarSpacer(.fixed)
+
+            ToolbarItem {
                 Menu {
                     Button("Save As…") { saveAs() }
                         .disabled(saveAsHandler == nil || isPreparingArtifact)
@@ -316,18 +308,26 @@ struct EditorView: View {
                 } primaryAction: {
                     save()
                 }
+                .menuStyle(.button)
+                .buttonStyle(.glassProminent)
                 .disabled(saveHandler == nil || textEditingActive || isPreparingArtifact)
                 .help("Save")
             }
         }
     }
 
-    /// The drawing tools and the active tool's settings, one centred row
-    /// under the toolbar — where Preview puts its markup tools and their
-    /// style, tools first and style after a rule.
+    /// Everything worked on the canvas, one centred row under the toolbar —
+    /// where Preview puts its markup tools and their style. The drawing tools,
+    /// then crop and scan (modes like them, entered and left on the canvas),
+    /// then, after a rule, the settings of whichever is active.
     private var markupRow: some View {
         HStack(spacing: 14) {
-            toolPicker
+            HStack(spacing: 2) {
+                toolPicker
+                Divider().frame(height: 20).padding(.horizontal, 8)
+                cropButton
+                scanButton
+            }
             Divider().frame(height: 20)
             contextRow
         }
