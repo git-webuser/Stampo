@@ -28,12 +28,19 @@ private final class PassthroughTooltipView: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
 
+/// A tooltip's text: the name in the in-app language, and the shortcut after
+/// it in parentheses — "Rectangle (R)". One format for every tooltip in the
+/// editor, the drawn ones and the window toolbar's alike.
+func tooltipText(_ key: String, shortcut: String? = nil) -> String {
+    let localized = LocaleManager.shared.string(key)
+    return shortcut.map { "\(localized) (\($0))" } ?? localized
+}
+
 extension View {
     /// Attaches a hover tooltip (and matching accessibility label) resolved
     /// from `key` in the app's string catalog via the current in-app language.
     func hoverTip(_ key: String, shortcut: String? = nil) -> some View {
-        let localized = LocaleManager.shared.string(key)
-        let text = shortcut.map { "\(localized) (\($0))" } ?? localized
+        let text = tooltipText(key, shortcut: shortcut)
         return overlay(TooltipCarrier(text: text).allowsHitTesting(false))
             .accessibilityLabel(Text(verbatim: text))
     }

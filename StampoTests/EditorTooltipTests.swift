@@ -55,4 +55,13 @@ import Testing
         let missing = keys.filter { !Self.isTranslated($0) }.sorted()
         #expect(missing.isEmpty, "tooltips with no Russian: \(missing)")
     }
+
+    /// One format for a shortcut in every tooltip, drawn or system: after the
+    /// name, in parentheses. The window toolbar once wrote it after two
+    /// spaces instead, so the same key read two ways in one window.
+    @Test func aShortcutFollowsTheNameInParentheses() {
+        let name = LocaleManager.shared.string("Undo")
+        #expect(tooltipText("Undo", shortcut: "⌘Z") == "\(name) (⌘Z)")
+        #expect(tooltipText("Undo") == name)
+    }
 }

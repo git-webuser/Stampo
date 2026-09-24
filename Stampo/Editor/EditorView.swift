@@ -239,21 +239,21 @@ struct EditorView: View {
             }
             .keyboardShortcut("-", modifiers: .command)
             .disabled(textEditingActive || zoomFactor <= 0.25)
-            .help("Zoom Out")
+            .help(Text(verbatim: tooltipText("Zoom Out", shortcut: "⌘−")))
 
             Button { fitZoom() } label: {
                 Label("Zoom to Fit", systemImage: "square.arrowtriangle.4.outward")
             }
             .keyboardShortcut("0", modifiers: .command)
             .disabled(textEditingActive)
-            .help("Zoom to Fit")
+            .help(Text(verbatim: tooltipText("Zoom to Fit", shortcut: "⌘0")))
 
             Button { adjustZoom(by: 0.25) } label: {
                 Label("Zoom In", systemImage: "plus.magnifyingglass")
             }
             .keyboardShortcut("+", modifiers: .command)
             .disabled(textEditingActive || zoomFactor >= 8)
-            .help("Zoom In")
+            .help(Text(verbatim: tooltipText("Zoom In", shortcut: "⌘+")))
         }
 
         ToolbarSpacer(.fixed)
@@ -280,14 +280,14 @@ struct EditorView: View {
             }
             .keyboardShortcut("z", modifiers: .command)
             .disabled(!document.canUndo || textEditingActive)
-            .help("Undo")
+            .help(Text(verbatim: tooltipText("Undo", shortcut: "⌘Z")))
 
             Button { document.redo() } label: {
                 Label("Redo", systemImage: "arrow.uturn.forward")
             }
             .keyboardShortcut("z", modifiers: [.command, .shift])
             .disabled(!document.canRedo || textEditingActive)
-            .help("Redo")
+            .help(Text(verbatim: tooltipText("Redo", shortcut: "⇧⌘Z")))
         }
     }
 
@@ -338,7 +338,7 @@ struct EditorView: View {
                     Label("Copy", systemImage: "doc.on.doc")
                 }
                 .disabled(textEditingActive || isPreparingArtifact)
-                .help("Copy")
+                .help(Text(verbatim: tooltipText("Copy", shortcut: "⌘C")))
             }
 
             ToolbarSpacer(.fixed)
@@ -367,7 +367,7 @@ struct EditorView: View {
                 .menuStyle(.button)
                 .buttonStyle(.glassProminent)
                 .disabled(saveHandler == nil || textEditingActive || isPreparingArtifact)
-                .help("Save")
+                .help(Text(verbatim: tooltipText("Save", shortcut: "⌘S")))
             }
         }
     }
@@ -379,8 +379,7 @@ struct EditorView: View {
             Label { Text(LocalizedStringKey(t.labelKey)) } icon: { ToolbarToolIcon(t.systemImage) }
         }
         .toggleStyle(.button)
-        .help(Text(LocalizedStringKey(t.labelKey))
-              + Text(verbatim: t.shortcut.map { "  " + $0.label } ?? ""))
+        .help(Text(verbatim: tooltipText(t.labelKey, shortcut: t.shortcut?.label)))
     }
 
     /// The active tool's settings, one centred row under the toolbar — where
@@ -915,7 +914,7 @@ struct EditorView: View {
         }
         .toggleStyle(.button)
         .labelStyle(.iconOnly)
-        .help(Text(LocalizedStringKey(label)) + Text(verbatim: "  " + shortcut))
+        .help(Text(verbatim: tooltipText(label, shortcut: shortcut)))
     }
 
     private func formatToggle(_ label: String, systemImage: String, shortcut: String,
@@ -1707,7 +1706,7 @@ struct EditorView: View {
             .buttonStyle(.borderless)
             .keyboardShortcut("z", modifiers: .command)
             .disabled(!document.canUndo || textEditingActive)
-            .hoverTip("Undo")
+            .hoverTip("Undo", shortcut: "⌘Z")
 
             Button { document.redo() } label: {
                 Image(systemName: "arrow.uturn.forward")
@@ -1716,7 +1715,7 @@ struct EditorView: View {
             .buttonStyle(.borderless)
             .keyboardShortcut("z", modifiers: [.command, .shift])
             .disabled(!document.canRedo || textEditingActive)
-            .hoverTip("Redo")
+            .hoverTip("Redo", shortcut: "⇧⌘Z")
         }
     }
 
@@ -1728,7 +1727,7 @@ struct EditorView: View {
             .buttonStyle(.borderless)
             .keyboardShortcut("-", modifiers: .command)
             .disabled(textEditingActive || zoomFactor <= 0.25)
-            .hoverTip("Zoom Out")
+            .hoverTip("Zoom Out", shortcut: "⌘−")
 
             Text("\(Int((zoomFactor * 100).rounded()))%")
                 .font(.system(size: 11, design: .monospaced))
@@ -1741,7 +1740,7 @@ struct EditorView: View {
             .buttonStyle(.borderless)
             .keyboardShortcut("+", modifiers: .command)
             .disabled(textEditingActive || zoomFactor >= 8)
-            .hoverTip("Zoom In")
+            .hoverTip("Zoom In", shortcut: "⌘+")
         }
     }
 
@@ -1755,7 +1754,7 @@ struct EditorView: View {
         .buttonStyle(.borderless)
         .keyboardShortcut("0", modifiers: .command)
         .disabled(textEditingActive)
-        .hoverTip("Zoom to Fit")
+        .hoverTip("Zoom to Fit", shortcut: "⌘0")
     }
 
     /// One rotate button instead of a mirrored pair: plain click rotates
