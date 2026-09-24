@@ -18,7 +18,7 @@ import SwiftUI
 struct UniformSegmentedPicker<Value: Equatable>: NSViewRepresentable {
     /// The one width of every segment in the settings row: a picker is this
     /// times its number of segments, so a tab is the same size in all of them.
-    static var segmentWidth: CGFloat { 36 }
+    static var segmentWidth: CGFloat { SettingsRowSegment.width }
 
     enum Width {
         /// This many points for each segment, whatever the room around it.
@@ -104,6 +104,76 @@ struct UniformSegmentedPicker<Value: Equatable>: NSViewRepresentable {
         @objc func selectionChanged(_ sender: NSSegmentedControl) {
             guard parent.segments.indices.contains(sender.selectedSegment) else { return }
             parent.selection = parent.segments[sender.selectedSegment].value
+        }
+    }
+}
+
+/// The settings row's one tab width, shared by the pickers and the toggles.
+enum SettingsRowSegment {
+    static let width: CGFloat = 36
+}
+
+/// A row of on/off switches as one native segmented control, any number on
+/// at once — bold through shadow. The same tab as `UniformSegmentedPicker`
+/// (36pt each, the control that times their number), so the text row's five
+/// switches are the size of every other tab in the row: as a SwiftUI
+/// `ControlGroup` the system sized them to their glyphs.
+struct UniformSegmentedToggles: NSViewRepresentable {
+    struct Item {
+        let symbol: String
+        /// Tooltip and accessibility name.
+        let label: String
+        let isOn: Binding<Bool>
+    }
+
+    let items: [Item]
+
+    func makeNSView(context: Context) -> NSSegmentedControl {
+        let control = NSSegmentedControl()
+        control.trackingMode = .selectAny
+        control.segmentDistribution = .fillEqually
+        control.segmentCount = items.count
+        control.target = context.coordinator
+        control.action = #selector(Coordinator.selectionChanged(_:))
+        for (index, item) in items.enumerated() {
+            control.setImage(NSImage(systemSymbolName: item.symbol,
+                                     accessibilityDescription: item.label),
+                             forSegment: index)
+            control.setImageScaling(.scaleProportionallyDown, forSegment: index)
+            control.setToolTip(item.label, forSegment: index)
+        }
+        control.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        control.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        return control
+    }
+
+    func updateNSView(_ control: NSSegmentedControl, context: Context) {
+        context.coordinator.parent = self
+        for (index, item) in items.enumerated() {
+            control.setSelected(item.isOn.wrappedValue, forSegment: index)
+            control.setToolTip(item.label, forSegment: index)
+        }
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView control: NSSegmentedControl,
+                      context: Context) -> CGSize? {
+        CGSize(width: SettingsRowSegment.width * CGFloat(items.count),
+               height: control.intrinsicContentSize.height)
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    final class Coordinator: NSObject {
+        var parent: UniformSegmentedToggles
+        init(_ parent: UniformSegmentedToggles) { self.parent = parent }
+
+        /// Only the segment that changed is written: each switch is its own
+        /// setting, and its own undo step.
+        @objc func selectionChanged(_ sender: NSSegmentedControl) {
+            for (index, item) in parent.items.enumerated()
+            where sender.isSelected(forSegment: index) != item.isOn.wrappedValue {
+                item.isOn.wrappedValue = sender.isSelected(forSegment: index)
+            }
         }
     }
 }

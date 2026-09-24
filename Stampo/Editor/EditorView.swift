@@ -879,22 +879,21 @@ struct EditorView: View {
     }
 
     /// Bold through shadow. With the window toolbar (macOS 26) they are one
-    /// system control group of button toggles, drawn and marked on by the
-    /// system; before that, the drawn buttons they always were.
+    /// native segmented control of switches, each tab the row's 36pt; before
+    /// that, the drawn buttons they always were.
     @ViewBuilder private var formatToggles: some View {
         if systemToolbar {
-            ControlGroup {
-                systemFormatToggle("Bold", systemImage: "bold", shortcut: "⌘B", binding: boldBinding)
-                systemFormatToggle("Italic", systemImage: "italic", shortcut: "⌘I",
-                                   binding: italicBinding)
-                systemFormatToggle("Underline", systemImage: "underline", shortcut: "⌘U",
-                                   binding: underlineBinding)
-                systemFormatToggle("Strikethrough", systemImage: "strikethrough",
-                                   shortcut: "⇧⌘X", binding: strikethroughBinding)
-                systemFormatToggle("Text Shadow", systemImage: "shadow", shortcut: "⇧⌘H",
-                                   binding: textShadowBinding)
-            }
-            .fixedSize()
+            UniformSegmentedToggles(items: [
+                formatItem("Bold", systemImage: "bold", shortcut: "⌘B", binding: boldBinding),
+                formatItem("Italic", systemImage: "italic", shortcut: "⌘I", binding: italicBinding),
+                formatItem("Underline", systemImage: "underline", shortcut: "⌘U",
+                           binding: underlineBinding),
+                formatItem("Strikethrough", systemImage: "strikethrough", shortcut: "⇧⌘X",
+                           binding: strikethroughBinding),
+                formatItem("Text Shadow", systemImage: "shadow", shortcut: "⇧⌘H",
+                           binding: textShadowBinding)
+            ])
+            .accessibilityLabel("Format")
         } else {
             formatToggle("Bold", systemImage: "bold", shortcut: "⌘B", binding: boldBinding)
             formatToggle("Italic", systemImage: "italic", shortcut: "⌘I", binding: italicBinding)
@@ -907,14 +906,11 @@ struct EditorView: View {
         }
     }
 
-    private func systemFormatToggle(_ label: String, systemImage: String, shortcut: String,
-                                    binding: Binding<Bool>) -> some View {
-        Toggle(isOn: binding) {
-            Label { Text(LocalizedStringKey(label)) } icon: { Image(systemName: systemImage) }
-        }
-        .toggleStyle(.button)
-        .labelStyle(.iconOnly)
-        .help(Text(verbatim: tooltipText(label, shortcut: shortcut)))
+    private func formatItem(_ label: String, systemImage: String, shortcut: String,
+                            binding: Binding<Bool>) -> UniformSegmentedToggles.Item {
+        UniformSegmentedToggles.Item(symbol: systemImage,
+                                     label: tooltipText(label, shortcut: shortcut),
+                                     isOn: binding)
     }
 
     private func formatToggle(_ label: String, systemImage: String, shortcut: String,
