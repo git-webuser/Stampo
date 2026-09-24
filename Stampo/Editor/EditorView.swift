@@ -872,14 +872,7 @@ struct EditorView: View {
 
     private var textControls: some View {
         HStack(spacing: 4) {
-            formatToggle("Bold", systemImage: "bold", shortcut: "⌘B", binding: boldBinding)
-            formatToggle("Italic", systemImage: "italic", shortcut: "⌘I", binding: italicBinding)
-            formatToggle("Underline", systemImage: "underline", shortcut: "⌘U",
-                         binding: underlineBinding)
-            formatToggle("Strikethrough", systemImage: "strikethrough", shortcut: "⇧⌘X",
-                         binding: strikethroughBinding)
-            formatToggle("Text Shadow", systemImage: "shadow", shortcut: "⇧⌘H",
-                         binding: textShadowBinding)
+            formatToggles
             Divider().frame(height: 18)
             Picker("Text Background", selection: textBackgroundBinding) {
                 Image(systemName: "square.slash").tag(TextBackground.none)
@@ -900,6 +893,45 @@ struct EditorView: View {
             .frame(width: 108)
             .hoverTip("Text Alignment")
         }
+    }
+
+    /// Bold through shadow. With the window toolbar (macOS 26) they are one
+    /// system control group of button toggles, drawn and marked on by the
+    /// system; before that, the drawn buttons they always were.
+    @ViewBuilder private var formatToggles: some View {
+        if systemToolbar {
+            ControlGroup {
+                systemFormatToggle("Bold", systemImage: "bold", shortcut: "⌘B", binding: boldBinding)
+                systemFormatToggle("Italic", systemImage: "italic", shortcut: "⌘I",
+                                   binding: italicBinding)
+                systemFormatToggle("Underline", systemImage: "underline", shortcut: "⌘U",
+                                   binding: underlineBinding)
+                systemFormatToggle("Strikethrough", systemImage: "strikethrough",
+                                   shortcut: "⇧⌘X", binding: strikethroughBinding)
+                systemFormatToggle("Text Shadow", systemImage: "shadow", shortcut: "⇧⌘H",
+                                   binding: textShadowBinding)
+            }
+            .fixedSize()
+        } else {
+            formatToggle("Bold", systemImage: "bold", shortcut: "⌘B", binding: boldBinding)
+            formatToggle("Italic", systemImage: "italic", shortcut: "⌘I", binding: italicBinding)
+            formatToggle("Underline", systemImage: "underline", shortcut: "⌘U",
+                         binding: underlineBinding)
+            formatToggle("Strikethrough", systemImage: "strikethrough", shortcut: "⇧⌘X",
+                         binding: strikethroughBinding)
+            formatToggle("Text Shadow", systemImage: "shadow", shortcut: "⇧⌘H",
+                         binding: textShadowBinding)
+        }
+    }
+
+    private func systemFormatToggle(_ label: String, systemImage: String, shortcut: String,
+                                    binding: Binding<Bool>) -> some View {
+        Toggle(isOn: binding) {
+            Label { Text(LocalizedStringKey(label)) } icon: { Image(systemName: systemImage) }
+        }
+        .toggleStyle(.button)
+        .labelStyle(.iconOnly)
+        .help(Text(LocalizedStringKey(label)) + Text(verbatim: "  " + shortcut))
     }
 
     private func formatToggle(_ label: String, systemImage: String, shortcut: String,
@@ -1039,7 +1071,8 @@ struct EditorView: View {
     ) -> some View {
         SettingStepper(label: label, systemImage: systemImage, value: value,
                        range: range, step: step, format: format,
-                       bracket: sliderEditingChanged)
+                       bracket: sliderEditingChanged,
+                       systemStyle: systemToolbar)
     }
 
     /// Minus/value/plus control. Buttons repeat while held; a double-click on
@@ -1054,11 +1087,44 @@ struct EditorView: View {
         let step: CGFloat
         var format: ((CGFloat) -> String)?
         var bracket: (Bool) -> Void
+        /// With the window toolbar (macOS 26): the system's own field and
+        /// stepper arrows, the number always editable; before that, the drawn
+        /// minus/value/plus.
+        var systemStyle = false
 
         @State private var draft: String?
         @FocusState private var draftFocused: Bool
 
         var body: some View {
+            if systemStyle { systemBody } else { drawnBody }
+        }
+
+        private var display: String { (format ?? { "\(Int($0.rounded()))" })(value) }
+
+        private var systemBody: some View {
+            HStack(spacing: 4) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                TextField("", text: Binding(get: { draft ?? display },
+                                            set: { draft = $0 }))
+                    .textFieldStyle(.roundedBorder)
+                    .multilineTextAlignment(.trailing)
+                    .font(.system(size: 11).monospacedDigit())
+                    .frame(width: 44)
+                    .focused($draftFocused)
+                    .onSubmit { commitDraft() }
+                    .onChange(of: draftFocused) { _, focused in
+                        if !focused { commitDraft() }   // click-away commits
+                    }
+                Stepper("", onIncrement: { commit(value + step) },
+                        onDecrement: { commit(value - step) })
+                    .labelsHidden()
+            }
+            .help(LocalizedStringKey(label))
+        }
+
+        private var drawnBody: some View {
             HStack(spacing: 0) {
                 Image(systemName: systemImage)
                     .font(.system(size: 11))
