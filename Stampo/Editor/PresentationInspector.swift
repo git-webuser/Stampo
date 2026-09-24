@@ -191,11 +191,11 @@ struct PresentationInspector: View {
 
         var id: String { rawValue }
 
-        var titleKey: LocalizedStringKey {
+        var title: String {
             switch self {
-            case .linear: return "Linear"
-            case .radial: return "Radial"
-            case .mesh:   return "Mesh"
+            case .linear: return String(localized: "Linear")
+            case .radial: return String(localized: "Radial")
+            case .mesh:   return String(localized: "Mesh")
             }
         }
     }
@@ -218,6 +218,10 @@ struct PresentationInspector: View {
     static func openColorPanel(for color: Presentation.Color,
                                supportsOpacity: Bool = true,
                                onChange: @escaping (Presentation.Color) -> Void) {
+        // A colour field that still has the keyboard would keep its own text
+        // over whatever the panel picks, and commit it back on leaving: the
+        // field is done with before the panel takes over.
+        NSApp.keyWindow?.makeFirstResponder(nil)
         let panel = NSColorPanel.shared
         ColorPanelProxy.shared.onChange = onChange
         panel.setTarget(ColorPanelProxy.shared)
@@ -226,6 +230,20 @@ struct PresentationInspector: View {
         panel.color = NSColor(srgbRed: color.red, green: color.green,
                               blue: color.blue, alpha: color.alpha)
         panel.makeKeyAndOrderFront(nil)
+    }
+
+    /// Closes the colour panel if the editor opened it, and lets go of the
+    /// colour it was editing. The panel is the app's one shared window: left
+    /// open, it outlived the editor, stayed pointed at a document that was
+    /// gone, and came back with the next editor as if it had been asked for.
+    static func closeColorPanel() {
+        guard NSColorPanel.sharedColorPanelExists else { return }
+        let panel = NSColorPanel.shared
+        guard ColorPanelProxy.shared.onChange != nil else { return }
+        ColorPanelProxy.shared.onChange = nil
+        panel.setTarget(nil)
+        panel.setAction(nil)
+        panel.orderOut(nil)
     }
 
     private struct ColorChip: View {
@@ -641,33 +659,33 @@ struct PresentationInspector: View {
     }
 
     private var gradientShapePicker: some View {
-        segments(selection: gradientShapeBinding, of: GradientShape.allCases) { $0.titleKey }
+        segments(selection: gradientShapeBinding, of: GradientShape.allCases) { $0.title }
     }
 
     /// The panel's one segmented control.
     ///
     /// Text, full width, `.large` — the same as every other control in here.
     /// Written once because it was written twice: the layer switch first
-    /// borrowed `IconSegmentedPicker` from the toolbar, which is an AppKit
-    /// control that measures itself against its own content, so it stood taller
-    /// than the shape switch above it *and* pushed the whole inspector wider.
+    /// borrowed the toolbar's icon picker, an AppKit control that measured itself
+    /// against its own content, so it stood taller than the shape switch above
+    /// it *and* pushed the whole inspector wider.
+    ///
+    /// The block's whole width, like the buttons under it. SwiftUI's segmented
+    /// `Picker` would not take it — a `maxWidth` frame only centred it — and
+    /// hugging its text it changed shape as the bold selected title moved from
+    /// one segment to the other. The AppKit control splits the width it is
+    /// given into equal segments.
     private func segments<Value: Identifiable & Hashable>(
         selection: Binding<Value>,
         of values: [Value],
-        title: @escaping (Value) -> LocalizedStringKey
+        title: @escaping (Value) -> String
     ) -> some View {
-        Picker("", selection: selection) {
-            ForEach(values) { value in
-                Text(title(value)).tag(value)
-            }
-        }
-        .pickerStyle(.segmented)
-        .labelsHidden()
-        .controlSize(.large)
-        // The block's whole width, like the buttons under it: hugging its
-        // text it sat against one edge and changed shape as the bold
-        // selected title moved from one segment to the other.
-        .frame(maxWidth: .infinity)
+        UniformSegmentedPicker<Value>(
+            segments: values.map { .text(title($0), $0) },
+            selection: selection,
+            width: .fill,
+            controlSize: .large
+        )
     }
 
     @ViewBuilder
@@ -1391,7 +1409,7 @@ struct PresentationInspector: View {
                 set: { layer in setEffect(effect, of: .page) { $0.layer = layer } }
             ),
             of: Presentation.Effect.Layer.allCases
-        ) { LocalizedStringKey(EffectStack.title(for: $0)) }
+        ) { NSLocalizedString(EffectStack.title(for: $0), comment: "") }
     }
 
     /// Which characters the page is written in. A choice, so it gets a menu
@@ -2374,7 +2392,9 @@ struct PresentationInspector: View {
         label: LocalizedStringKey,
         action: @escaping () -> Void
     ) -> some View {
-        panelIconButton(systemImage, label: label, action: action)
+        // The height of the "+" beside a colour field, so every "+" in the
+        // panel is one button.
+        panelIconButton(systemImage, fieldHeight: true, label: label, action: action)
     }
 
     /// The group's own title is the only title: the controls inside carry no

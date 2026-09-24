@@ -693,16 +693,13 @@ struct EditorView: View {
     }
 
     private var blurStylePicker: some View {
-        IconSegmentedPicker(
-            segments: [
-                .init("Pixelate", systemImage: "square.grid.3x3.fill",
-                      value: BlurStyle.pixelate),
-                .init("Blur", systemImage: "drop.fill",
-                      value: BlurStyle.gaussian)
-            ],
+        // Icons alone, like every other picker in the row, so it comes out
+        // the row's one width rather than as wide as its two words.
+        UniformSegmentedPicker(
+            segments: [.symbol("square.grid.3x3.fill", BlurStyle.pixelate),
+                       .symbol("drop.fill", BlurStyle.gaussian)],
             selection: blurStyleBinding
         )
-        .fixedSize()
         .accessibilityLabel("Blur")
         .hoverTip("Blur Style")
     }

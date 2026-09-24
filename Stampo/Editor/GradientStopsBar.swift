@@ -236,7 +236,16 @@ struct ColorField: View {
     @FocusState private var isFocused: Bool
 
     var body: some View {
-        TextField("", text: Binding(get: { text }, set: { text = $0; edited = true }))
+        // Only a real change marks the field edited: the field writes its
+        // unchanged text back when it takes focus, and that alone used to
+        // count as typing — a click in the field, then a colour from the
+        // system panel, and the field kept the old colour and committed it
+        // back over the new one on leaving.
+        TextField("", text: Binding(get: { text }, set: { new in
+            guard new != text else { return }
+            text = new
+            edited = true
+        }))
             .textFieldStyle(.roundedBorder)
             .controlSize(.large)
             .font(.system(size: 12, design: .monospaced))
@@ -254,6 +263,8 @@ struct ColorField: View {
             // keystroke the *other* controls make, and rewriting the field
             // under the cursor would fight the person using it.
             .onChange(of: color) { _, new in
+                // A field that is not being typed in has nothing to protect.
+                if !isFocused { edited = false }
                 if !edited { text = written(new) }
             }
             .onChange(of: format) { _, _ in
@@ -272,8 +283,11 @@ struct ColorField: View {
             return
         }
         let srgb = parsed.usingColorSpace(.sRGB) ?? parsed
-        onCommit(Presentation.Color(red: srgb.redComponent, green: srgb.greenComponent,
-                                    blue: srgb.blueComponent, alpha: color.alpha))
+        let typed = Presentation.Color(red: srgb.redComponent, green: srgb.greenComponent,
+                                       blue: srgb.blueComponent, alpha: color.alpha)
+        // The text still naming the colour on screen is not a change, and
+        // committing it would add an undo step that does nothing.
+        if written(typed) != written(color) { onCommit(typed) }
         text = written(color)
     }
 
