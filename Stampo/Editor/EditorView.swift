@@ -182,6 +182,14 @@ struct EditorView: View {
     /// their size and spacing.
     @available(macOS 26, *)
     @ToolbarContentBuilder private var systemToolbarContent: some ToolbarContent {
+        // Three blocks: a builder takes at most ten items in one.
+        toolsToolbarContent
+        documentToolbarContent
+        exitToolbarContent
+    }
+
+    @available(macOS 26, *)
+    @ToolbarContentBuilder private var toolsToolbarContent: some ToolbarContent {
         // The drawing tools, then crop and scan: two capsules of system
         // toggles, so the system spaces them and marks the one that is on.
         ToolbarItemGroup(placement: .navigation) {
@@ -221,7 +229,10 @@ struct EditorView: View {
             .disabled(textEditingActive)
             .help("Scan")
         }
+    }
 
+    @available(macOS 26, *)
+    @ToolbarContentBuilder private var documentToolbarContent: some ToolbarContent {
         ToolbarItemGroup {
             Button { adjustZoom(by: -0.25) } label: {
                 Label("Zoom Out", systemImage: "minus.magnifyingglass")
@@ -278,7 +289,10 @@ struct EditorView: View {
             .disabled(!document.canRedo || textEditingActive)
             .help("Redo")
         }
+    }
 
+    @available(macOS 26, *)
+    @ToolbarContentBuilder private var exitToolbarContent: some ToolbarContent {
         ToolbarSpacer(.flexible)
 
         ToolbarItem {
