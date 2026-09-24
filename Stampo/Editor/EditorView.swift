@@ -217,7 +217,7 @@ struct EditorView: View {
             }
             .toggleStyle(.button)
             .disabled(textEditingActive)
-            .help("Crop")
+            .help(Text(verbatim: tooltipText("Crop", shortcut: EditorTool.crop.shortcut?.label)))
 
             Toggle(isOn: Binding(
                 get: { tool == .scan },
@@ -227,7 +227,7 @@ struct EditorView: View {
             }
             .toggleStyle(.button)
             .disabled(textEditingActive)
-            .help("Scan")
+            .help(Text(verbatim: tooltipText("Scan", shortcut: EditorTool.scan.shortcut?.label)))
         }
     }
 
@@ -239,21 +239,21 @@ struct EditorView: View {
             }
             .keyboardShortcut("-", modifiers: .command)
             .disabled(textEditingActive || zoomFactor <= 0.25)
-            .help("Zoom Out")
+            .help(Text(verbatim: tooltipText("Zoom Out", shortcut: "⌘−")))
 
             Button { fitZoom() } label: {
                 Label("Zoom to Fit", systemImage: "square.arrowtriangle.4.outward")
             }
             .keyboardShortcut("0", modifiers: .command)
             .disabled(textEditingActive)
-            .help("Zoom to Fit")
+            .help(Text(verbatim: tooltipText("Zoom to Fit", shortcut: "⌘0")))
 
             Button { adjustZoom(by: 0.25) } label: {
                 Label("Zoom In", systemImage: "plus.magnifyingglass")
             }
             .keyboardShortcut("+", modifiers: .command)
             .disabled(textEditingActive || zoomFactor >= 8)
-            .help("Zoom In")
+            .help(Text(verbatim: tooltipText("Zoom In", shortcut: "⌘+")))
         }
 
         ToolbarSpacer(.fixed)
@@ -280,14 +280,14 @@ struct EditorView: View {
             }
             .keyboardShortcut("z", modifiers: .command)
             .disabled(!document.canUndo || textEditingActive)
-            .help("Undo")
+            .help(Text(verbatim: tooltipText("Undo", shortcut: "⌘Z")))
 
             Button { document.redo() } label: {
                 Label("Redo", systemImage: "arrow.uturn.forward")
             }
             .keyboardShortcut("z", modifiers: [.command, .shift])
             .disabled(!document.canRedo || textEditingActive)
-            .help("Redo")
+            .help(Text(verbatim: tooltipText("Redo", shortcut: "⇧⌘Z")))
         }
     }
 
@@ -338,7 +338,7 @@ struct EditorView: View {
                     Label("Copy", systemImage: "doc.on.doc")
                 }
                 .disabled(textEditingActive || isPreparingArtifact)
-                .help("Copy")
+                .help(Text(verbatim: tooltipText("Copy", shortcut: "⌘C")))
             }
 
             ToolbarSpacer(.fixed)
@@ -367,7 +367,7 @@ struct EditorView: View {
                 .menuStyle(.button)
                 .buttonStyle(.glassProminent)
                 .disabled(saveHandler == nil || textEditingActive || isPreparingArtifact)
-                .help("Save")
+                .help(Text(verbatim: tooltipText("Save", shortcut: "⌘S")))
             }
         }
     }
@@ -379,8 +379,7 @@ struct EditorView: View {
             Label { Text(LocalizedStringKey(t.labelKey)) } icon: { ToolbarToolIcon(t.systemImage) }
         }
         .toggleStyle(.button)
-        .help(Text(LocalizedStringKey(t.labelKey))
-              + Text(verbatim: t.shortcut.map { "  " + $0.label } ?? ""))
+        .help(Text(verbatim: tooltipText(t.labelKey, shortcut: t.shortcut?.label)))
     }
 
     /// The active tool's settings, one centred row under the toolbar — where
@@ -389,6 +388,9 @@ struct EditorView: View {
     private var markupRow: some View {
         contextRow
             .fixedSize(horizontal: true, vertical: false)
+            // Room at the sides when the window is at its narrowest, the same
+            // 12pt the legacy row keeps.
+            .padding(.horizontal, 12)
             .frame(maxWidth: .infinity)
             .frame(height: 40)
             .background(shortcutCarriers)
@@ -662,12 +664,14 @@ struct EditorView: View {
     }
 
     private var colorSwatches: some View {
-        HStack(spacing: 5) {
+        HStack(spacing: 2) {
             ForEach(Array(AnnotationColor.presets.enumerated()), id: \.offset) { index, preset in
                 Button {
                     style.color = preset
                     applyToSelection { $0.color = preset }
                 } label: {
+                    // 18pt of colour in a 24pt target: at 14pt the chips were
+                    // easy to miss, and the space between them caught nothing.
                     Circle()
                         .fill(Color(nsColor: preset.nsColor))
                         .overlay(Circle().strokeBorder(.quaternary, lineWidth: 1))
@@ -676,7 +680,9 @@ struct EditorView: View {
                                 Circle().strokeBorder(Color.accentColor, lineWidth: 2).padding(-3)
                             }
                         }
-                        .frame(width: 14, height: 14)
+                        .frame(width: 18, height: 18)
+                        .frame(width: 24, height: 24)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .hoverTip(colorNames[index])
@@ -689,16 +695,13 @@ struct EditorView: View {
     }
 
     private var blurStylePicker: some View {
-        IconSegmentedPicker(
-            segments: [
-                .init("Pixelate", systemImage: "square.grid.3x3.fill",
-                      value: BlurStyle.pixelate),
-                .init("Blur", systemImage: "drop.fill",
-                      value: BlurStyle.gaussian)
-            ],
+        // Icons alone, like every other picker in the row, so it comes out
+        // the row's one width rather than as wide as its two words.
+        UniformSegmentedPicker(
+            segments: [.symbol("square.grid.3x3.fill", BlurStyle.pixelate),
+                       .symbol("drop.fill", BlurStyle.gaussian)],
             selection: blurStyleBinding
         )
-        .fixedSize()
         .accessibilityLabel("Blur")
         .hoverTip("Blur Style")
     }
@@ -708,27 +711,22 @@ struct EditorView: View {
     /// one, the two modes render identically. Icon-only, like the loupe's
     /// other pickers, so the row fits the minimum window width.
     private var loupeSourcePicker: some View {
-        Picker("Loupe Source", selection: loupeRevealsOriginalBinding) {
-            Image(systemName: "eye.slash").tag(false)
-            Image(systemName: "eye").tag(true)
-        }
-        .pickerStyle(.segmented)
-        .labelsHidden()
-        .frame(width: 76)
+        UniformSegmentedPicker(
+            segments: [.symbol("eye.slash", false), .symbol("eye", true)],
+            selection: loupeRevealsOriginalBinding
+        )
+        .accessibilityLabel("Loupe Source")
         .hoverTip("Loupe Source")
     }
 
     /// In-place magnifier vs callout (source marker + detached magnifier
     /// joined by a connector).
     private var loupeModePicker: some View {
-        Picker("Loupe Mode", selection: loupeCalloutBinding) {
-            Image(systemName: "smallcircle.filled.circle").tag(false)
-            Image(systemName: "point.topleft.down.to.point.bottomright.curvepath")
-                .tag(true)
-        }
-        .pickerStyle(.segmented)
-        .labelsHidden()
-        .frame(width: 76)
+        UniformSegmentedPicker(
+            segments: [.symbol("smallcircle.filled.circle", false), .symbol("point.topleft.down.to.point.bottomright.curvepath", true)],
+            selection: loupeCalloutBinding
+        )
+        .accessibilityLabel("Loupe Mode")
         .hoverTip("Loupe Mode")
     }
 
@@ -738,13 +736,11 @@ struct EditorView: View {
     /// segments show which side the tail lands on, so the icons no longer run
     /// left-to-right — consistency of "default leads" won that trade.
     private var bubbleTailPicker: some View {
-        Picker("Tail Side", selection: bubbleTailBinding) {
-            Image(systemName: "bubble.right").tag(BubbleTailDirection.right)
-            Image(systemName: "bubble.left").tag(BubbleTailDirection.left)
-        }
-        .pickerStyle(.segmented)
-        .labelsHidden()
-        .frame(width: 76)
+        UniformSegmentedPicker(
+            segments: [.symbol("bubble.right", BubbleTailDirection.right), .symbol("bubble.left", BubbleTailDirection.left)],
+            selection: bubbleTailBinding
+        )
+        .accessibilityLabel("Tail Side")
         .hoverTip("Tail Side")
     }
 
@@ -755,13 +751,11 @@ struct EditorView: View {
     /// Marker nib shape — the same icon-only segmented pattern as the loupe
     /// pickers. Offered only while the marker is the effective brush.
     private var markerTipPicker: some View {
-        Picker("Marker Tip", selection: markerTipBinding) {
-            Image(systemName: "circle.fill").tag(MarkerTip.round)
-            Image(systemName: "square.fill").tag(MarkerTip.square)
-        }
-        .pickerStyle(.segmented)
-        .labelsHidden()
-        .frame(width: 76)
+        UniformSegmentedPicker(
+            segments: [.symbol("circle.fill", MarkerTip.round), .symbol("square.fill", MarkerTip.square)],
+            selection: markerTipBinding
+        )
+        .accessibilityLabel("Marker Tip")
         .hoverTip("Marker Tip")
     }
 
@@ -810,13 +804,11 @@ struct EditorView: View {
     /// Disabled while translating, because translation rejoins the lines this
     /// picks regardless. Leaving it live would offer a choice with no outcome.
     private var lineBreaksPicker: some View {
-        Picker("Line Breaks", selection: $style.scanJoinsLines) {
-            Image(systemName: "text.justify").tag(true)
-            Image(systemName: "text.append").tag(false)
-        }
-        .pickerStyle(.segmented)
-        .labelsHidden()
-        .frame(width: 76)
+        UniformSegmentedPicker(
+            segments: [.symbol("text.justify", true), .symbol("text.append", false)],
+            selection: $style.scanJoinsLines
+        )
+        .accessibilityLabel("Line Breaks")
         .disabled(scanOverlayActive && scanMode == .translate)
         .hoverTip("Line Breaks")
     }
@@ -842,13 +834,11 @@ struct EditorView: View {
     /// Outline of the loupe — same segmented pattern as the text background.
     /// A circle is the shift-locked case of the oval, so it isn't a segment.
     private var loupeShapePicker: some View {
-        Picker("Loupe Shape", selection: loupeShapeBinding) {
-            Image(systemName: "oval").tag(LoupeShape.oval)
-            Image(systemName: "rectangle").tag(LoupeShape.roundedRect)
-        }
-        .pickerStyle(.segmented)
-        .labelsHidden()
-        .frame(width: 76)
+        UniformSegmentedPicker(
+            segments: [.symbol("oval", LoupeShape.oval), .symbol("rectangle", LoupeShape.roundedRect)],
+            selection: loupeShapeBinding
+        )
+        .accessibilityLabel("Loupe Shape")
         .hoverTip("Loupe Shape")
     }
 
@@ -866,12 +856,52 @@ struct EditorView: View {
         }
         .pickerStyle(.menu)
         .labelsHidden()
-        .frame(width: 142)
+        // The text row is the widest, and it ran edge to edge at the minimum
+        // window width; 24pt off the menu buy the row its side margins. The
+        // longest names ("American Typewriter") end in an ellipsis, as they
+        // already did at 142.
+        .frame(width: 118)
         .hoverTip("Font")
     }
 
     private var textControls: some View {
-        HStack(spacing: 4) {
+        // The row's own spacing: blocks and the rules between them keep one
+        // gap, as they do everywhere else in the row.
+        HStack(spacing: 12) {
+            formatToggles
+            Divider().frame(height: 18)
+            UniformSegmentedPicker(
+                segments: [.symbol("square.slash", TextBackground.none), .symbol("square.fill", TextBackground.dark), .symbol("square", TextBackground.light)],
+                selection: textBackgroundBinding
+            )
+            .accessibilityLabel("Text Background")
+            .hoverTip("Text Background")
+            UniformSegmentedPicker(
+                segments: [.symbol("text.alignleft", TextAlign.left), .symbol("text.aligncenter", TextAlign.center), .symbol("text.alignright", TextAlign.right)],
+                selection: textAlignmentBinding
+            )
+            .accessibilityLabel("Text Alignment")
+            .hoverTip("Text Alignment")
+        }
+    }
+
+    /// Bold through shadow. With the window toolbar (macOS 26) they are one
+    /// native segmented control of switches, each tab the row's 36pt; before
+    /// that, the drawn buttons they always were.
+    @ViewBuilder private var formatToggles: some View {
+        if systemToolbar {
+            UniformSegmentedToggles(items: [
+                formatItem("Bold", systemImage: "bold", shortcut: "⌘B", binding: boldBinding),
+                formatItem("Italic", systemImage: "italic", shortcut: "⌘I", binding: italicBinding),
+                formatItem("Underline", systemImage: "underline", shortcut: "⌘U",
+                           binding: underlineBinding),
+                formatItem("Strikethrough", systemImage: "strikethrough", shortcut: "⇧⌘X",
+                           binding: strikethroughBinding),
+                formatItem("Text Shadow", systemImage: "shadow", shortcut: "⇧⌘H",
+                           binding: textShadowBinding)
+            ])
+            .accessibilityLabel("Format")
+        } else {
             formatToggle("Bold", systemImage: "bold", shortcut: "⌘B", binding: boldBinding)
             formatToggle("Italic", systemImage: "italic", shortcut: "⌘I", binding: italicBinding)
             formatToggle("Underline", systemImage: "underline", shortcut: "⌘U",
@@ -880,26 +910,14 @@ struct EditorView: View {
                          binding: strikethroughBinding)
             formatToggle("Text Shadow", systemImage: "shadow", shortcut: "⇧⌘H",
                          binding: textShadowBinding)
-            Divider().frame(height: 18)
-            Picker("Text Background", selection: textBackgroundBinding) {
-                Image(systemName: "square.slash").tag(TextBackground.none)
-                Image(systemName: "square.fill").tag(TextBackground.dark)
-                Image(systemName: "square").tag(TextBackground.light)
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .frame(width: 108)
-            .hoverTip("Text Background")
-            Picker("Text Alignment", selection: textAlignmentBinding) {
-                Image(systemName: "text.alignleft").tag(TextAlign.left)
-                Image(systemName: "text.aligncenter").tag(TextAlign.center)
-                Image(systemName: "text.alignright").tag(TextAlign.right)
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .frame(width: 108)
-            .hoverTip("Text Alignment")
         }
+    }
+
+    private func formatItem(_ label: String, systemImage: String, shortcut: String,
+                            binding: Binding<Bool>) -> UniformSegmentedToggles.Item {
+        UniformSegmentedToggles.Item(symbol: systemImage,
+                                     label: tooltipText(label, shortcut: shortcut),
+                                     isOn: binding)
     }
 
     private func formatToggle(_ label: String, systemImage: String, shortcut: String,
@@ -917,13 +935,11 @@ struct EditorView: View {
     }
 
     private var arrowStylePicker: some View {
-        Picker("Arrow Style", selection: arrowStyleBinding) {
-            Text(verbatim: "→").tag(ArrowStyle.filled)
-            Text(verbatim: "⇢").tag(ArrowStyle.dashed)
-        }
-        .pickerStyle(.segmented)
-        .labelsHidden()
-        .frame(width: 76)
+        UniformSegmentedPicker(
+            segments: [.text("→", ArrowStyle.filled), .text("⇢", ArrowStyle.dashed)],
+            selection: arrowStyleBinding
+        )
+        .accessibilityLabel("Arrow Style")
         .hoverTip("Arrow Style")
     }
 
@@ -933,51 +949,40 @@ struct EditorView: View {
     /// Grid first, free second: every other segmented control in this row puts
     /// its default in the leading segment, and snapping is on by default.
     private var snapPicker: some View {
-        Picker("Snapping", selection: $style.snapsToGrid) {
-            Image(systemName: "grid").tag(true)
-            Image(systemName: "arrow.up.and.down.and.arrow.left.and.right")
-                .tag(false)
-        }
-        .pickerStyle(.segmented)
-        .labelsHidden()
-        .frame(width: 76)
+        UniformSegmentedPicker(
+            segments: [.symbol("grid", true), .symbol("arrow.up.and.down.and.arrow.left.and.right", false)],
+            selection: $style.snapsToGrid
+        )
+        .accessibilityLabel("Snapping")
         .hoverTip("Snapping")
     }
 
     /// How the arrow travels — a bendable shaft or an axis-aligned run. A
     /// separate axis from the stroke's appearance, so it gets its own control.
     private var arrowRoutePicker: some View {
-        Picker("Arrow Route", selection: arrowRouteBinding) {
-            Image(systemName: "point.topleft.down.to.point.bottomright.curvepath")
-                .tag(ArrowRoute.curved)
-            Image(systemName: "arrow.turn.right.down").tag(ArrowRoute.elbowed)
-        }
-        .pickerStyle(.segmented)
-        .labelsHidden()
-        .frame(width: 76)
+        UniformSegmentedPicker(
+            segments: [.symbol("point.topleft.down.to.point.bottomright.curvepath", ArrowRoute.curved), .symbol("arrow.turn.right.down", ArrowRoute.elbowed)],
+            selection: arrowRouteBinding
+        )
+        .accessibilityLabel("Arrow Route")
         .hoverTip("Arrow Route")
     }
 
     private var arrowHeadPlacementPicker: some View {
-        Picker("Arrow Heads", selection: arrowHeadPlacementBinding) {
-            Text(verbatim: "←").tag(ArrowHeadPlacement.start)
-            Text(verbatim: "→").tag(ArrowHeadPlacement.end)
-            Text(verbatim: "↔").tag(ArrowHeadPlacement.both)
-        }
-        .pickerStyle(.segmented)
-        .labelsHidden()
-        .frame(width: 108)
+        UniformSegmentedPicker(
+            segments: [.text("←", ArrowHeadPlacement.start), .text("→", ArrowHeadPlacement.end), .text("↔", ArrowHeadPlacement.both)],
+            selection: arrowHeadPlacementBinding
+        )
+        .accessibilityLabel("Arrow Heads")
         .hoverTip("Arrow Heads")
     }
 
     private var lineStylePicker: some View {
-        Picker("Line Style", selection: lineStyleBinding) {
-            Text(verbatim: "━").tag(LineStyle.solid)
-            Text(verbatim: "┅").tag(LineStyle.dashed)
-        }
-        .pickerStyle(.segmented)
-        .labelsHidden()
-        .frame(width: 76)
+        UniformSegmentedPicker(
+            segments: [.text("━", LineStyle.solid), .text("┅", LineStyle.dashed)],
+            selection: lineStyleBinding
+        )
+        .accessibilityLabel("Line Style")
         .hoverTip("Line Style")
     }
 
@@ -1039,7 +1044,8 @@ struct EditorView: View {
     ) -> some View {
         SettingStepper(label: label, systemImage: systemImage, value: value,
                        range: range, step: step, format: format,
-                       bracket: sliderEditingChanged)
+                       bracket: sliderEditingChanged,
+                       systemStyle: systemToolbar)
     }
 
     /// Minus/value/plus control. Buttons repeat while held; a double-click on
@@ -1054,11 +1060,48 @@ struct EditorView: View {
         let step: CGFloat
         var format: ((CGFloat) -> String)?
         var bracket: (Bool) -> Void
+        /// With the window toolbar (macOS 26): the system's own field and
+        /// stepper arrows, the number always editable; before that, the drawn
+        /// minus/value/plus.
+        var systemStyle = false
 
         @State private var draft: String?
         @FocusState private var draftFocused: Bool
 
         var body: some View {
+            if systemStyle { systemBody } else { drawnBody }
+        }
+
+        private var display: String { (format ?? { "\(Int($0.rounded()))" })(value) }
+
+        private var systemBody: some View {
+            HStack(spacing: 4) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                // Plain, on a plate of the row's own control height: the
+                // bordered field stood shorter than the controls beside it.
+                TextField("", text: Binding(get: { draft ?? display },
+                                            set: { draft = $0 }))
+                    .textFieldStyle(.plain)
+                    .multilineTextAlignment(.trailing)
+                    .font(.system(size: 12).monospacedDigit())
+                    .padding(.horizontal, 6)
+                    .frame(width: 48, height: 24)
+                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                    .focused($draftFocused)
+                    .onSubmit { commitDraft() }
+                    .onChange(of: draftFocused) { _, focused in
+                        if !focused { commitDraft() }   // click-away commits
+                    }
+                Stepper("", onIncrement: { commit(value + step) },
+                        onDecrement: { commit(value - step) })
+                    .labelsHidden()
+            }
+            .help(LocalizedStringKey(label))
+        }
+
+        private var drawnBody: some View {
             HStack(spacing: 0) {
                 Image(systemName: systemImage)
                     .font(.system(size: 11))
@@ -1125,6 +1168,10 @@ struct EditorView: View {
         }
 
         private func commit(_ raw: CGFloat) {
+            // A step taken while the field holds a half-typed number is the
+            // newer word: drop the draft, or the field keeps showing it and
+            // the arrows look as if they did nothing.
+            draft = nil
             let clamped = min(range.upperBound, max(range.lowerBound, raw))
             bracket(true)
             value = clamped
@@ -1662,7 +1709,7 @@ struct EditorView: View {
             .buttonStyle(.borderless)
             .keyboardShortcut("z", modifiers: .command)
             .disabled(!document.canUndo || textEditingActive)
-            .hoverTip("Undo")
+            .hoverTip("Undo", shortcut: "⌘Z")
 
             Button { document.redo() } label: {
                 Image(systemName: "arrow.uturn.forward")
@@ -1671,7 +1718,7 @@ struct EditorView: View {
             .buttonStyle(.borderless)
             .keyboardShortcut("z", modifiers: [.command, .shift])
             .disabled(!document.canRedo || textEditingActive)
-            .hoverTip("Redo")
+            .hoverTip("Redo", shortcut: "⇧⌘Z")
         }
     }
 
@@ -1683,7 +1730,7 @@ struct EditorView: View {
             .buttonStyle(.borderless)
             .keyboardShortcut("-", modifiers: .command)
             .disabled(textEditingActive || zoomFactor <= 0.25)
-            .hoverTip("Zoom Out")
+            .hoverTip("Zoom Out", shortcut: "⌘−")
 
             Text("\(Int((zoomFactor * 100).rounded()))%")
                 .font(.system(size: 11, design: .monospaced))
@@ -1696,7 +1743,7 @@ struct EditorView: View {
             .buttonStyle(.borderless)
             .keyboardShortcut("+", modifiers: .command)
             .disabled(textEditingActive || zoomFactor >= 8)
-            .hoverTip("Zoom In")
+            .hoverTip("Zoom In", shortcut: "⌘+")
         }
     }
 
@@ -1710,7 +1757,7 @@ struct EditorView: View {
         .buttonStyle(.borderless)
         .keyboardShortcut("0", modifiers: .command)
         .disabled(textEditingActive)
-        .hoverTip("Zoom to Fit")
+        .hoverTip("Zoom to Fit", shortcut: "⌘0")
     }
 
     /// One rotate button instead of a mirrored pair: plain click rotates
@@ -1762,7 +1809,7 @@ struct EditorView: View {
         .buttonStyle(.borderless)
         .activeToolChrome(tool == .crop)
         .disabled(textEditingActive)
-        .hoverTip("Crop")
+        .hoverTip("Crop", shortcut: EditorTool.crop.shortcut?.label)
     }
 
     /// Own group past the crop divider: the scanner is a marquee like the
@@ -1783,7 +1830,7 @@ struct EditorView: View {
         .buttonStyle(.borderless)
         .activeToolChrome(tool == .scan)
         .disabled(textEditingActive)
-        .hoverTip("Scan")
+        .hoverTip("Scan", shortcut: EditorTool.scan.shortcut?.label)
     }
 
     /// Opens the native trailing inspector. It is deliberately not an

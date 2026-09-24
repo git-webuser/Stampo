@@ -191,11 +191,11 @@ struct PresentationInspector: View {
 
         var id: String { rawValue }
 
-        var titleKey: LocalizedStringKey {
+        var title: String {
             switch self {
-            case .linear: return "Linear"
-            case .radial: return "Radial"
-            case .mesh:   return "Mesh"
+            case .linear: return String(localized: "Linear")
+            case .radial: return String(localized: "Radial")
+            case .mesh:   return String(localized: "Mesh")
             }
         }
     }
@@ -218,6 +218,10 @@ struct PresentationInspector: View {
     static func openColorPanel(for color: Presentation.Color,
                                supportsOpacity: Bool = true,
                                onChange: @escaping (Presentation.Color) -> Void) {
+        // A colour field that still has the keyboard would keep its own text
+        // over whatever the panel picks, and commit it back on leaving: the
+        // field is done with before the panel takes over.
+        NSApp.keyWindow?.makeFirstResponder(nil)
         let panel = NSColorPanel.shared
         ColorPanelProxy.shared.onChange = onChange
         panel.setTarget(ColorPanelProxy.shared)
@@ -226,6 +230,20 @@ struct PresentationInspector: View {
         panel.color = NSColor(srgbRed: color.red, green: color.green,
                               blue: color.blue, alpha: color.alpha)
         panel.makeKeyAndOrderFront(nil)
+    }
+
+    /// Closes the colour panel if the editor opened it, and lets go of the
+    /// colour it was editing. The panel is the app's one shared window: left
+    /// open, it outlived the editor, stayed pointed at a document that was
+    /// gone, and came back with the next editor as if it had been asked for.
+    static func closeColorPanel() {
+        guard NSColorPanel.sharedColorPanelExists else { return }
+        let panel = NSColorPanel.shared
+        guard ColorPanelProxy.shared.onChange != nil else { return }
+        ColorPanelProxy.shared.onChange = nil
+        panel.setTarget(nil)
+        panel.setAction(nil)
+        panel.orderOut(nil)
     }
 
     private struct ColorChip: View {
@@ -459,6 +477,9 @@ struct PresentationInspector: View {
     /// The square every glyph button in the panel occupies — see
     /// `panelIconButton`.
     private static let buttonSide: CGFloat = 28
+    /// The label height that gives a large bordered button the height of the
+    /// large colour field beside it.
+    private static let fieldButtonHeight: CGFloat = 18
 
     init(document: EditorDocument, colorShelf: (any PresentationColorShelf)? = nil) {
         self.document = document
@@ -638,29 +659,33 @@ struct PresentationInspector: View {
     }
 
     private var gradientShapePicker: some View {
-        segments(selection: gradientShapeBinding, of: GradientShape.allCases) { $0.titleKey }
+        segments(selection: gradientShapeBinding, of: GradientShape.allCases) { $0.title }
     }
 
     /// The panel's one segmented control.
     ///
     /// Text, full width, `.large` — the same as every other control in here.
     /// Written once because it was written twice: the layer switch first
-    /// borrowed `IconSegmentedPicker` from the toolbar, which is an AppKit
-    /// control that measures itself against its own content, so it stood taller
-    /// than the shape switch above it *and* pushed the whole inspector wider.
+    /// borrowed the toolbar's icon picker, an AppKit control that measured itself
+    /// against its own content, so it stood taller than the shape switch above
+    /// it *and* pushed the whole inspector wider.
+    ///
+    /// The block's whole width, like the buttons under it. SwiftUI's segmented
+    /// `Picker` would not take it — a `maxWidth` frame only centred it — and
+    /// hugging its text it changed shape as the bold selected title moved from
+    /// one segment to the other. The AppKit control splits the width it is
+    /// given into equal segments.
     private func segments<Value: Identifiable & Hashable>(
         selection: Binding<Value>,
         of values: [Value],
-        title: @escaping (Value) -> LocalizedStringKey
+        title: @escaping (Value) -> String
     ) -> some View {
-        Picker("", selection: selection) {
-            ForEach(values) { value in
-                Text(title(value)).tag(value)
-            }
-        }
-        .pickerStyle(.segmented)
-        .labelsHidden()
-        .controlSize(.large)
+        UniformSegmentedPicker<Value>(
+            segments: values.map { .text(title($0), $0) },
+            selection: selection,
+            width: .fill,
+            controlSize: .large
+        )
     }
 
     @ViewBuilder
@@ -829,13 +854,14 @@ struct PresentationInspector: View {
             // back to, and replacing the picture is the once-in-a-while act at
             // the end of the row.
             ForEach(Presentation.Background.PictureFit.allCases) { fit in
-                panelIconButton(Self.symbol(for: fit), stretch: true,
+                panelIconButton(Self.symbol(for: fit), stretch: true, fieldHeight: true,
                                 label: Self.title(for: fit)) {
                     updateImmediately { $0.background = $0.background.settingPictureFit(fit) }
                 }
                 .activeToolChrome(draft.background.pictureFit == fit)
             }
-            panelIconButton("photo.badge.plus", stretch: true, label: "Choose Picture") {
+            panelIconButton("photo.badge.plus", stretch: true, fieldHeight: true,
+                            label: "Choose Picture") {
                 chooseBackgroundPicture()
             }
         }
@@ -966,7 +992,7 @@ struct PresentationInspector: View {
         return selectedColorRow(color: color) { picked in
             setStops(GradientStops.recolored(stops, at: selection, to: picked))
         } trailing: {
-            panelIconButton("plus", label: "Add Stop") {
+            panelIconButton("plus", fieldHeight: true, label: "Add Stop") {
                 // Halfway to the next stop, or halfway to the end when the
                 // selected one is last: the same "add a handle where there is
                 // room" the ramp does under the pointer.
@@ -974,7 +1000,7 @@ struct PresentationInspector: View {
                 selectedStop = selection + 1
             }
             .disabled(stops.count >= GradientStops.maximum)
-            panelIconButton("minus", label: "Remove Stop") {
+            panelIconButton("minus", fieldHeight: true, label: "Remove Stop") {
                 let remaining = GradientStops.removed(from: stops, at: selection)
                 guard remaining != stops else { return }
                 setStops(remaining)
@@ -1091,7 +1117,7 @@ struct PresentationInspector: View {
     /// is — the swatch and the hex field — so the button needs no label of its
     /// own, and it sits on the right edge like every other action here.
     private func saveToArchiveButton(color: Presentation.Color) -> some View {
-        panelIconButton("plus", label: "Save Color to Archive") {
+        panelIconButton("plus", fieldHeight: true, label: "Save Color to Archive") {
             colorShelf?.addShelfColor(color)
         }
         .disabled(colorShelf == nil)
@@ -1384,7 +1410,7 @@ struct PresentationInspector: View {
                 set: { layer in setEffect(effect, of: .page) { $0.layer = layer } }
             ),
             of: Presentation.Effect.Layer.allCases
-        ) { LocalizedStringKey(EffectStack.title(for: $0)) }
+        ) { NSLocalizedString(EffectStack.title(for: $0), comment: "") }
     }
 
     /// Which characters the page is written in. A choice, so it gets a menu
@@ -1535,10 +1561,13 @@ struct PresentationInspector: View {
         }
     }
 
+    /// The height of the "+" beside a colour field: at the panel's square
+    /// height, six buttons sharing the width came out nearly round.
     private var alignmentRow: some View {
         HStack(spacing: 6) {
             ForEach(Alignment.allCases) { item in
-                panelIconButton(item.systemImage, stretch: true, label: item.titleKey) {
+                panelIconButton(item.systemImage, stretch: true, fieldHeight: true,
+                                label: item.titleKey) {
                     align(item)
                 }
             }
@@ -2318,6 +2347,7 @@ struct PresentationInspector: View {
         _ systemImage: String,
         role: PanelButtonRole = .bordered,
         stretch: Bool = false,
+        fieldHeight: Bool = false,
         label: LocalizedStringKey,
         action: @escaping () -> Void
     ) -> some View {
@@ -2325,11 +2355,15 @@ struct PresentationInspector: View {
         // concrete type, and the two SwiftUI offers here share no box.
         Group {
             if role == .bordered {
-                Button(action: action) { panelButtonLabel(systemImage, stretch: stretch) }
-                    .buttonStyle(.bordered)
+                Button(action: action) {
+                    panelButtonLabel(systemImage, stretch: stretch, fieldHeight: fieldHeight)
+                }
+                .buttonStyle(.bordered)
             } else {
-                Button(action: action) { panelButtonLabel(systemImage, stretch: stretch) }
-                    .buttonStyle(.borderless)
+                Button(action: action) {
+                    panelButtonLabel(systemImage, stretch: stretch, fieldHeight: fieldHeight)
+                }
+                .buttonStyle(.borderless)
             }
         }
         .controlSize(.large)
@@ -2337,10 +2371,15 @@ struct PresentationInspector: View {
         .accessibilityLabel(Text(label))
     }
 
-    private func panelButtonLabel(_ systemImage: String, stretch: Bool) -> some View {
+    /// `fieldHeight`: a button that stands beside a colour field, drawn to the
+    /// field's height rather than the panel's square, which made it twice as
+    /// tall as the field.
+    private func panelButtonLabel(_ systemImage: String, stretch: Bool,
+                                  fieldHeight: Bool = false) -> some View {
         Image(systemName: systemImage)
             .font(.system(size: 13))
-            .frame(width: stretch ? nil : Self.buttonSide, height: Self.buttonSide)
+            .frame(width: stretch ? nil : Self.buttonSide,
+                   height: fieldHeight ? Self.fieldButtonHeight : Self.buttonSide)
             .frame(maxWidth: stretch ? .infinity : nil)
             // The frame is the target, not the glyph: a label that is only a
             // stroked shape takes clicks on the stroke alone, which is how a
@@ -2357,7 +2396,9 @@ struct PresentationInspector: View {
         label: LocalizedStringKey,
         action: @escaping () -> Void
     ) -> some View {
-        panelIconButton(systemImage, label: label, action: action)
+        // The height of the "+" beside a colour field, so every "+" in the
+        // panel is one button.
+        panelIconButton(systemImage, fieldHeight: true, label: label, action: action)
     }
 
     /// The group's own title is the only title: the controls inside carry no

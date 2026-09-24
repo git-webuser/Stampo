@@ -497,6 +497,7 @@ final class EditorWindowController: NSObject, NSWindowDelegate {
     }
 
     func windowWillClose(_ notification: Notification) {
+        PresentationInspector.closeColorPanel()
         document = nil
         window = nil
         Self.editors.removeAll { $0 === self }
