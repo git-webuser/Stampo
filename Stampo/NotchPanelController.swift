@@ -828,14 +828,30 @@ final class NotchPanelController: NSObject {
     }
 
     private func postMascotNotification() {
+        guard let mascot = Self.mascotState(for: state,
+                                            colorPickerInFlight: colorPicker.isInFlight)
+        else { return }
+        postMascotState(mascot)
+    }
+
+    /// What a panel state means for the mascot — nil when it is not the
+    /// mascot's news.
+    ///
+    /// Hiding is not news while the colour picker is out: the panel goes away
+    /// *because* the picker is starting, and the picker already has the
+    /// mascot's attention. Posted anyway, the sleep landed a moment into the
+    /// pick — the cursor reports that follow go straight to the mascot and
+    /// never cancelled it — and the hare shut its eyes while the user was
+    /// still choosing.
+    static func mascotState(for state: PanelState, colorPickerInFlight: Bool) -> MascotState? {
         switch state {
-        case .countdown:                             postMascotState(.countdown)
+        case .countdown:                               return .countdown
         // The wait strip and the mascot are the same news told twice: the app
         // is doing something of its own. The ears spread and hold while it is.
-        case .waiting:                               postMascotState(.waiting)
-        case .main, .archive, .showing, .preSelection: postMascotState(.awake)
-        case .hidden:                               postMascotState(.sleeping)
-        default:                                    break
+        case .waiting:                                 return .waiting
+        case .main, .archive, .showing, .preSelection: return .awake
+        case .hidden:                                  return colorPickerInFlight ? nil : .sleeping
+        default:                                       return nil
         }
     }
 

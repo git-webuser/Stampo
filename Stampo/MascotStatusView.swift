@@ -13,6 +13,52 @@ enum EyeDirection: Equatable {
         case .rightCenter, .rightUp, .rightDown: return false
         }
     }
+
+    private enum Row { case up, center, down }
+
+    private var row: Row {
+        switch self {
+        case .leftUp, .rightUp:         return .up
+        case .leftCenter, .rightCenter: return .center
+        case .leftDown, .rightDown:     return .down
+        }
+    }
+
+    private init(isLeft: Bool, row: Row) {
+        switch row {
+        case .up:     self = isLeft ? .leftUp : .rightUp
+        case .center: self = isLeft ? .leftCenter : .rightCenter
+        case .down:   self = isLeft ? .leftDown : .rightDown
+        }
+    }
+
+    /// Which way to look at a place on the screen — `x` and `y` from 0 to 1,
+    /// y up — given which way the eyes look already.
+    ///
+    /// The lines between directions are sticky: to change sides the pointer
+    /// has to go a little past the line, not merely touch it. Every change of
+    /// side is a blink, since the glint turns round behind one, and a picker
+    /// resting on the middle of the screen made the hare blink at each jitter.
+    static func toward(x: CGFloat, y: CGFloat, from previous: EyeDirection?) -> EyeDirection {
+        let side: CGFloat = 0.04, rowGap: CGFloat = 0.03
+        // Each line moves away from the side the eyes are on, so staying is
+        // easier than crossing.
+        let middle: CGFloat
+        switch previous?.isLeft {
+        case true?:  middle = 0.5 + side
+        case false?: middle = 0.5 - side
+        case nil:    middle = 0.5
+        }
+        let upLine: CGFloat, downLine: CGFloat
+        switch previous?.row {
+        case .up?:     upLine = 0.66 - rowGap; downLine = 0.33 - rowGap
+        case .center?: upLine = 0.66 + rowGap; downLine = 0.33 - rowGap
+        case .down?:   upLine = 0.66 + rowGap; downLine = 0.33 + rowGap
+        case nil:      upLine = 0.66;          downLine = 0.33
+        }
+        let row: Row = y > upLine ? .up : (y < downLine ? .down : .center)
+        return EyeDirection(isLeft: x < middle, row: row)
+    }
 }
 
 enum MascotState: Equatable {
@@ -65,6 +111,12 @@ final class MascotStatusView: NSView {
             return CGAffineTransform(a: scale, b: 0, c: 0, d: -scale, tx: inset, ty: top)
         }()
 
+        /// The same mapping about an eye's own centre: `toView` without its
+        /// offset. An eye is drawn around the origin and put in place by its
+        /// layer's position, because a layer scales about its position — and
+        /// every blink, pop and squeeze is a scale.
+        static let aboutEye = CGAffineTransform(a: scale, b: 0, c: 0, d: -scale, tx: 0, ty: 0)
+
         /// Where the eyes sit, in artwork units, and how far the gaze moves
         /// them. The row is the artwork's own; the travel is what a two-point
         /// eye has room for without leaving the face.
@@ -84,6 +136,7 @@ final class MascotStatusView: NSView {
 
     // MARK: State
 
+    private var state: MascotState = .sleeping
     private var eyesOpen     = false
     private var sequenceGen  = 0
     private var blinkTimer:  Timer?
@@ -99,14 +152,15 @@ final class MascotStatusView: NSView {
 
     private var ink: CGColor = CGColor(gray: 0.05, alpha: 1)
 
-    /// Where the pointer is, from −1 (far to the left of the mascot) to +1.
-    /// The ear nearest it folds away: an ear is the one part of a hare that
-    /// points at what has its attention.
     /// Which side of the eye the glint sits on. It is a highlight, not a
     /// pupil, so it belongs away from what the hare is looking at — but it may
     /// only change while the eyes are shut, or it reads as a flip.
     private var glintOnTheRight = true
-    private var lean: CGFloat = 0
+    /// Where the pointer is, from −1 (far to the left of the mascot) to +1.
+    /// The ear nearest it folds away: an ear is the one part of a hare that
+    /// points at what has its attention. Nil until the first reading, so the
+    /// first one is always applied, whatever the body was doing before.
+    private var lean: CGFloat?
     private var pointerTimer: Timer?
     /// True while a loop owns the body — the wait's spread ears, or the idle
     /// flick — so the pointer does not fight it for the same layer.
@@ -115,10 +169,20 @@ final class MascotStatusView: NSView {
     /// What the body is drawing right now — for the test that compares it with
     /// the artwork it is supposed to be drawing.
     var bodyPathForTesting: CGPath? { bodyLayer.path }
+    /// What the body is showing on screen this moment, mid-animation included.
+    var shownBodyForTesting: CGPath? { bodyLayer.presentation()?.path }
     /// The one transform that takes the artwork's box into the view, so a test
     /// can ask about a place on the hare rather than about a pixel.
     static var artworkToViewForTesting: CGAffineTransform { G.toView }
-    var eyePathsForTesting: (CGPath?, CGPath?) { (leftEyeLayer.path, rightEyeLayer.path) }
+    /// The eyes as drawn, in the view's coordinates.
+    var eyePathsForTesting: (CGPath?, CGPath?) { (drawn(leftEyeLayer), drawn(rightEyeLayer)) }
+    var eyeLayersForTesting: [CAShapeLayer] { [leftEyeLayer, rightEyeLayer] }
+    var followsPointerForTesting: Bool { pointerTimer != nil }
+
+    private func drawn(_ eye: CAShapeLayer) -> CGPath? {
+        var place = CGAffineTransform(translationX: eye.position.x, y: eye.position.y)
+        return eye.path?.copy(using: &place)
+    }
 
     // MARK: Poses
 
@@ -163,7 +227,12 @@ final class MascotStatusView: NSView {
 
     override init(frame: NSRect) { super.init(frame: frame); setup() }
     required init?(coder: NSCoder) { super.init(coder: coder); setup() }
-    isolated deinit { blinkTimer?.invalidate() }
+    isolated deinit {
+        blinkTimer?.invalidate()
+        // A repeating timer belongs to the run loop, not to the view: left
+        // alone it would go on firing fifteen times a second for nobody.
+        pointerTimer?.invalidate()
+    }
 
     // MARK: Setup
 
@@ -211,33 +280,37 @@ final class MascotStatusView: NSView {
 
         noAnim {
             self.bodyLayer.strokeColor = self.ink
-            // Eye ink applied per-state
-            if self.eyesOpen {
-                self.leftEyeLayer.fillColor  = self.ink
-                self.rightEyeLayer.fillColor = self.ink
-            } else {
-                self.leftEyeLayer.strokeColor  = self.ink
-                self.rightEyeLayer.strokeColor = self.ink
+            // Each eye in whatever it is drawn with right now — a wink has one
+            // of each, and an eye being squeezed shut is still filled.
+            for eye in [self.leftEyeLayer, self.rightEyeLayer] {
+                if (eye.fillColor?.alpha ?? 0) > 0 { eye.fillColor = self.ink }
+                if (eye.strokeColor?.alpha ?? 0) > 0 { eye.strokeColor = self.ink }
             }
         }
     }
 
     // MARK: - Pointer
 
-    /// Follows the pointer while the hare is awake, and lets go when it sleeps.
+    /// Follows the pointer while the hare is awake, and lets go in every other
+    /// state. Celebrating used to keep the timer the panel had started: the
+    /// hare shut its eyes for sleep and its ears went on following the
+    /// pointer, fifteen times a second, until the panel next opened and closed.
     ///
     /// Polled rather than monitored: a global event monitor wakes this process
     /// for every mouse move on the machine, and what is wanted here is a lean
     /// that settles — fifteen times a second is finer than an ear can be seen
     /// to move.
     private func followPointer(_ follow: Bool) {
+        guard follow != (pointerTimer != nil) else { return }
         pointerTimer?.invalidate()
         pointerTimer = nil
+        lean = nil
         guard follow else { return }
         pointerTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 15, repeats: true) {
             [weak self] _ in
             Task { @MainActor [weak self] in self?.readPointer() }
         }
+        readPointer()
     }
 
     private func readPointer() {
@@ -248,24 +321,26 @@ final class MascotStatusView: NSView {
         // which is what makes it read as following rather than as snapping.
         let reach = (window.screen ?? NSScreen.main)?.frame.width ?? 1440
         let wanted = max(-1, min(1, (NSEvent.mouseLocation.x - centre.x) / (reach / 3)))
-        guard abs(wanted - lean) > 0.02 else { return }
+        if let lean, abs(wanted - lean) <= 0.02 { return }
+        // The first reading comes from whatever pose another state left, which
+        // can be a long way off: give that journey a little longer.
+        let duration = lean == nil ? 0.25 : 0.12
         lean = wanted
-        animPath(bodyLayer, to: Self.leaning(wanted), dur: 0.12)
+        animPath(bodyLayer, to: Self.leaning(wanted), dur: duration)
     }
 
     // MARK: - Public
 
     func setState(_ state: MascotState) {
+        self.state = state
         bumpGen()
         blinkTimer?.invalidate()
         blinkTimer = nil
+        if state != .waiting { releaseBody() }
+        followPointer(state == .awake)
 
         switch state {
         case .sleeping:
-            followPointer(false)
-            bodyIsLooping = false
-            bodyLayer.removeAnimation(forKey: "loop")
-            lean = 0
             if eyesOpen {
                 let gen = sequenceGen
                 animateSqueeze {
@@ -280,15 +355,11 @@ final class MascotStatusView: NSView {
             let dir: EyeDirection = lastArcIsLeft ? .leftCenter : .rightCenter
             if !eyesOpen { applyOpenEyes(dir: dir, popAnim: true) }
             scheduleNextBlink()
-            bodyIsLooping = false
-            bodyLayer.removeAnimation(forKey: "loop")
-            followPointer(true)
 
         case .waiting:
             let dir: EyeDirection = lastArcIsLeft ? .leftCenter : .rightCenter
             if !eyesOpen { applyOpenEyes(dir: dir, popAnim: true) }
             scheduleNextBlink()
-            followPointer(false)
             spreadEars()
 
         case .colorPicking(let dir):
@@ -327,9 +398,37 @@ final class MascotStatusView: NSView {
         }
     }
 
+    /// The picker's cursor, as a place on its screen: `x` and `y` from 0 to 1,
+    /// y up.
+    ///
+    /// Not a change of state. The sampler reports every few dozen
+    /// milliseconds, and each `setState` restarts the sequences — so the blink
+    /// that turns the glint round while the eyes are shut was cancelled by the
+    /// very next report, and the light stayed on the side the hare was looking
+    /// at. Only a change of direction does anything here, and only while the
+    /// picker has the hare's attention.
+    func look(towardX x: CGFloat, y: CGFloat) {
+        guard case .colorPicking(let current) = state else { return }
+        let dir = EyeDirection.toward(x: x, y: y, from: current)
+        guard dir != current else { return }
+        state = .colorPicking(dir)
+        if eyesOpen {
+            animateMoveEyes(to: dir, duration: 0.15)
+        } else {
+            applyOpenEyes(dir: dir, popAnim: true)
+        }
+    }
+
     /// The wait: ears spread, held, and let go again — over and over, slowly.
     /// The same two poses the pointer uses would be a twitch; this is a breath.
     private func spreadEars() {
+        // Already waiting: a second post of the same news lets the loop run on
+        // rather than starting it over.
+        guard !bodyIsLooping else { return }
+        // Into the loop from wherever the ears are. The loop begins upright,
+        // and started at once it snapped a leaning hare straight up.
+        let settle: CFTimeInterval = 0.25
+        animPath(bodyLayer, to: Self.pose("earsUp"), dur: settle)
         bodyIsLooping = true
         let loop = CAKeyframeAnimation(keyPath: "path")
         loop.values = [Self.pose("earsUp"), Self.pose("earsSpreadRight"),
@@ -340,7 +439,21 @@ final class MascotStatusView: NSView {
         loop.repeatCount = .infinity
         loop.timingFunctions = Array(repeating: CAMediaTimingFunction(name: .easeInEaseOut),
                                      count: 4)
+        loop.beginTime = bodyLayer.convertTime(CACurrentMediaTime(), from: nil) + settle
         bodyLayer.add(loop, forKey: "loop")
+    }
+
+    /// Takes the body back from the wait's loop, from wherever the loop had
+    /// the ears. Removing the loop alone put the body back on its model path
+    /// at once — a jump from the middle of a stretch to wherever the ears had
+    /// been before the wait. The ears settle upright from there; a state that
+    /// wants another pose starts its own journey from the same place.
+    private func releaseBody() {
+        guard bodyIsLooping else { return }
+        bodyIsLooping = false
+        let shown = bodyLayer.presentation()?.path
+        bodyLayer.removeAnimation(forKey: "loop")
+        animPath(bodyLayer, from: shown, to: Self.pose("earsUp"), dur: 0.25)
     }
 
     // MARK: - Drawing helpers
@@ -351,23 +464,21 @@ final class MascotStatusView: NSView {
         lastArcIsLeft = leftSeries
         setBodyShape(for: nil, duration: 0.15)
         let (lc, rc) = eyeConfig(leftSeries ? .leftCenter : .rightCenter)
-        let lArc = closedEyePath(center: lc)
-        let rArc = closedEyePath(center: rc)
+        place(leftEyeLayer, at: lc)
+        place(rightEyeLayer, at: rc)
 
+        for eye in [leftEyeLayer, rightEyeLayer] {
+            // Whatever was closing or opening them is over: an arc is shut.
+            for key in ["squeeze", "blink", "pop"] { eye.removeAnimation(forKey: key) }
+        }
         noAnim {
-            // Reset any scale transform left over from squeeze / pop
-            self.leftEyeLayer.transform  = CATransform3DIdentity
-            self.rightEyeLayer.transform = CATransform3DIdentity
-
-            self.leftEyeLayer.path        = lArc
-            self.leftEyeLayer.lineWidth   = 0.8 * G.scale
-            self.leftEyeLayer.fillColor   = .clear
-            self.leftEyeLayer.strokeColor = self.ink
-
-            self.rightEyeLayer.path        = rArc
-            self.rightEyeLayer.lineWidth   = 0.8 * G.scale
-            self.rightEyeLayer.fillColor   = .clear
-            self.rightEyeLayer.strokeColor = self.ink
+            for eye in [self.leftEyeLayer, self.rightEyeLayer] {
+                // Reset any scale transform left over from squeeze / pop
+                eye.transform   = CATransform3DIdentity
+                eye.path        = self.closedEyePath()
+                eye.fillColor   = .clear
+                eye.strokeColor = self.ink
+            }
         }
     }
 
@@ -379,29 +490,26 @@ final class MascotStatusView: NSView {
         glintOnTheRight = dir.isLeft
         setBodyShape(for: dir, duration: 0.15)
         let (lc, rc) = eyeConfig(dir)
+        place(leftEyeLayer, at: lc)
+        place(rightEyeLayer, at: rc)
 
+        for eye in [leftEyeLayer, rightEyeLayer] {
+            // A squeeze cut short by this very call would go on shutting them.
+            eye.removeAnimation(forKey: "squeeze")
+        }
         noAnim {
-            self.leftEyeLayer.transform  = CATransform3DIdentity
-            self.rightEyeLayer.transform = CATransform3DIdentity
-
-            self.leftEyeLayer.path  = self.eyePath(center: lc)
-            self.rightEyeLayer.path = self.eyePath(center: rc)
-
-            self.leftEyeLayer.lineWidth   = 0.8 * G.scale
-            self.leftEyeLayer.fillColor   = self.ink
-            self.leftEyeLayer.strokeColor = .clear
-            self.rightEyeLayer.lineWidth  = 0.8 * G.scale
-            self.rightEyeLayer.fillColor  = self.ink
-            self.rightEyeLayer.strokeColor = .clear
-
-            if popAnim {
-                // Start at scale=0; the spring animation below will pop to 1
-                self.leftEyeLayer.transform  = CATransform3DMakeScale(0, 0, 1)
-                self.rightEyeLayer.transform = CATransform3DMakeScale(0, 0, 1)
+            for eye in [self.leftEyeLayer, self.rightEyeLayer] {
+                eye.transform   = CATransform3DIdentity
+                eye.path        = self.eyePath()
+                eye.fillColor   = self.ink
+                eye.strokeColor = .clear
             }
         }
 
         if popAnim {
+            // Scales about the eye's own centre, which is its position — see
+            // `G.aboutEye`. The model stays at 1, so that is what shows when
+            // the spring is done.
             let spring = CASpringAnimation(keyPath: "transform.scale")
             spring.fromValue = 0
             spring.toValue   = 1
@@ -410,11 +518,6 @@ final class MascotStatusView: NSView {
             spring.duration  = spring.settlingDuration
             leftEyeLayer.add(spring,  forKey: "pop")
             rightEyeLayer.add(spring, forKey: "pop")
-            // Restore model so when animation ends it reveals scale=1
-            noAnim {
-                self.leftEyeLayer.transform  = CATransform3DIdentity
-                self.rightEyeLayer.transform = CATransform3DIdentity
-            }
         }
     }
 
@@ -422,35 +525,26 @@ final class MascotStatusView: NSView {
     /// leftWinks=true  → right-series in play, left eye squints
     /// leftWinks=false → left-series in play, right eye squints
     private func applyWink(leftWinks: Bool) {
+        let (lc, rc) = eyeConfig(leftWinks ? .rightCenter : .leftCenter)
+        place(leftEyeLayer, at: lc)
+        place(rightEyeLayer, at: rc)
+        let (shut, open) = leftWinks ? (leftEyeLayer, rightEyeLayer)
+                                     : (rightEyeLayer, leftEyeLayer)
         noAnim {
-            if leftWinks {
-                // Left eye → arc (right-series left-eye arc)
-                self.leftEyeLayer.path        = self.closedEyePath(
-                    center: self.eyeConfig(.rightCenter).lEye)
-                self.leftEyeLayer.lineWidth   = 0.8 * G.scale
-                self.leftEyeLayer.fillColor   = .clear
-                self.leftEyeLayer.strokeColor = self.ink
-                // Right stays open
-                let rc = eyeConfig(.rightCenter).rEye
-                self.rightEyeLayer.path        = self.eyePath(center: rc)
-                self.rightEyeLayer.lineWidth   = 0.8 * G.scale
-                self.rightEyeLayer.fillColor   = self.ink
-                self.rightEyeLayer.strokeColor = .clear
-            } else {
-                // Right eye → arc (left-series right-eye arc)
-                self.rightEyeLayer.path        = self.closedEyePath(
-                    center: self.eyeConfig(.leftCenter).rEye)
-                self.rightEyeLayer.lineWidth   = 0.8 * G.scale
-                self.rightEyeLayer.fillColor   = .clear
-                self.rightEyeLayer.strokeColor = self.ink
-                // Left stays open
-                let lc = eyeConfig(.leftCenter).lEye
-                self.leftEyeLayer.path        = self.eyePath(center: lc)
-                self.leftEyeLayer.lineWidth   = 0.8 * G.scale
-                self.leftEyeLayer.fillColor   = self.ink
-                self.leftEyeLayer.strokeColor = .clear
-            }
+            shut.path        = self.closedEyePath()
+            shut.fillColor   = .clear
+            shut.strokeColor = self.ink
+            open.path        = self.eyePath()
+            open.fillColor   = self.ink
+            open.strokeColor = .clear
         }
+    }
+
+    /// Puts an eye where it belongs at once, ending any journey it was on.
+    /// The centre is in artwork units, like everything else about the hare.
+    private func place(_ eye: CAShapeLayer, at centre: CGPoint) {
+        eye.removeAnimation(forKey: "movePos")
+        noAnim { eye.position = centre.applying(G.toView) }
     }
 
     // MARK: - Eye movement
@@ -464,21 +558,29 @@ final class MascotStatusView: NSView {
         let crossing = dir.isLeft != lastOpenDirection.isLeft
         lastOpenDirection = dir
         setBodyShape(for: dir, duration: duration)
-        let (lc, rc) = eyeConfig(dir)
 
         guard crossing, eyesOpen else {
-            animPath(leftEyeLayer,  to: eyePath(center: lc), dur: duration)
-            animPath(rightEyeLayer, to: eyePath(center: rc), dur: duration)
+            let (lc, rc) = eyeConfig(dir)
+            animPos(leftEyeLayer,  to: lc.applying(G.toView), dur: duration)
+            animPos(rightEyeLayer, to: rc.applying(G.toView), dur: duration)
             return
         }
 
-        let gen = bumpGen()
+        // The eyes open on wherever they are asked to look by then, not on
+        // where they were asked when they shut: the picker keeps reporting
+        // through the blink, and a turn it asked for in the dark is still
+        // wanted.
+        let gen = sequenceGen
         blink { [weak self] in
-            guard let self, self.sequenceGen == gen else { return }
-            self.glintOnTheRight = dir.isLeft
+            guard let self, self.sequenceGen == gen, self.eyesOpen else { return }
+            let now = self.lastOpenDirection
+            self.glintOnTheRight = now.isLeft
+            let (lc, rc) = self.eyeConfig(now)
+            self.place(self.leftEyeLayer, at: lc)
+            self.place(self.rightEyeLayer, at: rc)
             self.noAnim {
-                self.leftEyeLayer.path = self.eyePath(center: lc)
-                self.rightEyeLayer.path = self.eyePath(center: rc)
+                self.leftEyeLayer.path = self.eyePath()
+                self.rightEyeLayer.path = self.eyePath()
             }
         }
     }
@@ -525,7 +627,13 @@ final class MascotStatusView: NSView {
     }
 
     /// Squeeze both eyes to scale.y = 0, then call completion.
+    ///
+    /// The eyes count as shut from the first moment. The model goes to zero
+    /// here and only the completion puts the arcs up, so a state arriving in
+    /// between — and cancelling the completion — used to find the eyes still
+    /// "open", leave them alone, and keep a hare with no eyes at all.
     private func animateSqueeze(completion: @escaping @MainActor () -> Void) {
+        eyesOpen = false
         // Correct pattern: set model → animate from current presentation → model
         let fromY = (leftEyeLayer.presentation()?.value(forKeyPath: "transform.scale.y") as? CGFloat) ?? 1
 
@@ -551,8 +659,12 @@ final class MascotStatusView: NSView {
 
     // MARK: - Low-level animation helpers
 
-    private func animPath(_ layer: CAShapeLayer, to path: CGPath, dur: CFTimeInterval) {
-        let from = layer.presentation()?.path ?? layer.path
+    /// `from` is what is on screen unless said otherwise — which it must be
+    /// when an animation has just been taken off the layer, since what that
+    /// animation was showing is exactly where the journey starts.
+    private func animPath(_ layer: CAShapeLayer, from shown: CGPath? = nil,
+                          to path: CGPath, dur: CFTimeInterval) {
+        let from = shown ?? layer.presentation()?.path ?? layer.path
         // Set model first
         noAnim { layer.path = path }
         let a = CABasicAnimation(keyPath: "path")
@@ -576,7 +688,8 @@ final class MascotStatusView: NSView {
 
     // MARK: - Eye paths (exact Figma geometry)
 
-    /// Open-eye outline at an absolute center point.
+    /// Open-eye outline, drawn around the origin — the layer's position is
+    /// where the eye is.
     ///
     /// The eye is a single filled shape with the highlight *carved out* of the
     /// fill (negative space, per Figma) — not a light pupil drawn on top.
@@ -584,7 +697,7 @@ final class MascotStatusView: NSView {
     /// motion that reads as the eyes flip-flopping. Instead one constant shape
     /// translates with the gaze, so the glint moves like a pupil — gaze
     /// changes are pure movement, never a flip.
-    private func eyePath(center: CGPoint) -> CGPath {
+    private func eyePath() -> CGPath {
         // The artwork's own eye: two points across, with a small bite taken out
         // of its side for the glint. The eye this replaces was three by four,
         // drawn for a body twice this size — squeezed down to two points its
@@ -595,9 +708,9 @@ final class MascotStatusView: NSView {
         // single shape and simply moved it.
         let half = G.eyeW / 2
         let eye = glintOnTheRight ? Self.openEye : Self.openEye.mirrored(in: G.eyeW)
-        let place = CGAffineTransform(translationX: center.x - half, y: center.y - half)
+        let centred = CGAffineTransform(translationX: -half, y: -half)
         let p = CGMutablePath()
-        p.addPath(eye.cgPath, transform: place.concatenating(G.toView))
+        p.addPath(eye.cgPath, transform: centred.concatenating(G.aboutEye))
         return p
     }
 
@@ -607,13 +720,13 @@ final class MascotStatusView: NSView {
             ?? VectorPath(segments: [])
     }()
 
-    /// The closed eye — the little arc the artwork draws for sleep — at a
-    /// centre given in artwork units.
-    private func closedEyePath(center: CGPoint) -> CGPath {
+    /// The closed eye — the little arc the artwork draws for sleep — around
+    /// the origin, like the open one.
+    private func closedEyePath() -> CGPath {
         let half = G.closedEyeWidth / 2
         let p = CGMutablePath()
-        let t = CGAffineTransform(translationX: center.x - half, y: center.y - 0.15)
-            .concatenating(G.toView)
+        let t = CGAffineTransform(translationX: -half, y: -0.15)
+            .concatenating(G.aboutEye)
         let arc = CGMutablePath()
         arc.move(to: CGPoint(x: 0, y: 0.25))
         arc.addCurve(to: CGPoint(x: 1.5, y: 0.25),
