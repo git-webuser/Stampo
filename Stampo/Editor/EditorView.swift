@@ -162,19 +162,77 @@ struct EditorView: View {
 
     private var textEditingActive: Bool { editingTextID != nil }
 
-    // MARK: Toolbar (the window's: what you do; floating over the canvas: how it looks)
+    // MARK: Toolbar (the window's: the document; the row under it: the canvas)
 
     /// The window's own toolbar, handed to AppKit through the hosting
-    /// controller's scene bridging (see `EditorWindowController`), laid out
-    /// the way Preview lays out its own on macOS 26: the title leads, then one
-    /// capsule per family of commands — zoom; rotate, crop and scan, the
-    /// operations on the image itself; decor, a switch like Preview's Markup;
-    /// history; and what leaves the editor. The buttons are the system's, not
-    /// the drawn row's, so the system sets their size and spacing. The drawing
-    /// tools are not here: like Preview's markup tools they have a row of
-    /// their own under the toolbar (`markupRow`).
+    /// controller's scene bridging (see `EditorWindowController`), on macOS 26.
+    ///
+    /// It leads with the tools — the drawing tools, then crop and scan, the
+    /// modes worked on the canvas — in one capsule where the title would be
+    /// (the window keeps its title for the Window menu and tabs; the bar does
+    /// not show it). Then what acts on the document as a whole: zoom, rotate,
+    /// undo and redo; and, pushed to the trailing edge, the decor switch
+    /// beside the inspector it opens (where Preview keeps its Info button and
+    /// Xcode its inspector toggle), share and copy, and Save last and
+    /// prominent — the action this editor exists for. The row under the
+    /// toolbar is left to the active tool's settings (`markupRow`), which need
+    /// the width: an arrow's row did not fit beside the tools.
+    ///
+    /// The buttons are the system's, not the drawn row's, so the system sets
+    /// their size and spacing.
     @available(macOS 26, *)
     @ToolbarContentBuilder private var systemToolbarContent: some ToolbarContent {
+        // Three blocks: a builder takes at most ten items in one.
+        toolsToolbarContent
+        documentToolbarContent
+        exitToolbarContent
+    }
+
+    @available(macOS 26, *)
+    @ToolbarContentBuilder private var toolsToolbarContent: some ToolbarContent {
+        // The drawing tools, then crop and scan: two capsules of system
+        // toggles, so the system spaces them and marks the one that is on.
+        ToolbarItemGroup(placement: .navigation) {
+            systemToolToggle(.select)
+            systemToolToggle(.line)
+            systemToolToggle(.arrow)
+            ShapeToolButton(tool: $tool, select: selectTool, systemStyle: true)
+            systemToolToggle(.text)
+            DrawingToolButton(tool: $tool, drawingMode: $style.drawingMode,
+                              strokeColor: Color(nsColor: style.color.nsColor),
+                              markerTip: style.markerTip,
+                              select: selectTool,
+                              systemStyle: true)
+            systemToolToggle(.step)
+        }
+
+        ToolbarSpacer(.fixed, placement: .navigation)
+
+        ToolbarItemGroup(placement: .navigation) {
+            Toggle(isOn: Binding(
+                get: { tool == .crop },
+                set: { $0 ? enterCropMode() : cancelCrop() }
+            )) {
+                Label { Text("Crop") } icon: { ToolbarToolIcon("crop") }
+            }
+            .toggleStyle(.button)
+            .disabled(textEditingActive)
+            .help("Crop")
+
+            Toggle(isOn: Binding(
+                get: { tool == .scan },
+                set: { if $0 { selectTool(.scan) } else { tool = .select } }
+            )) {
+                Label { Text("Scan") } icon: { ToolbarToolIcon("doc.viewfinder") }
+            }
+            .toggleStyle(.button)
+            .disabled(textEditingActive)
+            .help("Scan")
+        }
+    }
+
+    @available(macOS 26, *)
+    @ToolbarContentBuilder private var documentToolbarContent: some ToolbarContent {
         ToolbarItemGroup {
             Button { adjustZoom(by: -0.25) } label: {
                 Label("Zoom Out", systemImage: "minus.magnifyingglass")
@@ -200,7 +258,7 @@ struct EditorView: View {
 
         ToolbarSpacer(.fixed)
 
-        ToolbarItemGroup {
+        ToolbarItem {
             Button {
                 rotate(clockwise: !NSEvent.modifierFlags.contains(.option))
             } label: {
@@ -212,44 +270,6 @@ struct EditorView: View {
                 rotateOptionHeld = !new.isEmpty
             }
             .help(LocalizedStringKey(rotateOptionHeld ? "Rotate Left" : "Rotate Right"))
-
-            Toggle(isOn: Binding(
-                get: { tool == .crop },
-                set: { $0 ? enterCropMode() : cancelCrop() }
-            )) {
-                Label("Crop", systemImage: "crop")
-            }
-            .toggleStyle(.button)
-            .disabled(textEditingActive)
-            .help("Crop")
-
-            Toggle(isOn: Binding(
-                get: { tool == .scan },
-                set: { if $0 { selectTool(.scan) } else { tool = .select } }
-            )) {
-                Label("Scan", systemImage: "doc.viewfinder")
-            }
-            .toggleStyle(.button)
-            .disabled(textEditingActive)
-            .help("Scan")
-        }
-
-        ToolbarSpacer(.fixed)
-
-        ToolbarItem {
-            Toggle(isOn: Binding(
-                get: { presentationInspectorPresented },
-                set: { on in
-                    // Turning it on is the decision to decorate, so the
-                    // picture arrives framed rather than edge to edge.
-                    if on { document.startDecorationIfNeeded() }
-                    presentationInspectorPresented = on
-                }
-            )) {
-                Label("Decor", systemImage: PresentationInspector.decorSystemImage)
-            }
-            .toggleStyle(.button)
-            .help("Decor")
         }
 
         ToolbarSpacer(.fixed)
@@ -269,14 +289,38 @@ struct EditorView: View {
             .disabled(!document.canRedo || textEditingActive)
             .help("Redo")
         }
+    }
+
+    @available(macOS 26, *)
+    @ToolbarContentBuilder private var exitToolbarContent: some ToolbarContent {
+        ToolbarSpacer(.flexible)
+
+        ToolbarItem {
+            Toggle(isOn: Binding(
+                get: { presentationInspectorPresented },
+                set: { on in
+                    // Turning it on is the decision to decorate, so the
+                    // picture arrives framed rather than edge to edge.
+                    if on { document.startDecorationIfNeeded() }
+                    presentationInspectorPresented = on
+                }
+            )) {
+                Label("Decor", systemImage: PresentationInspector.decorSystemImage)
+            }
+            .toggleStyle(.button)
+            .help("Decor")
+        }
 
         ToolbarSpacer(.fixed)
 
         if tool == .crop {
-            ToolbarItemGroup {
+            ToolbarItem {
                 Button { cancelCrop() } label: { Label("Cancel", systemImage: "xmark") }
                     .help("Cancel")
+            }
+            ToolbarItem {
                 Button { applyCrop() } label: { Label("Apply", systemImage: "checkmark") }
+                    .buttonStyle(.glassProminent)
                     .disabled(cropRect == nil)
                     .help("Apply")
             }
@@ -295,7 +339,11 @@ struct EditorView: View {
                 }
                 .disabled(textEditingActive || isPreparingArtifact)
                 .help("Copy")
+            }
 
+            ToolbarSpacer(.fixed)
+
+            ToolbarItem {
                 Menu {
                     Button("Save As…") { saveAs() }
                         .disabled(saveAsHandler == nil || isPreparingArtifact)
@@ -316,25 +364,34 @@ struct EditorView: View {
                 } primaryAction: {
                     save()
                 }
+                .menuStyle(.button)
+                .buttonStyle(.glassProminent)
                 .disabled(saveHandler == nil || textEditingActive || isPreparingArtifact)
                 .help("Save")
             }
         }
     }
 
-    /// The drawing tools and the active tool's settings, one centred row
-    /// under the toolbar — where Preview puts its markup tools and their
-    /// style, tools first and style after a rule.
-    private var markupRow: some View {
-        HStack(spacing: 14) {
-            toolPicker
-            Divider().frame(height: 20)
-            contextRow
+    /// One drawing tool as a system toggle for the window toolbar: on while it
+    /// is the tool, and switching to it the same way the drawn row does.
+    private func systemToolToggle(_ t: EditorTool) -> some View {
+        Toggle(isOn: Binding(get: { tool == t }, set: { if $0 { selectTool(t) } })) {
+            Label { Text(LocalizedStringKey(t.labelKey)) } icon: { ToolbarToolIcon(t.systemImage) }
         }
-        .fixedSize(horizontal: true, vertical: false)
-        .frame(maxWidth: .infinity)
-        .frame(height: 40)
-        .background(shortcutCarriers)
+        .toggleStyle(.button)
+        .help(Text(LocalizedStringKey(t.labelKey))
+              + Text(verbatim: t.shortcut.map { "  " + $0.label } ?? ""))
+    }
+
+    /// The active tool's settings, one centred row under the toolbar — where
+    /// Preview puts its markup style. The tools themselves are in the toolbar,
+    /// so the settings have the window's whole width.
+    private var markupRow: some View {
+        contextRow
+            .fixedSize(horizontal: true, vertical: false)
+            .frame(maxWidth: .infinity)
+            .frame(height: 40)
+            .background(shortcutCarriers)
     }
 
     /// The row the editor draws itself — the layout before macOS 26, kept as
@@ -2256,3 +2313,23 @@ private enum ToolButtonMetrics {
 /// accent colour in front.
 ///
 /// The tool picker's buttons are built by one function and wore this already.
+
+// MARK: - Toolbar tool icon
+
+/// A tool's glyph in the window toolbar, in a box of one width for every tool.
+///
+/// SF Symbols come in their own widths, and two of the buttons change theirs
+/// as they go — the shape family shows the current shape, the drawing family
+/// the current brush — so a toolbar that let each glyph size its button
+/// shifted everything after it whenever one of those changed.
+struct ToolbarToolIcon: View {
+    static let width: CGFloat = 22
+
+    let systemName: String
+    init(_ systemName: String) { self.systemName = systemName }
+
+    var body: some View {
+        Image(systemName: systemName)
+            .frame(width: Self.width)
+    }
+}

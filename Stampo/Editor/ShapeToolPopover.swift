@@ -18,6 +18,10 @@ struct ShapeToolButton: View {
     /// Selection is routed through the same path the inline tool buttons use,
     /// so blur-source preparation and selection clearing stay identical.
     let select: (EditorTool) -> Void
+    /// Drawn as a system toggle, for the window toolbar on macOS 26: the
+    /// system gives it its spacing in the capsule and marks it on while a
+    /// shape is the tool. Clicking still opens the popover, on or off.
+    var systemStyle = false
 
     @State private var showPopover = false
 
@@ -40,6 +44,34 @@ struct ShapeToolButton: View {
     private var isActive: Bool { Self.family.contains(tool) }
 
     var body: some View {
+        trigger
+            .popover(isPresented: $showPopover, arrowEdge: .bottom) {
+                // Highlight only the actually active shape — nothing on first
+                // open or after another tool reset the family.
+                ShapePopoverContent(current: isActive ? tool : nil) { picked in
+                    select(picked)
+                    showPopover = false
+                }
+            }
+    }
+
+    @ViewBuilder private var trigger: some View {
+        if systemStyle {
+            Toggle(isOn: Binding(get: { isActive }, set: { _ in showPopover = true })) {
+                Label {
+                    Text("Shapes")
+                } icon: {
+                    ToolbarToolIcon(isActive ? tool.systemImage : Self.familyGlyph)
+                }
+            }
+            .toggleStyle(.button)
+            .help("Shapes")
+        } else {
+            drawnTrigger
+        }
+    }
+
+    private var drawnTrigger: some View {
         Button { showPopover = true } label: {
             HStack(spacing: 3) {
                 Image(systemName: isActive ? tool.systemImage : Self.familyGlyph)
@@ -57,14 +89,6 @@ struct ShapeToolButton: View {
         )
         .foregroundStyle(isActive ? Color.accentColor : Color.primary)
         .hoverTip("Shapes")
-        .popover(isPresented: $showPopover, arrowEdge: .bottom) {
-            // Highlight only the actually active shape — nothing on first
-            // open or after another tool reset the family.
-            ShapePopoverContent(current: isActive ? tool : nil) { picked in
-                select(picked)
-                showPopover = false
-            }
-        }
     }
 }
 

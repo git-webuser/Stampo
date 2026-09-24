@@ -170,7 +170,12 @@ final class EditorWindowController: NSObject, NSWindowDelegate {
         let window = NSWindow(contentViewController: hosting)
         window.styleMask = [.titled, .closable, .resizable, .miniaturizable]
         // One line for the window's controls, its title and the toolbar.
-        if EditorView.usesSystemToolbar { window.toolbarStyle = .unified }
+        if EditorView.usesSystemToolbar {
+            window.toolbarStyle = .unified
+            // The tools stand where the title would; the title stays the
+            // window's, for the Window menu and tabs.
+            window.titleVisibility = .hidden
+        }
         window.title = url.lastPathComponent
         window.isReleasedWhenClosed = false
         window.contentMinSize = EditorView.minimumContentSize
