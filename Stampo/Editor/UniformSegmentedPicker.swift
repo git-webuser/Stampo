@@ -1,8 +1,8 @@
 import AppKit
 import SwiftUI
 
-/// A native segmented control whose segments share one width, whatever they
-/// hold.
+/// A native segmented control whose segments are all one width, whatever they
+/// hold and however many there are.
 ///
 /// SwiftUI's segmented `Picker` sizes its segments by their content: a text
 /// segment stretched to the width it was given, an image segment kept to its
@@ -10,18 +10,19 @@ import SwiftUI
 /// in as many widths as they had kinds of label. Every choice in the row is
 /// built here instead, from a symbol or a short piece of text.
 ///
-/// The control's width is set as a whole and the segments split it evenly
-/// (`fillEqually`): a per-segment width left the control's total to AppKit,
-/// which adds its own borders and separators — two segments and three came
-/// out at different, unpredictable totals.
+/// The control's width is set as a whole — the segment width times their
+/// number — and the segments split it evenly (`fillEqually`). A width set on
+/// each segment left the total to AppKit, which adds its own borders and
+/// separators, so a tab in a two-segment picker and one in a three-segment
+/// picker came out different sizes.
 struct UniformSegmentedPicker<Value: Equatable>: NSViewRepresentable {
-    /// The one width of every picker in the settings row, two segments or
-    /// three.
-    static var rowWidth: CGFloat { 108 }
+    /// The one width of every segment in the settings row: a picker is this
+    /// times its number of segments, so a tab is the same size in all of them.
+    static var segmentWidth: CGFloat { 36 }
 
     enum Width {
-        /// This many points, whatever the room around it.
-        case fixed(CGFloat)
+        /// This many points for each segment, whatever the room around it.
+        case perSegment(CGFloat)
         /// The whole width it is offered — a block-wide switch in the
         /// inspector.
         case fill
@@ -47,7 +48,7 @@ struct UniformSegmentedPicker<Value: Equatable>: NSViewRepresentable {
 
     let segments: [Segment]
     @Binding var selection: Value
-    var width: Width = .fixed(Self.rowWidth)
+    var width: Width = .perSegment(Self.segmentWidth)
     var controlSize: NSControl.ControlSize = .regular
 
     func makeNSView(context: Context) -> NSSegmentedControl {
@@ -84,8 +85,8 @@ struct UniformSegmentedPicker<Value: Equatable>: NSViewRepresentable {
                       context: Context) -> CGSize? {
         let height = control.intrinsicContentSize.height
         switch width {
-        case .fixed(let points):
-            return CGSize(width: points, height: height)
+        case .perSegment(let points):
+            return CGSize(width: points * CGFloat(segments.count), height: height)
         case .fill:
             // An unspecified proposal is SwiftUI asking for the ideal size:
             // the content's own width, so a fill picker still has one.
