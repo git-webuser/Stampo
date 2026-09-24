@@ -134,11 +134,6 @@ final class NotchHoverController: NSObject {
     @objc private func onMascotCursorMoved(_ note: Notification) {
         guard let val = note.object as? NSValue else { return }
         let point = val.pointValue
-        let dir = eyeDirection(for: point)
-        mascotView?.setState(.colorPicking(dir))
-    }
-
-    private func eyeDirection(for point: NSPoint) -> EyeDirection {
         let screen = NSScreen.screens.first(where: { $0.frame.contains(point) }) ?? NSScreen.main
         let frame  = screen?.frame ?? NSScreen.main?.frame ?? CGRect(x: 0, y: 0, width: 1440, height: 900)
         let relX = (point.x - frame.minX) / frame.width
@@ -146,14 +141,8 @@ final class NotchHoverController: NSObject {
         // AppKit coordinates (y=0 at bottom), same space as NSScreen.frame.
         // No CG→AppKit flip needed: cursor at the top → mascot looks up.
         let relY = (point.y - frame.minY) / frame.height  // 0 = bottom, 1 = top
-        let isLeft = relX < 0.5
-        if relY > 0.66 {
-            return isLeft ? .leftUp    : .rightUp
-        } else if relY < 0.33 {
-            return isLeft ? .leftDown  : .rightDown
-        } else {
-            return isLeft ? .leftCenter : .rightCenter
-        }
+        // Not `setState`: see `MascotStatusView.look(towardX:y:)`.
+        mascotView?.look(towardX: relX, y: relY)
     }
 
     private var lastHotkeyState: [HotkeyAction: HotkeyCombo?] = [:]
