@@ -459,6 +459,9 @@ struct PresentationInspector: View {
     /// The square every glyph button in the panel occupies — see
     /// `panelIconButton`.
     private static let buttonSide: CGFloat = 28
+    /// The label height that gives a large bordered button the height of the
+    /// large colour field beside it.
+    private static let fieldButtonHeight: CGFloat = 18
 
     init(document: EditorDocument, colorShelf: (any PresentationColorShelf)? = nil) {
         self.document = document
@@ -661,6 +664,10 @@ struct PresentationInspector: View {
         .pickerStyle(.segmented)
         .labelsHidden()
         .controlSize(.large)
+        // The block's whole width, like the buttons under it: hugging its
+        // text it sat against one edge and changed shape as the bold
+        // selected title moved from one segment to the other.
+        .frame(maxWidth: .infinity)
     }
 
     @ViewBuilder
@@ -966,7 +973,7 @@ struct PresentationInspector: View {
         return selectedColorRow(color: color) { picked in
             setStops(GradientStops.recolored(stops, at: selection, to: picked))
         } trailing: {
-            panelIconButton("plus", label: "Add Stop") {
+            panelIconButton("plus", fieldHeight: true, label: "Add Stop") {
                 // Halfway to the next stop, or halfway to the end when the
                 // selected one is last: the same "add a handle where there is
                 // room" the ramp does under the pointer.
@@ -974,7 +981,7 @@ struct PresentationInspector: View {
                 selectedStop = selection + 1
             }
             .disabled(stops.count >= GradientStops.maximum)
-            panelIconButton("minus", label: "Remove Stop") {
+            panelIconButton("minus", fieldHeight: true, label: "Remove Stop") {
                 let remaining = GradientStops.removed(from: stops, at: selection)
                 guard remaining != stops else { return }
                 setStops(remaining)
@@ -1091,7 +1098,7 @@ struct PresentationInspector: View {
     /// is — the swatch and the hex field — so the button needs no label of its
     /// own, and it sits on the right edge like every other action here.
     private func saveToArchiveButton(color: Presentation.Color) -> some View {
-        panelIconButton("plus", label: "Save Color to Archive") {
+        panelIconButton("plus", fieldHeight: true, label: "Save Color to Archive") {
             colorShelf?.addShelfColor(color)
         }
         .disabled(colorShelf == nil)
@@ -2318,6 +2325,7 @@ struct PresentationInspector: View {
         _ systemImage: String,
         role: PanelButtonRole = .bordered,
         stretch: Bool = false,
+        fieldHeight: Bool = false,
         label: LocalizedStringKey,
         action: @escaping () -> Void
     ) -> some View {
@@ -2325,11 +2333,15 @@ struct PresentationInspector: View {
         // concrete type, and the two SwiftUI offers here share no box.
         Group {
             if role == .bordered {
-                Button(action: action) { panelButtonLabel(systemImage, stretch: stretch) }
-                    .buttonStyle(.bordered)
+                Button(action: action) {
+                    panelButtonLabel(systemImage, stretch: stretch, fieldHeight: fieldHeight)
+                }
+                .buttonStyle(.bordered)
             } else {
-                Button(action: action) { panelButtonLabel(systemImage, stretch: stretch) }
-                    .buttonStyle(.borderless)
+                Button(action: action) {
+                    panelButtonLabel(systemImage, stretch: stretch, fieldHeight: fieldHeight)
+                }
+                .buttonStyle(.borderless)
             }
         }
         .controlSize(.large)
@@ -2337,10 +2349,15 @@ struct PresentationInspector: View {
         .accessibilityLabel(Text(label))
     }
 
-    private func panelButtonLabel(_ systemImage: String, stretch: Bool) -> some View {
+    /// `fieldHeight`: a button that stands beside a colour field, drawn to the
+    /// field's height rather than the panel's square, which made it twice as
+    /// tall as the field.
+    private func panelButtonLabel(_ systemImage: String, stretch: Bool,
+                                  fieldHeight: Bool = false) -> some View {
         Image(systemName: systemImage)
             .font(.system(size: 13))
-            .frame(width: stretch ? nil : Self.buttonSide, height: Self.buttonSide)
+            .frame(width: stretch ? nil : Self.buttonSide,
+                   height: fieldHeight ? Self.fieldButtonHeight : Self.buttonSide)
             .frame(maxWidth: stretch ? .infinity : nil)
             // The frame is the target, not the glyph: a label that is only a
             // stroked shape takes clicks on the stroke alone, which is how a

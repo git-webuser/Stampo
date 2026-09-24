@@ -227,10 +227,16 @@ struct ColorField: View {
 
     @AppStorage(AppSettings.Keys.defaultColorFormat) private var format = ColorSchemeType.hex
     @State private var text: String = ""
+    /// Whether the text in the field was typed by hand since it last showed
+    /// the colour. Focus alone is not that: the field kept focus while the
+    /// colour was picked in the system panel, so it neither showed the new
+    /// colour nor — on losing focus — did anything but commit the old text
+    /// back over it.
+    @State private var edited = false
     @FocusState private var isFocused: Bool
 
     var body: some View {
-        TextField("", text: $text)
+        TextField("", text: Binding(get: { text }, set: { text = $0; edited = true }))
             .textFieldStyle(.roundedBorder)
             .controlSize(.large)
             .font(.system(size: 12, design: .monospaced))
@@ -248,10 +254,10 @@ struct ColorField: View {
             // keystroke the *other* controls make, and rewriting the field
             // under the cursor would fight the person using it.
             .onChange(of: color) { _, new in
-                if !isFocused { text = written(new) }
+                if !edited { text = written(new) }
             }
             .onChange(of: format) { _, _ in
-                if !isFocused { text = written(color) }
+                if !edited { text = written(color) }
             }
             .help(Text(format.title))
             .accessibilityLabel(Text("Color"))
@@ -259,6 +265,8 @@ struct ColorField: View {
     }
 
     private func commit() {
+        guard edited else { return }
+        edited = false
         guard let parsed = ColorSchemeType.color(from: text, preferring: format) else {
             text = written(color)
             return
