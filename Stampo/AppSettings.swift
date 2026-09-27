@@ -97,6 +97,7 @@ enum AppSettings {
         static let noNotchNotchScale       = "noNotchNotchScale"
         static let wideNotchFlares         = "wideNotchFlares"
         static let editorSystemToolbar     = "editorSystemToolbar"
+        static let menuBarHare             = "menuBarHare"
         static let preferredLanguage       = "preferredLanguage"
         // Hotkeys (the 5 global actions store combos via HotkeyAction; these two
         // are the local color-picker shortcuts, enable/disable only).
@@ -166,6 +167,15 @@ enum AppSettings {
     /// reopen the editor.
     static var editorSystemToolbar: Bool {
         UserDefaults.standard.object(forKey: Keys.editorSystemToolbar) as? Bool ?? true
+    }
+
+    /// Whether the menu bar shows the hare (`MascotStatusView`) rather than
+    /// 0.9.0's mascot (`ClassicMascotView`). Off until the hare ships together
+    /// with the app icon drawn after it. No UI: to live with the hare before
+    /// then — `defaults write com.hex000.Stampo menuBarHare -bool YES`, then
+    /// relaunch.
+    static var menuBarHare: Bool {
+        UserDefaults.standard.object(forKey: Keys.menuBarHare) as? Bool ?? false
     }
 
     static var showThumbnailHUD: Bool {
