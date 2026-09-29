@@ -1,8 +1,8 @@
 {
   "fill" : {
     "linear-gradient" : [
-      "srgb:0.26052,0.26052,0.26052,1.00000",
-      "srgb:0.12984,0.12985,0.12984,1.00000"
+      "display-p3:0.38403,0.64839,1.04685,1.00000",
+      "srgb:0.00000,0.00000,0.00000,1.00000"
     ],
     "orientation" : {
       "start" : {
@@ -18,40 +18,68 @@
   "groups" : [
     {
       "blur-material" : null,
-      "hidden-specializations" : [
-        {
-          "value" : false
-        },
-        {
-          "idiom" : "square",
-          "value" : false
-        }
-      ],
       "layers" : [
         {
-          "hidden-specializations" : [
+          "glass-specializations" : [
             {
-              "idiom" : "watchOS",
-              "value" : false
+              "value" : true
+            },
+            {
+              "appearance" : "dark",
+              "value" : true
             }
           ],
-          "image-name" : "STMP 2.svg",
-          "name" : "STMP 2",
+          "image-name-specializations" : [
+            {
+              "value" : "Frame 2.svg"
+            },
+            {
+              "appearance" : "dark",
+              "value" : "Frame 2-mono.svg"
+            }
+          ],
+          "name" : "Frame 2-mono",
           "position-specializations" : [
             {
-              "idiom" : "watchOS",
+              "idiom" : "square",
               "value" : {
-                "scale" : 1.3,
+                "scale" : 5.1,
                 "translation-in-points" : [
-                  -100,
-                  -50
+                  -2,
+                  20
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "blend-mode" : "normal",
+          "fill" : "none",
+          "hidden-specializations" : [
+            {
+              "value" : false
+            },
+            {
+              "appearance" : "dark",
+              "value" : true
+            }
+          ],
+          "image-name" : "Frame 1.svg",
+          "name" : "Frame 1",
+          "position-specializations" : [
+            {
+              "idiom" : "square",
+              "value" : {
+                "scale" : 5.2,
+                "translation-in-points" : [
+                  0,
+                  0
                 ]
               }
             }
           ]
         }
       ],
-      "lighting" : "individual",
       "shadow" : {
         "kind" : "neutral",
         "opacity" : 0.5

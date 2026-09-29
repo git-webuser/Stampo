@@ -2223,7 +2223,6 @@
     },
     "Crop" : {
       "comment" : "Tooltip for the editor's crop button.",
-      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -7392,7 +7391,6 @@
     },
     "Shapes" : {
       "comment" : "Editor toolbar — the shape family popover",
-      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {

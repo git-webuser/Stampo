@@ -36,3 +36,27 @@ import Testing
         #expect(eyesOpen(view), "a cursor report left the mascot asleep")
     }
 }
+
+/// Which mascot the status item gets. The hare ships with the icon drawn
+/// after it; a revert of the default would put 0.9.0's mascot beside that
+/// icon with every mascot test still green, since each one builds its view
+/// directly.
+@MainActor @Suite struct MenuBarMascotChoiceTests {
+
+    private let frame = NSRect(x: 0, y: 0, width: 22, height: 18)
+
+    @Test func theHareIsTheDefault() {
+        #expect(AppSettings.menuBarHare(stored: nil))
+    }
+
+    /// Whoever wrote the key themselves keeps what they wrote.
+    @Test func aStoredChoiceStands() {
+        #expect(!AppSettings.menuBarHare(stored: false))
+        #expect(AppSettings.menuBarHare(stored: true))
+    }
+
+    @Test func theFlagPicksTheMascot() {
+        #expect(NotchHoverController.menuBarMascot(hare: true, frame: frame) is MascotStatusView)
+        #expect(NotchHoverController.menuBarMascot(hare: false, frame: frame) is ClassicMascotView)
+    }
+}
