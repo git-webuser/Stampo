@@ -83,9 +83,14 @@ struct OnboardingVideoView: View {
 private enum OnboardingMotionAsset {
     /// A composed overview near the end of the source timeline: it conveys the
     /// interaction in one frame, which is what Reduce Motion needs. Picked off
-    /// the 15.03s exports as their calmest composed moment — the panel and the
+    /// the 12.43s exports as their calmest composed moment — the panel and the
     /// capture thumbnail are both up, and the fade-out has not started.
-    static let posterTime = CMTime(seconds: 12, preferredTimescale: 600)
+    ///
+    /// The exports used to open on the app icon, 2.6s of it, which would have
+    /// gone stale with the icon; the videos were cut at their first empty
+    /// frame rather than re-rendered, so this is the same frame as the 12s it
+    /// was before the cut.
+    static let posterTime = CMTime(seconds: 9.4, preferredTimescale: 600)
 
     static func url(named name: String) -> URL? {
         // File-system-synchronized Xcode groups normally flatten resources
