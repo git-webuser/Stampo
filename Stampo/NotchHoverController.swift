@@ -160,6 +160,12 @@ final class NotchHoverController: NSObject {
     private var statusItemQuitItem: NSMenuItem?
     private var mascotView: (any MenuBarMascot)?
 
+    /// The mascot the status item shows: the hare, or 0.9.0's for anyone who
+    /// turned `AppSettings.menuBarHare` off.
+    static func menuBarMascot(hare: Bool, frame: NSRect) -> any MenuBarMascot {
+        hare ? MascotStatusView(frame: frame) : ClassicMascotView(frame: frame)
+    }
+
     private func installStatusItem() {
         let item = NSStatusBar.system.statusItem(withLength: 30)
         statusItem = item
@@ -168,10 +174,8 @@ final class NotchHoverController: NSObject {
         button.image = nil
         button.imagePosition = .noImage
 
-        let frame = NSRect(x: 4, y: 2, width: 22, height: 18)
-        let mascot: any MenuBarMascot = AppSettings.menuBarHare
-            ? MascotStatusView(frame: frame)
-            : ClassicMascotView(frame: frame)
+        let mascot = Self.menuBarMascot(hare: AppSettings.menuBarHare,
+                                        frame: NSRect(x: 4, y: 2, width: 22, height: 18))
         button.addSubview(mascot)
         mascotView = mascot
 

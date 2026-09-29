@@ -16,10 +16,10 @@ extension MascotStatusView: MenuBarMascot {}
 // MARK: - ClassicMascotView
 
 /// The menu-bar mascot as 0.9.0 shipped it. 0.9.1 showed it while the hare
-/// (`MascotStatusView`) waited for its icon; since 0.9.2 it is only the way
-/// back — see `AppSettings.menuBarHare`. Its drawing is 0.9.0's, unchanged; only the two
-/// things the hare added to the conversation are answered here, the way 0.9.0
-/// answered them.
+/// (`MascotStatusView`) waited for its icon; now it is only the way back —
+/// see `AppSettings.menuBarHare`. Its drawing is 0.9.0's, unchanged; only the
+/// two things the hare added to the conversation are answered here, the way
+/// 0.9.0 answered them.
 final class ClassicMascotView: NSView, MenuBarMascot {
 
     // MARK: Layers

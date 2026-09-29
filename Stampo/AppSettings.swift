@@ -170,12 +170,19 @@ enum AppSettings {
     }
 
     /// Whether the menu bar shows the hare (`MascotStatusView`) rather than
-    /// 0.9.0's mascot (`ClassicMascotView`). On since 0.9.2, which ships the
-    /// hare together with the app icon drawn after it. No UI: to go back to
+    /// 0.9.0's mascot (`ClassicMascotView`). On by default since the hare
+    /// shipped together with the app icon drawn after it. No UI: to go back to
     /// the old mascot — `defaults write com.hex000.Stampo menuBarHare -bool NO`,
     /// then relaunch.
     static var menuBarHare: Bool {
-        UserDefaults.standard.object(forKey: Keys.menuBarHare) as? Bool ?? true
+        menuBarHare(stored: UserDefaults.standard.object(forKey: Keys.menuBarHare))
+    }
+
+    /// The flag for what is stored under its key, nil when nothing is — apart
+    /// from the read so a test can hold the default without writing to the
+    /// preferences of whoever runs it.
+    nonisolated static func menuBarHare(stored: Any?) -> Bool {
+        stored as? Bool ?? true
     }
 
     static var showThumbnailHUD: Bool {
