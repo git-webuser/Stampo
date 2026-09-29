@@ -86,10 +86,9 @@ private enum OnboardingMotionAsset {
     /// the 12.43s exports as their calmest composed moment — the panel and the
     /// capture thumbnail are both up, and the fade-out has not started.
     ///
-    /// The exports used to open on the app icon, 2.6s of it, which would have
-    /// gone stale with the icon; the videos were cut at their first empty
-    /// frame rather than re-rendered, so this is the same frame as the 12s it
-    /// was before the cut.
+    /// The exports used to open on the app icon, 2.6s of it, until the icon was
+    /// redrawn; the videos were cut at their first empty frame rather than
+    /// re-rendered, so this is the same frame as the 12s it was before the cut.
     static let posterTime = CMTime(seconds: 9.4, preferredTimescale: 600)
 
     static func url(named name: String) -> URL? {
