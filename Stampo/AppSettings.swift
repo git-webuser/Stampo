@@ -170,12 +170,12 @@ enum AppSettings {
     }
 
     /// Whether the menu bar shows the hare (`MascotStatusView`) rather than
-    /// 0.9.0's mascot (`ClassicMascotView`). Off until the hare ships together
-    /// with the app icon drawn after it. No UI: to live with the hare before
-    /// then — `defaults write com.hex000.Stampo menuBarHare -bool YES`, then
-    /// relaunch.
+    /// 0.9.0's mascot (`ClassicMascotView`). On since 0.9.2, which ships the
+    /// hare together with the app icon drawn after it. No UI: to go back to
+    /// the old mascot — `defaults write com.hex000.Stampo menuBarHare -bool NO`,
+    /// then relaunch.
     static var menuBarHare: Bool {
-        UserDefaults.standard.object(forKey: Keys.menuBarHare) as? Bool ?? false
+        UserDefaults.standard.object(forKey: Keys.menuBarHare) as? Bool ?? true
     }
 
     static var showThumbnailHUD: Bool {
