@@ -278,6 +278,15 @@ import Testing
     /// again, the loop left the body on its model path at once, so the ears
     /// jumped from mid-stretch to wherever they had been before. Read off the
     /// screen — the presentation — since the model never jumps at all.
+    ///
+    /// Watched frame by frame on a stopped clock. A look fifteen milliseconds
+    /// after the change was a race, and CI lost it with the ears upright,
+    /// which is just what a snap looks like: a sleep stretched past the
+    /// quarter second the ears take to settle finds them there, and so, on any
+    /// machine, does a look before the settle's first frame is drawn, while
+    /// the presentation is still the model and the model is upright already.
+    /// Stopped, the clock moves only when the test moves it, however late the
+    /// test gets to run.
     @Test func theWaitTakesTheEarsFromWhereTheyAre() async throws {
         let window = NSWindow(contentRect: NSRect(x: 40, y: 40, width: 22, height: 18),
                               styleMask: .borderless, backing: .buffered, defer: false)
@@ -293,25 +302,27 @@ import Testing
         // A pose to start from that the pointer has no say in.
         view.setState(.colorPicking(.leftCenter))
         try await Task.sleep(for: .milliseconds(300))
+        let clock = try #require(view.layer)
+        stop(clock)
         let leaning = try #require(view.shownBodyForTesting)
         let lean = try farthest(leaning, upright)
         #expect(lean > 1, "the pose to start from is upright already: this proves nothing")
 
         view.setState(.waiting)
-        try await Task.sleep(for: .milliseconds(15))
-        let entering = try farthest(try #require(view.shownBodyForTesting), leaning)
-        #expect(entering < lean / 3, "the wait snapped the ears upright (\(entering) of \(lean) pt)")
+        let entering = try frames(of: view, on: clock, until: upright)
+        let fromLean = try entering.map { try farthest($0, leaning) }
+        #expect(fromLean[0] < lean / 3, "the wait snapped the ears upright (\(fromLean[0]) of \(lean) pt)")
+        #expect(isAJourney(fromLean, across: lean), "the ears jumped on their way upright: \(fromLean)")
+        #expect(try farthest(entering[entering.count - 1], upright) < 0.01,
+                "the ears never got upright for the loop to start from")
 
-        // Leave mid-stretch, when a jump would be largest: waited for rather
-        // than timed, so a slow machine cannot land the check on an upright
-        // moment of the loop. Not before the ears have settled into the loop,
-        // though — on the way there they are far from upright too, and moving
-        // on their own.
-        try await Task.sleep(for: .milliseconds(300))
-        var stretched = try #require(view.shownBodyForTesting)
+        // Leave mid-stretch, when a jump would be largest: the clock run on
+        // from where the ears got upright, which is where the loop starts,
+        // until the loop has taken them well away from it.
+        var stretched = upright
         var stretch: CGFloat = 0
-        for _ in 0..<150 where stretch <= 1 {
-            try await Task.sleep(for: .milliseconds(20))
+        for _ in 0..<(3 * 60) where stretch <= 1 {
+            tick(clock)
             stretched = try #require(view.shownBodyForTesting)
             stretch = try farthest(stretched, upright)
         }
@@ -322,9 +333,48 @@ import Testing
         // wait letting go. (Awake would hide a jump: the pointer takes the body
         // straight away, from what is on screen.)
         view.setState(.celebrating)
-        try await Task.sleep(for: .milliseconds(15))
-        let leaving = try farthest(try #require(view.shownBodyForTesting), stretched)
-        #expect(leaving < stretch / 3, "leaving the wait snapped the ears (\(leaving) of \(stretch) pt)")
+        let leaving = try frames(of: view, on: clock, until: upright).map { try farthest($0, stretched) }
+        #expect(leaving[0] < stretch / 3, "leaving the wait snapped the ears (\(leaving[0]) of \(stretch) pt)")
+        #expect(isAJourney(leaving, across: stretch), "the ears jumped on their way out of the wait: \(leaving)")
+    }
+
+    /// Stops the clock the hare's layers keep, where it is: what is on screen
+    /// stays there, and moves on only when `tick` moves the clock.
+    private func stop(_ clock: CALayer) {
+        clock.timeOffset = clock.convertTime(CACurrentMediaTime(), from: nil)
+        clock.speed = 0
+        CATransaction.flush()
+    }
+
+    /// One frame on a stopped clock. Committed at once, since the presentation
+    /// follows the clock only as committed.
+    private func tick(_ clock: CALayer) {
+        clock.timeOffset += 1.0 / 60
+        CATransaction.flush()
+    }
+
+    /// The body as each frame shows it on a stopped clock, from the moment of
+    /// a change until it is `destination` — or for a second, if it never gets
+    /// there. The change is committed first: until it is, the presentation
+    /// knows nothing of what the view has just asked for, and shows the pose
+    /// from before it, jump or no jump.
+    private func frames(of view: MascotStatusView, on clock: CALayer,
+                        until destination: CGPath) throws -> [CGPath] {
+        CATransaction.flush()
+        var shown = [try #require(view.shownBodyForTesting)]
+        while shown.count <= 60, try farthest(shown[shown.count - 1], destination) > 0.01 {
+            tick(clock)
+            shown.append(try #require(view.shownBodyForTesting))
+        }
+        return shown
+    }
+
+    /// Each frame a little further from where the ears set out than the one
+    /// before: never back, and never as much as a third of the way at once.
+    private func isAJourney(_ distances: [CGFloat], across whole: CGFloat) -> Bool {
+        zip(distances, distances.dropFirst()).allSatisfy { before, after in
+            (-0.001..<whole / 3).contains(after - before)
+        }
     }
 
     /// The farthest any point of one pose is from its opposite number in the
