@@ -8,6 +8,11 @@ Screenshot, text capture, and color picker for any Mac. The panel lives at the n
 
 Stampo replaces the usual screenshot workflow with a panel that opens when you click the notch. From the panel you can take area, window, or fullscreen screenshots, mark them up in the built-in editor, scan any region for text and QR/barcodes, pick colors, and browse your recent captures in the archive.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/onboarding-dark.webp">
+  <img src="assets/screenshots/onboarding-light.webp" alt="A click on the notch opens the Stampo panel, a window is captured, and its thumbnail appears in the corner of the screen" width="812">
+</picture>
+
 ## Requirements
 
 - macOS 15.7 or later
@@ -100,7 +105,7 @@ Open **Settings → Archive → Translation**: each row reports whether its pack
 
 ## Markup Editor
 
-![The editor with a screenshot marked up: a callout loupe magnifying a region, an arrow, a star, a text label, and freehand handwriting](assets/screenshots/editor.png)
+![The editor with a screenshot marked up — a callout loupe magnifying a region, an arrow, a star, a text label, and freehand handwriting — and the Decor panel beside it, setting the picture on a white page with margins](assets/screenshots/editor.png)
 
 Click the post-capture thumbnail (or right-click a screenshot in the archive → **Edit**) to open the built-in editor: lines, arrows, rectangles, rounded rectangles, ovals, triangles, polygons, stars, speech bubbles, freehand drawing, numbered steps, text labels, loupes, and blur/pixelate regions, with full undo/redo (`⌘Z` / `⇧⌘Z`). Shapes live behind one toolbar button with a popover, as do the drawing brushes. The second toolbar row shows the settings for the active tool — colors, solid/dashed line styles, arrow route (straight, curved, or elbow) chosen independently of the stroke, arrowheads at the start, end, or both endpoints, text formatting (bold, italic, underline, strikethrough, shadow, a light/dark/none background plate, and left/center/right alignment), loupe shape and mode, and controls for line thickness, brush size, text size, marker size, fill opacity (0–100%), magnification, and blur/pixelate intensity. On narrow windows the toolbar buttons collapse from label to icon so nothing wraps.
 
