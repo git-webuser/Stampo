@@ -82,6 +82,18 @@ if [ -z "$app" ]; then
   exit 1
 fi
 
+# run-tests.sh builds the same app into the same DerivedData, signed ad-hoc.
+# Launched like that, it is a stranger to the privacy settings, and macOS asks
+# for Screen Recording again. A normal build signs it back, so --no-build
+# gives way to one when it finds that signature.
+team_signed() {
+  codesign -dv "$app" 2>&1 | grep '^TeamIdentifier=[A-Z0-9]' >/dev/null
+}
+if [ "$build" -eq 0 ] && [ -d "$app" ] && ! team_signed; then
+  echo "The last build is ad-hoc signed (run-tests.sh), building to sign it again."
+  build=1
+fi
+
 if [ "$build" -eq 1 ]; then
   log="$(mktemp -t stampo-run-dev)"
   trap 'rm -f "$log"' EXIT
@@ -104,6 +116,10 @@ fi
 
 if [ ! -d "$app" ]; then
   echo "No build at $app — run without --no-build first."
+  exit 1
+fi
+if ! team_signed; then
+  echo "$app is not signed with the project's team; not launching it, macOS would ask for permissions again."
   exit 1
 fi
 
