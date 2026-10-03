@@ -5,7 +5,7 @@ cask "stampo" do
   url "https://github.com/git-webuser/Stampo/releases/download/#{version}/Stampo-#{version}.dmg"
   name "Stampo"
   desc "Screenshot and color picker for MacBooks with a notch"
-  homepage "https://github.com/git-webuser/Stampo"
+  homepage "https://git-webuser.github.io/Stampo/"
 
   depends_on macos: ">= :sequoia"
 
