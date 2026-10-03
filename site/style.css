@@ -121,13 +121,13 @@ kbd {
   align-items: center;
   gap: 20px;
   padding: 10px max(var(--gutter), (100% - var(--wrap)) / 2 + var(--gutter));
-  background: rgba(255, 255, 255, .85);
-  backdrop-filter: saturate(1.6) blur(12px);
-  -webkit-backdrop-filter: saturate(1.6) blur(12px);
+  padding-top: calc(10px + env(safe-area-inset-top, 0px));
+  background: var(--paper);
   border-bottom: 1px solid var(--line);
 }
 /* Safari can expose page content above a sticky header when its browser
-   controls collapse. Extend the header's paper into that upper region.
+   controls collapse. Extend the opaque header into that upper region.
+   Avoid backdrop-filter here: WebKit can clip the cover to the bar.
    Keep this outside layout and hit testing so the bar and links stay put. */
 .topbar::before {
   content: "";
@@ -139,8 +139,6 @@ kbd {
   background: var(--paper);
   pointer-events: none;
 }
-
-@supports not (backdrop-filter: blur(1px)) { .topbar { background: var(--paper); } }
 
 .brand {
   display: flex;
