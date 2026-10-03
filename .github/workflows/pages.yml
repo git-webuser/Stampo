@@ -23,11 +23,13 @@ on:
       # version from it.
       - Casks/stampo.rb
       - Scripts/build-site.sh
+      - Scripts/site-typography.py
       - .github/workflows/pages.yml
   pull_request:
     paths:
       - site/**
       - Scripts/build-site.sh
+      - Scripts/site-typography.py
       - .github/workflows/pages.yml
   workflow_dispatch:
 
