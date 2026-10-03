@@ -1,0 +1,22 @@
+{
+  "checkmark.circle" : {
+    "h" : 20,
+    "w" : 20
+  },
+  "chevron.down" : {
+    "h" : 7,
+    "w" : 10
+  },
+  "chevron.left" : {
+    "h" : 15,
+    "w" : 11
+  },
+  "pin" : {
+    "h" : 21,
+    "w" : 18
+  },
+  "text.viewfinder" : {
+    "h" : 9,
+    "w" : 10
+  }
+}
