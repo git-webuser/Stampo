@@ -1,6 +1,6 @@
 #!/bin/bash
 # Renders the four clips and encodes each as an animated WebP for the README,
-# the way assets/screenshots/onboarding-*.webp were made: 25 fps, the banner's
+# the way the README's onboarding WebPs were made (until 384d92e): 25 fps, the banner's
 # rounded corners cut into the alpha, and img2webp settings that keep lossy
 # deltas from leaving streaks in the gradients (-exact, a keyframe every ten).
 #

@@ -1,5 +1,5 @@
 // White rounded rectangle on black, used as the clips' alpha: the banner's
-// corner, 48 px on a 1600 x 800 frame, the same cut as onboarding-*.webp.
+// corner, 48 px on a 1600 x 800 frame, the same cut the onboarding WebPs had.
 import CoreGraphics
 import Foundation
 import ImageIO

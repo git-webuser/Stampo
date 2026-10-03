@@ -70,7 +70,8 @@ const CaptureRow: React.FC = () => (
 );
 
 // The archive's header: back, the colour format menu (its label a line), pin,
-// more. Placed as measured on assets/screenshots/panel-archive.png.
+// more. Placed as measured on the archive screenshot the README carried until
+// 384d92e (`git show 384d92e:assets/screenshots/panel-archive.png`).
 const more = panelGlyphs.find((g) => g.name === "more")!;
 const ArchiveHeader: React.FC = () => (
   <g>

@@ -44,6 +44,9 @@ stating plainly, because a screenshot tool sees everything on your screen.
   Stampo writes the image to a temporary file and hands it to the macOS
   service you picked from the sheet; what that service does with it is
   between you and that app.
+- **Translation is on-device.** It uses the translator built into macOS, with
+  a language pack downloaded once by the system. The text being translated
+  never leaves your Mac, and no translation service is contacted.
 - **No analytics, no telemetry, no crash reporting.**
 - **Diagnostic logs** contain no captured content, no file paths and no
   precise cursor positions.

@@ -12,7 +12,8 @@ A standalone Node project. Xcode's file-system-synchronized groups cover
 
 - **The app's UI looks as it does in the app.** The panel's outline and glyphs
   come from `figma/panel.svg`; the archive is laid out as measured on
-  `assets/screenshots/panel-archive.png`; the colour HUD follows
+  the archive screenshot the README carried until 384d92e
+  (`git show 384d92e:assets/screenshots/panel-archive.png`); the colour HUD follows
   `ColorPickerHUD.swift` (3 × 3 magnifier of 14 pt cells, format and value,
   "Copied" with a check). Glyphs the panel file lacks are the app's own SF
   Symbols at the size and weight the app uses them.
