@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stampo — screenshot, scan and color picker for macOS</title>
+<meta name="description" content="Screenshot, scan, and color picker for macOS, living in the notch. No Dock icon; on a Mac without a notch the panel sits at the top of the menu bar. Free and open source.">
+<meta name="color-scheme" content="light">
+<link rel="stylesheet" href="style.css">
+<link rel="icon" href="icon.png" type="image/png">
+<link rel="apple-touch-icon" href="icon.png">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Stampo — screenshot, scan and color picker for macOS">
+<meta property="og:description" content="Screenshot, scan, and color picker for macOS, living in the notch. Free and open source.">
+<meta property="og:image" content="https://git-webuser.github.io/Stampo/assets/social-preview.png">
+<meta property="og:image:width" content="2560">
+<meta property="og:image:height" content="1280">
+<meta property="og:url" content="https://git-webuser.github.io/Stampo/">
+<meta name="twitter:card" content="summary_large_image">
+</head>
+<body>
+
+<input type="checkbox" id="lang-ru" class="lang-input" aria-label="Русский / Russian">
+<script>
+// Pick the language before the page paints: the stored choice, or on a first
+// visit the browser's. Without JS the page stays English and the switch still
+// works — it is a checkbox and CSS, not a script.
+(function () {
+  var box = document.getElementById('lang-ru');
+  var titles = {
+    en: 'Stampo — screenshot, scan and color picker for macOS',
+    ru: 'Stampo — скриншоты, сканер и пипетка для macOS'
+  };
+  var saved = null;
+  try { saved = localStorage.getItem('stampo-lang'); } catch (e) {}
+  function apply(ru) {
+    var lang = ru ? 'ru' : 'en';
+    document.documentElement.lang = lang;
+    document.title = titles[lang];
+  }
+  box.checked = saved ? saved === 'ru' : /^ru\b/i.test(navigator.language || '');
+  apply(box.checked);
+  box.addEventListener('change', function () {
+    apply(box.checked);
+    try { localStorage.setItem('stampo-lang', box.checked ? 'ru' : 'en'); } catch (e) {}
+  });
+})();
+</script>
+
+<div class="page">
+
+<header class="topbar">
+  <a class="brand" href="#top">
+    <img src="icon.png" width="28" height="28" alt="">
+    Stampo
+  </a>
+  <nav class="topnav">
+    <a href="#features"><span lang="en">Features</span><span lang="ru">Возможности</span></a>
+    <a href="#install"><span lang="en">Install</span><span lang="ru">Установка</span></a>
+    <a href="#hotkeys"><span lang="en">Hotkeys</span><span lang="ru">Клавиши</span></a>
+    <a href="https://github.com/git-webuser/Stampo">GitHub</a>
+  </nav>
+  <label class="lang" for="lang-ru" title="English / Русский">
+    <span class="seg seg-en">EN</span><span class="seg seg-ru">RU</span>
+  </label>
+</header>
+
+<main id="top">
+
+  <!-- ─────────────────────────────  HERO  ───────────────────────────── -->
+  <section class="hero">
+    <h1 class="hero-title">
+      <img src="assets/banner.png" width="812" height="200"
+           alt="Stampo — Screenshots · Scan · Colors">
+    </h1>
+
+    <p class="lede" lang="en">Screenshot, scan, and color picker for macOS, living in the notch.</p>
+    <p class="lede" lang="ru">Скриншоты, сканер и пипетка для macOS — живут в чёлке.</p>
+    <p class="sub" lang="en">No Dock icon; on a Mac without a notch the panel sits at the top
+      of the menu bar.</p>
+    <p class="sub" lang="ru">Без иконки в Dock. На Mac без чёлки панель встаёт вверху, посередине
+      строки меню.</p>
+
+    <div class="cta">
+      <a class="btn btn-primary" href="https://github.com/git-webuser/Stampo/releases">
+        <span lang="en">Download for macOS</span><span lang="ru">Скачать для macOS</span>
+        <svg class="glove" viewBox="298 242 60 63" aria-hidden="true">
+          <path class="glove-fill" d="M301.927 244.597C292.642 251.29 316.786 272.543 316.786 272.543C316.786 272.543 302.115 265.917 300.427 275.13C299.12 282.264 312.779 288.912 321.295 292.324C321.295 292.324 317.684 297.632 320.672 301.302C326.305 308.225 361.291 286.138 355.323 277.158C352.511 272.926 346.348 276.347 346.348 276.347C342.965 263.262 334.606 240.681 324.516 249.561C319.97 245.933 316.464 247.723 315.025 249.846C310.61 245.081 305.74 241.848 301.927 244.597Z"/>
+          <path class="glove-line" d="M321.295 292.324C312.779 288.912 299.12 282.264 300.427 275.13C302.115 265.917 316.786 272.543 316.786 272.543C316.786 272.543 292.642 251.29 301.927 244.597C305.74 241.848 310.61 245.081 315.025 249.846C321.363 256.685 326.765 266.681 326.765 266.681M333.31 262.406C330.161 255.62 327.162 251.673 324.516 249.561M324.516 249.561C334.606 240.681 342.965 263.262 346.348 276.347C346.908 278.512 347.337 280.412 347.621 281.859M328.183 294.881C328.183 294.881 325.071 293.837 321.295 292.324M331.833 271.104C334.302 273.681 336.039 277.24 336.96 279.768M324.165 275.818C326.636 278.186 328.233 280.634 329.987 283.398M321.295 292.324C321.295 292.324 317.684 297.632 320.672 301.302C326.305 308.225 361.291 286.138 355.323 277.158C352.511 272.926 346.348 276.347 346.348 276.347M324.516 249.561C319.97 245.933 316.464 247.723 315.025 249.846"/>
+        </svg>
+      </a>
+      <a class="btn" href="#install">
+        <span lang="en">Install with Homebrew</span><span lang="ru">Через Homebrew</span>
+      </a>
+    </div>
+
+    <p class="meta">
+      <span lang="en">Version @VERSION@ · macOS 15.7 or later · free and open source</span>
+      <span lang="ru">Версия @VERSION@ · macOS 15.7 и новее · бесплатно, открытый код</span>
+    </p>
+  </section>
+
+  <!-- ───────────────────────────  FEATURES  ─────────────────────────── -->
+  <div id="features" class="features">
+
+    <section class="feature" id="capture">
+      <figure class="clip">
+        <video data-still="4.8" autoplay muted loop playsinline width="800" height="400">
+          <source src="assets/clip-capture.mp4" type="video/mp4">
+        </video>
+        <figcaption class="sr-only">
+          <span lang="en">A click on the notch opens the panel and Capture is pressed; a window
+            is framed, the shot drops into the corner as a thumbnail and goes on into the
+            archive.</span>
+          <span lang="ru">Клик по чёлке открывает панель, нажата кнопка «Снять»; окно взято в
+            рамку, снимок падает в угол миниатюрой и уходит в архив.</span>
+        </figcaption>
+      </figure>
+      <div class="feature-text">
+        <h2><span lang="en">Capture</span><span lang="ru">Съёмка</span></h2>
+        <p class="lead" lang="en">Click the notch: an area, a window or the whole screen.</p>
+        <p class="lead" lang="ru">Клик по чёлке — и снимок области, окна или всего экрана.</p>
+        <ul class="ticks">
+          <li lang="en">A hotkey for each, and a timer when the shot needs setting up.</li>
+          <li lang="ru">У каждого режима своё сочетание клавиш, а если кадр надо подготовить —
+            таймер.</li>
+          <li lang="en">Saved to <code>~/Pictures/Stampo</code> or a folder of your choice, as
+            PNG, JPG or TIFF.</li>
+          <li lang="ru">Файлы ложатся в <code>~/Pictures/Stampo</code> или в любую выбранную
+            папку — PNG, JPG или TIFF.</li>
+          <li lang="en">The thumbnail in the corner opens the editor. <b>Pin to Screen</b> keeps a
+            shot above every window.</li>
+          <li lang="ru">Миниатюра в углу открывает редактор. <b>Закрепить на экране</b> — и снимок
+            висит поверх всех окон.</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="feature" id="markup">
+      <figure class="clip">
+        <video data-still="5.2" autoplay muted loop playsinline width="800" height="400">
+          <source src="assets/clip-editor.mp4" type="video/mp4">
+        </video>
+        <figcaption class="sr-only">
+          <span lang="en">A thumbnail opens in the editor; an arrow, a star and a loop are drawn
+            on the screenshot, Decor sets it on a gradient page with margins, and the result goes
+            into the archive.</span>
+          <span lang="ru">Миниатюра открывается в редакторе; на снимке рисуются стрелка, звезда и
+            петля, «Оформление» кладёт его на градиентную страницу с отступами, и результат
+            уходит в архив.</span>
+        </figcaption>
+      </figure>
+      <div class="feature-text">
+        <h2><span lang="en">Mark up</span><span lang="ru">Разметка</span></h2>
+        <p class="lead" lang="en">Arrows, shapes, text, blur — and Decor sets the shot on a page.</p>
+        <p class="lead" lang="ru">Стрелки, фигуры, текст, размытие — а «Оформление» кладёт снимок
+          на страницу.</p>
+        <ul class="ticks">
+          <li lang="en">Arrows snap to shapes and follow them when they move.</li>
+          <li lang="ru">Стрелки цепляются за фигуры и едут за ними, когда фигуры двигают.</li>
+          <li lang="en"><b>Decor</b>: a solid, gradient or photo background, margins, a shadow, and
+            a ratio for where it is going — 1:1, 4:5, 16:9.</li>
+          <li lang="ru"><b>Оформление</b>: фон цветом, градиентом или фото, отступы, тень и
+            пропорции под площадку — 1:1, 4:5, 16:9.</li>
+          <li lang="en"><b>Save</b> always writes a new file; the original stays as it was.</li>
+          <li lang="ru"><b>Сохранить</b> всегда пишет новый файл — исходный снимок не
+            меняется.</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="feature" id="scan">
+      <figure class="clip">
+        <video data-still="3.0" autoplay muted loop playsinline width="800" height="400">
+          <source src="assets/clip-scan.mp4" type="video/mp4">
+        </video>
+        <figcaption class="sr-only">
+          <span lang="en">A frame is drawn over a window of text, a beam reads it line by line,
+            the lines turn over into their translation, and a copy goes into the archive.</span>
+          <span lang="ru">Над окном с текстом обведена рамка, луч читает его строка за строкой,
+            строки переворачиваются в перевод, и копия уходит в архив.</span>
+        </figcaption>
+      </figure>
+      <div class="feature-text">
+        <h2><span lang="en">Scan and translate</span><span lang="ru">Сканер и перевод</span></h2>
+        <p class="lead" lang="en">Text and QR codes from anywhere on screen, translated on your
+          Mac.</p>
+        <p class="lead" lang="ru">Текст и QR-коды с любого места экрана — и перевод прямо на
+          вашем Mac.</p>
+        <ul class="ticks">
+          <li lang="en">Frame an area: its text, as paragraphs, and every QR and barcode go to the
+            clipboard.</li>
+          <li lang="ru">Обведите область — её текст абзацами, все QR-коды и штрихкоды окажутся в
+            буфере обмена.</li>
+          <li lang="en">While framing, <kbd>⌥</kbd> keeps the line breaks and <kbd>⌃</kbd>
+            translates. <kbd>⌃⌥⌘T</kbd> translates whatever you copied.</li>
+          <li lang="ru">Пока обводите, <kbd>⌥</kbd> сохраняет переносы строк, а <kbd>⌃</kbd>
+            переводит. <kbd>⌃⌥⌘T</kbd> переводит то, что вы скопировали.</li>
+          <li lang="en">The translator built into macOS does the work; the text never leaves your
+            Mac.</li>
+          <li lang="ru">Переводит встроенный переводчик macOS — текст не покидает ваш Mac.</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="feature" id="archive">
+      <figure class="clip">
+        <video data-still="5.4" autoplay muted loop playsinline width="800" height="400">
+          <source src="assets/clip-archive.mp4" type="video/mp4">
+        </video>
+        <figcaption class="sr-only">
+          <span lang="en">A color is picked off a picture, the picker's magnifier beside the
+            pointer; the panel then opens the archive — the color just picked, the scanned text and
+            the decorated screenshot, newest first.</span>
+          <span lang="ru">С картинки берётся цвет, рядом с курсором лупа пипетки; затем панель
+            открывает архив — только что взятый цвет, распознанный текст и оформленный снимок,
+            новые первыми.</span>
+        </figcaption>
+      </figure>
+      <div class="feature-text">
+        <h2><span lang="en">Pick colors, keep everything</span><span lang="ru">Пипетка и архив</span></h2>
+        <p class="lead" lang="en">Colors, scans and shots wait in the archive at the notch.</p>
+        <p class="lead" lang="ru">Цвета, распознанный текст и снимки ждут в архиве у чёлки.</p>
+        <ul class="ticks">
+          <li lang="en">A color is copied as HEX, RGB, HSL, HSB or CMYK; <kbd>⇥</kbd> switches
+            between them.</li>
+          <li lang="ru">Цвет копируется в HEX, RGB, HSL, HSB или CMYK; <kbd>⇥</kbd> переключает
+            формат.</li>
+          <li lang="en">Click to copy or open, drag out, right-click to edit, pin or share;
+            <kbd>⌘</kbd>-click picks several.</li>
+          <li lang="ru">Клик копирует или открывает, перетаскивание выносит, правый клик —
+            редактировать, закрепить, поделиться; <kbd>⌘</kbd>-клик выделяет несколько.</li>
+          <li lang="en">Drop files on it from several windows: they gather into a stack you drag
+            out all at once.</li>
+          <li lang="ru">Бросьте в него файлы из разных окон — они соберутся в стопку, которую можно
+            вынести одним движением.</li>
+        </ul>
+      </div>
+    </section>
+
+  </div>
+
+  <!-- ────────────────────────────  INSTALL  ─────────────────────────── -->
+  <section id="install" class="section">
+    <h2><span lang="en">Install</span><span lang="ru">Установка</span></h2>
+    <p class="intro" lang="en">macOS 15.7 or later, on a MacBook with a notch or any other
+      display.</p>
+    <p class="intro" lang="ru">macOS 15.7 и новее — на MacBook с чёлкой или на любом другом
+      дисплее.</p>
+
+    <div class="install">
+      <div class="install-brew">
+        <svg class="hare" viewBox="164 79 48 59" aria-hidden="true">
+          <path class="hare-head" d="M173 134C177.02 136.231 183.252 135.5 189 135.5C194.6 135.5 199.383 135.828 203 134C206.244 132.361 207.671 130.327 209 127C210.109 124.224 210 121 210 121C210 121 210.143 116 209 112C208.143 109 205.133 104.27 199.167 104.012C198.908 104.001 198.605 104 198 104C198 104 210.252 85.7361 202 82C196.367 79.4495 190.376 84.2002 189.639 90.34L188 104L186.452 92.1329C185.633 85.8498 179.772 80.3866 174 83C165.748 86.7361 178 104 178 104C171.783 104 168.86 108.28 167.5 111C166 114 166.004 121 166.004 121C166.004 121 165.981 124.287 167 127C168.262 130.359 169.819 132.235 173 134Z"/>
+          <path class="hare-eye" d="M195.5 114C194.33 114 193.295 114.575 192.659 115.457C192.543 115.619 192.485 115.7 192.48 115.812C192.477 115.9 192.519 116.015 192.578 116.08C192.654 116.163 192.768 116.192 192.997 116.249L195.515 116.879C195.8 116.95 196 117.206 196 117.5C196 117.794 195.8 118.05 195.515 118.121L192.997 118.751C192.768 118.808 192.654 118.836 192.578 118.919C192.519 118.984 192.477 119.099 192.48 119.187C192.485 119.299 192.543 119.38 192.659 119.542C193.294 120.425 194.329 121 195.5 121H196.5C198.433 121 200 119.433 200 117.5C200 115.567 198.433 114 196.5 114H195.5Z"/>
+          <path class="hare-eye" d="M180.5 114C179.33 114 178.295 114.575 177.659 115.457C177.543 115.619 177.485 115.7 177.48 115.812C177.477 115.9 177.519 116.015 177.578 116.08C177.654 116.163 177.768 116.192 177.997 116.249L180.515 116.879C180.8 116.95 181 117.206 181 117.5C181 117.794 180.8 118.05 180.515 118.121L177.997 118.751C177.768 118.808 177.654 118.836 177.578 118.919C177.519 118.984 177.477 119.099 177.48 119.187C177.485 119.299 177.543 119.38 177.659 119.542C178.294 120.425 179.329 121 180.5 121H181.5C183.433 121 185 119.433 185 117.5C185 115.567 183.433 114 181.5 114H180.5Z"/>
+        </svg>
+        <article class="card">
+          <span class="tag"><span lang="en">Easiest</span><span lang="ru">Проще всего</span></span>
+          <h3>Homebrew</h3>
+          <p lang="en"><code>--no-quarantine</code> spares you the Gatekeeper prompt, so Stampo opens
+            on the first try.</p>
+          <p lang="ru"><code>--no-quarantine</code> избавляет от вопроса Gatekeeper, и Stampo
+            открывается с первого раза.</p>
+          <div class="code">
+            <pre><code><span class="cmd">brew tap git-webuser/stampo https://github.com/git-webuser/Stampo</span><span class="cmd">brew install --cask --no-quarantine stampo</span></code></pre>
+            <button class="copy" type="button" hidden data-copy="brew tap git-webuser/stampo https://github.com/git-webuser/Stampo
+brew install --cask --no-quarantine stampo">
+              <span lang="en">Copy</span><span lang="ru">Копировать</span>
+            </button>
+          </div>
+          <p class="note" lang="en">Update with <code>brew upgrade --cask stampo</code>.</p>
+          <p class="note" lang="ru">Обновление — <code>brew upgrade --cask stampo</code>.</p>
+        </article>
+      </div>
+
+      <article class="card">
+        <h3><span lang="en">Or download the DMG</span><span lang="ru">Или скачайте DMG</span></h3>
+        <ol class="steps" lang="en">
+          <li>Download <code>Stampo-@VERSION@.dmg</code> from
+            <a href="https://github.com/git-webuser/Stampo/releases">Releases</a> and drag
+            <b>Stampo.app</b> to Applications.</li>
+          <li>Open it. macOS blocks the first launch: the app is signed, but not notarized
+            yet.</li>
+          <li>Go to <b>System Settings → Privacy &amp; Security</b>, click <b>Open Anyway</b> and
+            confirm. Only once.</li>
+        </ol>
+        <ol class="steps" lang="ru">
+          <li>Скачайте <code>Stampo-@VERSION@.dmg</code> со страницы
+            <a href="https://github.com/git-webuser/Stampo/releases">Releases</a> и перетащите
+            <b>Stampo.app</b> в «Программы».</li>
+          <li>Откройте его. macOS заблокирует первый запуск: приложение подписано, но пока не
+            нотаризовано.</li>
+          <li>Откройте <b>Системные настройки → Конфиденциальность и безопасность</b>, нажмите
+            <b>«Всё равно открыть»</b> и подтвердите. Только один раз.</li>
+        </ol>
+        <a class="btn" href="https://github.com/git-webuser/Stampo/releases">
+          <span lang="en">Go to Releases</span><span lang="ru">Перейти к релизам</span>
+        </a>
+      </article>
+    </div>
+
+    <div class="permission">
+      <h3><span lang="en">One permission</span><span lang="ru">Одно разрешение</span></h3>
+      <p lang="en">Only <b>Screen Recording</b>, asked for on first launch. The notch click and the
+        hotkeys need none.</p>
+      <p lang="ru">Только <b>«Запись экрана»</b> — Stampo попросит её при первом запуске. Клику по
+        чёлке и сочетаниям клавиш разрешения не нужны.</p>
+    </div>
+  </section>
+
+  <!-- ────────────────────────────  HOTKEYS  ─────────────────────────── -->
+  <section id="hotkeys" class="section">
+    <h2><span lang="en">Hotkeys</span><span lang="ru">Сочетания клавиш</span></h2>
+    <!-- Grouped as in Settings → Hotkeys (HotkeyGroup in HotkeyAction.swift):
+         same sections, same order, same hints. -->
+    <div class="keygroups">
+      <div class="keygroup">
+        <h3 id="keys-panel"><span lang="en">Panel and archive</span><span lang="ru">Панель и архив</span></h3>
+        <table class="keys" aria-labelledby="keys-panel">
+          <tr><td><span lang="en">Toggle panel</span><span lang="ru">Показать/скрыть панель</span></td><td><kbd>⌃⌥⌘N</kbd></td></tr>
+          <tr><td><span lang="en">Pin latest capture</span><span lang="ru">Закрепить последний снимок</span></td><td><kbd>⌃⌥⌘L</kbd></td></tr>
+          <tr><td><span lang="en">Pin panel (collect files)</span><span lang="ru">Закрепить панель (сбор файлов)</span></td><td><kbd>⌃⌥⌘P</kbd></td></tr>
+          <tr><td><span lang="en">Share last item</span><span lang="ru">Поделиться последним</span></td><td><kbd>⌃⌥⌘D</kbd></td></tr>
+        </table>
+      </div>
+      <div class="keygroup">
+        <h3 id="keys-capture"><span lang="en">Screen capture</span><span lang="ru">Съёмка экрана</span></h3>
+        <table class="keys" aria-labelledby="keys-capture">
+          <tr><td><span lang="en">Selection screenshot</span><span lang="ru">Скриншот области</span></td><td><kbd>⌃⌥⌘R</kbd></td></tr>
+          <tr><td><span lang="en">Fullscreen screenshot</span><span lang="ru">Скриншот экрана</span></td><td><kbd>⌃⌥⌘B</kbd></td></tr>
+          <tr><td><span lang="en">Window screenshot</span><span lang="ru">Скриншот окна</span></td><td><kbd>⌃⌥⌘G</kbd></td></tr>
+        </table>
+      </div>
+      <div class="keygroup">
+        <h3 id="keys-tools"><span lang="en">Tools</span><span lang="ru">Инструменты</span></h3>
+        <table class="keys" aria-labelledby="keys-tools">
+          <tr><td><span lang="en">Pick color</span><span lang="ru">Выбрать цвет</span></td><td><kbd>⌃⌥⌘C</kbd></td></tr>
+          <tr>
+            <td><span lang="en">Scan (text &amp; codes)</span><span lang="ru">Сканер (текст и коды)</span>
+              <small lang="en">Press ⌥ to keep line breaks, ⌃ to translate</small>
+              <small lang="ru">⌥ — сохранить переносы строк, ⌃ — включить перевод</small></td>
+            <td><kbd>⌃⌥⌘S</kbd></td>
+          </tr>
+          <tr>
+            <td><span lang="en">Translate clipboard</span><span lang="ru">Перевести буфер обмена</span>
+              <small lang="en">Translates text copied with ⌘C</small>
+              <small lang="ru">Переводит текст, скопированный через ⌘C</small></td>
+            <td><kbd>⌃⌥⌘T</kbd></td>
+          </tr>
+        </table>
+      </div>
+    </div>
+    <p class="note" lang="en">Change any of them in <b>Settings → Hotkeys</b>.</p>
+    <p class="note" lang="ru">Любое можно поменять: <b>Настройки → Команды</b>.</p>
+  </section>
+
+  <!-- ────────────────────────────  PRIVACY  ─────────────────────────── -->
+  <section id="privacy" class="section">
+    <h2><span lang="en">Privacy</span><span lang="ru">Приватность</span></h2>
+    <p class="intro" lang="en">A screenshot tool sees everything on your screen, so Stampo keeps
+      all of it on your Mac.</p>
+    <p class="intro" lang="ru">Инструмент для скриншотов видит всё, что на экране, поэтому Stampo
+      держит всё на вашем Mac.</p>
+    <ul class="ticks ticks-grid">
+      <li lang="en"><b>No uploads.</b> Screenshots, colors and scanned text are never sent
+        anywhere.</li>
+      <li lang="ru"><b>Никаких выгрузок.</b> Снимки, цвета и распознанный текст никуда не
+        отправляются.</li>
+      <li lang="en"><b>No analytics</b>, no telemetry, no crash reporting.</li>
+      <li lang="ru"><b>Никакой аналитики</b>, телеметрии и отчётов о сбоях.</li>
+      <li lang="en"><b>One optional request:</b> once a day Stampo asks GitHub for the latest
+        version number. Turn it off in <b>Settings → General → Updates</b>.</li>
+      <li lang="ru"><b>Один необязательный запрос:</b> раз в сутки Stampo спрашивает у GitHub
+        номер последней версии. Отключается в <b>Настройки → Основные → Обновления</b>.</li>
+      <li lang="en"><b>Codes stay text.</b> A scanned QR code is never opened or fetched.</li>
+      <li lang="ru"><b>Коды — просто текст.</b> Распознанный QR-код никогда не открывается и не
+        загружается.</li>
+    </ul>
+    <p class="note" lang="en">The full account is in
+      <a href="https://github.com/git-webuser/Stampo/blob/main/SECURITY.md">SECURITY.md</a>.</p>
+    <p class="note" lang="ru">Подробно — в
+      <a href="https://github.com/git-webuser/Stampo/blob/main/SECURITY.md">SECURITY.md</a>.</p>
+  </section>
+
+</main>
+
+<footer class="footer">
+  <p>
+    <span lang="en">Stampo @VERSION@ · macOS 15.7+ · MIT License</span>
+    <span lang="ru">Stampo @VERSION@ · macOS 15.7 и новее · лицензия MIT</span>
+  </p>
+  <nav>
+    <a href="https://github.com/git-webuser/Stampo/blob/main/MANUAL.md"><span lang="en">User guide</span><span lang="ru">Руководство</span></a>
+    <a href="https://github.com/git-webuser/Stampo/releases"><span lang="en">Releases</span><span lang="ru">Релизы</span></a>
+    <a href="https://github.com/git-webuser/Stampo/issues"><span lang="en">Issues</span><span lang="ru">Сообщить о проблеме</span></a>
+    <a href="https://github.com/git-webuser/Stampo">GitHub</a>
+  </nav>
+</footer>
+
+</div>
+
+<script>
+// Copy buttons for the Homebrew commands. They stay hidden without JS or a
+// clipboard to write to; the commands can still be selected by hand.
+if (navigator.clipboard) {
+  document.querySelectorAll('.copy').forEach(function (btn) {
+    btn.hidden = false;
+    btn.addEventListener('click', function () {
+      navigator.clipboard.writeText(btn.dataset.copy).then(function () {
+        btn.classList.add('done');
+        setTimeout(function () { btn.classList.remove('done'); }, 1600);
+      });
+    });
+  });
+}
+
+// The clips. Without JS they simply autoplay. With it, each one starts from
+// its first frame the first time it scrolls into view — so the story is seen
+// from the beginning, not from wherever it had got to off screen — and pauses
+// while out of view. With Reduce Motion on, nothing moves by itself: each clip
+// rests on a frame that tells its story and gets the player's controls.
+(function () {
+  var clips = document.querySelectorAll('.clip video');
+  var still = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  if (still) {
+    clips.forEach(function (v) {
+      v.removeAttribute('autoplay');
+      v.pause();
+      v.controls = true;
+      v.preload = 'auto';
+      var t = parseFloat(v.dataset.still) || 0;
+      if (v.readyState >= 1) v.currentTime = t;
+      else v.addEventListener('loadedmetadata', function () { v.currentTime = t; }, { once: true });
+    });
+    return;
+  }
+
+  if (!('IntersectionObserver' in window)) return;
+  var io = new IntersectionObserver(function (entries) {
+    entries.forEach(function (e) {
+      var v = e.target;
+      if (e.isIntersecting) {
+        if (!v.dataset.seen) { v.dataset.seen = '1'; v.currentTime = 0; }
+        var p = v.play();
+        if (p && p.catch) p.catch(function () {});
+      } else {
+        v.pause();
+      }
+    });
+  }, { threshold: 0.4 });
+  clips.forEach(function (v) { io.observe(v); });
+})();
+</script>
+
+</body>
+</html>

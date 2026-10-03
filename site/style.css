@@ -1,0 +1,523 @@
+/* Stampo — landing page.
+   The world is the onboarding's and the social preview's: white, grey, a dot
+   grid. Colour belongs to Stampo — the brand blue, violet and cyan, the pixel
+   checker, the glove and the hare — and appears where Stampo does. */
+
+:root {
+  --ink:      #0C131D;
+  --ink-2:    #4A515C;
+  --ink-3:    #6E7682;
+  --line:     #E1E5EC;
+  --plate:    #F4F6F9;
+  --paper:    #FFFFFF;
+  --dots:     #DCE3EC;
+
+  /* Brand, sampled from assets/dmg-background@4x.png (video/src/brand/pixels.tsx). */
+  --blue:     #198CFE;
+  --violet:   #8C8CFE;
+  --cyan:     #8CFEFE;
+  --link:     #0A6FD1;   /* --blue is 3.3:1 on white; text needs 4.5 */
+
+  /* The checker: three colours in a 4 × 4 repeat, one unit per cell. */
+  --checker: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 4 4' shape-rendering='crispEdges'%3E%3Crect width='4' height='4' fill='%23198CFE'/%3E%3Cg fill='%238C8CFE'%3E%3Crect x='1' y='0' width='1' height='1'/%3E%3Crect x='1' y='1' width='1' height='1'/%3E%3Crect x='3' y='1' width='1' height='1'/%3E%3Crect x='3' y='2' width='1' height='1'/%3E%3Crect x='1' y='3' width='1' height='1'/%3E%3Crect x='3' y='3' width='1' height='1'/%3E%3C/g%3E%3Cg fill='%238CFEFE'%3E%3Crect x='0' y='0' width='1' height='1'/%3E%3Crect x='2' y='0' width='1' height='1'/%3E%3Crect x='0' y='2' width='1' height='1'/%3E%3Crect x='2' y='2' width='1' height='1'/%3E%3C/g%3E%3C/svg%3E");
+
+  --radius:   18px;
+  --wrap:     1080px;
+  --gutter:   clamp(16px, 4vw, 28px);
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Inter,
+          system-ui, "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+}
+
+/* ── language switch ─────────────────────────────────────────────────────
+   A checkbox, not a script: the page keeps working with JS off. The inline
+   script only decides the initial state and remembers the choice. */
+
+.lang-input {
+  position: absolute;
+  width: 1px; height: 1px;
+  margin: -1px; padding: 0; border: 0;
+  overflow: hidden; clip-path: inset(50%);
+  white-space: nowrap;
+}
+.page [lang="ru"] { display: none; }
+.lang-input:checked ~ .page [lang="ru"] { display: revert; }
+.lang-input:checked ~ .page [lang="en"] { display: none; }
+
+/* ── base ────────────────────────────────────────────────────────────── */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html { scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+
+body {
+  margin: 0;
+  font-family: var(--font);
+  font-size: 17px;
+  line-height: 1.55;
+  color: var(--ink);
+  background-color: var(--paper);
+  /* The social preview's dot grid. It scrolls with the page: `fixed` repaints
+     the whole viewport on every scroll tick. */
+  background-image: radial-gradient(circle at 16px 16px, var(--dots) 1.5px, transparent 2px);
+  background-size: 32px 32px;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+
+img, svg, video { display: block; max-width: 100%; }
+img { height: auto; }
+
+a { color: var(--link); text-underline-offset: 2px; }
+a:hover { color: var(--blue); }
+
+h1, h2, h3 { line-height: 1.15; letter-spacing: -0.02em; margin: 0 0 .5em; }
+h2 { font-size: clamp(28px, 3.6vw, 38px); font-weight: 800; }
+h3 { font-size: 20px; font-weight: 700; }
+p { margin: 0 0 1em; }
+
+code, pre { font-family: var(--mono); }
+code {
+  font-size: .86em;
+  background: var(--plate);
+  border: 1px solid var(--line);
+  padding: .05em .35em;
+  border-radius: 6px;
+  white-space: nowrap;
+}
+kbd {
+  /* The UI font, not the mono one: SF Mono has no ⌘⌥⌃⇥ glyphs and falls back
+     per character, so a shortcut comes out in two typefaces. */
+  font-family: var(--font);
+  font-size: .84em;
+  font-weight: 600;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-bottom-width: 2px;
+  border-radius: 6px;
+  padding: .08em .4em;
+  white-space: nowrap;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px; height: 1px;
+  margin: -1px; padding: 0; border: 0;
+  overflow: hidden; clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* ── top bar ─────────────────────────────────────────────────────────── */
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 10px max(var(--gutter), (100% - var(--wrap)) / 2 + var(--gutter));
+  background: rgba(255, 255, 255, .85);
+  backdrop-filter: saturate(1.6) blur(12px);
+  -webkit-backdrop-filter: saturate(1.6) blur(12px);
+  border-bottom: 1px solid var(--line);
+}
+@supports not (backdrop-filter: blur(1px)) { .topbar { background: var(--paper); } }
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-right: auto;
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+  text-decoration: none;
+}
+.brand img { width: 28px; height: 28px; border-radius: 7px; }
+
+.topnav { display: flex; gap: 20px; }
+.topnav a {
+  color: var(--ink-2);
+  font-size: 15px;
+  font-weight: 500;
+  text-decoration: none;
+}
+.topnav a:hover { color: var(--ink); }
+
+.lang {
+  display: inline-flex;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  overflow: hidden;
+  cursor: pointer;
+  user-select: none;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  background: var(--paper);
+}
+.lang .seg { padding: 4px 10px; color: var(--ink-3); }
+.lang .seg-en { background: var(--ink); color: #fff; }
+.lang-input:checked ~ .page .lang .seg-en { background: transparent; color: var(--ink-3); }
+.lang-input:checked ~ .page .lang .seg-ru { background: var(--ink); color: #fff; }
+.lang-input:focus-visible ~ .page .lang { outline: 2px solid var(--blue); outline-offset: 2px; }
+
+/* ── layout ──────────────────────────────────────────────────────────── */
+
+main {
+  max-width: var(--wrap);
+  margin: 0 auto;
+  padding: 0 var(--gutter);
+}
+[id] { scroll-margin-top: 64px; }   /* the sticky bar must not cover a target */
+
+.section { padding: clamp(56px, 8vw, 96px) 0 0; }
+
+/* A strip of the checker over each section heading — the brand's mark used
+   the way the artwork uses it, as a stroke, never as a fill. */
+.section > h2::before,
+.feature-text > h2::before {
+  content: "";
+  display: block;
+  width: 60px;
+  height: 10px;
+  margin-bottom: 18px;
+  background: var(--checker) 0 0 / 20px 20px;
+}
+
+.intro { font-size: clamp(18px, 2vw, 20px); color: var(--ink-2); max-width: 46ch; }
+.note { font-size: 15px; color: var(--ink-2); }
+.note b { color: var(--ink); }
+
+/* ── hero ────────────────────────────────────────────────────────────── */
+
+.hero {
+  padding: clamp(36px, 7vw, 72px) 0 clamp(24px, 4vw, 40px);
+  text-align: center;
+}
+.hero-title { margin: 0 0 clamp(20px, 3vw, 32px); }
+.hero-title img { margin: 0 auto; width: min(812px, 100%); }
+
+.lede {
+  max-width: 30ch;
+  margin: 0 auto 10px;
+  font-size: clamp(21px, 2.8vw, 28px);
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+  text-wrap: balance;
+}
+.sub {
+  max-width: 44ch;
+  margin: 0 auto 28px;
+  font-size: clamp(16px, 1.8vw, 18px);
+  color: var(--ink-2);
+  text-wrap: balance;
+}
+
+.cta {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: center;
+  margin: 0 auto 44px;
+  width: fit-content;
+  max-width: 100%;
+}
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px 22px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--paper);
+  color: var(--ink);
+  font-size: 16px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: transform .12s ease, background-color .12s ease;
+}
+.btn:hover { color: var(--ink); background: var(--plate); transform: translateY(-1px); }
+.btn-primary {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: #fff;
+  box-shadow: 0 6px 18px rgba(12, 19, 29, .18);
+}
+.btn-primary:hover { background: #1B2533; color: #fff; }
+@media (prefers-reduced-motion: reduce) {
+  .btn { transition: none; }
+  .btn:hover { transform: none; }
+}
+
+/* The glove from the brand artwork, pointing at the download button as it
+   points at the tagline on the social preview. */
+.btn-primary { position: relative; }
+.glove {
+  position: absolute;
+  left: calc(100% - 22px);
+  top: calc(100% - 14px);
+  width: 46px;
+  pointer-events: none;
+  filter: drop-shadow(0 3px 4px rgba(12, 19, 29, .18));
+}
+.glove-fill { fill: #fff; }
+.glove-line {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 2.96;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.meta { font-size: 14px; color: var(--ink-3); margin: 0; }
+
+/* ── features ────────────────────────────────────────────────────────── */
+
+.feature {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+  gap: clamp(28px, 5vw, 64px);
+  align-items: center;
+  padding: clamp(40px, 7vw, 72px) 0;
+}
+.feature:nth-child(even) .clip { order: 2; }
+
+.clip { margin: 0; }
+.clip video {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 2 / 1;
+  /* The banner's corner, as the README's WebPs have it cut into their alpha:
+     48 px on the 1600 × 800 frame, so 3% of the width and 6% of the height. */
+  border-radius: 3% / 6%;
+  background: var(--paper);
+  box-shadow: 0 0 0 1px var(--line), 0 18px 44px rgba(12, 19, 29, .10);
+}
+
+.feature-text h2 { margin-bottom: .35em; }
+.lead {
+  font-size: clamp(18px, 2vw, 21px);
+  line-height: 1.4;
+  color: var(--ink);
+  margin-bottom: 18px;
+}
+
+/* ── tick lists ──────────────────────────────────────────────────────── */
+
+/* Grid gaps rather than item margins: the hidden half of a bilingual list
+   would otherwise leave a stray margin on the visible items. */
+.ticks { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; }
+.ticks li {
+  position: relative;
+  padding-left: 26px;
+  font-size: 16px;
+  color: var(--ink-2);
+}
+.ticks li b { color: var(--ink); }
+.ticks li::before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: .5em;
+  width: 10px;
+  height: 10px;
+  background: var(--checker) 0 0 / 10px 10px;
+}
+
+/* ── install ─────────────────────────────────────────────────────────── */
+
+.install {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+  align-items: start;
+  margin-top: 64px;   /* room for the hare */
+}
+
+.card {
+  position: relative;
+  padding: 26px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: 0 10px 30px rgba(12, 19, 29, .05);
+}
+.card p { font-size: 16px; color: var(--ink-2); }
+.card .btn { margin-top: 4px; }
+
+/* The hare peeks over the Homebrew card the way it peeks over the laptop on
+   the social preview: drawn behind the card, so the card's edge cuts it. */
+.install-brew { position: relative; }
+.install-brew .card { z-index: 1; }
+.hare {
+  position: absolute;
+  z-index: 0;
+  right: 40px;
+  top: -44px;
+  width: 50px;
+}
+.hare-head { fill: #fff; stroke: var(--ink); stroke-width: 3.75; }
+.hare-eye { fill: var(--ink); }
+
+.tag {
+  display: inline-block;
+  margin-bottom: 10px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--blue);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.code {
+  display: grid;
+  margin: 0 0 14px;
+  background: var(--ink);
+  border-radius: 12px;
+  overflow: hidden;
+}
+/* The copy button gets a strip of its own above the commands: floated over
+   them it would sit on the tap URL, which is longer than the card. */
+.copy {
+  order: -1;
+  justify-self: end;
+  margin: 8px 8px 0;
+  padding: 5px 11px;
+  font: 600 12px/1.4 var(--font);
+  color: #C6D0DE;
+  background: rgba(255, 255, 255, .1);
+  border: 1px solid rgba(255, 255, 255, .18);
+  border-radius: 7px;
+  cursor: pointer;
+}
+.copy[hidden] { display: none; }
+.copy:hover { background: rgba(255, 255, 255, .18); color: #fff; }
+.copy.done { background: var(--blue); border-color: var(--blue); color: #fff; }
+.copy.done > span::after { content: " ✓"; }
+.code pre {
+  margin: 0;
+  padding: 12px 18px 16px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: #E8EDF5;
+  font-size: 13.5px;
+  line-height: 1.65;
+}
+.code code { background: none; border: 0; padding: 0; color: inherit; font-size: inherit; white-space: inherit; }
+/* Wrapped rather than scrolled — a command you cannot see is one you cannot
+   follow — with a hanging indent per command, so a wrapped line does not read
+   as the next command. */
+.code .cmd { display: block; padding-left: 16px; text-indent: -16px; }
+
+.steps { margin: 0 0 18px; padding-left: 1.3em; display: grid; gap: 10px; }
+.steps li { font-size: 16px; color: var(--ink-2); padding-left: 2px; }
+.steps li b { color: var(--ink); }
+.steps code { white-space: normal; }
+
+.permission {
+  margin-top: 20px;
+  padding: 22px 26px;
+  border-radius: var(--radius);
+  background: var(--plate);
+  border: 1px solid var(--line);
+}
+.permission h3 { font-size: 18px; margin-bottom: .3em; }
+.permission p { margin: 0; font-size: 16px; color: var(--ink-2); }
+
+/* ── hotkeys ─────────────────────────────────────────────────────────── */
+
+/* Three cards, one per section of Settings → Hotkeys, side by side where
+   they fit. Ten shortcuts in one table were a list to search, not to scan. */
+.keygroups {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
+  gap: 20px;
+  align-items: start;
+  margin: 28px 0 18px;
+}
+.keygroup {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.keygroup h3 {
+  margin: 0;
+  padding: 11px 18px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  background: var(--plate);
+  border-bottom: 1px solid var(--line);
+}
+.keys { width: 100%; border-collapse: collapse; }
+.keys td {
+  padding: 10px 18px;
+  text-align: left;
+  vertical-align: top;
+  font-size: 16px;
+  border-bottom: 1px solid var(--line);
+}
+.keys tr:last-child td { border-bottom: 0; }
+.keys td:last-child { padding-left: 0; text-align: right; white-space: nowrap; }
+.keys small { display: block; margin-top: 2px; font-size: 13.5px; line-height: 1.4; color: var(--ink-3); }
+.lang-input:checked ~ .page .keys small[lang="ru"] { display: block; }
+
+/* ── privacy ─────────────────────────────────────────────────────────── */
+
+.ticks-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px 40px;
+  margin: 28px 0 22px;
+  max-width: 900px;
+}
+
+/* ── footer ──────────────────────────────────────────────────────────── */
+
+.footer {
+  max-width: var(--wrap);
+  margin: clamp(64px, 9vw, 112px) auto 0;
+  padding: 26px var(--gutter) 44px;
+  border-top: 1px solid var(--line);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 24px;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 14px;
+  color: var(--ink-3);
+  background: var(--paper);
+}
+.footer p { margin: 0; }
+.footer nav { display: flex; flex-wrap: wrap; gap: 8px 18px; }
+.footer a { color: var(--ink-2); text-decoration: none; }
+.footer a:hover { color: var(--link); }
+
+/* ── narrow screens ──────────────────────────────────────────────────── */
+
+@media (max-width: 860px) {
+  .feature { grid-template-columns: minmax(0, 1fr); }
+  .feature:nth-child(even) .clip { order: 0; }
+  .install { grid-template-columns: minmax(0, 1fr); gap: 56px; }
+  .ticks-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (max-width: 640px) {
+  body { font-size: 16px; }
+  .topnav { display: none; }
+  .glove { display: none; }
+  .card { padding: 22px 20px; }
+  .keys td { padding: 9px 14px; font-size: 15px; }
+  .keygroup h3 { padding: 10px 14px; }
+}
