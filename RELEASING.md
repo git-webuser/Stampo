@@ -159,6 +159,9 @@ SHA256: <paste here>
 automatically after creating the GitHub release. If releasing manually,
 update those two fields yourself and commit.
 
+That push also republishes the site: the page takes its version from the
+cask (see [site/README.md](site/README.md)), so there is nothing to update there.
+
 Users install with:
 
 ```bash

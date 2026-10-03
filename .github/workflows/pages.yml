@@ -1,0 +1,65 @@
+name: Site
+
+# Publishes the landing page at https://git-webuser.github.io/Stampo/.
+#
+# Pages is set to deploy from GitHub Actions (Settings → Pages → Source), not
+# from a branch: the page is assembled from site/ plus the artwork and clips
+# already in assets/, so nothing has to be copied into a second branch and
+# kept in step by hand. Scripts/build-site.sh does the assembling, the same
+# way for a local preview.
+#
+# Only main deploys. A pull request that touches the site gets a build without
+# a deploy, so a broken page shows up before it is merged.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - site/**
+      - assets/brand/banner.png
+      - assets/brand/social-preview.png
+      - assets/screenshots/clip-*.mp4
+      # release.sh commits the cask once the DMG is up, and the page takes its
+      # version from it.
+      - Casks/stampo.rb
+      - Scripts/build-site.sh
+      - .github/workflows/pages.yml
+  pull_request:
+    paths:
+      - site/**
+      - Scripts/build-site.sh
+      - .github/workflows/pages.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One deploy at a time, and a newer one does not cut off a deploy in flight.
+concurrency:
+  group: pages-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Assemble the site
+        run: bash Scripts/build-site.sh _site
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: _site
+
+  deploy:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5
