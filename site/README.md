@@ -77,13 +77,17 @@ translation: «Снять», «Сканер», «Оформление», «Чё�
 
 ## Typography
 
-Write ordinary spaces. The build binds every one- and two-letter Russian
-word and the short prepositions and conjunctions («без», «для», «под», «или» …)
-to the word after them, the particles «ли», «же», «бы» to the word before,
-a dash to the word before it in both languages, and a version number to
-what it numbers — so no line ends on «в» or «а», and none starts with «—».
-Only text between tags is touched: attributes, `<script>`, `<pre>`, `<code>`
-and `<kbd>` are left as written.
+Write ordinary spaces. The build binds every one- and two-letter word,
+prepositions, conjunctions and articles («для», «через», «когда»; "the",
+"with", "between" …) and the pronouns that lean on the next word («все»,
+«ваш», "every", "your" …) to the word after them, the particles «ли», «же», «бы» to the word
+before, a dash or an arrow to the word before it, and a version number to
+what it numbers — so no line ends on «в», «а», "a" or "to", and none starts
+with «—» or «→». A
+hyphenated word («QR-коды», «right-click», `<kbd>⌘</kbd>-клик`) goes into a
+`<span class="nowrap">`, since a browser will otherwise break right after
+the hyphen. Only text between tags is touched: attributes, `<script>`,
+`<pre>`, `<code>` and `<kbd>` are left as written.
 
 ## The clips
 
