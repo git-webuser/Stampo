@@ -63,6 +63,8 @@ Clicking the notch and global hotkeys work without any permission — they use s
 
 ## How to use
 
+<img src="assets/screenshots/clip-capture.webp" alt="A click on the notch opens the panel and Capture is pressed; a window is framed, the shot drops into the corner as a thumbnail and goes on into the archive" width="812">
+
 ![The Stampo panel, open at the notch](assets/screenshots/panel-capture.png)
 
 - **Click the notch** (or the top center of the menu bar on screens without one) to open the panel. Click it again to close, or press `⌃⌥⌘N`.
@@ -71,6 +73,8 @@ Clicking the notch and global hotkeys work without any permission — they use s
 - All screenshots are saved to your chosen folder (default: `~/Pictures/Stampo`).
 
 ## Scan (text & codes)
+
+<img src="assets/screenshots/clip-scan.webp" alt="A frame is drawn over a window of text, a beam reads it line by line, the lines turn over into their translation, and a copy goes into the archive" width="812">
 
 Select an area of the screen and Stampo reads it in a single pass: every QR/barcode payload plus all readable text. The language is detected for you — recognition is tuned toward English and Russian, and reads other languages macOS knows as well, just less surely. Everything found is copied to the clipboard in visual order, and each finding is added to the archive as a text entry. Nothing is saved to disk, and code payloads are treated strictly as inert text — never opened, linkified, or fetched. Start it from the capture-mode menu in the panel, with `⌃⌥⌘S`, or from the **Scan** button in the editor — where the same overlay opens over the image itself.
 
@@ -104,6 +108,8 @@ macOS ships no translation packs installed, and downloads them itself the first 
 Open **Settings → Archive → Translation**: each row reports whether its pack is present and offers to install it, macOS asks for confirmation, and after that translation works offline and never asks again. **Add language…** picks a new one from everything macOS supports. Asking to translate with fewer than two languages installed opens a window that explains translation and sets it up on the spot, rather than sending you off to find the setting.
 
 ## Markup Editor
+
+<img src="assets/screenshots/clip-editor.webp" alt="A thumbnail opens in the editor; an arrow, a star and a loop are drawn on the screenshot, Decor sets it on a gradient page with margins, and the result goes into the archive" width="812">
 
 ![The editor with a screenshot marked up — a callout loupe magnifying a region, an arrow, a star, a text label, and freehand handwriting — and the Decor panel beside it, setting the picture on a white page with margins](assets/screenshots/editor.png)
 
@@ -162,6 +168,8 @@ By default, screenshots are saved to **~/Pictures/Stampo**. You can change the s
 File names follow one of four presets, selectable in **Settings → Capture**: compact `Jan·05-14·30·22` (default), ISO `2026-01-05 14-30-22`, numbered `2026-01-05 #1`, or dense `20260105-143022`. The file format is PNG, JPG, or TIFF.
 
 ## Archive
+
+<img src="assets/screenshots/clip-archive.webp" alt="A color is picked off a picture, the picker's magnifier beside the pointer; the panel then opens the archive — the color just picked, the scanned text and the decorated screenshot, newest first" width="812">
 
 The archive shows recent screenshots, color swatches, and scanned or translated text — and it's also a drop target for files.
 
