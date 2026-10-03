@@ -29,6 +29,7 @@ What the build adds, so it is never copied here:
 | `assets/banner.png`, `assets/social-preview.png` | `assets/brand/` |
 | `assets/clip-*.mp4` | `assets/screenshots/`, made by `npm run mp4` in `video/` |
 | the version number (`@VERSION@` in `index.html`) | `Casks/stampo.rb` |
+| non-breaking spaces | `Scripts/site-typography.py` |
 
 The version comes from the cask rather than the Xcode project because
 `release.sh` commits the cask only after the DMG is up, so the page never
@@ -73,6 +74,16 @@ Russian names of actions, menus and settings come from
 `Stampo/Localizable.xcstrings` — the app's own wording, not a fresh
 translation: «Снять», «Сканер», «Оформление», «Чёлка», **Настройки →
 Команды**. Look up how the app already says a thing before writing it.
+
+## Typography
+
+Write ordinary spaces. The build binds every one- and two-letter Russian
+word and the short prepositions and conjunctions («без», «для», «под», «или» …)
+to the word after them, the particles «ли», «же», «бы» to the word before,
+a dash to the word before it in both languages, and a version number to
+what it numbers — so no line ends on «в» or «а», and none starts with «—».
+Only text between tags is touched: attributes, `<script>`, `<pre>`, `<code>`
+and `<kbd>` are left as written.
 
 ## The clips
 

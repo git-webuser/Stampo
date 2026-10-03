@@ -39,4 +39,8 @@ if grep -q '@VERSION@' "$out"/*.html; then
   exit 1
 fi
 
+# Non-breaking spaces after short Russian words and before dashes — see the
+# script for the rules. After the version, which it also binds.
+python3 Scripts/site-typography.py "$out"/*.html
+
 echo "Built $out (Stampo $version)"
