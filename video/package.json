@@ -2,11 +2,12 @@
   "name": "stampo-video",
   "version": "0.0.0",
   "private": true,
-  "description": "The README's feature clips, built on the onboarding's own Figma layers.",
+  "description": "The feature clips of the README and the site, built on the onboarding's own Figma layers.",
   "scripts": {
     "studio": "remotion studio",
     "stills": "node scripts/stills.mjs",
     "webp": "bash scripts/webp.sh",
+    "mp4": "bash scripts/mp4.sh",
     "symbols": "swift scripts/export-symbols.swift"
   },
   "dependencies": {

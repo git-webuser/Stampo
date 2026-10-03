@@ -1,8 +1,10 @@
 # video
 
-The four short clips in the README — **Capture**, **Editor**, **Scan**,
-**Archive** — made with [Remotion](https://remotion.dev) on top of the
-onboarding's own Figma layers.
+The four short clips in the README and on the site — **Capture**, **Editor**,
+**Scan**, **Archive** — made with [Remotion](https://remotion.dev) on top of
+the onboarding's own Figma layers. The README gets animated WebPs, since GitHub
+does not play video from a repository; the site gets mp4s, a third of the
+weight.
 
 A standalone Node project. Xcode's file-system-synchronized groups cover
 `Stampo/` and `StampoTests/` only, so nothing here reaches the app, and
@@ -34,6 +36,7 @@ npm install
 npm run studio    # Remotion Studio, to scrub the clips
 npm run stills    # key frames of every clip -> out/stills/<Clip>.png
 npm run webp      # render and encode -> ../assets/screenshots/clip-*.webp
+npm run mp4       # render and encode -> ../assets/screenshots/clip-*.mp4 (the site)
 npm run symbols   # re-export the SF Symbols (only if they change)
 ```
 
@@ -63,7 +66,15 @@ loop closes.
   under a zooming camera it doubled the Archive clip. Both became the smooth
   page gradient. Keep the checker to small things: rays, the scan beam.
 - **Clip lengths are multiples of 6 frames.** The clips run at 30 fps and the
-  WebP at 25; anything else leaves a stray frame at the loop's seam.
+  WebP at 25; anything else leaves a stray frame at the loop's seam. The mp4s
+  stay at 30.
+- **The mp4s need colour tags and a gentler encode.** Remotion's own mp4 has
+  no colour tags, and a browser left to guess the matrix shifts the brand
+  blues; `scripts/mp4.sh` encodes PNG frames itself and tags them BT.709. At
+  x264's default CRF 23 the Decor gradient breaks into diagonal bands, so it
+  is CRF 20 with aq-mode 3.
+- **Re-render both after a change to a clip.** The WebP and the mp4 are made
+  separately, and nothing notices when one of them is stale.
 - **SVG `<image>`s are not waited for by the renderer.** The SF Symbols are
   preloaded with `delayRender` (`usePreloadSymbols`), or early frames come out
   without them.
