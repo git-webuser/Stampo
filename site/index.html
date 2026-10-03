@@ -3,15 +3,15 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Stampo — screenshot, scan and color picker for macOS</title>
-<meta name="description" content="Screenshot, scan, and color picker for macOS, living in the notch. No Dock icon; on a Mac without a notch the panel sits at the top of the menu bar. Free and open source.">
+<title>Stampo: screenshots, text recognition, and colors for macOS</title>
+<meta name="description" content="Take screenshots, copy text, and pick colors on your Mac. Click the notch to open Stampo. Works without a notch too. Free and open source.">
 <meta name="color-scheme" content="light">
 <link rel="stylesheet" href="style.css">
 <link rel="icon" href="icon.png" type="image/png">
 <link rel="apple-touch-icon" href="icon.png">
 <meta property="og:type" content="website">
-<meta property="og:title" content="Stampo — screenshot, scan and color picker for macOS">
-<meta property="og:description" content="Screenshot, scan, and color picker for macOS, living in the notch. Free and open source.">
+<meta property="og:title" content="Stampo: screenshots, text recognition, and colors for macOS">
+<meta property="og:description" content="Take screenshots, copy text, and pick colors on your Mac. Free and open source.">
 <meta property="og:image" content="https://git-webuser.github.io/Stampo/assets/social-preview.png">
 <meta property="og:image:width" content="2560">
 <meta property="og:image:height" content="1280">
@@ -28,8 +28,8 @@
 (function () {
   var box = document.getElementById('lang-ru');
   var titles = {
-    en: 'Stampo — screenshot, scan and color picker for macOS',
-    ru: 'Stampo — скриншоты, сканер и пипетка для macOS'
+    en: 'Stampo: screenshots, text recognition, and colors for macOS',
+    ru: 'Stampo: скриншоты, сканер и пипетка для macOS'
   };
   var saved = null;
   try { saved = localStorage.getItem('stampo-lang'); } catch (e) {}
@@ -70,16 +70,16 @@
   <!-- ─────────────────────────────  HERO  ───────────────────────────── -->
   <section class="hero">
     <h1 class="hero-title">
-      <img src="assets/banner.png" width="812" height="200"
-           alt="Stampo — Screenshots · Scan · Colors">
+      <span lang="en"><img src="assets/banner.png" width="812" height="200"
+           alt="Stampo: Screenshots · Scan · Colors"></span>
+      <span lang="ru"><img src="assets/banner-ru.png" width="812" height="200"
+           alt="Stampo: Скрины · Сканы · Цвета"></span>
     </h1>
 
-    <p class="lede" lang="en">Screenshot, scan, and color picker for macOS, living in the notch.</p>
-    <p class="lede" lang="ru">Скриншоты, сканер и пипетка для macOS — живут в чёлке.</p>
-    <p class="sub" lang="en">No Dock icon; on a Mac without a notch the panel sits at the top
-      of the menu bar.</p>
-    <p class="sub" lang="ru">Без иконки в Dock. На Mac без чёлки панель встаёт вверху, посередине
-      строки меню.</p>
+    <p class="lede" lang="en">Take screenshots, copy text, and pick colors on your Mac.</p>
+    <p class="lede" lang="ru">Снимай экран, копируй текст, выбирай цвета. Всё в панели у чёлки.</p>
+    <p class="sub" lang="en">A flexible tool for screenshots, colors, and text. The scanner and editor work locally on your Mac.</p>
+    <p class="sub" lang="ru">Гибкий инструмент для работы со скринами, цветами и текстом. Сканер и редактор работают локально на Mac.</p>
 
     <div class="cta">
       <a class="btn btn-primary" href="https://github.com/git-webuser/Stampo/releases">
@@ -109,29 +109,21 @@
           <source src="assets/clip-capture.mp4" type="video/mp4">
         </video>
         <figcaption class="sr-only">
-          <span lang="en">A click on the notch opens the panel and Capture is pressed; a window
-            is framed, the shot drops into the corner as a thumbnail and goes on into the
-            archive.</span>
-          <span lang="ru">Клик по чёлке открывает панель, нажата кнопка «Снять»; окно взято в
-            рамку, снимок падает в угол миниатюрой и уходит в архив.</span>
+          <span lang="en">Click the notch, choose Capture, and select a window. Stampo shows a thumbnail in the screen corner and adds the screenshot to the archive.</span>
+          <span lang="ru">Кликни по чёлке, нажми «Снять» и выбери окно. Stampo покажет миниатюру в углу экрана и добавит снимок в архив.</span>
         </figcaption>
       </figure>
       <div class="feature-text">
         <h2><span lang="en">Capture</span><span lang="ru">Съёмка</span></h2>
-        <p class="lead" lang="en">Click the notch: an area, a window or the whole screen.</p>
-        <p class="lead" lang="ru">Клик по чёлке — и снимок области, окна или всего экрана.</p>
+        <p class="lead" lang="en">Take a screenshot of a specific area, a window, or the whole screen.</p>
+        <p class="lead" lang="ru">Создай скриншот нужной области, окна или всего экрана.</p>
         <ul class="ticks">
-          <li lang="en">A hotkey for each, and a timer when the shot needs setting up.</li>
-          <li lang="ru">У каждого режима своё сочетание клавиш, а если кадр надо подготовить —
-            таймер.</li>
-          <li lang="en">Saved to <code>~/Pictures/Stampo</code> or a folder of your choice, as
-            PNG, JPG or TIFF.</li>
-          <li lang="ru">Файлы ложатся в <code>~/Pictures/Stampo</code> или в любую выбранную
-            папку — PNG, JPG или TIFF.</li>
-          <li lang="en">The thumbnail in the corner opens the editor. <b>Pin to Screen</b> keeps a
-            shot above every window.</li>
-          <li lang="ru">Миниатюра в углу открывает редактор. <b>Закрепить на экране</b> — и снимок
-            висит поверх всех окон.</li>
+          <li lang="en">Choose a capture mode in the notch panel or use a keyboard shortcut. Need a moment to get ready? Set a timer.</li>
+          <li lang="ru">Выбери режим съёмки в панели у чёлки или сочетанием клавиш. Нужно время на подготовку? Поставь таймер.</li>
+          <li lang="en">Stampo automatically saves your screenshot to <code>~/Pictures/Stampo</code>. Choose a different folder and format in Settings: PNG, JPG, or TIFF.</li>
+          <li lang="ru">Stampo автоматически сохранит скриншот в <code>~/Pictures/Stampo</code>. В настройках выбери другую папку и формат: PNG, JPG или TIFF.</li>
+          <li lang="en">Click the thumbnail to edit your screenshot. Choose <b>Pin to Screen</b> to keep it in view above other windows.</li>
+          <li lang="ru">Кликни по миниатюре, чтобы открыть редактор. Нажми <b>«Закрепить на экране»</b>, чтобы держать снимок перед глазами поверх других окон.</li>
         </ul>
       </div>
     </section>
@@ -142,29 +134,21 @@
           <source src="assets/clip-editor.mp4" type="video/mp4">
         </video>
         <figcaption class="sr-only">
-          <span lang="en">A thumbnail opens in the editor; an arrow, a star and a loop are drawn
-            on the screenshot, Decor sets it on a gradient page with margins, and the result goes
-            into the archive.</span>
-          <span lang="ru">Миниатюра открывается в редакторе; на снимке рисуются стрелка, звезда и
-            петля, «Оформление» кладёт его на градиентную страницу с отступами, и результат
-            уходит в архив.</span>
+          <span lang="en">Open the screenshot from its thumbnail. Draw an arrow, a star, and a loop. Use Decor to add a gradient background and margins, then save the result to the archive.</span>
+          <span lang="ru">Открой снимок через миниатюру. Нарисуй стрелку, звезду и петлю. В «Оформлении» добавь градиентный фон и отступы, затем сохрани результат в архив.</span>
         </figcaption>
       </figure>
       <div class="feature-text">
-        <h2><span lang="en">Mark up</span><span lang="ru">Разметка</span></h2>
-        <p class="lead" lang="en">Arrows, shapes, text, blur — and Decor sets the shot on a page.</p>
-        <p class="lead" lang="ru">Стрелки, фигуры, текст, размытие — а «Оформление» кладёт снимок
-          на страницу.</p>
+        <h2><span lang="en">Markup</span><span lang="ru">Разметка</span></h2>
+        <p class="lead" lang="en">Draw arrows and shapes, add text, and blur details. Make the screenshot your own with Decor.</p>
+        <p class="lead" lang="ru">Рисуй стрелки и фигуры, пиши текст, размывай лишнее. Настрой оформление скрина под себя.</p>
         <ul class="ticks">
-          <li lang="en">Arrows snap to shapes and follow them when they move.</li>
-          <li lang="ru">Стрелки цепляются за фигуры и едут за ними, когда фигуры двигают.</li>
-          <li lang="en"><b>Decor</b>: a solid, gradient or photo background, margins, a shadow, and
-            a ratio for where it is going — 1:1, 4:5, 16:9.</li>
-          <li lang="ru"><b>Оформление</b>: фон цветом, градиентом или фото, отступы, тень и
-            пропорции под площадку — 1:1, 4:5, 16:9.</li>
-          <li lang="en"><b>Save</b> always writes a new file; the original stays as it was.</li>
-          <li lang="ru"><b>Сохранить</b> всегда пишет новый файл — исходный снимок не
-            меняется.</li>
+          <li lang="en">Connect an arrow to a shape. Move the shape and the arrow follows.</li>
+          <li lang="ru">Соедини стрелку с фигурой. Двигай фигуру вместе со стрелкой.</li>
+          <li lang="en">Open <b>Decor</b> and pick a color, gradient, or photo for the background. Add margins and a shadow. Choose an aspect ratio: 1:1, 4:5, or 16:9.</li>
+          <li lang="ru">Открой <b>«Оформление»</b> и выбери фон: цвет, градиент или фото. Добавь отступы и тень. Задай пропорции: 1:1, 4:5, 16:9.</li>
+          <li lang="en">Click <b>Save</b> to create a new file. Your original screenshot stays intact.</li>
+          <li lang="ru">Нажми <b>«Сохранить»</b>. Stampo создаст новый файл и оставит исходный снимок как был.</li>
         </ul>
       </div>
     </section>
@@ -175,30 +159,21 @@
           <source src="assets/clip-scan.mp4" type="video/mp4">
         </video>
         <figcaption class="sr-only">
-          <span lang="en">A frame is drawn over a window of text, a beam reads it line by line,
-            the lines turn over into their translation, and a copy goes into the archive.</span>
-          <span lang="ru">Над окном с текстом обведена рамка, луч читает его строка за строкой,
-            строки переворачиваются в перевод, и копия уходит в архив.</span>
+          <span lang="en">Open the scanner and select the text on screen. Turn on translation to read it in another language. Stampo adds the result to the archive.</span>
+          <span lang="ru">Открой сканер и выдели текст на экране. Включи перевод, чтобы прочитать его на другом языке. Stampo добавит результат в архив.</span>
         </figcaption>
       </figure>
       <div class="feature-text">
         <h2><span lang="en">Scan and translate</span><span lang="ru">Сканер и перевод</span></h2>
-        <p class="lead" lang="en">Text and QR codes from anywhere on screen, translated on your
-          Mac.</p>
-        <p class="lead" lang="ru">Текст и QR-коды с любого места экрана — и перевод прямо на
-          вашем Mac.</p>
+        <p class="lead" lang="en">Need text from an image? Open the scanner and select an area. Stampo copies the text for you.</p>
+        <p class="lead" lang="ru">Нужен текст с картинки? Открой сканер и выдели область с текстом. Stampo скопирует его за тебя.</p>
         <ul class="ticks">
-          <li lang="en">Frame an area: its text, as paragraphs, and every QR and barcode go to the
-            clipboard.</li>
-          <li lang="ru">Обведите область — её текст абзацами, все QR-коды и штрихкоды окажутся в
-            буфере обмена.</li>
-          <li lang="en">While framing, <kbd>⌥</kbd> keeps the line breaks and <kbd>⌃</kbd>
-            translates. <kbd>⌃⌥⌘T</kbd> translates whatever you copied.</li>
-          <li lang="ru">Пока обводите, <kbd>⌥</kbd> сохраняет переносы строк, а <kbd>⌃</kbd>
-            переводит. <kbd>⌃⌥⌘T</kbd> переводит то, что вы скопировали.</li>
-          <li lang="en">The translator built into macOS does the work; the text never leaves your
-            Mac.</li>
-          <li lang="ru">Переводит встроенный переводчик macOS — текст не покидает ваш Mac.</li>
+          <li lang="en">Scan QR codes and barcodes too. Stampo copies their contents as text and groups regular text into paragraphs.</li>
+          <li lang="ru">Сканируй QR-коды и штрихкоды тем же способом. Stampo скопирует их содержимое как текст, а обычный текст соберёт в абзацы.</li>
+          <li lang="en">Use <kbd>⌥</kbd> while selecting to keep line breaks, or <kbd>⌃</kbd> to translate. Press <kbd>⌃⌥⌘T</kbd> to translate text from the clipboard.</li>
+          <li lang="ru">При выделении нажми <kbd>⌥</kbd>, чтобы сохранить переносы строк, или <kbd>⌃</kbd>, чтобы включить перевод. Для текста из буфера нажми <kbd>⌃⌥⌘T</kbd>.</li>
+          <li lang="en">The macOS translator handles translation on your Mac. Your text stays on the device.</li>
+          <li lang="ru">За перевод отвечает macOS. Текст остаётся на твоём Mac.</li>
         </ul>
       </div>
     </section>
@@ -209,31 +184,21 @@
           <source src="assets/clip-archive.mp4" type="video/mp4">
         </video>
         <figcaption class="sr-only">
-          <span lang="en">A color is picked off a picture, the picker's magnifier beside the
-            pointer; the panel then opens the archive — the color just picked, the scanned text and
-            the decorated screenshot, newest first.</span>
-          <span lang="ru">С картинки берётся цвет, рядом с курсором лупа пипетки; затем панель
-            открывает архив — только что взятый цвет, распознанный текст и оформленный снимок,
-            новые первыми.</span>
+          <span lang="en">Open the color picker and click a color on screen. Stampo copies its code. Open the archive to find your colors, text from the scanner, and screenshots.</span>
+          <span lang="ru">Открой пипетку и кликни по нужному цвету на экране. Stampo скопирует его код. Загляни в архив за своими цветами, текстами из сканера и скриншотами.</span>
         </figcaption>
       </figure>
       <div class="feature-text">
-        <h2><span lang="en">Pick colors, keep everything</span><span lang="ru">Пипетка и архив</span></h2>
-        <p class="lead" lang="en">Colors, scans and shots wait in the archive at the notch.</p>
-        <p class="lead" lang="ru">Цвета, распознанный текст и снимки ждут в архиве у чёлки.</p>
+        <h2><span lang="en">Color picker and archive</span><span lang="ru">Пипетка и архив</span></h2>
+        <p class="lead" lang="en">Like a color on screen? Open the color picker and click it. Stampo copies the color code.</p>
+        <p class="lead" lang="ru">Понравился цвет на экране? Открой пипетку и кликни по нему. Stampo скопирует код цвета.</p>
         <ul class="ticks">
-          <li lang="en">A color is copied as HEX, RGB, HSL, HSB or CMYK; <kbd>⇥</kbd> switches
-            between them.</li>
-          <li lang="ru">Цвет копируется в HEX, RGB, HSL, HSB или CMYK; <kbd>⇥</kbd> переключает
-            формат.</li>
-          <li lang="en">Click to copy or open, drag out, right-click to edit, pin or share;
-            <kbd>⌘</kbd>-click picks several.</li>
-          <li lang="ru">Клик копирует или открывает, перетаскивание выносит, правый клик —
-            редактировать, закрепить, поделиться; <kbd>⌘</kbd>-клик выделяет несколько.</li>
-          <li lang="en">Drop files on it from several windows: they gather into a stack you drag
-            out all at once.</li>
-          <li lang="ru">Бросьте в него файлы из разных окон — они соберутся в стопку, которую можно
-            вынести одним движением.</li>
+          <li lang="en">Choose HEX, RGB, HSL, HSB, or CMYK. Press <kbd>⇥</kbd> to switch formats before you pick a color.</li>
+          <li lang="ru">Выбери HEX, RGB, HSL, HSB или CMYK. Меняй формат клавишей <kbd>⇥</kbd>, пока выбираешь цвет.</li>
+          <li lang="en">Find your screenshots, text, and colors in the archive. Click an item to copy or open it, or drag it into another app. Right-click for more actions. <kbd>⌘</kbd>-click to select several.</li>
+          <li lang="ru">Загляни в архив за своими снимками, текстами и цветами. Кликни по элементу, чтобы скопировать или открыть, либо перетащи в другое приложение. Правый клик откроет действия. <kbd>⌘</kbd>-клик выделит несколько.</li>
+          <li lang="en">Drop files into the archive from different windows. Stampo groups them into stacks by source folder. Drag a stack out to move all its files at once.</li>
+          <li lang="ru">Перетащи файлы из разных окон в архив. Stampo соберёт их в стопки по исходным папкам. Перетащи стопку целиком, чтобы перенести все файлы разом.</li>
         </ul>
       </div>
     </section>
@@ -243,10 +208,8 @@
   <!-- ────────────────────────────  INSTALL  ─────────────────────────── -->
   <section id="install" class="section">
     <h2><span lang="en">Install</span><span lang="ru">Установка</span></h2>
-    <p class="intro" lang="en">macOS 15.7 or later, on a MacBook with a notch or any other
-      display.</p>
-    <p class="intro" lang="ru">macOS 15.7 и новее — на MacBook с чёлкой или на любом другом
-      дисплее.</p>
+    <p class="intro" lang="en">You need macOS 15.7 or later. With or without a notch.</p>
+    <p class="intro" lang="ru">Нужна macOS 15.7 или новее. С чёлкой или без.</p>
 
     <div class="install">
       <div class="install-brew">
@@ -258,10 +221,8 @@
         <article class="card">
           <span class="tag"><span lang="en">Easiest</span><span lang="ru">Проще всего</span></span>
           <h3>Homebrew</h3>
-          <p lang="en"><code>--no-quarantine</code> spares you the Gatekeeper prompt, so Stampo opens
-            on the first try.</p>
-          <p lang="ru"><code>--no-quarantine</code> избавляет от вопроса Gatekeeper, и Stampo
-            открывается с первого раза.</p>
+          <p lang="en">Run these two commands to install Stampo. The <code>--no-quarantine</code> flag skips the Gatekeeper warning on first launch.</p>
+          <p lang="ru">Установи Stampo двумя командами. Флаг <code>--no-quarantine</code> убирает предупреждение Gatekeeper при первом запуске.</p>
           <div class="code">
             <pre><code><span class="cmd">brew tap git-webuser/stampo https://github.com/git-webuser/Stampo</span><span class="cmd">brew install --cask --no-quarantine stampo</span></code></pre>
             <button class="copy" type="button" hidden data-copy="brew tap git-webuser/stampo https://github.com/git-webuser/Stampo
@@ -270,42 +231,32 @@ brew install --cask --no-quarantine stampo">
             </button>
           </div>
           <p class="note" lang="en">Update with <code>brew upgrade --cask stampo</code>.</p>
-          <p class="note" lang="ru">Обновление — <code>brew upgrade --cask stampo</code>.</p>
+          <p class="note" lang="ru">Для обновления: <code>brew upgrade --cask stampo</code>.</p>
         </article>
       </div>
 
       <article class="card">
-        <h3><span lang="en">Or download the DMG</span><span lang="ru">Или скачайте DMG</span></h3>
+        <h3><span lang="en">Or download the DMG</span><span lang="ru">Или скачай DMG</span></h3>
         <ol class="steps" lang="en">
-          <li>Download <code>Stampo-@VERSION@.dmg</code> from
-            <a href="https://github.com/git-webuser/Stampo/releases">Releases</a> and drag
-            <b>Stampo.app</b> to Applications.</li>
-          <li>Open it. macOS blocks the first launch: the app is signed, but not notarized
-            yet.</li>
-          <li>Go to <b>System Settings → Privacy &amp; Security</b>, click <b>Open Anyway</b> and
-            confirm. Only once.</li>
+          <li>Download <code>Stampo-@VERSION@.dmg</code> from <a href="https://github.com/git-webuser/Stampo/releases">Releases</a>. Open the DMG and drag <b>Stampo.app</b> to Applications.</li>
+          <li>Launch Stampo. macOS blocks the first launch because Apple has not notarized the app yet. Stampo has a Developer ID signature.</li>
+          <li>Open <b>System Settings → Privacy &amp; Security</b>, click <b>Open Anyway</b>, and confirm. You only need to do this once.</li>
         </ol>
         <ol class="steps" lang="ru">
-          <li>Скачайте <code>Stampo-@VERSION@.dmg</code> со страницы
-            <a href="https://github.com/git-webuser/Stampo/releases">Releases</a> и перетащите
-            <b>Stampo.app</b> в «Программы».</li>
-          <li>Откройте его. macOS заблокирует первый запуск: приложение подписано, но пока не
-            нотаризовано.</li>
-          <li>Откройте <b>Системные настройки → Конфиденциальность и безопасность</b>, нажмите
-            <b>«Всё равно открыть»</b> и подтвердите. Только один раз.</li>
+          <li>Скачай <code>Stampo-@VERSION@.dmg</code> со страницы <a href="https://github.com/git-webuser/Stampo/releases">релизов</a>. Открой DMG и перетащи <b>Stampo.app</b> в «Программы».</li>
+          <li>Запусти Stampo. macOS заблокирует первый запуск, потому что Apple пока не провела нотаризацию приложения. У Stampo есть подпись Developer ID.</li>
+          <li>Открой <b>Системные настройки → Конфиденциальность и безопасность</b>. Нажми <b>«Всё равно открыть»</b> и подтверди запуск. Повторять это не придётся.</li>
         </ol>
         <a class="btn" href="https://github.com/git-webuser/Stampo/releases">
-          <span lang="en">Go to Releases</span><span lang="ru">Перейти к релизам</span>
+          <span lang="en">Go to Releases</span><span lang="ru">Открыть релизы</span>
         </a>
       </article>
     </div>
 
     <div class="permission">
-      <h3><span lang="en">One permission</span><span lang="ru">Одно разрешение</span></h3>
-      <p lang="en">Only <b>Screen Recording</b>, asked for on first launch. The notch click and the
-        hotkeys need none.</p>
-      <p lang="ru">Только <b>«Запись экрана»</b> — Stampo попросит её при первом запуске. Клику по
-        чёлке и сочетаниям клавиш разрешения не нужны.</p>
+      <h3><span lang="en">Screen access</span><span lang="ru">Доступ к экрану</span></h3>
+      <p lang="en">Allow <b>Screen Recording</b> on first launch so Stampo can take screenshots and pick colors. Clicking the notch and using shortcuts need no extra permissions.</p>
+      <p lang="ru">При первом запуске разреши <b>«Запись экрана»</b>, чтобы делать снимки и выбирать цвета. Для клика по чёлке и сочетаний клавиш другие разрешения не нужны.</p>
     </div>
   </section>
 
@@ -318,18 +269,18 @@ brew install --cask --no-quarantine stampo">
       <div class="keygroup">
         <h3 id="keys-panel"><span lang="en">Panel and archive</span><span lang="ru">Панель и архив</span></h3>
         <table class="keys" aria-labelledby="keys-panel">
-          <tr><td><span lang="en">Toggle panel</span><span lang="ru">Показать/скрыть панель</span></td><td><kbd>⌃⌥⌘N</kbd></td></tr>
+          <tr><td><span lang="en">Toggle panel</span><span lang="ru">Показать или скрыть панель</span></td><td><kbd>⌃⌥⌘N</kbd></td></tr>
           <tr><td><span lang="en">Pin latest capture</span><span lang="ru">Закрепить последний снимок</span></td><td><kbd>⌃⌥⌘L</kbd></td></tr>
           <tr><td><span lang="en">Pin panel (collect files)</span><span lang="ru">Закрепить панель (сбор файлов)</span></td><td><kbd>⌃⌥⌘P</kbd></td></tr>
-          <tr><td><span lang="en">Share last item</span><span lang="ru">Поделиться последним</span></td><td><kbd>⌃⌥⌘D</kbd></td></tr>
+          <tr><td><span lang="en">Share last item</span><span lang="ru">Поделиться последним элементом</span></td><td><kbd>⌃⌥⌘D</kbd></td></tr>
         </table>
       </div>
       <div class="keygroup">
         <h3 id="keys-capture"><span lang="en">Screen capture</span><span lang="ru">Съёмка экрана</span></h3>
         <table class="keys" aria-labelledby="keys-capture">
-          <tr><td><span lang="en">Selection screenshot</span><span lang="ru">Скриншот области</span></td><td><kbd>⌃⌥⌘R</kbd></td></tr>
-          <tr><td><span lang="en">Fullscreen screenshot</span><span lang="ru">Скриншот экрана</span></td><td><kbd>⌃⌥⌘B</kbd></td></tr>
-          <tr><td><span lang="en">Window screenshot</span><span lang="ru">Скриншот окна</span></td><td><kbd>⌃⌥⌘G</kbd></td></tr>
+          <tr><td><span lang="en">Capture area</span><span lang="ru">Скриншот области</span></td><td><kbd>⌃⌥⌘R</kbd></td></tr>
+          <tr><td><span lang="en">Capture entire screen</span><span lang="ru">Скриншот экрана</span></td><td><kbd>⌃⌥⌘B</kbd></td></tr>
+          <tr><td><span lang="en">Capture window</span><span lang="ru">Скриншот окна</span></td><td><kbd>⌃⌥⌘G</kbd></td></tr>
         </table>
       </div>
       <div class="keygroup">
@@ -339,47 +290,40 @@ brew install --cask --no-quarantine stampo">
           <tr>
             <td><span lang="en">Scan (text &amp; codes)</span><span lang="ru">Сканер (текст и коды)</span>
               <small lang="en">Press ⌥ to keep line breaks, ⌃ to translate</small>
-              <small lang="ru">⌥ — сохранить переносы строк, ⌃ — включить перевод</small></td>
+              <small lang="ru">Нажми ⌥ для переносов строк, ⌃ для перевода</small></td>
             <td><kbd>⌃⌥⌘S</kbd></td>
           </tr>
           <tr>
-            <td><span lang="en">Translate clipboard</span><span lang="ru">Перевести буфер обмена</span>
-              <small lang="en">Translates text copied with ⌘C</small>
-              <small lang="ru">Переводит текст, скопированный через ⌘C</small></td>
+            <td><span lang="en">Translate clipboard text</span><span lang="ru">Перевести текст из буфера</span>
+              <small lang="en">Copy text with ⌘C, then translate it</small>
+              <small lang="ru">Скопируй текст через ⌘C, затем переведи</small></td>
             <td><kbd>⌃⌥⌘T</kbd></td>
           </tr>
         </table>
       </div>
     </div>
-    <p class="note" lang="en">Change any of them in <b>Settings → Hotkeys</b>.</p>
-    <p class="note" lang="ru">Любое можно поменять: <b>Настройки → Команды</b>.</p>
+    <p class="note" lang="en">Make the shortcuts your own in <b>Settings → Hotkeys</b>.</p>
+    <p class="note" lang="ru">Настрой сочетания под себя: <b>Настройки → Команды</b>.</p>
   </section>
 
   <!-- ────────────────────────────  PRIVACY  ─────────────────────────── -->
   <section id="privacy" class="section">
     <h2><span lang="en">Privacy</span><span lang="ru">Приватность</span></h2>
-    <p class="intro" lang="en">A screenshot tool sees everything on your screen, so Stampo keeps
-      all of it on your Mac.</p>
-    <p class="intro" lang="ru">Инструмент для скриншотов видит всё, что на экране, поэтому Stampo
-      держит всё на вашем Mac.</p>
+    <p class="intro" lang="en">Stampo processes your screenshots, colors, and text locally on your Mac, without an internet connection or sending data to third-party services.</p>
+    <p class="intro" lang="ru">Stampo обрабатывает твои снимки, цвета и текст локально на Mac, без интернета и отправки данных на сторонние сервисы.</p>
     <ul class="ticks ticks-grid">
-      <li lang="en"><b>No uploads.</b> Screenshots, colors and scanned text are never sent
-        anywhere.</li>
-      <li lang="ru"><b>Никаких выгрузок.</b> Снимки, цвета и распознанный текст никуда не
-        отправляются.</li>
+      <li lang="en"><b>You choose what to share.</b> Stampo does not upload your content automatically. Use Share to send a screenshot through an app you choose.</li>
+      <li lang="ru"><b>Ты решаешь, чем поделиться.</b> Stampo не отправляет твои данные автоматически. Хочешь отправить снимок? Нажми «Поделиться» и выбери приложение.</li>
       <li lang="en"><b>No analytics</b>, no telemetry, no crash reporting.</li>
-      <li lang="ru"><b>Никакой аналитики</b>, телеметрии и отчётов о сбоях.</li>
-      <li lang="en"><b>One optional request:</b> once a day Stampo asks GitHub for the latest
-        version number. Turn it off in <b>Settings → General → Updates</b>.</li>
-      <li lang="ru"><b>Один необязательный запрос:</b> раз в сутки Stampo спрашивает у GitHub
-        номер последней версии. Отключается в <b>Настройки → Основные → Обновления</b>.</li>
-      <li lang="en"><b>Codes stay text.</b> A scanned QR code is never opened or fetched.</li>
-      <li lang="ru"><b>Коды — просто текст.</b> Распознанный QR-код никогда не открывается и не
-        загружается.</li>
+      <li lang="ru"><b>Без аналитики</b>, телеметрии и отправки отчётов о сбоях.</li>
+      <li lang="en"><b>Update checks.</b> Stampo checks GitHub for a new version once a day. Turn this off in <b>Settings → General → Updates</b> if you prefer.</li>
+      <li lang="ru"><b>Проверка обновлений.</b> Раз в сутки Stampo проверяет новую версию на GitHub. Отключи проверку в <b>Настройки → Основные → Обновления</b>, если она не нужна.</li>
+      <li lang="en"><b>Codes stay text.</b> Stampo reads QR codes and barcodes without opening their links or loading anything from them.</li>
+      <li lang="ru"><b>Коды остаются текстом.</b> Stampo читает QR-коды и штрихкоды, но не открывает ссылки из них и ничего по ним не загружает.</li>
     </ul>
-    <p class="note" lang="en">The full account is in
+    <p class="note" lang="en">Read more about data handling in
       <a href="https://github.com/git-webuser/Stampo/blob/main/SECURITY.md">SECURITY.md</a>.</p>
-    <p class="note" lang="ru">Подробно — в
+    <p class="note" lang="ru">Подробнее об обработке данных в
       <a href="https://github.com/git-webuser/Stampo/blob/main/SECURITY.md">SECURITY.md</a>.</p>
   </section>
 
@@ -393,7 +337,7 @@ brew install --cask --no-quarantine stampo">
   <nav>
     <a href="https://github.com/git-webuser/Stampo/blob/main/MANUAL.md"><span lang="en">User guide</span><span lang="ru">Руководство</span></a>
     <a href="https://github.com/git-webuser/Stampo/releases"><span lang="en">Releases</span><span lang="ru">Релизы</span></a>
-    <a href="https://github.com/git-webuser/Stampo/issues"><span lang="en">Issues</span><span lang="ru">Сообщить о проблеме</span></a>
+    <a href="https://github.com/git-webuser/Stampo/issues"><span lang="en">Report an issue</span><span lang="ru">Сообщить о проблеме</span></a>
     <a href="https://github.com/git-webuser/Stampo">GitHub</a>
   </nav>
 </footer>

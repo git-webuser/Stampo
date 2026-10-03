@@ -17,6 +17,7 @@ on:
     paths:
       - site/**
       - assets/brand/banner.png
+      - assets/brand/banner-ru.png
       - assets/brand/social-preview.png
       - assets/screenshots/clip-*.mp4
       # release.sh commits the cask once the DMG is up, and the page takes its
@@ -28,6 +29,7 @@ on:
   pull_request:
     paths:
       - site/**
+      - assets/brand/banner-ru.png
       - Scripts/build-site.sh
       - Scripts/site-typography.py
       - .github/workflows/pages.yml

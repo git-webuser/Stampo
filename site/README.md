@@ -26,7 +26,7 @@ What the build adds, so it is never copied here:
 
 | on the site | from |
 | --- | --- |
-| `assets/banner.png`, `assets/social-preview.png` | `assets/brand/` |
+| `assets/banner.png`, `assets/banner-ru.png`, `assets/social-preview.png` | `assets/brand/` |
 | `assets/clip-*.mp4` | `assets/screenshots/`, made by `npm run mp4` in `video/` |
 | the version number (`@VERSION@` in `index.html`) | `Casks/stampo.rb` |
 | non-breaking spaces | `Scripts/site-typography.py` |
@@ -60,6 +60,8 @@ python3 -m http.server 8000 --directory build/site
 then open <http://localhost:8000>.
 
 ## The two languages
+
+The English and Russian hero banners switch with the language too.
 
 Both live in the same HTML. Every piece of text exists twice, as
 `<… lang="en">` and `<… lang="ru">`, and a hidden checkbox at the top of

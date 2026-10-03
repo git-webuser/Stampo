@@ -29,7 +29,7 @@ for f in site/*; do
   cp -R "$f" "$out/"
 done
 
-cp assets/brand/banner.png assets/brand/social-preview.png "$out/assets/"
+cp assets/brand/banner.png assets/brand/banner-ru.png assets/brand/social-preview.png "$out/assets/"
 cp assets/screenshots/clip-{capture,editor,scan,archive}.mp4 "$out/assets/"
 
 sed -i.bak "s/@VERSION@/$version/g" "$out/index.html"
