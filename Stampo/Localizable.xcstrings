@@ -3922,6 +3922,23 @@
         }
       }
     },
+    "Exclude scrollbars" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Exclude scrollbars"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не захватывать полосы прокрутки"
+          }
+        }
+      }
+    },
     "Include cursor" : {
       "localizations" : {
         "en" : {
@@ -7828,6 +7845,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Развести поля"
+          }
+        }
+      }
+    },
+    "Scrolling capture only. Excludes a narrow viewport edge where scrollbars appear; content near that edge may also be cropped." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Scrolling capture only. Excludes a narrow viewport edge where scrollbars appear; content near that edge may also be cropped."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Только для прокрутки. Исключает узкую краевую полосу, где появляются полосы прокрутки; содержимое у края тоже может быть обрезано."
           }
         }
       }

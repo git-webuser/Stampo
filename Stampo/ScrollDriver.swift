@@ -31,6 +31,23 @@ nonisolated enum ScrollAncestorResolver {
     }
 }
 
+nonisolated enum ScrollbarEdgeResolver {
+    static func inset(for frame: CGRect, viewport: CGRect, axis: ScrollAxis) -> CGFloat? {
+        guard !frame.isNull, !frame.isEmpty else { return nil }
+        if axis == .vertical, frame.width <= 32, frame.height >= viewport.height * 0.35 {
+            let edgeDistance = min(abs(frame.minX - viewport.maxX), abs(frame.maxX - viewport.maxX))
+            guard edgeDistance <= 20 else { return nil }
+            return frame.minX >= viewport.maxX ? 0 : min(24, max(1, viewport.maxX - frame.minX + 2))
+        }
+        if axis == .horizontal, frame.height <= 32, frame.width >= viewport.width * 0.35 {
+            let edgeDistance = min(abs(frame.minY - viewport.maxY), abs(frame.maxY - viewport.maxY))
+            guard edgeDistance <= 20 else { return nil }
+            return frame.minY >= viewport.maxY ? 0 : min(24, max(1, viewport.maxY - frame.minY + 2))
+        }
+        return nil
+    }
+}
+
 struct ScrollViewport: Equatable, Sendable {
     /// Viewport within the selected window, in Quartz points.
     let windowRect: CGRect
@@ -47,6 +64,33 @@ struct ScrollViewport: Equatable, Sendable {
                                        width: pointRect.width, height: pointRect.height)
         return ScrollViewport(windowRect: croppedWindowRect,
                               relativeScrollPoint: relativeScrollPoint,
+                              windowBounds: windowBounds)
+    }
+
+    func insetWindowEdges(points: CGFloat) -> ScrollViewport? {
+        guard points > 0 else { return self }
+        let crop = cropRectInWindowPoints
+        let tolerance: CGFloat = 1.5
+        let left = crop.minX <= tolerance ? points : 0
+        let top = crop.minY <= tolerance ? points : 0
+        let right = windowBounds.width - crop.maxX <= tolerance ? points : 0
+        let bottom = windowBounds.height - crop.maxY <= tolerance ? points : 0
+        return inset(left: left, top: top, right: right, bottom: bottom)
+    }
+
+    func excludingScrollbar(axis: ScrollAxis, insetPoints: CGFloat) -> ScrollViewport? {
+        guard insetPoints > 0 else { return self }
+        return axis == .vertical
+            ? inset(left: 0, top: 0, right: insetPoints, bottom: 0)
+            : inset(left: 0, top: 0, right: 0, bottom: insetPoints)
+    }
+
+    private func inset(left: CGFloat, top: CGFloat, right: CGFloat, bottom: CGFloat) -> ScrollViewport? {
+        let rect = CGRect(x: windowRect.minX + left, y: windowRect.minY + top,
+                          width: windowRect.width - left - right,
+                          height: windowRect.height - top - bottom)
+        guard rect.width >= 40, rect.height >= 40 else { return nil }
+        return ScrollViewport(windowRect: rect, relativeScrollPoint: relativeScrollPoint,
                               windowBounds: windowBounds)
     }
 
@@ -176,6 +220,34 @@ enum ScrollDriver {
                        relativeScrollPoint: CGPoint(x: selection.clickPoint.x - selection.bounds.minX,
                                                     y: selection.clickPoint.y - selection.bounds.minY),
                        windowBounds: selection.bounds)
+    }
+
+    /// Finds the AX scrollbar attached to the scroll container or its nearby
+    /// ancestors. A fixed edge reserve is used when AX has no scrollbar node.
+    static func scrollbarInsetPoints(container: AXUIElement?, viewport: CGRect,
+                                     axis: ScrollAxis) -> CGFloat? {
+        guard let container else { return nil }
+        var roots = [container]
+        var current = container
+        for _ in 0..<3 {
+            var parent: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(current, kAXParentAttribute as CFString, &parent) == .success,
+                  let next = parent, CFGetTypeID(next) == AXUIElementGetTypeID() else { break }
+            current = (next as! AXUIElement)
+            roots.append(current)
+        }
+        for root in roots {
+            var value: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(root, kAXChildrenAttribute as CFString, &value) == .success,
+                  let children = value as? [AXUIElement] else { continue }
+            for child in children.prefix(128) {
+                guard stringAttribute(child, kAXRoleAttribute as String) == "AXScrollBar",
+                      let frame = frameOf(child),
+                      let inset = ScrollbarEdgeResolver.inset(for: frame, viewport: viewport, axis: axis) else { continue }
+                return inset
+            }
+        }
+        return nil
     }
 
     static func viewport(selection: WindowPickerSelection) throws -> ScrollViewportResolution {

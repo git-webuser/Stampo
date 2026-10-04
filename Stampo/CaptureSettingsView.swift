@@ -9,6 +9,7 @@ struct CaptureSettingsView: View {
     @AppStorage(AppSettings.Keys.copyToClipboard)     private var copyToClipboard     = true
     @AppStorage(AppSettings.Keys.includeCursor)       private var includeCursor       = false
     @AppStorage(AppSettings.Keys.includeWindowShadow) private var includeWindowShadow = true
+    @AppStorage(AppSettings.Keys.excludeScrollbars) private var excludeScrollbars = true
     @AppStorage(AppSettings.Keys.defaultCaptureMode)  private var defaultCaptureMode  = CaptureMode.selection
     @AppStorage(AppSettings.Keys.defaultTimerDelay)   private var defaultTimerDelay   = CaptureDelay.off
 
@@ -91,6 +92,13 @@ struct CaptureSettingsView: View {
                 }
                 SettingRow(icon: "shadow", title: "Include window shadow") {
                     Toggle("", isOn: $includeWindowShadow).labelsHidden()
+                }
+                SettingRow(
+                    icon: "scroll",
+                    title: "Exclude scrollbars",
+                    description: "Scrolling capture only. Excludes a narrow viewport edge where scrollbars appear; content near that edge may also be cropped."
+                ) {
+                    Toggle("", isOn: $excludeScrollbars).labelsHidden()
                 }
             }
 

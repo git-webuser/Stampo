@@ -51,7 +51,8 @@ final class ScreenshotService {
     func captureScrolling(selection: WindowPickerSelection, axis: ScrollAxis, preferredScreen: NSScreen?, delaySeconds: Int = 0) {
         guard !captureInProgress, scrollingSession == nil else { return }
         captureInProgress = true
-        let session = ScrollingCaptureSession(selection: selection, axis: axis, delaySeconds: delaySeconds)
+        let session = ScrollingCaptureSession(selection: selection, axis: axis, delaySeconds: delaySeconds,
+                                              excludeScrollbars: AppSettings.excludeScrollbars)
         scrollingSession = session
         session.onFinished = { [weak self] image in
             guard let self else { return }

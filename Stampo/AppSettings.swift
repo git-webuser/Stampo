@@ -46,6 +46,7 @@ enum AppSettings {
         static let copyToClipboard       = "copyToClipboard"
         static let includeCursor         = "includeCursor"
         static let includeWindowShadow   = "includeWindowShadow"
+        static let excludeScrollbars      = "excludeScrollbars"
         static let defaultCaptureMode    = "defaultCaptureMode"
         static let defaultTimerDelay     = "defaultTimerDelay"
         // Permissions
@@ -318,6 +319,9 @@ enum AppSettings {
     }
     nonisolated static var includeWindowShadow: Bool {
         UserDefaults.standard.object(forKey: Keys.includeWindowShadow) as? Bool ?? true
+    }
+    nonisolated static var excludeScrollbars: Bool {
+        UserDefaults.standard.object(forKey: Keys.excludeScrollbars) as? Bool ?? true
     }
     static var defaultCaptureMode: CaptureMode {
         let raw = UserDefaults.standard.string(forKey: Keys.defaultCaptureMode) ?? "selection"

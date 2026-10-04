@@ -6,6 +6,10 @@ import os
 @MainActor
 final class ScrollingCaptureSession {
     private enum State { case preparing, capturing, awaitingDecision, finished }
+    private enum Geometry {
+        static let roundedWindowEdgeInsetPoints: CGFloat = 6
+        static let fallbackScrollbarInsetPoints: CGFloat = 10
+    }
     private enum DiagnosticStage: String {
         case raiseWindow, resolveViewport, validateTarget, capture, probeMotion, match, save
     }
@@ -16,6 +20,7 @@ final class ScrollingCaptureSession {
     private let selection: WindowPickerSelection
     private let axis: ScrollAxis
     private let delaySeconds: Int
+    private let excludeScrollbars: Bool
     private let activateSelectedWindow: @MainActor (WindowPickerSelection) throws -> Void
     private let source = WindowFrameSource()
     private var hud: ScrollingCaptureHUD?
@@ -35,10 +40,12 @@ final class ScrollingCaptureSession {
     private let startedAt = Date()
 
     init(selection: WindowPickerSelection, axis: ScrollAxis, delaySeconds: Int = 0,
+         excludeScrollbars: Bool = true,
          activateSelectedWindow: (@MainActor (WindowPickerSelection) throws -> Void)? = nil) {
         self.selection = selection
         self.axis = axis
         self.delaySeconds = max(0, delaySeconds)
+        self.excludeScrollbars = excludeScrollbars
         self.activateSelectedWindow = activateSelectedWindow ?? { selected in
             try ScrollDriver.raiseSelectedWindow(selected)
         }
@@ -163,6 +170,22 @@ final class ScrollingCaptureSession {
                 diagnosticStage = .validateTarget
                 try ScrollDriver.validateSelectedWindow(selection: selection, point: selection.clickPoint)
             }
+            guard let baseViewport = viewport?.insetWindowEdges(points: Geometry.roundedWindowEdgeInsetPoints) else {
+                throw ScrollDriverError.scrollAreaUnavailable
+            }
+            viewport = baseViewport
+            if excludeScrollbars {
+                let axScrollbarInset = ScrollDriver.scrollbarInsetPoints(container: scrollContainer,
+                                                                          viewport: baseViewport.windowRect,
+                                                                          axis: axis)
+                let reservedPoints = axScrollbarInset ?? Geometry.fallbackScrollbarInsetPoints
+                guard let adjusted = baseViewport.excludingScrollbar(axis: axis, insetPoints: reservedPoints) else {
+                    throw ScrollDriverError.scrollAreaUnavailable
+                }
+                viewport = adjusted
+                let source = axScrollbarInset == nil ? "fixed edge reserve" : "AX scrollbar geometry"
+                Log.capture.info("scrollbar edge excluded · \(reservedPoints, privacy: .public) points · \(source, privacy: .public)")
+            }
             state = .capturing
             diagnosticStage = .capture
             let initialViewport = try await ScrollCaptureCancellationBoundary.awaitActive {
@@ -243,19 +266,7 @@ final class ScrollingCaptureSession {
                 try ensureActive()
                 try checkWindowAndFocus()
 
-                if meanDifference(oldFrame, next) < 0.006 {
-                    zeroMotionCount += 1
-                    consecutiveFailures = 0
-                    if zeroMotionCount >= 3 {
-                        pause(with: LocaleManager.shared.string("Capture complete · Finish to save or Cancel to discard"))
-                        return
-                    }
-                    lastStatus = LocaleManager.shared.string("No movement detected · checking…")
-                    hud?.update(lastStatus)
-                    // Move a little farther to rule out a missed high-resolution event.
-                    continue
-                }
-                zeroMotionCount = 0
+                let looksStationary = meanDifference(oldFrame, next) < 0.006
                 do {
                     diagnosticStage = .match
                     let axis = self.axis
@@ -276,12 +287,25 @@ final class ScrollingCaptureSession {
                     try ensureActive()
                     try assembler.append(next, movement: match.offset)
                     previous = next
+                    zeroMotionCount = 0
                     unmatchedScroll = 0
                     requestedStep = max(24, Int(Double(axisLength(of: next)) * 0.60))
                     consecutiveFailures = 0
                     hud?.update(String(format: LocaleManager.shared.string("Captured %d pixels"), assembler.totalLength))
                 } catch is CancellationError {
                     throw CancellationError()
+                } catch FrameMatchError.noReliableMotion where looksStationary {
+                    // Ask the matcher before declaring the end. A small final
+                    // partial step may have a low whole-frame difference but
+                    // still contain a reliable overlap to append.
+                    zeroMotionCount += 1
+                    consecutiveFailures = 0
+                    if zeroMotionCount >= 3 {
+                        pause(with: LocaleManager.shared.string("Capture complete · Finish to save or Cancel to discard"))
+                        return
+                    }
+                    lastStatus = LocaleManager.shared.string("No movement detected · checking…")
+                    hud?.update(lastStatus)
                 } catch {
                     consecutiveFailures += 1
                     if consecutiveFailures <= 2 {

@@ -87,6 +87,60 @@ import Testing
         return CaptureFrame(width: width, height: height, pixels: bytes)
     }
 
+    private func scrollbarTexture(width: Int, height: Int, axis: ScrollAxis, offset: Int,
+                                  scrollbarVisible: Bool, thumbOffset: Int) -> CaptureFrame {
+        let base = texture(width: width, height: height,
+                           xOffset: axis == .horizontal ? offset : 0,
+                           yOffset: axis == .vertical ? offset : 0)
+        var pixels = base.pixels
+        if axis == .vertical {
+            for y in 0..<height {
+                for x in (width - 10)..<width {
+                    let thumb = scrollbarVisible && y >= thumbOffset && y < thumbOffset + 24
+                    let value: UInt8 = thumb ? 36 : (scrollbarVisible ? 206 : 255)
+                    let i = (y * width + x) * 4
+                    pixels[i] = value; pixels[i + 1] = value; pixels[i + 2] = value
+                }
+            }
+        } else {
+            for y in (height - 10)..<height {
+                for x in 0..<width {
+                    let thumb = scrollbarVisible && x >= thumbOffset && x < thumbOffset + 24
+                    let value: UInt8 = thumb ? 36 : (scrollbarVisible ? 206 : 255)
+                    let i = (y * width + x) * 4
+                    pixels[i] = value; pixels[i + 1] = value; pixels[i + 2] = value
+                }
+            }
+        }
+        return CaptureFrame(width: width, height: height, pixels: pixels)
+    }
+
+    private func roundedWindowTexture(width: Int, height: Int, axis: ScrollAxis, offset: Int) -> CaptureFrame {
+        let radius = 14
+        var pixels = [UInt8](repeating: 255, count: width * height * 4)
+        for y in 0..<height {
+            for x in 0..<width {
+                let inLeftTop = x < radius && y < radius
+                    && (x - radius) * (x - radius) + (y - radius) * (y - radius) > radius * radius
+                let inRightTop = x >= width - radius && y < radius
+                    && (x - (width - radius)) * (x - (width - radius)) + (y - radius) * (y - radius) > radius * radius
+                let inLeftBottom = x < radius && y >= height - radius
+                    && (x - radius) * (x - radius) + (y - (height - radius)) * (y - (height - radius)) > radius * radius
+                let inRightBottom = x >= width - radius && y >= height - radius
+                    && (x - (width - radius)) * (x - (width - radius)) + (y - (height - radius)) * (y - (height - radius)) > radius * radius
+                let transparentCorner = inLeftTop || inRightTop || inLeftBottom || inRightBottom
+                let border = x < 10 || x >= width - 10 || y < 10 || y >= height - 10
+                let sourceX = x + (axis == .horizontal ? offset : 0)
+                let sourceY = y + (axis == .vertical ? offset : 0)
+                let value: UInt8 = border ? 0 : UInt8(80 + ((sourceX * 37 + sourceY * 73 + sourceX * sourceY * 11) % 175))
+                let i = (y * width + x) * 4
+                pixels[i] = value; pixels[i + 1] = value; pixels[i + 2] = value
+                pixels[i + 3] = transparentCorner ? 0 : 255
+            }
+        }
+        return CaptureFrame(width: width, height: height, pixels: pixels)
+    }
+
     @Test func matchesMeasuredVerticalAndHorizontalMotion() throws {
         let vertical = try FrameMatcher.match(previous: texture(width: 160, height: 180),
                                               current: texture(width: 160, height: 180, yOffset: 23),
@@ -350,6 +404,121 @@ import Testing
                 #expect(moving.minY == 0)
                 #expect(moving.height == 200)
                 #expect(moving.minX >= 32)
+            }
+        }
+    }
+
+    @Test func scrollbarReserveUsesStableOptionalViewportEdges() throws {
+        for axis in ScrollAxis.allCases {
+            let width = 240, height = 200
+            let bounds = CGRect(x: 0, y: 0, width: width, height: height)
+            let viewport = ScrollViewport(windowRect: bounds, relativeScrollPoint: .zero, windowBounds: bounds)
+            let enabled = try #require(viewport.excludingScrollbar(axis: axis, insetPoints: 10))
+            let disabled = try #require(viewport.excludingScrollbar(axis: axis, insetPoints: 0))
+            if axis == .vertical {
+                #expect(enabled.windowRect.width == CGFloat(width - 10))
+                #expect(enabled.windowRect.height == CGFloat(height))
+            } else {
+                #expect(enabled.windowRect.width == CGFloat(width))
+                #expect(enabled.windowRect.height == CGFloat(height - 10))
+            }
+            #expect(disabled.windowRect == viewport.windowRect)
+
+            let frames = [
+                scrollbarTexture(width: width, height: height, axis: axis, offset: 0,
+                                 scrollbarVisible: false, thumbOffset: 0),
+                scrollbarTexture(width: width, height: height, axis: axis, offset: 15,
+                                 scrollbarVisible: true, thumbOffset: 18),
+                scrollbarTexture(width: width, height: height, axis: axis, offset: 29,
+                                 scrollbarVisible: true, thumbOffset: 52)
+            ]
+            let excluded = try frames.map { frame -> CaptureFrame in
+                try #require(frame.cropped(to: enabled.cropRectInWindowPoints))
+            }
+            let included = try frames.map { frame -> CaptureFrame in
+                try #require(frame.cropped(to: disabled.cropRectInWindowPoints))
+            }
+            #expect(Set(excluded.map { "\($0.width)x\($0.height)" }).count == 1)
+            #expect(included[1].width == width && included[1].height == height)
+            let match = try FrameMatcher.match(previous: excluded[1], current: excluded[2],
+                                               axis: axis, maximumOffset: 70)
+            #expect(match.offset == 14)
+
+            let edgeIndex = axis == .vertical
+                ? (28 * width + (width - 1)) * 4
+                : (((height - 1) * width + 28) * 4)
+            #expect(included[1].pixels[edgeIndex] != included[2].pixels[edgeIndex])
+        }
+    }
+
+    @Test func accessibilityScrollbarGeometryReservesOnlyTheViewportEdge() {
+        let viewport = CGRect(x: 10, y: 20, width: 240, height: 180)
+        let verticalInside = CGRect(x: 240, y: 24, width: 10, height: 172)
+        #expect(ScrollbarEdgeResolver.inset(for: verticalInside, viewport: viewport, axis: .vertical) == 12)
+        let verticalOutside = CGRect(x: 250, y: 24, width: 10, height: 172)
+        #expect(ScrollbarEdgeResolver.inset(for: verticalOutside, viewport: viewport, axis: .vertical) == 0)
+        let horizontalInside = CGRect(x: 14, y: 192, width: 232, height: 8)
+        #expect(ScrollbarEdgeResolver.inset(for: horizontalInside, viewport: viewport, axis: .horizontal) == 10)
+        let unrelated = CGRect(x: 90, y: 70, width: 10, height: 80)
+        #expect(ScrollbarEdgeResolver.inset(for: unrelated, viewport: viewport, axis: .vertical) == nil)
+    }
+
+    @Test func roundedTransparentWindowCornersAndBorderNeverEnterStitchedStrips() throws {
+        let scale: CGFloat = 2
+        let points = CGRect(x: 0, y: 0, width: 120, height: 90)
+        let viewport = ScrollViewport(windowRect: points, relativeScrollPoint: .zero, windowBounds: points)
+        let inset = try #require(viewport.insetWindowEdges(points: 6))
+        #expect(inset.cropRectInWindowPoints == CGRect(x: 6, y: 6, width: 108, height: 78))
+        for axis in ScrollAxis.allCases {
+            let source = roundedWindowTexture(width: 240, height: 180, axis: axis, offset: 0)
+            let nextSource = roundedWindowTexture(width: 240, height: 180, axis: axis, offset: 14)
+            let provider = try #require(CGDataProvider(data: Data(source.pixels) as CFData))
+            let cgImage = try #require(CGImage(width: source.width, height: source.height,
+                                               bitsPerComponent: 8, bitsPerPixel: 32,
+                                               bytesPerRow: source.width * 4,
+                                               space: CGColorSpaceCreateDeviceRGB(),
+                                               bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue
+                                                   | CGBitmapInfo.byteOrder32Big.rawValue),
+                                               provider: provider, decode: nil, shouldInterpolate: false,
+                                               intent: .defaultIntent))
+            let imported = try #require(CaptureFrame(image: cgImage))
+            #expect(imported[0, 0, 3] == 0)
+            #expect(imported[20, 20, 3] == 255)
+            func crop(_ frame: CaptureFrame) throws -> CaptureFrame {
+                try #require(frame.cropped(to: CGRect(x: inset.cropRectInWindowPoints.minX * scale,
+                                                      y: inset.cropRectInWindowPoints.minY * scale,
+                                                      width: inset.cropRectInWindowPoints.width * scale,
+                                                      height: inset.cropRectInWindowPoints.height * scale)))
+            }
+            let first = try crop(imported)
+            let next = try crop(nextSource)
+            #expect(stride(from: 3, to: first.pixels.count, by: 4).allSatisfy { first.pixels[$0] == 255 })
+            var assembler = ImageAssembler(axis: axis)
+            assembler.begin(with: first)
+            let match = try FrameMatcher.match(previous: first, current: next, axis: axis, maximumOffset: 60)
+            #expect(match.offset == 14)
+            try assembler.append(next, movement: match.offset)
+            let stitched = try #require(CaptureFrame(image: assembler.makeImage(maxPixels: 100_000)))
+            #expect(stride(from: 3, to: stitched.pixels.count, by: 4).allSatisfy { stitched.pixels[$0] == 255 })
+            #expect(stitched[0, 0, 0] > 0)
+        }
+    }
+
+    @Test func matcherRetainsTheLastShortPartialScrollStep() throws {
+        for axis in ScrollAxis.allCases {
+            let before = aperiodicTexture(width: 160, height: 200, xOffset: 0, yOffset: 0)
+            let after = aperiodicTexture(width: 160, height: 200,
+                                         xOffset: axis == .horizontal ? 7 : 0,
+                                         yOffset: axis == .vertical ? 7 : 0)
+            let last = try FrameMatcher.match(previous: before, current: after, axis: axis,
+                                              maximumOffset: 70)
+            #expect(last.offset == 7)
+            var assembler = ImageAssembler(axis: axis)
+            assembler.begin(with: before)
+            try assembler.append(after, movement: last.offset)
+            #expect(assembler.totalLength == (axis == .vertical ? before.height : before.width) + 7)
+            #expect(throws: FrameMatchError.noReliableMotion) {
+                try FrameMatcher.match(previous: after, current: after, axis: axis, maximumOffset: 70)
             }
         }
     }
