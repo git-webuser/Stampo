@@ -94,6 +94,8 @@ enum HotkeyAction: UInt32, CaseIterable {
     case collectFiles = 9
     case shareLastItem = 10
     case translateClipboard = 11
+    case scrollVertical = 12
+    case scrollHorizontal = 13
 
     /// Settings grouping. Nine editable shortcuts in one flat list stopped
     /// being scannable; the split follows what the action does rather than
@@ -103,7 +105,7 @@ enum HotkeyAction: UInt32, CaseIterable {
         switch self {
         case .togglePanel, .collectFiles, .pinLastCapture, .shareLastItem:
             return .panel
-        case .selection, .fullscreen, .window:
+        case .selection, .fullscreen, .window, .scrollVertical, .scrollHorizontal:
             return .capture
         case .color, .scan, .translateClipboard:
             return .tools
@@ -144,6 +146,8 @@ enum HotkeyAction: UInt32, CaseIterable {
         case .collectFiles: return "Pin Panel"
         case .shareLastItem: return "Share Last Item"
         case .translateClipboard: return "Translate"
+        case .scrollVertical: return "Scroll Capture Down"
+        case .scrollHorizontal: return "Scroll Capture Right"
         }
     }
 
@@ -165,6 +169,8 @@ enum HotkeyAction: UInt32, CaseIterable {
         case .collectFiles: return "pin"
         case .shareLastItem: return "square.and.arrow.up"
         case .translateClipboard: return "translate"
+        case .scrollVertical: return "arrow.down.to.line"
+        case .scrollHorizontal: return "arrow.right.to.line"
         }
     }
 
@@ -188,6 +194,8 @@ enum HotkeyAction: UInt32, CaseIterable {
         // T was the retired Capture Text action, so the muscle memory it
         // carries is "text" — which is what this one operates on.
         case .translateClipboard: key = kVK_ANSI_T
+        case .scrollVertical: key = kVK_ANSI_F
+        case .scrollHorizontal: key = kVK_ANSI_H
         }
         return HotkeyCombo(keyCode: UInt16(key), carbonModifiers: mods)
     }
@@ -214,6 +222,8 @@ enum HotkeyAction: UInt32, CaseIterable {
         case .shareLastItem: return "hotkeyShareLastCaptureEnabled"
         // Added long after the combo migration; nothing ever wrote this.
         case .translateClipboard: return "hotkeyTranslateClipboardEnabled"
+        case .scrollVertical: return "hotkeyScrollVerticalEnabled"
+        case .scrollHorizontal: return "hotkeyScrollHorizontalEnabled"
         }
     }
 

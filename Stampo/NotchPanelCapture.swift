@@ -89,12 +89,28 @@ extension NotchPanelController {
                 self.selectionOverlay.start(on: screen)
             } else {
                 // .window
+                self.windowPickerOverlay.onSelectedWindow = nil
                 self.windowPickerOverlay.onSelected = { [weak self] windowID in
                     guard let self else { return }
                     guard self.animationGenerationMatches(selectionToken),
                           case .preSelection(.window) = self.state
                     else { return }
                     self.beginCountdownAfterPreSelection(target: .windowID(windowID), seconds: seconds, screen: screen)
+                }
+                if let axis = mode.scrollAxis {
+                    self.windowPickerOverlay.onSelected = nil
+                    self.windowPickerOverlay.onSelectedWindow = { [weak self] selection in
+                        guard let self else { return }
+                        guard self.animationGenerationMatches(selectionToken),
+                              case .preSelection(.window) = self.state else { return }
+                        self.state = .hidden
+                        self.schedulePanelAction(after: 0.1, token: selectionToken,
+                                                 requiresVisible: false) { [weak self] in
+                            guard let self, case .hidden = self.state else { return }
+                            self.screenshot.captureScrolling(selection: selection, axis: axis,
+                                                             preferredScreen: screen, delaySeconds: seconds)
+                        }
+                    }
                 }
                 self.windowPickerOverlay.onCancelled = { [weak self] in
                     guard let self,
@@ -209,6 +225,8 @@ extension NotchPanelController {
             screenshot.captureRect(cgRect, preferredScreen: screen)
         case .windowID(let id):
             screenshot.captureWindowID(id, preferredScreen: screen)
+        case .scrolling(let selection, let axis):
+            screenshot.captureScrolling(selection: selection, axis: axis, preferredScreen: screen)
         }
     }
 }

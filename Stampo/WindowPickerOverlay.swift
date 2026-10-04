@@ -1,4 +1,13 @@
 import AppKit
+import ApplicationServices
+
+struct WindowPickerSelection: Sendable {
+    let windowID: CGWindowID
+    let processID: pid_t
+    /// Global Quartz coordinates (origin at the top left of the primary display).
+    let clickPoint: CGPoint
+    let bounds: CGRect
+}
 
 // MARK: - WindowPickerOverlay
 
@@ -7,6 +16,9 @@ import AppKit
 /// Calls `onSelected` with the CGWindowID of the chosen window.
 final class WindowPickerOverlay {
     var onSelected: ((CGWindowID) -> Void)?
+    /// Rich result used by scrolling capture. The original callback remains
+    /// unchanged for ordinary window screenshots.
+    var onSelectedWindow: ((WindowPickerSelection) -> Void)?
     var onCancelled: (() -> Void)?
 
     private var panel: NSPanel?
@@ -34,9 +46,20 @@ final class WindowPickerOverlay {
         let view = WindowPickerView(frame: NSRect(origin: .zero, size: frame.size))
         view.targetScreen = screen
         view.wpcCursor = wpcCursor          // view uses same cursor instance for cursor-rects
-        view.onSelected = { [weak self] windowID in
+        view.onSelected = { [weak self] selection in
             self?.dismiss()
-            self?.onSelected?(windowID)
+            if let selection {
+                if let app = NSRunningApplication(processIdentifier: selection.processID) {
+                    app.activate(options: [.activateAllWindows])
+                }
+                if let onSelectedWindow = self?.onSelectedWindow {
+                    onSelectedWindow(selection)
+                } else {
+                    self?.onSelected?(selection.windowID)
+                }
+            } else {
+                self?.onCancelled?()
+            }
         }
         view.onCancelled = { [weak self] in
             self?.dismiss()
@@ -176,10 +199,10 @@ final class WindowPickerOverlay {
 private final class WindowPickerView: NSView {
     var targetScreen: NSScreen?
     var wpcCursor: NSCursor = .arrow      // set by WindowPickerOverlay before display
-    var onSelected: ((CGWindowID) -> Void)?
+    var onSelected: ((WindowPickerSelection?) -> Void)?
     var onCancelled: (() -> Void)?
 
-    private var hoveredWindowID: CGWindowID?
+    private var hoveredSelection: WindowPickerSelection?
     private var hoveredViewRect: CGRect?
 
     override var isOpaque: Bool { false }
@@ -220,7 +243,8 @@ private final class WindowPickerView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
-        if let id = hoveredWindowID { onSelected?(id) } else { onCancelled?() }
+        updateHover(at: convert(event.locationInWindow, from: nil))
+        onSelected?(hoveredSelection)
     }
 
     override func keyDown(with event: NSEvent) {
@@ -230,12 +254,12 @@ private final class WindowPickerView: NSView {
     private func updateHover(at viewPt: NSPoint) {
         guard let screen = targetScreen else { return }
         let result = windowAtViewPoint(viewPt, screen: screen)
-        hoveredWindowID = result?.0
+        hoveredSelection = result?.0
         hoveredViewRect = result?.1
         needsDisplay = true
     }
 
-    private func windowAtViewPoint(_ viewPt: NSPoint, screen: NSScreen) -> (CGWindowID, CGRect)? {
+    private func windowAtViewPoint(_ viewPt: NSPoint, screen: NSScreen) -> (WindowPickerSelection, CGRect)? {
         let cgPt = viewPointToCGPoint(viewPt, screen: screen)
 
         let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
@@ -246,6 +270,7 @@ private final class WindowPickerView: NSView {
             guard let layer = info[kCGWindowLayer as String] as? Int, layer == 0 else { continue }
             guard let isOn = info[kCGWindowIsOnscreen as String] as? Bool, isOn else { continue }
             guard let num = info[kCGWindowNumber as String] as? UInt32 else { continue }
+            guard let pid = info[kCGWindowOwnerPID as String] as? pid_t else { continue }
             guard let bd = info[kCGWindowBounds as String] as? [String: Any] else { continue }
 
             let wx = (bd["X"] as? CGFloat) ?? 0
@@ -257,7 +282,9 @@ private final class WindowPickerView: NSView {
             let cgRect = CGRect(x: wx, y: wy, width: ww, height: wh)
             guard cgRect.contains(cgPt) else { continue }
 
-            return (CGWindowID(num), cgRectToViewRect(cgRect, screen: screen))
+            return (WindowPickerSelection(windowID: CGWindowID(num), processID: pid,
+                                          clickPoint: cgPt, bounds: cgRect),
+                    cgRectToViewRect(cgRect, screen: screen))
         }
         return nil
     }

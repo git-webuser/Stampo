@@ -427,6 +427,8 @@ extension CaptureMode: RawRepresentable {
         switch rawValue {
         case "selection": self = .selection
         case "window":    self = .window
+        case "scrollVertical": self = .scrollVertical
+        case "scrollHorizontal": self = .scrollHorizontal
         case "screen":    self = .screen
         default:          return nil
         }
@@ -435,6 +437,8 @@ extension CaptureMode: RawRepresentable {
         switch self {
         case .selection: return "selection"
         case .window:    return "window"
+        case .scrollVertical: return "scrollVertical"
+        case .scrollHorizontal: return "scrollHorizontal"
         case .screen:    return "screen"
         }
     }

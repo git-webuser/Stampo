@@ -21,6 +21,7 @@ enum UserFacingError {
     enum Kind {
         /// `/usr/sbin/screencapture` returned non-zero or produced no output file.
         case screenCaptureFailed(reason: String?)
+        case accessibilityPermission
 
         /// ScreenCaptureKit could not enumerate or sample a display.
         case colorPickerUnavailable(reason: String?)
@@ -36,7 +37,7 @@ enum UserFacingError {
         /// stacked modal alerts about permissions they're already granting.
         var isPermissionKind: Bool {
             switch self {
-            case .screenCaptureFailed, .colorPickerUnavailable:
+            case .screenCaptureFailed, .colorPickerUnavailable, .accessibilityPermission:
                 return true
             case .saveDirectoryInaccessible, .backgroundPictureUnreadable:
                 return false
@@ -48,6 +49,7 @@ enum UserFacingError {
             switch self {
             case .screenCaptureFailed:       return "screenCaptureFailed"
             case .colorPickerUnavailable:    return "colorPickerUnavailable"
+            case .accessibilityPermission:   return "accessibilityPermission"
             case .saveDirectoryInaccessible: return "saveDirectoryInaccessible"
             case .backgroundPictureUnreadable: return "backgroundPictureUnreadable"
             }
@@ -58,6 +60,8 @@ enum UserFacingError {
             switch self {
             case .screenCaptureFailed:
                 return lm.string("Screenshot failed")
+            case .accessibilityPermission:
+                return lm.string("Scrolling capture needs Accessibility access")
             case .colorPickerUnavailable:
                 return lm.string("Color picker unavailable")
             case .saveDirectoryInaccessible:
@@ -82,6 +86,8 @@ enum UserFacingError {
                     return base + "\n\n" + String(format: lm.string("Details: %@"), r)
                 }
                 return base
+            case .accessibilityPermission:
+                return lm.string("Grant Accessibility access to Stampo to send scroll events.")
             case .saveDirectoryInaccessible(let url):
                 return String(format: lm.string("Stampo can't write screenshots to \"%@\". The folder may have been moved, renamed, or access was revoked. Choose a new save folder in Settings \u{2192} Capture."), url.lastPathComponent)
             case .backgroundPictureUnreadable:
@@ -95,6 +101,8 @@ enum UserFacingError {
             switch self {
             case .screenCaptureFailed, .colorPickerUnavailable:
                 return .openScreenRecordingSettings
+            case .accessibilityPermission:
+                return .openAccessibilitySettings
             case .saveDirectoryInaccessible:
                 return .openAppSettings
             // Nothing to open: the answer is another file.
@@ -106,11 +114,13 @@ enum UserFacingError {
 
     enum Remediation {
         case openScreenRecordingSettings
+        case openAccessibilitySettings
         case openAppSettings
 
         var buttonTitle: String {
             switch self {
             case .openScreenRecordingSettings: return LocaleManager.shared.string("Open Privacy Settings")
+            case .openAccessibilitySettings: return LocaleManager.shared.string("Open Accessibility Settings")
             case .openAppSettings:             return LocaleManager.shared.string("Open Stampo Settings")
             }
         }
@@ -121,6 +131,10 @@ enum UserFacingError {
                 if let url = URL(string:
                     "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")
                 {
+                    NSWorkspace.shared.open(url)
+                }
+            case .openAccessibilitySettings:
+                if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
                     NSWorkspace.shared.open(url)
                 }
             case .openAppSettings:

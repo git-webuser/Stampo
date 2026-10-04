@@ -888,6 +888,7 @@ final class NotchPanelController: NSObject {
         case screen
         case rect(CGRect)
         case windowID(CGWindowID)
+        case scrolling(WindowPickerSelection, ScrollAxis)
     }
 
     /// Active countdown session, if any. Replaces the three legacy fields
@@ -1639,7 +1640,9 @@ final class NotchPanelController: NSObject {
     func captureDirectly(mode: CaptureMode, on screen: NSScreen) {
         currentScreen = screen
         updateScreenMetrics(for: screen)
-        if mode == .selection {
+        if let _ = mode.scrollAxis {
+            launchPreSelection(mode: mode, seconds: 0)
+        } else if mode == .selection {
             guard !isInPreSelection else { return }
             let selectionToken = PanelTransitionToken(
                 generation: bumpGeneration(),
@@ -2201,6 +2204,10 @@ final class NotchPanelController: NSObject {
             onClose: { [weak self] in self?.hideAnimated(reason: .closeButton) },
             onCapture: { [weak self] mode, delay in
                 guard let self else { return }
+                if mode.scrollAxis != nil {
+                    self.launchPreSelection(mode: mode, seconds: delay.seconds)
+                    return
+                }
                 if delay == .off {
                     let screen = self.currentScreen ?? NSScreen.main
                     if mode == .selection {

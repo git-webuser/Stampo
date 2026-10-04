@@ -16,6 +16,7 @@ final class ScreenshotService {
     private nonisolated let capturer = ScreenshotCapturer()
     private nonisolated let store = ScreenshotFileStore()
     private(set) var lastCaptureURL: URL?
+    private var scrollingSession: ScrollingCaptureSession?
 
     private let thumbnailHUD = ScreenshotThumbnailHUD()
 
@@ -41,6 +42,43 @@ final class ScreenshotService {
     /// Безопасно вызывать с любого потока; используется при sleep/wake/display change.
     nonisolated func cancelCurrentCapture() {
         capturer.terminateCurrentCapture()
+        Task { @MainActor [weak self] in self?.scrollingSession?.cancel() }
+    }
+
+    /// Starts the single in-memory scrolling capture session. The final image
+    /// enters the same store/publish pipeline as an ordinary screenshot.
+    func captureScrolling(selection: WindowPickerSelection, axis: ScrollAxis, preferredScreen: NSScreen?, delaySeconds: Int = 0) {
+        guard scrollingSession == nil else { return }
+        let session = ScrollingCaptureSession(selection: selection, axis: axis, delaySeconds: delaySeconds)
+        scrollingSession = session
+        session.onFinished = { [weak self] image in
+            guard let self else { return }
+            self.scrollingSession = nil
+            self.saveScrollingImage(image, on: preferredScreen)
+        }
+        session.onCancelled = { [weak self] in self?.scrollingSession = nil }
+        session.start()
+    }
+
+    private func saveScrollingImage(_ image: CGImage, on screen: NSScreen?) {
+        let store = self.store
+        let format = AppSettings.fileFormat
+        let service = self
+        Task.detached(priority: .userInitiated) { [weak service] in
+            do {
+                let rep = NSBitmapImageRep(cgImage: image)
+                let (type, properties) = ScreenshotFileStore.encoding(for: format)
+                guard let data = rep.representation(using: type, properties: properties) else {
+                    throw ScreenshotFileStore.SaveError.encodingFailed
+                }
+                let url = try store.saveEncodedImage(data, format: format)
+                await service?.publish(url, on: screen)
+            } catch {
+                await MainActor.run {
+                    UserFacingError.present(.screenCaptureFailed(reason: error.localizedDescription))
+                }
+            }
+        }
     }
 
     func capture(mode: CaptureMode, delaySeconds: Int, preferredScreen: NSScreen?) {

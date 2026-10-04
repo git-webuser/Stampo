@@ -9315,6 +9315,204 @@
         }
       }
     },
+    "Captured %d pixels · scroll down" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Captured %d pixels · scroll down" } },
+        "ru" : { "stringUnit" : { "state" : "translated", "value" : "Собрано %d пикселей · прокручивайте вниз" } }
+      }
+    },
+    "Captured %d pixels · scroll right" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Captured %d pixels · scroll right" } },
+        "ru" : { "stringUnit" : { "state" : "translated", "value" : "Собрано %d пикселей · прокручивайте вправо" } }
+      }
+    },
+    "End of scroll area · Finish to save or Cancel to discard" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "End of scroll area · Finish to save or Cancel to discard" } },
+        "ru" : { "stringUnit" : { "state" : "translated", "value" : "Конец области · Завершить для сохранения или Отменить" } }
+      }
+    },
+    "Finish" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Finish" } },
+        "ru" : { "stringUnit" : { "state" : "translated", "value" : "Завершить" } }
+      }
+    },
+    "Finish to save or Cancel to discard" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Finish to save or Cancel to discard" } },
+        "ru" : { "stringUnit" : { "state" : "translated", "value" : "Завершите для сохранения или отмените" } }
+      }
+    },
+    "Grant Accessibility access to Stampo to send scroll events." : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Grant Accessibility access to Stampo to send scroll events." } },
+        "ru" : { "stringUnit" : { "state" : "translated", "value" : "Разрешите Stampo доступ к Универсальному доступу для прокрутки." } }
+      }
+    },
+    "Grant Screen Recording access to Stampo, then try again." : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Grant Screen Recording access to Stampo, then try again." } },
+        "ru" : { "stringUnit" : { "state" : "translated", "value" : "Разрешите Stampo запись экрана и повторите попытку." } }
+      }
+    },
+    "Horizontal capture" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Horizontal capture" } },
+        "ru" : { "stringUnit" : { "state" : "translated", "value" : "Горизонтальный захват" } }
+      }
+    },
+    "macOS could not send a scroll event to the selected window." : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "macOS could not send a scroll event to the selected window." } },
+        "ru" : { "stringUnit" : { "state" : "translated", "value" : "macOS не удалось прокрутить выбранное окно." } }
+      }
+    },
+    "No movement detected · checking…" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "No movement detected · checking…" } },
+        "ru" : { "stringUnit" : { "state" : "translated", "value" : "Нет движения · проверка…" } }
+      }
+    },
+    "Preparing capture…" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Preparing capture…" } },
+        "ru" : { "stringUnit" : { "state" : "translated", "value" : "Подготовка захвата…" } }
+      }
+    },
+    "Scroll Capture Down" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Scroll Capture Down" } },
+        "ru" : { "stringUnit" : { "state" : "translated", "value" : "Прокрутка вниз" } }
+      }
+    },
+    "Scroll Capture Right" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Scroll Capture Right" } },
+        "ru" : { "stringUnit" : { "state" : "translated", "value" : "Прокрутка вправо" } }
+      }
+    },
+    "Scroll down to capture more" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Scroll down to capture more" } },
+        "ru" : { "stringUnit" : { "state" : "translated", "value" : "Прокручивайте вниз для продолжения" } }
+      }
+    },
+    "Scroll right to capture more" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Scroll right to capture more" } },
+        "ru" : { "stringUnit" : { "state" : "translated", "value" : "Прокручивайте вправо для продолжения" } }
+      }
+    },
+    "Size limit reached · Finish to save or Cancel to discard" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Size limit reached · Finish to save or Cancel to discard" } },
+        "ru" : { "stringUnit" : { "state" : "translated", "value" : "Достигнут предел размера · Завершите или отмените" } }
+      }
+    },
+    "Stampo could not identify a scrollable area at that point. Click inside the page or table and try again." : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Stampo could not identify a scrollable area at that point. Click inside the page or table and try again." } },
+        "ru" : { "stringUnit" : { "state" : "translated", "value" : "Stampo не удалось найти область прокрутки. Щёлкните внутри страницы или таблицы и повторите попытку." } }
+      }
+    },
+    "The selected app lost focus. Finish to save the collected portion or Cancel to discard." : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "The selected app lost focus. Finish to save the collected portion or Cancel to discard." } },
+        "ru" : { "stringUnit" : { "state" : "translated", "value" : "Фокус приложения изменился. Завершите для сохранения части или отмените." } }
+      }
+    },
+    "The selected window has no capturable image." : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "The selected window has no capturable image." } },
+        "ru" : { "stringUnit" : { "state" : "translated", "value" : "В выбранном окне нет изображения для захвата." } }
+      }
+    },
+    "The selected window is no longer available." : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "The selected window is no longer available." } },
+        "ru" : { "stringUnit" : { "state" : "translated", "value" : "Выбранное окно больше недоступно." } }
+      }
+    },
+    "The window size changed. Finish to save the collected portion or Cancel to discard." : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "The window size changed. Finish to save the collected portion or Cancel to discard." } },
+        "ru" : { "stringUnit" : { "state" : "translated", "value" : "Размер окна изменился. Завершите для сохранения части или отмените." } }
+      }
+    },
+    "The display scale changed. Finish to save the collected portion or Cancel to discard." : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "The display scale changed. Finish to save the collected portion or Cancel to discard." } },
+        "ru" : { "stringUnit" : { "state" : "translated", "value" : "Масштаб дисплея изменился. Завершите для сохранения части или отмените." } }
+      }
+    },
+    "Time limit reached · Finish to save or Cancel to discard" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Time limit reached · Finish to save or Cancel to discard" } },
+        "ru" : { "stringUnit" : { "state" : "translated", "value" : "Достигнут предел времени · Завершите или отмените" } }
+      }
+    },
+    "Vertical capture" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Vertical capture" } },
+        "ru" : { "stringUnit" : { "state" : "translated", "value" : "Вертикальный захват" } }
+      }
+    },
+    "Could not align frame · Finish to save or Cancel to discard" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Could not align frame · Finish to save or Cancel to discard" } },
+        "ru" : { "stringUnit" : { "state" : "translated", "value" : "Не удалось совместить кадры · Завершите или отмените" } }
+      }
+    },
+    "The scrolling area did not move enough to match frames. Try clicking inside the page or table and start again." : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "The scrolling area did not move enough to match frames. Try clicking inside the page or table and start again." } },
+        "ru" : { "stringUnit" : { "state" : "translated", "value" : "Область не сдвинулась достаточно для совмещения. Щёлкните внутри страницы или таблицы и повторите попытку." } }
+      }
+    },
+    "The visible content repeats too much to align reliably. The capture stopped to avoid a damaged image." : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "The visible content repeats too much to align reliably. The capture stopped to avoid a damaged image." } },
+        "ru" : { "stringUnit" : { "state" : "translated", "value" : "Содержимое слишком повторяется для надёжного совмещения. Захват остановлен, чтобы избежать повреждённого снимка." } }
+      }
+    },
+    "The window moved in both directions. Keep the window size stable and scroll in one direction." : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "The window moved in both directions. Keep the window size stable and scroll in one direction." } },
+        "ru" : { "stringUnit" : { "state" : "translated", "value" : "Окно сместилось по обеим осям. Не меняйте размер и прокручивайте только по одной оси." } }
+      }
+    },
+    "The scrolling image reached the configured size limit." : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "The scrolling image reached the configured size limit." } },
+        "ru" : { "stringUnit" : { "state" : "translated", "value" : "Снимок достиг ограничения размера." } }
+      }
+    },
+    "Unclear frame · retrying with a shorter scroll…" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Unclear frame · retrying with a shorter scroll…" } },
+        "ru" : { "stringUnit" : { "state" : "translated", "value" : "Кадр неясен · повтор с меньшей прокруткой…" } }
+      }
+    },
+    "Open Accessibility Settings" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Open Accessibility Settings" } },
+        "ru" : { "stringUnit" : { "state" : "translated", "value" : "Открыть Универсальный доступ" } }
+      }
+    },
+    "Scrolling capture needs Accessibility access" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Scrolling capture needs Accessibility access" } },
+        "ru" : { "stringUnit" : { "state" : "translated", "value" : "Для прокрутки нужен доступ к Универсальному доступу" } }
+      }
+    },
+    "Starting in %d seconds…" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Starting in %d seconds…" } },
+        "ru" : { "stringUnit" : { "state" : "translated", "value" : "Начало через %d сек…" } }
+      }
+    },
     "Русский" : {
 
     }

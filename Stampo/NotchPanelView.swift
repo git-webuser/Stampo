@@ -7,12 +7,24 @@ import AppKit
 enum CaptureMode: CaseIterable, Equatable, Sendable {
     case selection
     case window
+    case scrollVertical
+    case scrollHorizontal
     case screen
+
+    var scrollAxis: ScrollAxis? {
+        switch self {
+        case .scrollVertical: return .vertical
+        case .scrollHorizontal: return .horizontal
+        default: return nil
+        }
+    }
 
     func localizedTitle(_ locale: Locale = LocaleManager.shared.locale) -> String {
         switch self {
         case .selection: return LocaleManager.string("Selection",     locale: locale)
         case .window:    return LocaleManager.string("Window",        locale: locale)
+        case .scrollVertical: return LocaleManager.string("Scroll Capture Down", locale: locale)
+        case .scrollHorizontal: return LocaleManager.string("Scroll Capture Right", locale: locale)
         case .screen:    return LocaleManager.string("Entire Screen", locale: locale)
         }
     }
@@ -22,6 +34,8 @@ enum CaptureMode: CaseIterable, Equatable, Sendable {
         switch self {
         case .selection: return "rectangle.dashed"
         case .window:    return "macwindow"
+        case .scrollVertical: return "arrow.down.to.line"
+        case .scrollHorizontal: return "arrow.right.to.line"
         case .screen:    return "menubar.dock.rectangle"
         }
     }
@@ -30,6 +44,8 @@ enum CaptureMode: CaseIterable, Equatable, Sendable {
         switch self {
         case .selection: return "Sel"
         case .window:    return "Win"
+        case .scrollVertical: return "↓"
+        case .scrollHorizontal: return "→"
         case .screen:    return "Full"
         }
     }
