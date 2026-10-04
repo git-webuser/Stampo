@@ -1698,7 +1698,7 @@ final class NotchPanelController: NSObject {
     func captureDirectly(mode: CaptureMode, on screen: NSScreen) {
         currentScreen = screen
         updateScreenMetrics(for: screen)
-        if let _ = mode.scrollAxis {
+        if mode == .scroll {
             launchPreSelection(mode: mode, seconds: 0)
         } else if mode == .selection {
             guard !isInPreSelection else { return }
@@ -1762,6 +1762,7 @@ final class NotchPanelController: NSObject {
 
         model.mode  = AppSettings.defaultCaptureMode
         model.delay = AppSettings.defaultTimerDelay
+        model.scrollDirection = AppSettings.scrollDirection
 
         if panel == nil { create() }
         guard let panel else { return nil }
@@ -2282,7 +2283,7 @@ final class NotchPanelController: NSObject {
             onClose: { [weak self] in self?.hideAnimated(reason: .closeButton) },
             onCapture: { [weak self] mode, delay in
                 guard let self else { return }
-                if mode.scrollAxis != nil {
+                if mode == .scroll {
                     self.launchPreSelection(mode: mode, seconds: delay.seconds)
                     return
                 }

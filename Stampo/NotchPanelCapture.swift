@@ -91,7 +91,7 @@ extension NotchPanelController {
             } else {
                 // .window
                 self.windowPickerOverlay.onSelectedWindow = nil
-                self.windowPickerOverlay.badge = nil
+                self.windowPickerOverlay.scrollDirection = nil
                 self.windowPickerOverlay.onSelected = { [weak self] windowID in
                     guard let self else { return }
                     guard self.animationGenerationMatches(selectionToken),
@@ -99,17 +99,19 @@ extension NotchPanelController {
                     else { return }
                     self.beginCountdownAfterPreSelection(target: .windowID(windowID), seconds: seconds, screen: screen)
                 }
-                if let axis = mode.scrollAxis {
+                if mode == .scroll {
                     // The picker is the same one an ordinary Window shot uses;
-                    // only here is the click not obviously "this window".
-                    self.windowPickerOverlay.badge = ScanModeBadge(
-                        title: LocaleManager.shared.string("Click the area to scroll"),
-                        symbolName: mode.icon)
+                    // only here is the click not obviously "this window", and
+                    // here ⇥ may turn the direction before the click.
+                    self.windowPickerOverlay.scrollDirection = AppSettings.scrollDirection
                     self.windowPickerOverlay.onSelected = nil
                     self.windowPickerOverlay.onSelectedWindow = { [weak self] selection in
                         guard let self else { return }
                         guard self.animationGenerationMatches(selectionToken),
                               case .preSelection(.window) = self.state else { return }
+                        // Read now, not when the picker opened: ⇥ may have
+                        // turned it since, and writes the setting as it does.
+                        let axis = AppSettings.scrollDirection.axis
                         // The strip goes where the window is, which need not be
                         // the screen the picker was on.
                         let windowCenter = CGPoint(x: selection.bounds.midX, y: selection.bounds.midY)

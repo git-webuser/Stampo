@@ -2658,6 +2658,22 @@
         }
       }
     },
+    "Down" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Down"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Вниз"
+          }
+        }
+      }
+    },
     "Drag files into the archive by the notch, drop them into any app." : {
       "comment" : "Onboarding feature row description",
       "localizations" : {
@@ -6065,6 +6081,22 @@
         }
       }
     },
+    "Press ⇥ to switch direction" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Press ⇥ to switch direction"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "⇥ меняет направление"
+          }
+        }
+      }
+    },
     "Press ⌥ to keep line breaks, ⌃ to translate" : {
       "comment" : "Modifier hint under the Scan shortcut row in Settings",
       "extractionState" : "stale",
@@ -6591,6 +6623,22 @@
         }
       }
     },
+    "Right" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Right"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Вправо"
+          }
+        }
+      }
+    },
     "Right Margin" : {
       "comment" : "Gap between the picture and that canvas edge",
       "localizations" : {
@@ -7040,6 +7088,38 @@
         }
       }
     },
+    "Scroll direction" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Scroll direction"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Направление прокрутки"
+          }
+        }
+      }
+    },
+    "Scrolling" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Scrolling"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Прокрутка"
+          }
+        }
+      }
+    },
     "Scrolling capture failed" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -7074,34 +7154,18 @@
         }
       }
     },
-    "Scrolling Screenshot Down" : {
+    "Scrolling Screenshot" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Scrolling Screenshot Down"
+            "value" : "Scrolling Screenshot"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Скриншот с прокруткой вниз"
-          }
-        }
-      }
-    },
-    "Scrolling Screenshot Right" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Scrolling Screenshot Right"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Скриншот с прокруткой вправо"
+            "value" : "Скриншот с прокруткой"
           }
         }
       }
@@ -9628,18 +9692,6 @@
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Grant Screen Recording access to Stampo, then try again." } },
         "ru" : { "stringUnit" : { "state" : "translated", "value" : "Разрешите Stampo запись экрана и повторите попытку." } }
-      }
-    },
-    "Scroll Capture Down" : {
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Scroll Capture Down" } },
-        "ru" : { "stringUnit" : { "state" : "translated", "value" : "Прокрутка вниз" } }
-      }
-    },
-    "Scroll Capture Right" : {
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Scroll Capture Right" } },
-        "ru" : { "stringUnit" : { "state" : "translated", "value" : "Прокрутка вправо" } }
       }
     },
     "The selected window has no capturable image." : {

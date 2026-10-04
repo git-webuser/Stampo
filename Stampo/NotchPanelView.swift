@@ -7,35 +7,31 @@ import AppKit
 enum CaptureMode: CaseIterable, Equatable, Sendable {
     case selection
     case window
-    case scrollVertical
-    case scrollHorizontal
+    /// One mode for both ways a page can scroll; which one is a setting
+    /// (`ScrollDirection`), remembered between uses.
+    case scroll
     case screen
-
-    var scrollAxis: ScrollAxis? {
-        switch self {
-        case .scrollVertical: return .vertical
-        case .scrollHorizontal: return .horizontal
-        default: return nil
-        }
-    }
 
     func localizedTitle(_ locale: Locale = LocaleManager.shared.locale) -> String {
         switch self {
         case .selection: return LocaleManager.string("Selection",     locale: locale)
         case .window:    return LocaleManager.string("Window",        locale: locale)
-        case .scrollVertical: return LocaleManager.string("Scroll Capture Down", locale: locale)
-        case .scrollHorizontal: return LocaleManager.string("Scroll Capture Right", locale: locale)
+        case .scroll:    return LocaleManager.string("Scrolling", locale: locale)
         case .screen:    return LocaleManager.string("Entire Screen", locale: locale)
         }
     }
     var title: String { localizedTitle() }
 
-    var icon: String {
+    var icon: String { icon(direction: AppSettings.scrollDirection) }
+
+    /// The glyph for a mode; Scrolling takes the direction's, so the cell says
+    /// which way it will go. The panel passes its own observed direction so the
+    /// icon follows it when a picker has turned it.
+    func icon(direction: ScrollDirection) -> String {
         switch self {
         case .selection: return "rectangle.dashed"
         case .window:    return "macwindow"
-        case .scrollVertical: return "arrow.down.to.line"
-        case .scrollHorizontal: return "arrow.right.to.line"
+        case .scroll:    return direction.icon
         case .screen:    return "menubar.dock.rectangle"
         }
     }
@@ -44,8 +40,7 @@ enum CaptureMode: CaseIterable, Equatable, Sendable {
         switch self {
         case .selection: return "Sel"
         case .window:    return "Win"
-        case .scrollVertical: return "↓"
-        case .scrollHorizontal: return "→"
+        case .scroll:    return AppSettings.scrollDirection == .down ? "↓" : "→"
         case .screen:    return "Full"
         }
     }
@@ -90,6 +85,9 @@ enum CaptureDelay: CaseIterable, Equatable {
 @Observable final class NotchPanelModel {
     var mode: CaptureMode   = AppSettings.defaultCaptureMode
     var delay: CaptureDelay = AppSettings.defaultTimerDelay
+    /// Which way Scrolling goes, as the panel last read it. The window picker
+    /// can turn it while the panel is away, so it is read again on every show.
+    var scrollDirection: ScrollDirection = AppSettings.scrollDirection
 }
 
 // MARK: - NotchPanelView
@@ -383,7 +381,7 @@ struct NotchPanelView: View {
             metrics: metrics,
             onPickColor: onPickColor,
             onScan: onScan,
-            iconName: (shownMode ?? model.mode).icon,
+            iconName: (shownMode ?? model.mode).icon(direction: model.scrollDirection),
             glyphOpacity: modeGlyphOpacity,
             highlightSuppressed: $modeHighlightSuppressed
         )

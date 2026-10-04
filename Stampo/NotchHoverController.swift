@@ -387,16 +387,14 @@ final class NotchHoverController: NSObject {
             // of another app, which is why the user presses ⌘C first.
             panel.translateClipboard(on: screen)
         case 12:
-            triggerCapture(mode: .scrollVertical, on: screen)
-        case 13:
-            triggerCapture(mode: .scrollHorizontal, on: screen)
+            triggerCapture(mode: .scroll, on: screen)
         default:
             break
         }
     }
 
     private func triggerCapture(mode: CaptureMode, on screen: NSScreen) {
-        if mode.scrollAxis != nil {
+        if mode == .scroll {
             panel.currentScreen = screen
             panel.updateScreenMetrics(for: screen)
             panel.launchPreSelection(mode: mode, seconds: 0)

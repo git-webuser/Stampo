@@ -20,9 +20,10 @@ final class WindowPickerOverlay {
     /// unchanged for ordinary window screenshots.
     var onSelectedWindow: ((WindowPickerSelection) -> Void)?
     var onCancelled: (() -> Void)?
-    /// A hint that rides the pointer over the picker — scrolling capture says
-    /// what the click is for. Nil for an ordinary window shot, which needs none.
-    var badge: ScanModeBadge?
+    /// Set for a scrolling capture: a hint rides the pointer saying what the
+    /// click is for and which way it will scroll, and ⇥ turns the direction.
+    /// Nil for an ordinary window shot, which needs neither.
+    var scrollDirection: ScrollDirection?
 
     private var panel: NSPanel?
     private var targetScreen: NSScreen?
@@ -34,6 +35,9 @@ final class WindowPickerOverlay {
     /// True while the cursor has been pushed via NSCursor.push() — guards
     /// against a double-pop if both dismiss() and resetCursorState() fire.
     private var cursorPushed = false
+    /// ⇥ and ⇧⇥ while a scrolling picker is up — see `claimDirectionKeys`.
+    private var tabToken: UUID?
+    private var shiftTabToken: UUID?
 
     isolated deinit {
         resetCursorState()
@@ -49,7 +53,7 @@ final class WindowPickerOverlay {
         let view = WindowPickerView(frame: NSRect(origin: .zero, size: frame.size))
         view.targetScreen = screen
         view.wpcCursor = wpcCursor          // view uses same cursor instance for cursor-rects
-        view.badge = badge
+        view.badge = scrollDirection.map(Self.badge(for:))
         view.onSelected = { [weak self] selection in
             self?.dismiss()
             if let selection {
@@ -95,6 +99,48 @@ final class WindowPickerOverlay {
         wpcCursor.set()
 
         installCursorObservers(panel: panel)
+
+        // The hint is for a pointer that is already there: it has not moved,
+        // and until it does there would be nothing on screen to say what the
+        // click is for.
+        view.seedHover()
+        if scrollDirection != nil { claimDirectionKeys(view: view) }
+    }
+
+    private static func badge(for direction: ScrollDirection) -> ScanModeBadge {
+        ScanModeBadge(title: LocaleManager.shared.string("Click the area to scroll"),
+                      symbolName: direction.icon)
+    }
+
+    /// ⇥ and ⇧⇥ turn the direction while the picker is up, as they turn the
+    /// translation language in the scanner — and are claimed only for that
+    /// long, because a claimed ⇥ is gone for every app on the machine. The
+    /// same setting that governs the scanner's ⇥ governs this one.
+    private func claimDirectionKeys(view: WindowPickerView) {
+        guard AppSettings.hotkeyHUDFormatEnabled, tabToken == nil else { return }
+        tabToken = TransientHotkeyCenter.tab.push { [weak self, weak view] in
+            self?.turnDirection(view: view)
+        }
+        shiftTabToken = TransientHotkeyCenter.shiftTab.push { [weak self, weak view] in
+            self?.turnDirection(view: view)
+        }
+    }
+
+    private func releaseDirectionKeys() {
+        if let tabToken { TransientHotkeyCenter.tab.remove(tabToken) }
+        if let shiftTabToken { TransientHotkeyCenter.shiftTab.remove(shiftTabToken) }
+        tabToken = nil
+        shiftTabToken = nil
+    }
+
+    private func turnDirection(view: WindowPickerView?) {
+        guard let current = scrollDirection else { return }
+        let next = current.other
+        scrollDirection = next
+        // The same setting the panel reads: one answer to "which way?".
+        AppSettings.scrollDirection = next
+        view?.badge = Self.badge(for: next)
+        view?.needsDisplay = true
     }
 
     func cancel() {
@@ -106,6 +152,7 @@ final class WindowPickerOverlay {
     /// dismiss() was already called). Called defensively from
     /// finishCountdown / captureNowFromCountdown in NotchPanelCapture.
     func resetCursorState() {
+        releaseDirectionKeys()
         removeCursorObservers()
         if cursorPushed {
             NSCursor.pop()
@@ -119,6 +166,7 @@ final class WindowPickerOverlay {
 
     private func dismiss() {
         guard panel != nil else { return }
+        releaseDirectionKeys()
         removeCursorObservers()
         if cursorPushed {
             NSCursor.pop()
@@ -249,6 +297,13 @@ private final class WindowPickerView: NSView {
         let pt = convert(event.locationInWindow, from: nil)
         hoverPoint = pt
         updateHover(at: pt)
+    }
+
+    /// Takes the pointer's place as it is now, with no event to read it from.
+    func seedHover() {
+        guard let window else { return }
+        hoverPoint = convert(window.mouseLocationOutsideOfEventStream, from: nil)
+        needsDisplay = true
     }
 
     override func mouseDown(with event: NSEvent) {

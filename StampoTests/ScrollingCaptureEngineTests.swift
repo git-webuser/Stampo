@@ -732,8 +732,8 @@ import Testing
         let keys = [
             "Click the area to scroll",
             "Done",
-            HotkeyAction.scrollVertical.labelKey, HotkeyAction.scrollHorizontal.labelKey,
-            "Scroll Capture Down", "Scroll Capture Right",
+            HotkeyAction.scroll.labelKey, HotkeyAction.scroll.hintKey ?? "",
+            "Scrolling", "Scroll direction", "Down", "Right",
             "Scrolling capture failed",
             "Scrolling capture needs Accessibility access",
             "Grant Accessibility access to Stampo to scroll windows.",
@@ -754,6 +754,32 @@ import Testing
             let translated = LocaleManager.string(key, locale: ru)
             #expect(translated != key, "no Russian for \(key)")
         }
+    }
+
+    @Test func oneScrollingModeCoversBothDirections() {
+        #expect(CaptureMode.allCases == [.selection, .window, .scroll, .screen])
+        #expect(CaptureMode(rawValue: CaptureMode.scroll.rawValue) == .scroll)
+        // The two modes this replaced were never released; their stored values
+        // fall back to the default rather than being carried.
+        #expect(CaptureMode(rawValue: "scrollVertical") == nil)
+        #expect(CaptureMode(rawValue: "scrollHorizontal") == nil)
+        #expect(ScrollDirection.down.axis == .vertical)
+        #expect(ScrollDirection.right.axis == .horizontal)
+        // Two directions: next and previous are the same step.
+        for direction in ScrollDirection.allCases {
+            #expect(direction.other != direction)
+            #expect(direction.other.other == direction)
+        }
+        #expect(ScrollDirection.down.icon == "arrow.down.to.line")
+        #expect(ScrollDirection.right.icon == "arrow.right.to.line")
+    }
+
+    @Test func oneHotkeyCoversScrollingAndTheOldIDStaysRetired() {
+        #expect(HotkeyAction.scroll.rawValue == 12)
+        #expect(HotkeyAction(rawValue: 13) == nil)
+        #expect(HotkeyAction.scroll.group == .capture)
+        #expect(HotkeyAction.scroll.hintKey == "Press ⇥ to switch direction")
+        #expect(HotkeyAction.allCases.filter { $0.defaultCombo == HotkeyAction.scroll.defaultCombo }.count == 1)
     }
 
     @Test func wheelLinesFollowTheStepInPointsNotInCapturedPixels() {

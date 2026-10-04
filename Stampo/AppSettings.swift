@@ -51,6 +51,9 @@ enum AppSettings {
         /// scrolling capture. It asks only once; after that our own alert is
         /// the only thing shown (see `ScrollingCaptureSession.start`).
         static let scrollAccessibilityPrompted = "scrollAccessibilityPrompted"
+        /// Which way the Scrolling mode goes — shared by the picker's ⇥ and
+        /// the panel, so there is one answer to "which way?".
+        static let scrollDirection = "scrollDirection"
         static let defaultCaptureMode    = "defaultCaptureMode"
         static let defaultTimerDelay     = "defaultTimerDelay"
         // Permissions
@@ -327,6 +330,13 @@ enum AppSettings {
     nonisolated static var excludeScrollbars: Bool {
         UserDefaults.standard.object(forKey: Keys.excludeScrollbars) as? Bool ?? true
     }
+    static var scrollDirection: ScrollDirection {
+        get {
+            store.string(forKey: Keys.scrollDirection)
+                .flatMap(ScrollDirection.init(rawValue:)) ?? .down
+        }
+        set { store.set(newValue.rawValue, forKey: Keys.scrollDirection) }
+    }
     static var scrollAccessibilityPrompted: Bool {
         get { store.bool(forKey: Keys.scrollAccessibilityPrompted) }
         set { store.set(newValue, forKey: Keys.scrollAccessibilityPrompted) }
@@ -432,6 +442,31 @@ enum AppSettings {
     }
 }
 
+// MARK: - ScrollDirection
+
+/// The way a scrolling capture goes. The panel and the window picker share
+/// one value, so ⇥ in the picker is the same choice as the panel's.
+nonisolated enum ScrollDirection: String, CaseIterable, Equatable, Sendable {
+    case down
+    case right
+
+    var axis: ScrollAxis { self == .down ? .vertical : .horizontal }
+
+    /// The other of the two. ⇥ and ⇧⇥ both land here: with two directions
+    /// "next" and "previous" are the same step.
+    var other: ScrollDirection { self == .down ? .right : .down }
+
+    var icon: String { self == .down ? "arrow.down.to.line" : "arrow.right.to.line" }
+
+    func localizedTitle(_ locale: Locale = LocaleManager.shared.locale) -> String {
+        switch self {
+        case .down:  return LocaleManager.string("Down",  locale: locale)
+        case .right: return LocaleManager.string("Right", locale: locale)
+        }
+    }
+    var title: String { localizedTitle() }
+}
+
 // MARK: - CaptureMode: RawRepresentable (for @AppStorage)
 extension CaptureMode: RawRepresentable {
     public typealias RawValue = String
@@ -439,8 +474,7 @@ extension CaptureMode: RawRepresentable {
         switch rawValue {
         case "selection": self = .selection
         case "window":    self = .window
-        case "scrollVertical": self = .scrollVertical
-        case "scrollHorizontal": self = .scrollHorizontal
+        case "scroll":    self = .scroll
         case "screen":    self = .screen
         default:          return nil
         }
@@ -449,8 +483,7 @@ extension CaptureMode: RawRepresentable {
         switch self {
         case .selection: return "selection"
         case .window:    return "window"
-        case .scrollVertical: return "scrollVertical"
-        case .scrollHorizontal: return "scrollHorizontal"
+        case .scroll:    return "scroll"
         case .screen:    return "screen"
         }
     }

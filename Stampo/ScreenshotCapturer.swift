@@ -148,7 +148,7 @@ nonisolated final class ScreenshotCapturer: @unchecked Sendable {
             } else {
                 args.append(contentsOf: ["-i", "-w"])
             }
-        case .scrollVertical, .scrollHorizontal:
+        case .scroll:
             return .failed(CaptureFailure(message: "Scrolling captures must be started through the scrolling capture session."))
         case .screen:
             if configuration.includeCursor { args.append("-C") }
