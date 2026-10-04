@@ -164,6 +164,12 @@ enum PanelState {
     case translate
     case hiding
     case countdown
+    /// A scrolling capture is running and the panel wears the countdown's
+    /// strip with a turning ring in the arc's place. Reached from the
+    /// countdown in place, or straight from the window picker. It behaves as
+    /// `.countdown` does, except for Esc: the session owns that key, because
+    /// Esc has to reach it while another app is in front.
+    case scrollCapture
     /// Work is running and the panel is showing the wait — a translation, or
     /// an edited screenshot being written. Its own state because the panel must
     /// not auto-hide out from under it: it was raised by the app, not by the
@@ -218,6 +224,20 @@ enum PanelWait: Equatable {
     }
 }
 
+/// What the scrolling capture's strip shows in the arc's place.
+enum ScrollStripPhase: Equatable {
+    case running
+    /// Part of the image is collected and the capture waits for Done or ✕.
+    case paused
+
+    init(_ status: ScrollCaptureStatus) {
+        switch status {
+        case .capturing, .saving: self = .running
+        case .paused:             self = .paused
+        }
+    }
+}
+
 enum TransitionTarget { case archive, translate, main }
 enum OverlayKind { case selection, window }
 enum StaleReason { case sleep, spaceChange, displayChange }
@@ -228,7 +248,7 @@ extension PanelState {
     /// an outside click should auto-close the panel.
     var allowsAutoHide: Bool {
         switch self {
-        case .transitioning, .countdown, .waiting, .preSelection: return false
+        case .transitioning, .countdown, .scrollCapture, .waiting, .preSelection: return false
         case .hidden, .showing, .main, .archive, .translate, .hiding, .stale: return true
         }
     }
@@ -252,7 +272,7 @@ extension PanelState {
         guard !isSharePickerOpen else { return false }
         switch self {
         case .showing, .main, .archive, .translate, .countdown, .waiting: return true
-        case .hidden, .transitioning, .hiding, .preSelection, .stale: return false
+        case .hidden, .transitioning, .hiding, .scrollCapture, .preSelection, .stale: return false
         }
     }
 
@@ -271,7 +291,7 @@ extension PanelState {
         switch self {
         case .archive, .translate: return true
         case .hidden, .showing, .main, .transitioning, .hiding,
-             .countdown, .waiting, .preSelection, .stale: return false
+             .countdown, .scrollCapture, .waiting, .preSelection, .stale: return false
         }
     }
 
@@ -323,6 +343,10 @@ enum EscapeAction: Equatable {
     var countdownVisible: CGFloat = 0.0
     var countdownSeconds: Int = 0
     var countdownTotal: Int = 0
+    /// Non-nil while a scrolling capture owns the countdown's strip. Cleared
+    /// when the panel has gone, not when it starts to — the ring should not
+    /// turn back into an arc on its way out.
+    var scrollStrip: ScrollStripPhase?
     var isArchivePinned: Bool = false
     /// 0 = Main visible, 1 = the wait strip's contents visible.
     /// Crossfaded over Main without a morph, exactly as the countdown is.
@@ -362,6 +386,11 @@ private struct NotchPanelRootView: View {
     let onStopCountdown: () -> Void
     let onCaptureNow: () -> Void
     let onCycleHeader: (_ backwards: Bool) -> Void
+
+    private var countdownPhase: CountdownPhase {
+        if let strip = rootState.scrollStrip { return .scrolling(paused: strip == .paused) }
+        return .countdown(seconds: rootState.countdownSeconds, total: rootState.countdownTotal)
+    }
 
     /// Whether ⇥ is claimed right now. Shared with the colour picker's own F,
     /// because the setting governs one idea — step to the next one — and the
@@ -554,8 +583,7 @@ private struct NotchPanelRootView: View {
             CountdownView(
                 metrics: m,
                 interaction: interaction,
-                secondsRemaining: rootState.countdownSeconds,
-                totalSeconds: rootState.countdownTotal,
+                phase: countdownPhase,
                 onStop: onStopCountdown,
                 onCaptureNow: onCaptureNow
             )
@@ -845,13 +873,27 @@ final class NotchPanelController: NSObject {
     /// still choosing.
     static func mascotState(for state: PanelState, colorPickerInFlight: Bool) -> MascotState? {
         switch state {
-        case .countdown:                               return .countdown
+        case .countdown, .scrollCapture:               return .countdown
         // The wait strip and the mascot are the same news told twice: the app
         // is doing something of its own. The ears spread and hold while it is.
         case .waiting:                                 return .waiting
         case .main, .archive, .showing, .preSelection: return .awake
         case .hidden:                                  return colorPickerInFlight ? nil : .sleeping
         default:                                       return nil
+        }
+    }
+
+    /// What the scrolling capture reports, on the strip: the ring while it
+    /// works and while it saves, a warning once it has stopped with part of the
+    /// image collected — and then the reason, in a toast, since the strip has
+    /// no room for words.
+    private func applyScrollingStatus(_ status: ScrollCaptureStatus) {
+        guard case .scrollCapture = state else { return }
+        withAnimation(.easeInOut(duration: 0.18)) {
+            rootState.scrollStrip = ScrollStripPhase(status)
+        }
+        if case .paused(let reason) = status {
+            feedbackHUD.show(.scrollingPaused(reason: reason), on: currentScreen, autoHideAfter: 3.5)
         }
     }
 
@@ -962,11 +1004,19 @@ final class NotchPanelController: NSObject {
             if case .preSelection = self?.state { self?.state = .hidden }
             self?.postMascotState(.sleeping)
         }
+        screenshot.onScrollingStatus = { [weak self] status in
+            self?.applyScrollingStatus(status)
+        }
+        screenshot.onScrollingEnded = { [weak self] in
+            guard let self, case .scrollCapture = self.state else { return }
+            self.hideAnimated(reason: .scrollCaptureEnded)
+        }
         screenshot.scrollingOwnUICovers = { [weak self] quartzPoint in
             guard let self, let panel = self.panel, panel.isVisible else { return false }
             let primaryHeight = NSScreen.screens.first(where: { $0.frame.origin == .zero })?.frame.height
                 ?? NSScreen.screens.first?.frame.height ?? 0
-            return self.drawnContentRect.contains(NSPoint(x: quartzPoint.x, y: primaryHeight - quartzPoint.y))
+            return self.drawnContentRect.contains(Self.appKitPoint(fromQuartz: quartzPoint,
+                                                                   primaryHeight: primaryHeight))
         }
         screenshot.onThumbnailTapped = { [weak self] in
             guard let self else { return }
@@ -1308,6 +1358,7 @@ final class NotchPanelController: NSObject {
         route = .main
         rootState.progress = 0.0
         rootState.countdownVisible = 0.0
+        rootState.scrollStrip = nil
         // Если Space сменился во время скрытия — панель уже исчезла, так что
         // семантика «спрятал → продолжай» соблюдена; доставляем completion,
         // иначе capture/OCR/color-поток молча не стартует.
@@ -1372,6 +1423,7 @@ final class NotchPanelController: NSObject {
         rootState.countdownVisible = 0.0
         rootState.countdownSeconds = 0
         rootState.countdownTotal = 0
+        rootState.scrollStrip = nil
         rootState.routeContentVisible = 1.0
         rootState.isArchivePinned = false
     }
@@ -1849,6 +1901,17 @@ final class NotchPanelController: NSObject {
             route = .main
         }
 
+        // The strip leaving takes the capture with it — unless the capture is
+        // what is ending, in which case there is no session left to cancel.
+        // Cancelled after `.hiding` is set, below: the session's end reports
+        // back here, and must find the panel already on its way out.
+        var cancelsScrolling = false
+        if case .scrollCapture = state {
+            cancelsScrolling = true
+            rootState.countdownVisible = 0.0
+            route = .main
+        }
+
         // The Translator closes the same way the archive does. It used to fall
         // through to the Main path, which is built for the 34pt strip: no
         // content pre-fade and no morph, so a tall panel of text was still on
@@ -1859,6 +1922,7 @@ final class NotchPanelController: NSObject {
         interactionState.isEnabled = false
         bumpGeneration()
         pendingHideCompletion = completion
+        if cancelsScrolling { screenshot.cancelScrolling() }
 
         guard let screen = (currentScreen ?? NSScreen.main ?? NSScreen.screens.first) else {
             panel.orderOut(nil)
@@ -1957,6 +2021,7 @@ final class NotchPanelController: NSObject {
                         self.rootState.countdownVisible = 0.0
                         self.rootState.countdownSeconds = 0
                         self.rootState.countdownTotal = 0
+                        self.rootState.scrollStrip = nil
                         self.trace("hideMainPanel.completion.orderOut")
                     } else {
                         self.trace("hideMainPanel.completion.genMismatch")
@@ -2005,6 +2070,7 @@ final class NotchPanelController: NSObject {
                         self.rootState.countdownVisible = 0.0
                         self.rootState.countdownSeconds = 0
                         self.rootState.countdownTotal = 0
+                        self.rootState.scrollStrip = nil
                         self.trace("hideMainPanel.completion.orderOut")
                     } else {
                         self.trace("hideMainPanel.completion.genMismatch")
@@ -2037,6 +2103,12 @@ final class NotchPanelController: NSObject {
             * metrics.panelScale
         let h = min(f.height, max(0, drawn))
         return NSRect(x: f.minX, y: f.maxY - h, width: f.width, height: h)
+    }
+
+    /// A point from the window list (origin top left of the primary display,
+    /// y down) in AppKit's screen space (origin bottom left, y up).
+    static func appKitPoint(fromQuartz point: CGPoint, primaryHeight: CGFloat) -> NSPoint {
+        NSPoint(x: point.x, y: primaryHeight - point.y)
     }
 
     func isPointInsidePanel(_ point: NSPoint) -> Bool {
@@ -2285,8 +2357,8 @@ final class NotchPanelController: NSObject {
             },
             onHidePanel: { [weak self] in self?.hideAnimated(reason: .closeButton) },
             onTogglePin: { [weak self] in self?.rootState.isArchivePinned.toggle() },
-            onStopCountdown: { [weak self] in self?.stopCountdown() },
-            onCaptureNow: { [weak self] in self?.captureNowFromCountdown() },
+            onStopCountdown: { [weak self] in self?.stopFromStrip() },
+            onCaptureNow: { [weak self] in self?.captureFromStrip() },
             onCycleHeader: { [weak self] backwards in
                 self?.cycleHeaderSelection(backwards: backwards)
             }

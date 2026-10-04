@@ -41,10 +41,24 @@ final class TextCaptureHUD {
         case translationFailed
         /// The Translate hotkey fired with no text on the clipboard.
         case nothingToTranslate
+        /// A scrolling capture stopped with part of the image collected. The
+        /// reason is already localized: it says what went wrong, and the strip
+        /// in the notch carries the two ways out.
+        case scrollingPaused(reason: String)
     }
 
     private var panel: NSPanel?
     private var hideWorkItem: DispatchWorkItem?
+
+    /// How wide a toast sentence is laid out: its own length on one line, up
+    /// to a ceiling past which it wraps.
+    static func sentenceWidth(_ sentence: String, limit: CGFloat = 320) -> CGFloat {
+        let font = NSFont.systemFont(ofSize: 15, weight: .semibold)
+        let natural = (sentence as NSString).size(withAttributes: [.font: font]).width
+        // A few points over: SwiftUI and AppKit round the same run differently,
+        // and a word wrapped for a fraction of a point would look like a typo.
+        return min(limit, ceil(natural) + 4)
+    }
 
     /// Collapses multiline payloads (vCard, Wi-Fi) to one displayable line and
     /// caps the length — the visible toast only ever fits ~40 characters, so
@@ -212,6 +226,11 @@ private struct TextCaptureHUDView: View {
                 // skipped or the clipboard holds something that is not text.
                 statusRow(title: "Copy some text first", systemName: "translate", iconOpacity: 0.6)
                     .fixedSize()
+            case .scrollingPaused(let reason):
+                // Verbatim: the reason is a sentence resolved at runtime.
+                statusRow(Text(verbatim: reason), systemName: "exclamationmark.triangle",
+                          iconOpacity: 0.6, textWidth: TextCaptureHUD.sentenceWidth(reason))
+                    .fixedSize()
             }
         }
         .padding(.horizontal, 16)
@@ -228,13 +247,36 @@ private struct TextCaptureHUDView: View {
     }
 
     private func statusRow(title: LocalizedStringKey, systemName: String, iconOpacity: Double) -> some View {
+        statusRow(Text(title), systemName: systemName, iconOpacity: iconOpacity)
+    }
+
+    /// `textWidth` pins the title's width so a long sentence wraps instead of
+    /// widening the toast across the screen. The window is sized from the
+    /// view's ideal size, and a `Text` only wraps — and only reports its
+    /// wrapped height — against a width it has actually been given. The fixed
+    /// titles are one short line and never need it.
+    private func statusRow(_ title: Text, systemName: String, iconOpacity: Double,
+                           textWidth: CGFloat? = nil) -> some View {
         HStack(spacing: 7) {
-            Text(title)
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(.white.opacity(0.9))
+            titleLabel(title, width: textWidth)
             Image(systemName: systemName)
                 .font(.system(size: 17, weight: .regular))
                 .foregroundStyle(.white.opacity(iconOpacity))
+        }
+    }
+
+    @ViewBuilder
+    private func titleLabel(_ title: Text, width: CGFloat?) -> some View {
+        let label = title
+            .font(.system(size: 15, weight: .semibold))
+            .foregroundStyle(.white.opacity(0.9))
+        if let width {
+            label
+                .multilineTextAlignment(.leading)
+                .frame(width: width, alignment: .leading)
+                .fixedSize(horizontal: false, vertical: true)
+        } else {
+            label
         }
     }
 }

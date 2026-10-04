@@ -1,3 +1,4 @@
+import AppKit
 import CoreGraphics
 import Foundation
 import Testing
@@ -722,6 +723,55 @@ import Testing
         do { try await delayedMatcher.value; Issue.record("Expected cancellation") }
         catch is CancellationError { }
         #expect(await counter.value == 0)
+    }
+
+    @Test func theStripShowsARingWhileWorkingAndSavingAndAWarningWhenPaused() {
+        #expect(ScrollStripPhase(.capturing) == .running)
+        #expect(ScrollStripPhase(.saving) == .running)
+        #expect(ScrollStripPhase(.paused(reason: "The window size changed.")) == .paused)
+    }
+
+    @Test func macOSAsksForAccessibilityOnceAndOurAlertIsTheOnlyThingAfter() {
+        let first = ScrollingCaptureSession.accessibilityPlan(promptedBefore: false)
+        #expect(first.prompt && !first.alertIfDenied)
+        let later = ScrollingCaptureSession.accessibilityPlan(promptedBefore: true)
+        #expect(!later.prompt && later.alertIfDenied)
+    }
+
+    @Test @MainActor func doneBeforeTheFirstFrameCancelsWithoutAnythingToSave() {
+        let selection = WindowPickerSelection(windowID: 17, processID: 42,
+                                              clickPoint: CGPoint(x: 15, y: 15),
+                                              bounds: CGRect(x: 0, y: 0, width: 120, height: 90))
+        let session = ScrollingCaptureSession(selection: selection, axis: .vertical)
+        var statuses: [ScrollCaptureStatus] = []
+        var didFinish = false
+        var didCancel = false
+        session.onStatus = { statuses.append($0) }
+        session.onFinished = { _ in didFinish = true }
+        session.onCancelled = { didCancel = true }
+        session.finish()
+        #expect(didCancel)
+        #expect(!didFinish)
+        // No "saving": there is no file, and no alert — nothing failed.
+        #expect(statuses.isEmpty)
+    }
+
+    @Test func aWindowCentreFindsItsScreen() throws {
+        let screen = try #require(NSScreen.screens.first)
+        let id = try #require(screen.displayID)
+        let bounds = CGDisplayBounds(id)
+        let centre = CGPoint(x: bounds.midX, y: bounds.midY)
+        #expect(NSScreen.containing(quartzPoint: centre)?.displayID == id)
+        #expect(NSScreen.containing(quartzPoint: CGPoint(x: bounds.minX - 100_000, y: 0)) == nil)
+    }
+
+    @Test @MainActor func aWindowListPointKeepsItsPlaceInAppKitSpace() {
+        // The top-left corner of the primary display is its top-left whichever
+        // way y runs, and a point 10 below it is 10 under the top edge.
+        let top = NotchPanelController.appKitPoint(fromQuartz: CGPoint(x: 5, y: 0), primaryHeight: 900)
+        #expect(top == NSPoint(x: 5, y: 900))
+        let below = NotchPanelController.appKitPoint(fromQuartz: CGPoint(x: 5, y: 10), primaryHeight: 900)
+        #expect(below == NSPoint(x: 5, y: 890))
     }
 
     @Test @MainActor func cancellingDiscardsTheCollectedImage() {

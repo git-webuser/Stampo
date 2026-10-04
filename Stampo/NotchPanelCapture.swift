@@ -38,6 +38,7 @@ extension NotchPanelController {
             timer: nil
         )
         syncCountdownToRootState()
+        rootState.scrollStrip = nil
         state = .countdown
         route = .cdwn
         withAnimation(.easeOut(duration: 0.16)) {
@@ -103,12 +104,16 @@ extension NotchPanelController {
                         guard let self else { return }
                         guard self.animationGenerationMatches(selectionToken),
                               case .preSelection(.window) = self.state else { return }
-                        self.state = .hidden
-                        self.schedulePanelAction(after: 0.1, token: selectionToken,
-                                                 requiresVisible: false) { [weak self] in
-                            guard let self, case .hidden = self.state else { return }
-                            self.screenshot.captureScrolling(selection: selection, axis: axis,
-                                                             preferredScreen: screen, delaySeconds: seconds)
+                        // The strip goes where the window is, which need not be
+                        // the screen the picker was on.
+                        let windowCenter = CGPoint(x: selection.bounds.midX, y: selection.bounds.midY)
+                        let stripScreen = NSScreen.containing(quartzPoint: windowCenter) ?? screen
+                        if seconds > 0 {
+                            // The countdown turns into the strip in place when it ends.
+                            self.beginCountdownAfterPreSelection(target: .scrolling(selection, axis),
+                                                                 seconds: seconds, screen: stripScreen)
+                        } else {
+                            self.beginScrollCapture(selection: selection, axis: axis, screen: stripScreen)
                         }
                     }
                 }
@@ -133,6 +138,7 @@ extension NotchPanelController {
             timer: nil
         )
         syncCountdownToRootState()
+        rootState.scrollStrip = nil
         // Set countdown visible instantly before panel appears (no crossfade needed)
         rootState.countdownVisible = 1.0
         route = .cdwn
@@ -190,10 +196,20 @@ extension NotchPanelController {
     }
 
     func captureNowFromCountdown() {
+        finishCountdown()
+    }
+
+    func finishCountdown() {
         cancelCountdownTimer()
         let target = activeCountdown?.target ?? .screen
         let screen = activeCountdown?.screen
         activeCountdown = nil
+        // Scrolling does not hide the panel to capture: the countdown strip
+        // stays and its arc turns into the ring.
+        if case .scrolling(let selection, let axis) = target {
+            beginScrollCapture(selection: selection, axis: axis, screen: screen)
+            return
+        }
         hideAnimated(reason: .captureStart) { [weak self] in
             guard let self else { return }
             // Safety net: if the window-picker dismissed normally, isCursorHidden
@@ -204,16 +220,54 @@ extension NotchPanelController {
         }
     }
 
-    func finishCountdown() {
-        cancelCountdownTimer()
-        let target = activeCountdown?.target ?? .screen
-        let screen = activeCountdown?.screen
-        activeCountdown = nil
-        hideAnimated(reason: .captureStart) { [weak self] in
-            guard let self else { return }
-            // Same safety net as captureNowFromCountdown — see comment there.
-            self.windowPickerOverlay.resetCursorState()
-            self.executeCapture(target: target, screen: screen)
+    // MARK: Scrolling capture
+
+    /// ✕ on the strip: stops the countdown, or drops the scrolling capture.
+    func stopFromStrip() {
+        if case .scrollCapture = state {
+            screenshot.cancelScrolling()
+        } else {
+            stopCountdown()
+        }
+    }
+
+    /// The capture button on the strip: captures now, or — once a scrolling
+    /// capture is running — says it is done and saves what is collected.
+    func captureFromStrip() {
+        if case .scrollCapture = state {
+            screenshot.finishScrolling()
+        } else {
+            captureNowFromCountdown()
+        }
+    }
+
+    /// Puts the strip up with the ring turning and starts the capture. From a
+    /// countdown that ran out the panel is already there and nothing moves
+    /// but the arc; with no delay it arrives the way the countdown does.
+    func beginScrollCapture(selection: WindowPickerSelection, axis: ScrollAxis, screen: NSScreen?) {
+        windowPickerOverlay.resetCursorState()
+        rootState.scrollStrip = .running
+        if case .countdown = state {
+            state = .scrollCapture
+        } else {
+            guard let screen = screen ?? currentScreen ?? NSScreen.main ?? NSScreen.screens.first else {
+                // Nowhere to put the strip: leave the picker's state behind,
+                // or the next capture would find a selection still in flight.
+                rootState.scrollStrip = nil
+                state = .hidden
+                return
+            }
+            rootState.countdownVisible = 1.0
+            route = .cdwn
+            showAnimated(on: screen)
+            // As for the countdown: showAnimated's completion only settles
+            // `.showing` into `.main`, so this assignment survives it.
+            state = .scrollCapture
+        }
+        // Another capture may already be running; the strip must not stay up
+        // for a session that never started.
+        if !screenshot.captureScrolling(selection: selection, axis: axis, preferredScreen: currentScreen) {
+            hideAnimated(reason: .scrollCaptureEnded)
         }
     }
 
@@ -226,7 +280,9 @@ extension NotchPanelController {
         case .windowID(let id):
             screenshot.captureWindowID(id, preferredScreen: screen)
         case .scrolling(let selection, let axis):
-            screenshot.captureScrolling(selection: selection, axis: axis, preferredScreen: screen)
+            // Not reached from the countdown, which keeps its panel; kept so
+            // the switch stays total and a direct call still does the right thing.
+            beginScrollCapture(selection: selection, axis: axis, screen: screen)
         }
     }
 }

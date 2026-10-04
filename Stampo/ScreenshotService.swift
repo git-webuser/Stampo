@@ -37,6 +37,21 @@ final class ScreenshotService {
     /// capture never scrolls through it.
     var scrollingOwnUICovers: ((CGPoint) -> Bool)?
 
+    /// What the notch strip should show while a scrolling capture runs.
+    var onScrollingStatus: ((ScrollCaptureStatus) -> Void)?
+
+    /// The scrolling capture is over — saved, cancelled or failed — and the
+    /// strip can leave.
+    var onScrollingEnded: (() -> Void)?
+
+    var isScrolling: Bool { scrollingSession != nil }
+
+    /// Done on the strip: save what is collected.
+    func finishScrolling() { scrollingSession?.finish() }
+
+    /// ✕ on the strip: drop it.
+    func cancelScrolling() { scrollingSession?.cancel() }
+
     init() {
         thumbnailHUD.onTapped = { [weak self] in
             self?.onThumbnailTapped?()
@@ -52,15 +67,18 @@ final class ScreenshotService {
 
     /// Starts the single in-memory scrolling capture session. The final image
     /// enters the same store/publish pipeline as an ordinary screenshot.
-    func captureScrolling(selection: WindowPickerSelection, axis: ScrollAxis, preferredScreen: NSScreen?, delaySeconds: Int = 0) {
-        guard !captureInProgress, scrollingSession == nil else { return }
+    /// Returns false when another capture is already running; nothing starts.
+    @discardableResult
+    func captureScrolling(selection: WindowPickerSelection, axis: ScrollAxis, preferredScreen: NSScreen?) -> Bool {
+        guard !captureInProgress, scrollingSession == nil else { return false }
         captureInProgress = true
-        let session = ScrollingCaptureSession(selection: selection, axis: axis, delaySeconds: delaySeconds,
+        let session = ScrollingCaptureSession(selection: selection, axis: axis,
                                               excludeScrollbars: AppSettings.excludeScrollbars,
                                               ownUICovers: { [weak self] point in
                                                   self?.scrollingOwnUICovers?(point) ?? false
                                               })
         scrollingSession = session
+        session.onStatus = { [weak self] status in self?.onScrollingStatus?(status) }
         session.onFinished = { [weak self] image in
             guard let self else { return }
             self.scrollingSession = nil
@@ -69,8 +87,10 @@ final class ScreenshotService {
         session.onCancelled = { [weak self] in
             self?.scrollingSession = nil
             self?.captureInProgress = false
+            self?.onScrollingEnded?()
         }
         session.start()
+        return true
     }
 
     private func saveScrollingImage(_ image: CGImage, on screen: NSScreen?) {
@@ -92,6 +112,7 @@ final class ScreenshotService {
                     let nsError = error as NSError
                     Log.capture.error("scroll capture failed at stage save · \(nsError.domain, privacy: .public) code \(nsError.code, privacy: .public)")
                     UserFacingError.present(Self.scrollingSaveErrorKind(error))
+                    service?.onScrollingEnded?()
                 }
             }
         }
@@ -299,5 +320,6 @@ final class ScreenshotService {
     private func finishScrollingSave(_ url: URL, on screen: NSScreen?) {
         captureInProgress = false
         publish(url, on: screen)
+        onScrollingEnded?()
     }
 }

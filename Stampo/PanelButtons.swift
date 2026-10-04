@@ -14,6 +14,40 @@ final class PanelPopUpButton: NSPopUpButton {
     }
 }
 
+// MARK: - PanelSpinnerRing
+
+/// The panel's ring: 14pt, a faint track under a bright arc, turning rather
+/// than filling. For work that ends when it ends and has no fraction to report
+/// — the wait strip's translation and save, and a scrolling capture.
+struct PanelSpinnerRing: View {
+    /// Starts and stops the turn: it is the animation's trigger value, so the
+    /// owner flips it when the ring appears and disappears.
+    let isTurning: Bool
+    /// Whether the arc is away from its rest position. The wait strip clears
+    /// this when its work is done *without* touching `isTurning`, which is
+    /// what snaps the arc home instead of winding it back round.
+    var isSpinning = true
+
+    @Environment(\.colorSchemeContrast) private var contrast
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .stroke(PanelChrome.stroke(0.15, contrast), lineWidth: 2)
+            Circle()
+                .trim(from: 0, to: 0.3)
+                .stroke(PanelChrome.stroke(0.8, contrast),
+                        style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                .rotationEffect(.degrees(isTurning && isSpinning ? 360 : 0))
+                .animation(isTurning
+                           ? .linear(duration: 0.9).repeatForever(autoreverses: false)
+                           : .default,
+                           value: isTurning)
+        }
+        .frame(width: 14, height: 14)
+    }
+}
+
 // MARK: - PanelIconButton
 
 /// Unified icon button for the panel with hover and active states.

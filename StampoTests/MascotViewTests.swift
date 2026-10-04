@@ -449,6 +449,8 @@ import Testing
             #expect(news(.showing) == .awake)
             #expect(news(.waiting) == .waiting)
             #expect(news(.countdown) == .countdown)
+            // The strip is the countdown's, wearing a ring: same ears.
+            #expect(news(.scrollCapture) == .countdown)
             #expect(news(.hiding) == nil)
             #expect(news(.translate) == nil)
         }

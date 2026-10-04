@@ -47,6 +47,10 @@ enum AppSettings {
         static let includeCursor         = "includeCursor"
         static let includeWindowShadow   = "includeWindowShadow"
         static let excludeScrollbars      = "excludeScrollbars"
+        /// true once macOS has been asked for Accessibility on behalf of a
+        /// scrolling capture. It asks only once; after that our own alert is
+        /// the only thing shown (see `ScrollingCaptureSession.start`).
+        static let scrollAccessibilityPrompted = "scrollAccessibilityPrompted"
         static let defaultCaptureMode    = "defaultCaptureMode"
         static let defaultTimerDelay     = "defaultTimerDelay"
         // Permissions
@@ -322,6 +326,10 @@ enum AppSettings {
     }
     nonisolated static var excludeScrollbars: Bool {
         UserDefaults.standard.object(forKey: Keys.excludeScrollbars) as? Bool ?? true
+    }
+    static var scrollAccessibilityPrompted: Bool {
+        get { store.bool(forKey: Keys.scrollAccessibilityPrompted) }
+        set { store.set(newValue, forKey: Keys.scrollAccessibilityPrompted) }
     }
     static var defaultCaptureMode: CaptureMode {
         let raw = UserDefaults.standard.string(forKey: Keys.defaultCaptureMode) ?? "selection"

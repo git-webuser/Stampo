@@ -372,7 +372,7 @@ enum ScrollDriver {
     }
 
     static func selectedWindowNotFrontmost() -> WindowFrameSourceError {
-        .captureFailed(LocaleManager.shared.string("The selected window is covered at the scroll point. Finish to save the collected portion or Cancel to discard."))
+        .captureFailed(LocaleManager.shared.string("The window is covered at the scroll point."))
     }
 
     private static func systemWideElement() -> AXUIElement {

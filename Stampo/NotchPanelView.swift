@@ -953,15 +953,26 @@ private struct PanelCaptureButton: View {
 
 // MARK: - CountdownView
 
+/// What the countdown's strip shows in the arc's place.
+enum CountdownPhase: Equatable {
+    case countdown(seconds: Int, total: Int)
+    /// A scrolling capture is running: the ring turns where the arc was, ✕
+    /// drops the capture and the capture button saves it. `paused` swaps the
+    /// ring for a warning — part of the image is collected and the capture
+    /// waits for one of the two.
+    case scrolling(paused: Bool)
+}
+
 struct CountdownView: View {
     @Environment(\.colorSchemeContrast) private var contrast
 
     let metrics: NotchMetrics
     var interaction: NotchPanelInteractionState
-    let secondsRemaining: Int
-    let totalSeconds: Int
+    let phase: CountdownPhase
     let onStop: () -> Void
     let onCaptureNow: () -> Void
+
+    @State private var isTurning = false
 
     var body: some View {
         Group {
@@ -986,7 +997,7 @@ struct CountdownView: View {
             HStack(spacing: 0) {
                 HStack(spacing: metrics.gap) {
                     stopCell
-                    arcIndicator
+                    indicator
                 }
                 .padding(.leading, metrics.edgeSafe)
                 .padding(.trailing, metrics.leftMinToNotch)
@@ -1012,7 +1023,7 @@ struct CountdownView: View {
     private var noNotchLayout: some View {
         HStack(spacing: metrics.gap) {
             stopCell
-            arcIndicator
+            indicator
             Spacer()
             captureNowCell
         }
@@ -1037,6 +1048,42 @@ struct CountdownView: View {
             action: onStop
         )
         .frame(width: metrics.cellWidth, height: metrics.iconSize)
+    }
+
+    /// The countdown's arc, or — once a scrolling capture has taken the strip
+    /// over — its ring. One crossfade in place: the strip itself never leaves.
+    private var indicator: some View {
+        ZStack {
+            switch phase {
+            case .countdown:
+                arcIndicator.transition(.opacity)
+            case .scrolling(let paused):
+                Group {
+                    if paused {
+                        Image(systemName: "exclamationmark.triangle")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(PanelChrome.foreground(0.9, contrast))
+                    } else {
+                        PanelSpinnerRing(isTurning: isTurning)
+                            .onAppear { isTurning = true }
+                            .onDisappear { isTurning = false }
+                    }
+                }
+                .frame(width: 24, height: 24)
+                .transition(.opacity)
+            }
+        }
+        .animation(.easeInOut(duration: 0.18), value: indicatorKind)
+    }
+
+    /// Which of the three things is showing — the crossfade's trigger. The
+    /// phase itself changes every second while counting down, and the arc has
+    /// its own animation for that.
+    private var indicatorKind: Int {
+        switch phase {
+        case .countdown: return 0
+        case .scrolling(let paused): return paused ? 2 : 1
+        }
     }
 
     private var arcIndicator: some View {
@@ -1081,6 +1128,16 @@ struct CountdownView: View {
     private var arcProgress: Double {
         guard totalSeconds > 0 else { return 0 }
         return Double(totalSeconds - secondsRemaining) / Double(totalSeconds)
+    }
+
+    private var secondsRemaining: Int {
+        if case .countdown(let seconds, _) = phase { return seconds }
+        return 0
+    }
+
+    private var totalSeconds: Int {
+        if case .countdown(_, let total) = phase { return total }
+        return 0
     }
 
     private var contentOpacity: Double {

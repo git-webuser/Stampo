@@ -3,6 +3,16 @@ import ApplicationServices
 import ScreenCaptureKit
 import os
 
+/// What the notch strip shows while a scrolling capture runs.
+enum ScrollCaptureStatus: Equatable {
+    case capturing
+    /// Part of the image is collected but the capture cannot go on. The
+    /// reason is already localized; the strip waits for Done or ✕.
+    case paused(reason: String)
+    /// Done was pressed, or a limit was reached: the file is being written.
+    case saving
+}
+
 @MainActor
 final class ScrollingCaptureSession {
     private enum Geometry {
@@ -15,17 +25,16 @@ final class ScrollingCaptureSession {
 
     var onFinished: ((CGImage) -> Void)?
     var onCancelled: (() -> Void)?
+    var onStatus: ((ScrollCaptureStatus) -> Void)?
 
     private let selection: WindowPickerSelection
     private let axis: ScrollAxis
-    private let delaySeconds: Int
     private let excludeScrollbars: Bool
     private let activateSelectedWindow: @MainActor (WindowPickerSelection) throws -> Void
     /// Whether Stampo's own visible UI (the notch panel) is over a Quartz
     /// point. Own windows are not in the frontmost-window check.
     private let ownUICovers: @MainActor (CGPoint) -> Bool
     private let source = WindowFrameSource()
-    private var hud: ScrollingCaptureHUD?
     private var escapeToken: UUID?
     private var task: Task<Void, Never>?
     private var stopped = false
@@ -39,13 +48,12 @@ final class ScrollingCaptureSession {
     private var consecutiveFailures = 0
     private let startedAt = Date()
 
-    init(selection: WindowPickerSelection, axis: ScrollAxis, delaySeconds: Int = 0,
+    init(selection: WindowPickerSelection, axis: ScrollAxis,
          excludeScrollbars: Bool = true,
          activateSelectedWindow: (@MainActor (WindowPickerSelection) throws -> Void)? = nil,
          ownUICovers: @escaping @MainActor (CGPoint) -> Bool = { _ in false }) {
         self.selection = selection
         self.axis = axis
-        self.delaySeconds = max(0, delaySeconds)
         self.excludeScrollbars = excludeScrollbars
         self.activateSelectedWindow = activateSelectedWindow ?? { selected in
             try ScrollDriver.raiseSelectedWindow(selected)
@@ -61,16 +69,18 @@ final class ScrollingCaptureSession {
             cancel()
             return
         }
-        guard ScrollDriver.accessibilityIsTrusted(prompt: true) else {
-            UserFacingError.present(.accessibilityPermission)
+        // macOS asks once, in its own dialog; asking again would stack that
+        // dialog on top of ours. From the second time on our alert, with its
+        // button to the pane, is the only thing shown.
+        let plan = Self.accessibilityPlan(promptedBefore: AppSettings.scrollAccessibilityPrompted)
+        guard ScrollDriver.accessibilityIsTrusted(prompt: plan.prompt) else {
+            if plan.prompt { AppSettings.scrollAccessibilityPrompted = true }
+            if plan.alertIfDenied { UserFacingError.present(.accessibilityPermission) }
             cancel()
             return
         }
-        let windowScreen = NSScreen.screens.first { Self.appKitFrame(from: selection.bounds).intersects($0.frame) }
-        hud = ScrollingCaptureHUD(axis: axis, onFinish: { [weak self] in self?.finish() },
-                                  onCancel: { [weak self] in self?.cancel() })
-        hud?.show(on: windowScreen ?? NSScreen.main ?? NSScreen.screens.first)
         escapeToken = TransientHotkeyCenter.escape.push { [weak self] in self?.cancel() }
+        onStatus?(.capturing)
         _ = scheduleRun()
     }
 
@@ -86,9 +96,16 @@ final class ScrollingCaptureSession {
 
     func finish() {
         guard !stopped else { return }
+        // Done before the first frame has nothing to save, and nothing to
+        // complain about: the user changed their mind.
+        guard !assembler.strips.isEmpty else {
+            cancel()
+            return
+        }
         stopped = true
         task?.cancel()
         cleanup()
+        onStatus?(.saving)
         do {
             let image = try assembler.makeImage()
             releaseCaptureBuffers()
@@ -112,8 +129,6 @@ final class ScrollingCaptureSession {
     }
 
     private func cleanup() {
-        hud?.close()
-        hud = nil
         if let escapeToken { TransientHotkeyCenter.escape.remove(escapeToken) }
         escapeToken = nil
         task = nil
@@ -131,11 +146,6 @@ final class ScrollingCaptureSession {
 
     func run() async {
         do {
-            try ensureActive()
-            if delaySeconds > 0 {
-                hud?.update(String(format: LocaleManager.shared.string("Starting in %d seconds…"), delaySeconds))
-                try await Task.sleep(for: .seconds(delaySeconds))
-            }
             try ensureActive()
             diagnosticStage = .raiseWindow
             try activateSelectedWindow(selection)
@@ -217,7 +227,6 @@ final class ScrollingCaptureSession {
             self.viewport = croppedViewport
             assembler.begin(with: first)
             previous = probe
-            hud?.update(LocaleManager.shared.string("Capturing automatically…"))
             var requestedStep = max(24, Int(Double(axisLength(of: first)) * 0.60))
             var unmatchedScroll = 0
 
@@ -233,17 +242,17 @@ final class ScrollingCaptureSession {
                 previous = first
                 unmatchedScroll = probeStep
                 consecutiveFailures = 1
-                hud?.update(LocaleManager.shared.string("Unclear frame · retrying with a shorter scroll…"))
             }
 
             while !Task.isCancelled && !stopped {
+                // The end of the road is not a failure: what is collected is saved.
                 guard Date().timeIntervalSince(startedAt) < 90 else {
-                    pause(with: LocaleManager.shared.string("Time limit reached · Finish to save or Cancel to discard"))
+                    finish()
                     return
                 }
                 guard assembler.totalLength < ImageAssembler.maxOutputLength,
                       (axis == .vertical ? first.width : first.height) * assembler.totalLength < ImageAssembler.maxOutputPixels else {
-                    pause(with: LocaleManager.shared.string("Size limit reached · Finish to save or Cancel to discard"))
+                    finish()
                     return
                 }
                 guard let oldFrame = previous else { return }
@@ -280,7 +289,7 @@ final class ScrollingCaptureSession {
                     let crossLength = axis == .vertical ? next.width : next.height
                     guard combinedLength <= ImageAssembler.maxOutputLength,
                           crossLength * combinedLength <= ImageAssembler.maxOutputPixels else {
-                        pause(with: LocaleManager.shared.string("Size limit reached · Finish to save or Cancel to discard"))
+                        finish()
                         return
                     }
                     try ensureActive()
@@ -290,7 +299,6 @@ final class ScrollingCaptureSession {
                     unmatchedScroll = 0
                     requestedStep = max(24, Int(Double(axisLength(of: next)) * 0.60))
                     consecutiveFailures = 0
-                    hud?.update(String(format: LocaleManager.shared.string("Captured %d pixels"), assembler.totalLength))
                 } catch is CancellationError {
                     throw CancellationError()
                 } catch FrameMatchError.noReliableMotion where looksStationary {
@@ -300,10 +308,11 @@ final class ScrollingCaptureSession {
                     zeroMotionCount += 1
                     consecutiveFailures = 0
                     if zeroMotionCount >= 3 {
-                        pause(with: LocaleManager.shared.string("Capture complete · Finish to save or Cancel to discard"))
+                        // Three frames in a row without movement: the end of
+                        // the content.
+                        finish()
                         return
                     }
-                    hud?.update(LocaleManager.shared.string("No movement detected · checking…"))
                 } catch {
                     consecutiveFailures += 1
                     if consecutiveFailures <= 2 {
@@ -311,9 +320,8 @@ final class ScrollingCaptureSession {
                         // do not append a questionable match.
                         requestedStep = max(12, currentStep / 2)
                         unmatchedScroll += motionLimit
-                        hud?.update(LocaleManager.shared.string("Unclear frame · retrying with a shorter scroll…"))
                     } else {
-                        pause(with: LocaleManager.shared.string("Could not align frame · Finish to save or Cancel to discard"))
+                        pause(reason: LocaleManager.shared.string("Frames couldn't be aligned."))
                         return
                     }
                 }
@@ -328,8 +336,7 @@ final class ScrollingCaptureSession {
                     cancel()
                     return
                 }
-                let message = localizedMessage(for: error)
-                pause(with: "\(message) · \(LocaleManager.shared.string("Finish to save or Cancel to discard"))")
+                pause(reason: localizedMessage(for: error))
             }
         }
     }
@@ -358,9 +365,11 @@ final class ScrollingCaptureSession {
         Log.capture.error("scroll capture failed at stage \(self.diagnosticStage.rawValue, privacy: .public): \(error.localizedDescription, privacy: .public)")
     }
 
-    private func pause(with message: String) {
+    /// A failure with part of the image already collected: the capture stops
+    /// and waits for the user — Done saves what there is, ✕ drops it.
+    private func pause(reason: String) {
         previous = nil
-        hud?.update(message)
+        onStatus?(.paused(reason: reason))
     }
 
     private func captureViewport() async throws -> CaptureFrame {
@@ -399,13 +408,13 @@ final class ScrollingCaptureSession {
         }
         guard abs(now.width - selection.bounds.width) < 1,
               abs(now.height - selection.bounds.height) < 1 else {
-            throw WindowFrameSourceError.captureFailed(LocaleManager.shared.string("The window size changed. Finish to save the collected portion or Cancel to discard."))
+            throw WindowFrameSourceError.captureFailed(LocaleManager.shared.string("The window size changed."))
         }
         guard abs(Self.backingScale(for: now) - scale) < 0.01 else {
-            throw WindowFrameSourceError.captureFailed(LocaleManager.shared.string("The display scale changed. Finish to save the collected portion or Cancel to discard."))
+            throw WindowFrameSourceError.captureFailed(LocaleManager.shared.string("The display scale changed."))
         }
         guard NSWorkspace.shared.frontmostApplication?.processIdentifier == selection.processID else {
-            throw WindowFrameSourceError.captureFailed(LocaleManager.shared.string("The selected app lost focus. Finish to save the collected portion or Cancel to discard."))
+            throw WindowFrameSourceError.captureFailed(LocaleManager.shared.string("The window moved to the background."))
         }
     }
 
@@ -423,7 +432,7 @@ final class ScrollingCaptureSession {
             }
             try await Task.sleep(for: .milliseconds(80))
         }
-        throw WindowFrameSourceError.captureFailed(LocaleManager.shared.string("The selected app lost focus. Finish to save the collected portion or Cancel to discard."))
+        throw WindowFrameSourceError.captureFailed(LocaleManager.shared.string("The window moved to the background."))
     }
 
     private func currentScrollPoint() -> CGPoint {
@@ -541,81 +550,16 @@ final class ScrollingCaptureSession {
         return NSScreen.screens.first { $0.displayID == display }?.backingScaleFactor ?? 1
     }
 
+    /// What to do about Accessibility: macOS's own prompt the first time, our
+    /// alert every time after. Never both at once.
+    nonisolated static func accessibilityPlan(promptedBefore: Bool) -> (prompt: Bool, alertIfDenied: Bool) {
+        (prompt: !promptedBefore, alertIfDenied: promptedBefore)
+    }
+
     /// Backing pixels per point of a display mode. `CGDisplayPixelsWide`
     /// counts points on a Retina display, so it reads 2x as 1x.
     nonisolated static func backingScale(pixelWidth: Int, pointWidth: Int) -> CGFloat? {
         guard pixelWidth > 0, pointWidth > 0 else { return nil }
         return max(1, CGFloat(pixelWidth) / CGFloat(pointWidth))
     }
-
-    /// Window-list bounds are Quartz top-left coordinates; NSScreen frames are
-    /// AppKit bottom-left coordinates.
-    private static func appKitFrame(from quartz: CGRect) -> CGRect {
-        let display = NSScreen.screens.first(where: { $0.frame.origin == .zero })?.frame
-            ?? NSScreen.screens.first?.frame ?? .zero
-        return CGRect(x: quartz.minX, y: display.height - quartz.maxY,
-                      width: quartz.width, height: quartz.height)
-    }
-}
-
-@MainActor
-private final class ScrollingCaptureHUD {
-    private let panel: NSPanel
-    private let label = NSTextField(labelWithString: "")
-    private let onFinish: () -> Void
-    private let onCancel: () -> Void
-
-    init(axis: ScrollAxis, onFinish: @escaping () -> Void, onCancel: @escaping () -> Void) {
-        self.onFinish = onFinish
-        self.onCancel = onCancel
-        panel = NSPanel(contentRect: CGRect(x: 0, y: 0, width: 400, height: 82),
-                        styleMask: [.titled, .nonactivatingPanel], backing: .buffered, defer: false)
-        panel.title = LocaleManager.shared.string(axis == .vertical ? "Vertical capture" : "Horizontal capture")
-        panel.level = .floating
-        panel.isFloatingPanel = true
-        panel.hidesOnDeactivate = false
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
-
-        let stack = NSStackView()
-        stack.orientation = .vertical
-        stack.alignment = .leading
-        stack.spacing = 10
-        label.stringValue = LocaleManager.shared.string("Preparing capture…")
-        let buttons = NSStackView()
-        buttons.orientation = .horizontal
-        buttons.spacing = 8
-        let finishButton = NSButton(title: LocaleManager.shared.string("Finish"), target: nil, action: nil)
-        finishButton.target = self
-        finishButton.action = #selector(finishPressed)
-        let cancelButton = NSButton(title: LocaleManager.shared.string("Cancel"), target: nil, action: nil)
-        cancelButton.target = self
-        cancelButton.action = #selector(cancelPressed)
-        buttons.addArrangedSubview(finishButton)
-        buttons.addArrangedSubview(cancelButton)
-        stack.addArrangedSubview(label)
-        stack.addArrangedSubview(buttons)
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        let host = NSView(frame: panel.contentView?.bounds ?? .zero)
-        panel.contentView = host
-        host.addSubview(stack)
-        NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: host.leadingAnchor, constant: 14),
-            stack.trailingAnchor.constraint(lessThanOrEqualTo: host.trailingAnchor, constant: -14),
-            stack.topAnchor.constraint(equalTo: host.topAnchor, constant: 10),
-            stack.bottomAnchor.constraint(lessThanOrEqualTo: host.bottomAnchor, constant: -10)
-        ])
-    }
-
-    func show(on screen: NSScreen?) {
-        guard let screen else { return }
-        panel.setFrameOrigin(CGPoint(x: screen.visibleFrame.midX - panel.frame.width / 2,
-                                     y: screen.visibleFrame.minY + 36))
-        panel.orderFrontRegardless()
-    }
-
-    func update(_ text: String) { label.stringValue = text }
-    func close() { panel.orderOut(nil) }
-
-    @objc private func finishPressed() { onFinish() }
-    @objc private func cancelPressed() { onCancel() }
 }

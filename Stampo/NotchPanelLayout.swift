@@ -185,6 +185,16 @@ private func snapToPixel(_ value: CGFloat, scale: CGFloat) -> CGFloat {
 // MARK: - Notch helpers
 
 extension NSScreen {
+    /// The screen whose display holds a point given in Quartz coordinates —
+    /// global, origin at the top left of the primary display, as window
+    /// bounds from the window list are.
+    static func containing(quartzPoint point: CGPoint) -> NSScreen? {
+        screens.first { screen in
+            guard let id = screen.displayID else { return false }
+            return CGDisplayBounds(id).contains(point)
+        }
+    }
+
     var displayID: CGDirectDisplayID? {
         guard let num = deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else {
             return nil
