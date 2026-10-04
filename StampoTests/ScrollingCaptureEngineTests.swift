@@ -27,6 +27,50 @@ import Testing
         return CaptureFrame(width: width, height: height, pixels: bytes)
     }
 
+    private func diagonalTexture(width: Int, height: Int, xOffset: Int, yOffset: Int) -> CaptureFrame {
+        var bytes = [UInt8](repeating: 255, count: width * height * 4)
+        for y in 0..<height {
+            for x in 0..<width {
+                let logicalY = y + yOffset
+                let logicalX = x + xOffset
+                let rawRow = logicalY * 73 + logicalY * logicalY * 11
+                let rawColumn = logicalX * 37 + logicalX * logicalX * 13
+                let row = (rawRow % 160 + 160) % 160
+                let column = (rawColumn % 50 + 50) % 50
+                let value = UInt8(row + column)
+                let i = (y * width + x) * 4
+                bytes[i] = value
+                bytes[i + 1] = value
+                bytes[i + 2] = value
+                bytes[i + 3] = 255
+            }
+        }
+        return CaptureFrame(width: width, height: height, pixels: bytes)
+    }
+
+    private func aperiodicTexture(width: Int, height: Int, xOffset: Int, yOffset: Int) -> CaptureFrame {
+        var bytes = [UInt8](repeating: 255, count: width * height * 4)
+        for y in 0..<height {
+            for x in 0..<width {
+                let logicalX = UInt64(bitPattern: Int64(x + xOffset))
+                let logicalY = UInt64(bitPattern: Int64(y + yOffset))
+                var hash = (logicalX &* 0x9E37_79B9_7F4A_7C15) ^ (logicalY &* 0xD1B5_4A32_D192_ED03)
+                hash ^= hash >> 30
+                hash &*= 0xBF58_476D_1CE4_E5B9
+                hash ^= hash >> 27
+                hash &*= 0x94D0_49BB_1331_11EB
+                hash ^= hash >> 31
+                let value = UInt8(truncatingIfNeeded: hash >> 56)
+                let i = (y * width + x) * 4
+                bytes[i] = value
+                bytes[i + 1] = value
+                bytes[i + 2] = value
+                bytes[i + 3] = 255
+            }
+        }
+        return CaptureFrame(width: width, height: height, pixels: bytes)
+    }
+
     @Test func matchesMeasuredVerticalAndHorizontalMotion() throws {
         let vertical = try FrameMatcher.match(previous: texture(width: 160, height: 180),
                                               current: texture(width: 160, height: 180, yOffset: 23),
@@ -38,6 +82,51 @@ import Testing
         #expect(horizontal.offset == 19)
         #expect(vertical.independentRegions >= 3)
         #expect(horizontal.independentRegions >= 3)
+    }
+
+    @Test func rejectsResidualDiagonalMotionInBothDirectionsAndSigns() {
+        let stationary = aperiodicTexture(width: 200, height: 240, xOffset: 0, yOffset: 0)
+        for crossShift in [-8, 8] {
+            let verticalDiagonal = aperiodicTexture(width: 200, height: 240,
+                                                    xOffset: crossShift, yOffset: 23)
+            let verticalResidual = FrameMatcher.bestOrthogonalResidual(previous: stationary,
+                                                                        current: verticalDiagonal,
+                                                                        primaryAxis: .vertical,
+                                                                        primaryOffset: 23,
+                                                                        limit: 20)
+            #expect(verticalResidual.offset == crossShift)
+            #expect(verticalResidual.error < 12)
+            #expect(throws: FrameMatchError.self) {
+                try FrameMatcher.match(previous: stationary,
+                                       current: verticalDiagonal,
+                                       axis: .vertical, maximumOffset: 70)
+            }
+
+            let horizontalDiagonal = aperiodicTexture(width: 200, height: 240,
+                                                      xOffset: 23, yOffset: crossShift)
+            let horizontalResidual = FrameMatcher.bestOrthogonalResidual(previous: stationary,
+                                                                           current: horizontalDiagonal,
+                                                                           primaryAxis: .horizontal,
+                                                                           primaryOffset: 23,
+                                                                           limit: 20)
+            #expect(horizontalResidual.offset == crossShift)
+            #expect(horizontalResidual.error < 12)
+            #expect(throws: FrameMatchError.self) {
+                try FrameMatcher.match(previous: stationary,
+                                       current: horizontalDiagonal,
+                                       axis: .horizontal, maximumOffset: 70)
+            }
+        }
+    }
+
+    @Test func rejectsTheReportedDiagonalMotionPattern() {
+        #expect(throws: FrameMatchError.self) {
+            try FrameMatcher.match(previous: diagonalTexture(width: 200, height: 240,
+                                                              xOffset: 0, yOffset: 0),
+                                   current: diagonalTexture(width: 200, height: 240,
+                                                             xOffset: 8, yOffset: 23),
+                                   axis: .vertical, maximumOffset: 70)
+        }
     }
 
     @Test func appendsOnlyTheNewBottomBandForAnIncompleteFinalStep() throws {
@@ -148,6 +237,7 @@ import Testing
         #expect(cropped.windowRect.minY == 280 + moving.minY / 2)
         #expect(cropped.windowRect.width == moving.width / 2)
         #expect(cropped.windowRect.height == moving.height / 2)
+        #expect(cropped.relativeScrollPoint == originalViewport.relativeScrollPoint)
         #expect(cropped.cropRectInWindowPoints == CGRect(x: cropped.windowRect.minX - windowBounds.minX,
                                                          y: cropped.windowRect.minY - windowBounds.minY,
                                                          width: cropped.windowRect.width,
@@ -211,6 +301,19 @@ import Testing
         session.cancel()
         #expect(didCancel)
         #expect(!didFinish)
+    }
+
+    @Test @MainActor func cancellationBeforeScheduledRunDoesNotActivateAnyWindow() async {
+        let selection = WindowPickerSelection(windowID: 17, processID: 42,
+                                              clickPoint: CGPoint(x: 15, y: 15),
+                                              bounds: CGRect(x: 0, y: 0, width: 120, height: 90))
+        var activationCount = 0
+        let session = ScrollingCaptureSession(selection: selection, axis: .vertical,
+                                              activateSelectedWindow: { _ in activationCount += 1 })
+        let run = session.scheduleRun()
+        session.cancel()
+        await run.value
+        #expect(activationCount == 0)
     }
 }
 

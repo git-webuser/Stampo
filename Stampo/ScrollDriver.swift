@@ -17,8 +17,7 @@ struct ScrollViewport: Equatable, Sendable {
                                        y: windowRect.minY + pointRect.minY,
                                        width: pointRect.width, height: pointRect.height)
         return ScrollViewport(windowRect: croppedWindowRect,
-                              relativeScrollPoint: CGPoint(x: croppedWindowRect.midX - windowBounds.minX,
-                                                           y: croppedWindowRect.midY - windowBounds.minY),
+                              relativeScrollPoint: relativeScrollPoint,
                               windowBounds: windowBounds)
     }
 
@@ -73,7 +72,16 @@ enum ScrollDriver {
         currentWindowOwnerPID(windowID) == ownerPID
     }
 
-    static func validateScrollTarget(selection: WindowPickerSelection, point: CGPoint) throws {
+    static func validateSelectedWindow(selection: WindowPickerSelection, point: CGPoint) throws {
+        guard let top = frontmostWindow(at: point),
+              top.windowID == selection.windowID,
+              top.processID == selection.processID else {
+            throw WindowFrameSourceError.captureFailed(LocaleManager.shared.string("The selected window is covered at the scroll point. Finish to save the collected portion or Cancel to discard."))
+        }
+    }
+
+    static func validateScrollTarget(selection: WindowPickerSelection, point: CGPoint,
+                                     container: AXUIElement) throws {
         guard let top = frontmostWindow(at: point),
               top.windowID == selection.windowID,
               top.processID == selection.processID else {
@@ -86,7 +94,10 @@ enum ScrollDriver {
         var foundScrollableAncestor = false
         for _ in 0..<16 {
             if let role = stringAttribute(current, kAXRoleAttribute as String) {
-                if isScrollableRole(role) { foundScrollableAncestor = true }
+                if isScrollableRole(role) {
+                    guard CFEqual(current, container) else { throw ScrollDriverError.scrollAreaUnavailable }
+                    foundScrollableAncestor = true
+                }
                 if role == (kAXWindowRole as String) {
                     guard foundScrollableAncestor, let frame = frameOf(current), sameWindowFrame(frame, top.bounds) else {
                         throw ScrollDriverError.scrollAreaUnavailable
@@ -102,7 +113,7 @@ enum ScrollDriver {
         throw ScrollDriverError.scrollAreaUnavailable
     }
 
-    static func viewport(selection: WindowPickerSelection) throws -> ScrollViewport {
+    static func viewport(selection: WindowPickerSelection) throws -> (viewport: ScrollViewport, container: AXUIElement) {
         guard AXIsProcessTrusted() else { throw ScrollDriverError.accessibilityDenied }
         let system = AXUIElementCreateSystemWide()
         var hit: AXUIElement?
@@ -111,13 +122,18 @@ enum ScrollDriver {
 
         var current: AXUIElement? = hit
         var scrollRect: CGRect?
+        var scrollContainer: AXUIElement?
         for _ in 0..<14 {
             guard let element = current else { break }
             if let role = stringAttribute(element, kAXRoleAttribute as String),
                role == (kAXScrollAreaRole as String) || role == "AXWebArea" || role == "AXTable" {
                 if let frame = frameOf(element), frame.width >= 80, frame.height >= 80 {
-                    scrollRect = frame.intersection(selection.bounds)
-                    if let rect = scrollRect, rect.width >= 80, rect.height >= 80 { break }
+                    let rect = frame.intersection(selection.bounds)
+                    if rect.width >= 80, rect.height >= 80 {
+                        scrollRect = rect
+                        scrollContainer = element
+                        break
+                    }
                 }
             }
             var parent: CFTypeRef?
@@ -125,13 +141,15 @@ enum ScrollDriver {
                   let next = parent, CFGetTypeID(next) == AXUIElementGetTypeID() else { break }
             current = (next as! AXUIElement)
         }
-        guard let rect = scrollRect, rect.width >= 80, rect.height >= 80 else {
+        guard let rect = scrollRect, rect.width >= 80, rect.height >= 80,
+              let resolvedContainer = scrollContainer else {
             throw ScrollDriverError.scrollAreaUnavailable
         }
-        return ScrollViewport(windowRect: rect,
-                              relativeScrollPoint: CGPoint(x: selection.clickPoint.x - selection.bounds.minX,
-                                                           y: selection.clickPoint.y - selection.bounds.minY),
-                              windowBounds: selection.bounds)
+        return (ScrollViewport(windowRect: rect,
+                               relativeScrollPoint: CGPoint(x: selection.clickPoint.x - selection.bounds.minX,
+                                                            y: selection.clickPoint.y - selection.bounds.minY),
+                               windowBounds: selection.bounds),
+                resolvedContainer)
     }
 
     static func sendScroll(axis: ScrollAxis, pixels: Int, at point: CGPoint) throws {

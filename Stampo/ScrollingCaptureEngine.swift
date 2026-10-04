@@ -157,6 +157,19 @@ nonisolated enum FrameMatcher {
         // part of the window (e.g. a blinking caret).
         let best = costs.indices.min { costs[$0] < costs[$1] } ?? 0
         guard best > 0, costs[best] < 0.20 else { throw FrameMatchError.noReliableMotion }
+
+        // Measure perpendicular movement only after aligning the primary
+        // displacement. Checking raw frame pairs confounds diagonal movement
+        // with the much larger intended shift.
+        let orthogonal = axis == .vertical ? ScrollAxis.horizontal : .vertical
+        let crossLimit = min(20, (orthogonal == .vertical ? h : w) / 10)
+        let residual = bestOrthogonalResidual(previous: previous, current: current,
+                                             primaryAxis: axis, primaryOffset: best,
+                                             limit: crossLimit)
+        if abs(residual.offset) > 3, residual.error < 12 {
+            throw FrameMatchError.crossAxisMotion
+        }
+
         var agreeing = 0
         for region in regionCosts {
             if let candidate = region.indices.min(by: { region[$0] < region[$1] }),
@@ -168,41 +181,58 @@ nonisolated enum FrameMatcher {
         let confidence = min(1, (1 - costs[best]) * 0.55 + margin * 0.45)
         guard confidence >= minimumConfidence else { throw FrameMatchError.ambiguousMotion }
 
-        // Detect motion along the unused axis with the same matcher after a
-        // one-axis match. Even modest cross-axis movement invalidates stitching.
-        let orthogonal = axis == .vertical ? ScrollAxis.horizontal : .vertical
-        let crossLimit = min(12, (orthogonal == .vertical ? h : w) / 10)
-        if crossLimit > 1, let crossBest = try? matchSingleAxis(previous: previous, current: current,
-                                                                 axis: orthogonal, limit: crossLimit),
-           crossBest > 3, costs[best] < 0.12 {
-            throw FrameMatchError.crossAxisMotion
-        }
         return FrameMatch(offset: best, confidence: confidence, independentRegions: agreeing)
     }
 
-    private static func matchSingleAxis(previous: CaptureFrame, current: CaptureFrame,
-                                        axis: ScrollAxis, limit: Int) throws -> Int {
-        let n = axis == .vertical ? previous.height : previous.width
-        let cross = axis == .vertical ? previous.width : previous.height
+    static func bestOrthogonalResidual(previous: CaptureFrame, current: CaptureFrame,
+                                       primaryAxis: ScrollAxis, primaryOffset: Int,
+                                       limit: Int) -> (offset: Int, error: Double) {
+        let width = previous.width, height = previous.height
+        let range = primaryAxis == .vertical ? width : height
+        let residualLimit = min(max(0, limit), max(0, range / 4))
+        guard residualLimit > 0 else { return (0, .infinity) }
         var best = (offset: 0, error: Double.infinity)
-        for delta in 0...min(limit, n / 4) {
-            var error = 0.0, count = 0
-            for c in stride(from: 0, to: cross, by: max(1, cross / 24)) {
-                for a in stride(from: 0, to: n - delta, by: max(1, n / 48)) {
-                    let x0 = axis == .vertical ? c : a + delta, y0 = axis == .vertical ? a + delta : c
-                    let x1 = axis == .vertical ? c : a, y1 = axis == .vertical ? a : c
-                    let i = (y0 * previous.width + x0) * 4, j = (y1 * current.width + x1) * 4
-                    error += Double(abs(Int(previous.pixels[i]) - Int(current.pixels[j]))
-                                  + abs(Int(previous.pixels[i+1]) - Int(current.pixels[j+1]))
-                                  + abs(Int(previous.pixels[i+2]) - Int(current.pixels[j+2])))
-                    count += 3
+
+        for residual in (-residualLimit)...residualLimit {
+            var error = 0.0, samples = 0
+            if primaryAxis == .vertical {
+                let crossStart = max(0, -residual)
+                let crossEnd = min(width, width - residual)
+                let alongEnd = height - primaryOffset
+                guard crossEnd > crossStart, alongEnd > 0 else { continue }
+                for x in stride(from: crossStart, to: crossEnd, by: max(1, (crossEnd - crossStart) / 24)) {
+                    for y in stride(from: 0, to: alongEnd, by: max(1, alongEnd / 48)) {
+                        let previousIndex = ((y + primaryOffset) * width + x + residual) * 4
+                        let currentIndex = (y * width + x) * 4
+                        error += channelError(previous.pixels, previousIndex, current.pixels, currentIndex)
+                        samples += 3
+                    }
+                }
+            } else {
+                let crossStart = max(0, -residual)
+                let crossEnd = min(height, height - residual)
+                let alongEnd = width - primaryOffset
+                guard crossEnd > crossStart, alongEnd > 0 else { continue }
+                for y in stride(from: crossStart, to: crossEnd, by: max(1, (crossEnd - crossStart) / 24)) {
+                    for x in stride(from: 0, to: alongEnd, by: max(1, alongEnd / 48)) {
+                        let previousIndex = ((y + residual) * width + x + primaryOffset) * 4
+                        let currentIndex = (y * width + x) * 4
+                        error += channelError(previous.pixels, previousIndex, current.pixels, currentIndex)
+                        samples += 3
+                    }
                 }
             }
-            let score = error / Double(max(1, count))
-            if score < best.error { best = (delta, score) }
+            let score = error / Double(max(1, samples))
+            if score < best.error { best = (residual, score) }
         }
-        guard best.error < 12 else { throw FrameMatchError.noReliableMotion }
-        return best.offset
+        return best
+    }
+
+    private static func channelError(_ lhs: [UInt8], _ lhsIndex: Int,
+                                     _ rhs: [UInt8], _ rhsIndex: Int) -> Double {
+        Double(abs(Int(lhs[lhsIndex]) - Int(rhs[rhsIndex]))
+             + abs(Int(lhs[lhsIndex + 1]) - Int(rhs[rhsIndex + 1]))
+             + abs(Int(lhs[lhsIndex + 2]) - Int(rhs[rhsIndex + 2])))
     }
 }
 

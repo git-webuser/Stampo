@@ -12,6 +12,7 @@ final class ScrollingCaptureSession {
     private let selection: WindowPickerSelection
     private let axis: ScrollAxis
     private let delaySeconds: Int
+    private let activateSelectedWindow: @MainActor (WindowPickerSelection) throws -> Void
     private let source = WindowFrameSource()
     private var hud: ScrollingCaptureHUD?
     private var escapeToken: UUID?
@@ -19,6 +20,7 @@ final class ScrollingCaptureSession {
     private var stopped = false
     private var state: State = .preparing
     private var viewport: ScrollViewport?
+    private var scrollContainer: AXUIElement?
     private var scale: CGFloat = 1
     private var lastStatus = "Preparing capture…"
     private var assembler: ImageAssembler
@@ -27,10 +29,14 @@ final class ScrollingCaptureSession {
     private var consecutiveFailures = 0
     private let startedAt = Date()
 
-    init(selection: WindowPickerSelection, axis: ScrollAxis, delaySeconds: Int = 0) {
+    init(selection: WindowPickerSelection, axis: ScrollAxis, delaySeconds: Int = 0,
+         activateSelectedWindow: (@MainActor (WindowPickerSelection) throws -> Void)? = nil) {
         self.selection = selection
         self.axis = axis
         self.delaySeconds = max(0, delaySeconds)
+        self.activateSelectedWindow = activateSelectedWindow ?? { selected in
+            try ScrollDriver.raiseSelectedWindow(selected)
+        }
         self.assembler = ImageAssembler(axis: axis)
     }
 
@@ -51,7 +57,17 @@ final class ScrollingCaptureSession {
                                   onCancel: { [weak self] in self?.cancel() })
         hud?.show(on: windowScreen ?? NSScreen.main ?? NSScreen.screens.first)
         escapeToken = TransientHotkeyCenter.escape.push { [weak self] in self?.cancel() }
-        task = Task { [weak self] in await self?.run() }
+        _ = scheduleRun()
+    }
+
+    @discardableResult
+    func scheduleRun() -> Task<Void, Never> {
+        let scheduled = Task<Void, Never> { [weak self] in
+            guard let self else { return }
+            await self.run()
+        }
+        task = scheduled
+        return scheduled
     }
 
     func finish() {
@@ -87,6 +103,7 @@ final class ScrollingCaptureSession {
         if let escapeToken { TransientHotkeyCenter.escape.remove(escapeToken) }
         escapeToken = nil
         task = nil
+        scrollContainer = nil
     }
 
     private func releaseCaptureBuffers() {
@@ -98,19 +115,24 @@ final class ScrollingCaptureSession {
         guard !Task.isCancelled, !stopped else { throw CancellationError() }
     }
 
-    private func run() async {
+    func run() async {
         do {
+            try ensureActive()
             if delaySeconds > 0 {
                 hud?.update(String(format: LocaleManager.shared.string("Starting in %d seconds…"), delaySeconds))
                 try await Task.sleep(for: .seconds(delaySeconds))
             }
-            try ScrollDriver.raiseSelectedWindow(selection)
+            try ensureActive()
+            try activateSelectedWindow(selection)
             try await waitForTargetFocus()
             try ensureActive()
             scale = Self.backingScale(for: selection.bounds)
             try checkWindowAndFocus()
-            try ScrollDriver.validateScrollTarget(selection: selection, point: selection.clickPoint)
-            viewport = try ScrollDriver.viewport(selection: selection)
+            let target = try ScrollDriver.viewport(selection: selection)
+            viewport = target.viewport
+            scrollContainer = target.container
+            try ScrollDriver.validateScrollTarget(selection: selection, point: selection.clickPoint,
+                                                  container: target.container)
             state = .capturing
             let initialViewport = try await ScrollCaptureCancellationBoundary.awaitActive {
                 try await self.captureViewport()
@@ -120,7 +142,9 @@ final class ScrollingCaptureSession {
             let probeStep = max(24, min(56, axisLength(of: initialViewport) / 10))
             try ensureActive()
             let probePoint = currentScrollPoint()
-            try ScrollDriver.validateScrollTarget(selection: selection, point: probePoint)
+            guard self.scrollContainer != nil else { throw ScrollDriverError.scrollAreaUnavailable }
+            try ScrollDriver.validateScrollTarget(selection: selection, point: probePoint,
+                                                  container: self.scrollContainer!)
             try ScrollDriver.sendScroll(axis: axis, pixels: probeStep, at: probePoint)
             let probeViewport = try await ScrollCaptureCancellationBoundary.awaitActive {
                 try await self.captureStableViewport(reference: initialViewport)
@@ -177,7 +201,9 @@ final class ScrollingCaptureSession {
                                                                       viewportLength: axisLength(of: oldFrame))
                 let point = currentScrollPoint()
                 try ensureActive()
-                try ScrollDriver.validateScrollTarget(selection: selection, point: point)
+                guard self.scrollContainer != nil else { throw ScrollDriverError.scrollAreaUnavailable }
+                try ScrollDriver.validateScrollTarget(selection: selection, point: point,
+                                                      container: self.scrollContainer!)
                 try ScrollDriver.sendScroll(axis: axis, pixels: currentStep, at: point)
                 let next = try await ScrollCaptureCancellationBoundary.awaitActive {
                     try await self.captureStableViewport(reference: oldFrame)
@@ -311,7 +337,7 @@ final class ScrollingCaptureSession {
         while Date() < deadline && !Task.isCancelled {
             if NSWorkspace.shared.frontmostApplication?.processIdentifier == selection.processID {
                 do {
-                    try ScrollDriver.validateScrollTarget(selection: selection, point: selection.clickPoint)
+                    try ScrollDriver.validateSelectedWindow(selection: selection, point: selection.clickPoint)
                     return
                 } catch {
                     // Wait briefly for activation to expose the exact selected
