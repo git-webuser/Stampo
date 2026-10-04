@@ -48,6 +48,185 @@ struct PanelSpinnerRing: View {
     }
 }
 
+// MARK: - PanelChoiceMenuButton
+
+/// "HEX ⌄": a label and a chevron that open a pull-down of the few things to
+/// choose between. The archive's colour format, and the main row's scroll
+/// direction — one control, so the two cannot drift apart in height, inset or
+/// the way they light up.
+struct PanelChoiceMenuButton<Option: Hashable>: View {
+    @Binding var selection: Option
+    let options: [Option]
+    /// The option's words, resolved when the button is drawn and when the menu
+    /// is refreshed, so a language change reaches both.
+    let title: (Option) -> String
+    /// Localization key of the label VoiceOver reads for the control.
+    let labelKey: String
+    /// Marks the chosen option in the menu. Off by default: the archive's
+    /// format menu never carried one, and the label already says which it is.
+    var showsCheckmark = false
+    let metrics: NotchMetrics
+
+    @State private var isHovered  = false
+    @State private var isPressed  = false
+    @State private var isMenuOpen = false
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Text(title(selection))
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(labelColor)
+            Image(systemName: "chevron.down")
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(chevronColor)
+        }
+        .padding(.horizontal, 8)
+        .frame(height: metrics.buttonHeight)
+        .background(
+            RoundedRectangle(cornerRadius: metrics.buttonRadius, style: .continuous)
+                .fill(backgroundColor)
+        )
+        .overlay {
+            PanelChoicePopUp(
+                selection: $selection,
+                options: options,
+                title: title,
+                labelKey: labelKey,
+                showsCheckmark: showsCheckmark,
+                onOpen:  { isMenuOpen = true  },
+                onClose: { isMenuOpen = false }
+            )
+        }
+        .fixedSize()
+        .scaleEffect(isPressed ? 0.88 : 1.0)
+        .animation(.spring(response: 0.18, dampingFraction: 0.7), value: isPressed)
+        .contentShape(Rectangle())
+        .clipped()
+        .onHover { isHovered = $0 }
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { _ in isPressed = true  }
+                .onEnded   { _ in isPressed = false }
+        )
+        .animation(.easeInOut(duration: 0.12), value: isHovered)
+        .animation(.easeInOut(duration: 0.12), value: isMenuOpen)
+    }
+
+    private var labelColor: Color {
+        if isMenuOpen { return .white }
+        if isPressed  { return .white }
+        if isHovered  { return .white }
+        return .white.opacity(0.8)
+    }
+
+    private var chevronColor: Color {
+        if isMenuOpen { return .white }
+        if isPressed  { return .white }
+        if isHovered  { return .white }
+        return .white.opacity(0.8)
+    }
+
+    private var backgroundColor: Color {
+        if isMenuOpen { return .white.opacity(0.22) }
+        if isPressed  { return .white.opacity(0.28) }
+        if isHovered  { return .white.opacity(0.16) }
+        return .clear
+    }
+}
+
+/// The pull-down behind `PanelChoiceMenuButton`, invisible and laid over its
+/// label.
+private struct PanelChoicePopUp<Option: Hashable>: NSViewRepresentable {
+    @Binding var selection: Option
+    let options: [Option]
+    let title: (Option) -> String
+    let labelKey: String
+    let showsCheckmark: Bool
+    var onOpen:  () -> Void
+    var onClose: () -> Void
+    @Environment(\.locale) private var locale
+
+    func makeNSView(context: Context) -> NSPopUpButton {
+        let button = PanelPopUpButton()
+        button.isBordered       = false
+        button.isTransparent    = true
+        button.pullsDown        = true
+        button.autoresizingMask = []
+        (button.cell as? NSPopUpButtonCell)?.arrowPosition = .noArrow
+
+        // pullsDown=true: the first item acts as the hidden button title,
+        // so we add an empty placeholder to make the first option visible.
+        button.addItem(withTitle: "")
+        for option in options {
+            button.addItem(withTitle: title(option))
+        }
+
+        button.target = context.coordinator
+        button.action = #selector(Coordinator.selectionChanged(_:))
+
+        NotificationCenter.default.addObserver(
+            context.coordinator,
+            selector: #selector(Coordinator.menuWillOpen(_:)),
+            name: NSPopUpButton.willPopUpNotification,
+            object: button
+        )
+        NotificationCenter.default.addObserver(
+            context.coordinator,
+            selector: #selector(Coordinator.menuDidClose(_:)),
+            name: NSMenu.didEndTrackingNotification,
+            object: button.menu
+        )
+
+        return button
+    }
+
+    func updateNSView(_ button: NSPopUpButton, context: Context) {
+        // Via LocaleManager rather than String(localized:), which reads the
+        // process language and so ignores the in-app language picker; set here
+        // rather than in makeNSView so it follows a language change.
+        button.setAccessibilityLabel(LocaleManager.string(labelKey, locale: locale))
+
+        // +1 — offset for the empty placeholder at index 0 (pullsDown = true)
+        let selected = options.firstIndex(of: selection) ?? 0
+        for (index, option) in options.enumerated() {
+            guard let item = button.item(at: index + 1) else { continue }
+            item.title = title(option)
+            item.state = showsCheckmark && index == selected ? .on : .off
+        }
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = 0
+            button.selectItem(at: selected + 1)
+        }
+        context.coordinator.parent = self
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    final class Coordinator: NSObject {
+        var parent: PanelChoicePopUp
+
+        init(_ parent: PanelChoicePopUp) { self.parent = parent }
+
+        deinit { NotificationCenter.default.removeObserver(self) }
+
+        @objc func selectionChanged(_ sender: NSPopUpButton) {
+            let options = parent.options
+            // -1 — compensate for the empty placeholder at index 0 (pullsDown = true)
+            let idx = sender.indexOfSelectedItem - 1
+            guard idx >= 0, idx < options.count else { return }
+            DispatchQueue.main.async { self.parent.selection = options[idx] }
+        }
+
+        @objc func menuWillOpen(_ notification: Notification) {
+            DispatchQueue.main.async { self.parent.onOpen() }
+        }
+
+        @objc func menuDidClose(_ notification: Notification) {
+            DispatchQueue.main.async { self.parent.onClose() }
+        }
+    }
+}
+
 // MARK: - PanelIconButton
 
 /// Unified icon button for the panel with hover and active states.
