@@ -125,6 +125,10 @@ enum ScrollViewportResolution {
 /// Accessibility is used only to find the scrollable viewport. Scrolling is
 /// sent as a Core Graphics wheel event at the user's exact click location.
 enum ScrollDriver {
+    /// AX calls run on the main thread; a hung target app must not stall it
+    /// for the default six seconds.
+    private static let messagingTimeout: Float = 1.0
+
     static func accessibilityIsTrusted(prompt: Bool) -> Bool {
         let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: prompt] as CFDictionary
         return AXIsProcessTrustedWithOptions(options)
@@ -142,6 +146,7 @@ enum ScrollDriver {
         if let top = frontmostWindow(at: selection.clickPoint),
            top.windowID == selection.windowID, top.processID == selection.processID { return }
         let application = AXUIElementCreateApplication(selection.processID)
+        AXUIElementSetMessagingTimeout(application, messagingTimeout)
         var value: CFTypeRef?
         guard AXUIElementCopyAttributeValue(application, kAXWindowsAttribute as CFString, &value) == .success,
               let windows = value as? [AXUIElement],
@@ -164,10 +169,6 @@ enum ScrollDriver {
         throw selectedWindowNotFrontmost()
     }
 
-    static func isSelectedWindow(_ windowID: CGWindowID, ownerPID: pid_t) -> Bool {
-        currentWindowOwnerPID(windowID) == ownerPID
-    }
-
     static func validateSelectedWindow(selection: WindowPickerSelection, point: CGPoint) throws {
         guard let top = frontmostWindow(at: point),
               top.windowID == selection.windowID,
@@ -183,7 +184,7 @@ enum ScrollDriver {
               top.processID == selection.processID else {
             throw selectedWindowNotFrontmost()
         }
-        let system = AXUIElementCreateSystemWide()
+        let system = systemWideElement()
         var hit: AXUIElement?
         guard AXUIElementCopyElementAtPosition(system, Float(point.x), Float(point.y), &hit) == .success,
               var current = hit else { throw ScrollDriverError.scrollAreaUnavailable }
@@ -252,7 +253,7 @@ enum ScrollDriver {
 
     static func viewport(selection: WindowPickerSelection) throws -> ScrollViewportResolution {
         guard AXIsProcessTrusted() else { throw ScrollDriverError.accessibilityDenied }
-        let system = AXUIElementCreateSystemWide()
+        let system = systemWideElement()
         var hit: AXUIElement?
         let result = AXUIElementCopyElementAtPosition(system, Float(selection.clickPoint.x), Float(selection.clickPoint.y), &hit)
         let windowViewport = windowFallbackViewport(for: selection)
@@ -341,14 +342,19 @@ enum ScrollDriver {
         let bounds: CGRect
     }
 
+    /// Stampo's own windows are skipped: the notch panel's window is far
+    /// taller than what it draws and passes the mouse through, so its frame
+    /// would "cover" the top of the screen. The session asks the panel about
+    /// its visible content instead.
     private static func frontmostWindow(at point: CGPoint) -> WindowAtPoint? {
         guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else { return nil }
+        let ownPID = ProcessInfo.processInfo.processIdentifier
         for info in list {
             guard let bounds = info[kCGWindowBounds as String] as? [String: Any],
                   let rect = rect(from: bounds), rect.contains(point),
                   (info[kCGWindowAlpha as String] as? CGFloat ?? 1) > 0.01,
                   let window = info[kCGWindowNumber as String] as? UInt32,
-                  let pid = info[kCGWindowOwnerPID as String] as? pid_t else { continue }
+                  let pid = info[kCGWindowOwnerPID as String] as? pid_t, pid != ownPID else { continue }
             return WindowAtPoint(windowID: CGWindowID(window), processID: pid, bounds: rect)
         }
         return nil
@@ -365,8 +371,14 @@ enum ScrollDriver {
             && abs(a.width - b.width) < 3 && abs(a.height - b.height) < 3
     }
 
-    private static func selectedWindowNotFrontmost() -> WindowFrameSourceError {
+    static func selectedWindowNotFrontmost() -> WindowFrameSourceError {
         .captureFailed(LocaleManager.shared.string("The selected window is covered at the scroll point. Finish to save the collected portion or Cancel to discard."))
+    }
+
+    private static func systemWideElement() -> AXUIElement {
+        let system = AXUIElementCreateSystemWide()
+        AXUIElementSetMessagingTimeout(system, messagingTimeout)
+        return system
     }
 
     private static func stringAttribute(_ element: AXUIElement, _ key: String) -> String? {
@@ -379,7 +391,8 @@ enum ScrollDriver {
         var positionValue: CFTypeRef?, sizeValue: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, kAXPositionAttribute as CFString, &positionValue) == .success,
               AXUIElementCopyAttributeValue(element, kAXSizeAttribute as CFString, &sizeValue) == .success,
-              let p = positionValue, let s = sizeValue else { return nil }
+              let p = positionValue, let s = sizeValue,
+              CFGetTypeID(p) == AXValueGetTypeID(), CFGetTypeID(s) == AXValueGetTypeID() else { return nil }
         var point = CGPoint.zero, size = CGSize.zero
         guard AXValueGetValue(p as! AXValue, .cgPoint, &point), AXValueGetValue(s as! AXValue, .cgSize, &size) else { return nil }
         return CGRect(origin: point, size: size)

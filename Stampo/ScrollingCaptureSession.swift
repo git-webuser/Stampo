@@ -5,7 +5,6 @@ import os
 
 @MainActor
 final class ScrollingCaptureSession {
-    private enum State { case preparing, capturing, awaitingDecision, finished }
     private enum Geometry {
         static let roundedWindowEdgeInsetPoints: CGFloat = 6
         static let fallbackScrollbarInsetPoints: CGFloat = 10
@@ -22,17 +21,18 @@ final class ScrollingCaptureSession {
     private let delaySeconds: Int
     private let excludeScrollbars: Bool
     private let activateSelectedWindow: @MainActor (WindowPickerSelection) throws -> Void
+    /// Whether Stampo's own visible UI (the notch panel) is over a Quartz
+    /// point. Own windows are not in the frontmost-window check.
+    private let ownUICovers: @MainActor (CGPoint) -> Bool
     private let source = WindowFrameSource()
     private var hud: ScrollingCaptureHUD?
     private var escapeToken: UUID?
     private var task: Task<Void, Never>?
     private var stopped = false
-    private var state: State = .preparing
     private var diagnosticStage: DiagnosticStage = .raiseWindow
     private var viewport: ScrollViewport?
     private var scrollContainer: AXUIElement?
     private var scale: CGFloat = 1
-    private var lastStatus = "Preparing capture…"
     private var assembler: ImageAssembler
     private var previous: CaptureFrame?
     private var zeroMotionCount = 0
@@ -41,7 +41,8 @@ final class ScrollingCaptureSession {
 
     init(selection: WindowPickerSelection, axis: ScrollAxis, delaySeconds: Int = 0,
          excludeScrollbars: Bool = true,
-         activateSelectedWindow: (@MainActor (WindowPickerSelection) throws -> Void)? = nil) {
+         activateSelectedWindow: (@MainActor (WindowPickerSelection) throws -> Void)? = nil,
+         ownUICovers: @escaping @MainActor (CGPoint) -> Bool = { _ in false }) {
         self.selection = selection
         self.axis = axis
         self.delaySeconds = max(0, delaySeconds)
@@ -49,6 +50,7 @@ final class ScrollingCaptureSession {
         self.activateSelectedWindow = activateSelectedWindow ?? { selected in
             try ScrollDriver.raiseSelectedWindow(selected)
         }
+        self.ownUICovers = ownUICovers
         self.assembler = ImageAssembler(axis: axis)
     }
 
@@ -85,7 +87,6 @@ final class ScrollingCaptureSession {
     func finish() {
         guard !stopped else { return }
         stopped = true
-        state = .finished
         task?.cancel()
         cleanup()
         do {
@@ -104,7 +105,6 @@ final class ScrollingCaptureSession {
     func cancel() {
         guard !stopped else { return }
         stopped = true
-        state = .finished
         task?.cancel()
         cleanup()
         releaseCaptureBuffers()
@@ -186,7 +186,6 @@ final class ScrollingCaptureSession {
                 let source = axScrollbarInset == nil ? "fixed edge reserve" : "AX scrollbar geometry"
                 Log.capture.info("scrollbar edge excluded · \(reservedPoints, privacy: .public) points · \(source, privacy: .public)")
             }
-            state = .capturing
             diagnosticStage = .capture
             let initialViewport = try await ScrollCaptureCancellationBoundary.awaitActive {
                 try await self.captureViewport()
@@ -218,8 +217,7 @@ final class ScrollingCaptureSession {
             self.viewport = croppedViewport
             assembler.begin(with: first)
             previous = probe
-            lastStatus = LocaleManager.shared.string("Capturing automatically…")
-            hud?.update(lastStatus)
+            hud?.update(LocaleManager.shared.string("Capturing automatically…"))
             var requestedStep = max(24, Int(Double(axisLength(of: first)) * 0.60))
             var unmatchedScroll = 0
 
@@ -305,8 +303,7 @@ final class ScrollingCaptureSession {
                         pause(with: LocaleManager.shared.string("Capture complete · Finish to save or Cancel to discard"))
                         return
                     }
-                    lastStatus = LocaleManager.shared.string("No movement detected · checking…")
-                    hud?.update(lastStatus)
+                    hud?.update(LocaleManager.shared.string("No movement detected · checking…"))
                 } catch {
                     consecutiveFailures += 1
                     if consecutiveFailures <= 2 {
@@ -333,12 +330,12 @@ final class ScrollingCaptureSession {
                 }
                 let message = localizedMessage(for: error)
                 pause(with: "\(message) · \(LocaleManager.shared.string("Finish to save or Cancel to discard"))")
-                lastStatus = message
             }
         }
     }
 
     private func validateCurrentScrollTarget(at point: CGPoint) throws {
+        guard !ownUICovers(point) else { throw ScrollDriver.selectedWindowNotFrontmost() }
         guard scrollContainer != nil else {
             try ScrollDriver.validateSelectedWindow(selection: selection, point: point)
             return
@@ -362,9 +359,7 @@ final class ScrollingCaptureSession {
     }
 
     private func pause(with message: String) {
-        state = .awaitingDecision
         previous = nil
-        lastStatus = message
         hud?.update(message)
     }
 

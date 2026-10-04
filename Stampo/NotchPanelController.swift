@@ -962,6 +962,12 @@ final class NotchPanelController: NSObject {
             if case .preSelection = self?.state { self?.state = .hidden }
             self?.postMascotState(.sleeping)
         }
+        screenshot.scrollingOwnUICovers = { [weak self] quartzPoint in
+            guard let self, let panel = self.panel, panel.isVisible else { return false }
+            let primaryHeight = NSScreen.screens.first(where: { $0.frame.origin == .zero })?.frame.height
+                ?? NSScreen.screens.first?.frame.height ?? 0
+            return self.drawnContentRect.contains(NSPoint(x: quartzPoint.x, y: primaryHeight - quartzPoint.y))
+        }
         screenshot.onThumbnailTapped = { [weak self] in
             guard let self else { return }
             // Тот же guard что в toggleAnimated: после sleep/Space-switch AppKit

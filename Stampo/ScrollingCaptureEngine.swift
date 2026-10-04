@@ -15,8 +15,6 @@ nonisolated enum ScrollCaptureCancellationBoundary {
 nonisolated enum ScrollAxis: String, CaseIterable, Equatable, Sendable {
     case vertical
     case horizontal
-
-    var cgAxis: CGVector { self == .vertical ? CGVector(dx: 0, dy: 1) : CGVector(dx: 1, dy: 0) }
 }
 
 /// A compact, immutable RGBA frame. Pixel coordinates use the same top-left

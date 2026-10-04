@@ -33,6 +33,10 @@ final class ScreenshotService {
     /// Called when a capture is cancelled by the user (e.g. Esc during window picker).
     var onCancelled: (() -> Void)?
 
+    /// Whether Stampo's own visible UI is over a Quartz point. A scrolling
+    /// capture never scrolls through it.
+    var scrollingOwnUICovers: ((CGPoint) -> Bool)?
+
     init() {
         thumbnailHUD.onTapped = { [weak self] in
             self?.onThumbnailTapped?()
@@ -52,7 +56,10 @@ final class ScreenshotService {
         guard !captureInProgress, scrollingSession == nil else { return }
         captureInProgress = true
         let session = ScrollingCaptureSession(selection: selection, axis: axis, delaySeconds: delaySeconds,
-                                              excludeScrollbars: AppSettings.excludeScrollbars)
+                                              excludeScrollbars: AppSettings.excludeScrollbars,
+                                              ownUICovers: { [weak self] point in
+                                                  self?.scrollingOwnUICovers?(point) ?? false
+                                              })
         scrollingSession = session
         session.onFinished = { [weak self] image in
             guard let self else { return }

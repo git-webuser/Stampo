@@ -49,10 +49,11 @@ final class WindowPickerOverlay {
         view.onSelected = { [weak self] selection in
             self?.dismiss()
             if let selection {
-                if let app = NSRunningApplication(processIdentifier: selection.processID) {
-                    app.activate(options: [.activateAllWindows])
-                }
                 if let onSelectedWindow = self?.onSelectedWindow {
+                    // Scrolling capture sends events to this window, so it has
+                    // to come forward; an ordinary window shot leaves focus be.
+                    NSRunningApplication(processIdentifier: selection.processID)?
+                        .activate(options: [.activateAllWindows])
                     onSelectedWindow(selection)
                 } else {
                     self?.onSelected?(selection.windowID)
