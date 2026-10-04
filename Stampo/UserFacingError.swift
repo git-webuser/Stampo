@@ -22,6 +22,8 @@ enum UserFacingError {
         /// `/usr/sbin/screencapture` returned non-zero or produced no output file.
         case screenCaptureFailed(reason: String?)
         case accessibilityPermission
+        /// A capture-specific failure that should not suggest a system permission fix.
+        case scrollingCaptureFailed(reason: String?)
 
         /// ScreenCaptureKit could not enumerate or sample a display.
         case colorPickerUnavailable(reason: String?)
@@ -39,7 +41,7 @@ enum UserFacingError {
             switch self {
             case .screenCaptureFailed, .colorPickerUnavailable, .accessibilityPermission:
                 return true
-            case .saveDirectoryInaccessible, .backgroundPictureUnreadable:
+            case .scrollingCaptureFailed, .saveDirectoryInaccessible, .backgroundPictureUnreadable:
                 return false
             }
         }
@@ -48,6 +50,7 @@ enum UserFacingError {
         var throttleKey: String {
             switch self {
             case .screenCaptureFailed:       return "screenCaptureFailed"
+            case .scrollingCaptureFailed:    return "scrollingCaptureFailed"
             case .colorPickerUnavailable:    return "colorPickerUnavailable"
             case .accessibilityPermission:   return "accessibilityPermission"
             case .saveDirectoryInaccessible: return "saveDirectoryInaccessible"
@@ -59,6 +62,8 @@ enum UserFacingError {
             let lm = LocaleManager.shared
             switch self {
             case .screenCaptureFailed:
+                return lm.string("Screenshot failed")
+            case .scrollingCaptureFailed:
                 return lm.string("Screenshot failed")
             case .accessibilityPermission:
                 return lm.string("Scrolling capture needs Accessibility access")
@@ -79,6 +84,10 @@ enum UserFacingError {
                 if let r = reason {
                     return base + "\n\n" + String(format: lm.string("Details: %@"), r)
                 }
+                return base
+            case .scrollingCaptureFailed(let reason):
+                let base = lm.string("Stampo could not identify a scrollable area at that point. Click inside the page or table and try again.")
+                if let reason { return base + "\n\n" + String(format: lm.string("Details: %@"), reason) }
                 return base
             case .colorPickerUnavailable(let reason):
                 let base = lm.string("The color picker can't read pixel data. Grant Screen Recording permission to Stampo so it can sample colors from the screen.")
@@ -107,6 +116,8 @@ enum UserFacingError {
                 return .openAppSettings
             // Nothing to open: the answer is another file.
             case .backgroundPictureUnreadable:
+                return nil
+            case .scrollingCaptureFailed:
                 return nil
             }
         }

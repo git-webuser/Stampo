@@ -1,6 +1,7 @@
 import AppKit
 import ApplicationServices
 import CoreGraphics
+import os
 
 nonisolated struct ScrollAncestorCandidate<Identity: Equatable> {
     let identity: Identity
@@ -59,15 +60,22 @@ struct ScrollViewport: Equatable, Sendable {
 enum ScrollDriverError: Error, LocalizedError {
     case accessibilityDenied
     case scrollAreaUnavailable
+    case noMovingContent
     case eventUnavailable
 
     var errorDescription: String? {
         switch self {
         case .accessibilityDenied: return LocaleManager.shared.string("Grant Accessibility access to Stampo to send scroll events.")
         case .scrollAreaUnavailable: return LocaleManager.shared.string("Stampo could not identify a scrollable area at that point. Click inside the page or table and try again.")
+        case .noMovingContent: return LocaleManager.shared.string("The scrolling area did not move enough to match frames. Try clicking inside the page or table and start again.")
         case .eventUnavailable: return LocaleManager.shared.string("macOS could not send a scroll event to the selected window.")
         }
     }
+}
+
+enum ScrollViewportResolution {
+    case accessibility(viewport: ScrollViewport, container: AXUIElement)
+    case window(viewport: ScrollViewport)
 }
 
 /// Accessibility is used only to find the scrollable viewport. Scrolling is
@@ -83,17 +91,33 @@ enum ScrollDriver {
         guard let app = NSRunningApplication(processIdentifier: selection.processID) else {
             throw ScrollDriverError.scrollAreaUnavailable
         }
+        app.activate(options: [.activateAllWindows])
+        // The picker selected a concrete CG window. If that exact window is
+        // already topmost at the original click point, no AX window lookup is
+        // needed (Chromium can expose incomplete window geometry).
+        if let top = frontmostWindow(at: selection.clickPoint),
+           top.windowID == selection.windowID, top.processID == selection.processID { return }
         let application = AXUIElementCreateApplication(selection.processID)
         var value: CFTypeRef?
         guard AXUIElementCopyAttributeValue(application, kAXWindowsAttribute as CFString, &value) == .success,
               let windows = value as? [AXUIElement],
-              let selected = windows.first(where: { frameOf($0).map { sameWindowFrame($0, selection.bounds) } ?? false })
-        else { throw ScrollDriverError.scrollAreaUnavailable }
-
-        app.activate(options: [.activateAllWindows])
-        guard AXUIElementPerformAction(selected, kAXRaiseAction as CFString) == .success else {
-            throw ScrollDriverError.scrollAreaUnavailable
+              let selected = windows.compactMap({ window -> (AXUIElement, CGFloat)? in
+                  guard let frame = frameOf(window) else { return nil }
+                  let dx = frame.midX - selection.bounds.midX, dy = frame.midY - selection.bounds.midY
+                  return (window, dx * dx + dy * dy)
+              }).min(by: { $0.1 < $1.1 })?.0 else {
+            throw selectedWindowNotFrontmost()
         }
+        if AXUIElementPerformAction(selected, kAXRaiseAction as CFString) == .success {
+            // Activation/raise can settle asynchronously. The session verifies
+            // the exact CG window and PID at the click point before scrolling.
+            return
+        }
+        if let top = frontmostWindow(at: selection.clickPoint),
+           top.windowID == selection.windowID, top.processID == selection.processID {
+            return
+        }
+        throw selectedWindowNotFrontmost()
     }
 
     static func isSelectedWindow(_ windowID: CGWindowID, ownerPID: pid_t) -> Bool {
@@ -104,7 +128,7 @@ enum ScrollDriver {
         guard let top = frontmostWindow(at: point),
               top.windowID == selection.windowID,
               top.processID == selection.processID else {
-            throw WindowFrameSourceError.captureFailed(LocaleManager.shared.string("The selected window is covered at the scroll point. Finish to save the collected portion or Cancel to discard."))
+            throw selectedWindowNotFrontmost()
         }
     }
 
@@ -113,7 +137,7 @@ enum ScrollDriver {
         guard let top = frontmostWindow(at: point),
               top.windowID == selection.windowID,
               top.processID == selection.processID else {
-            throw WindowFrameSourceError.captureFailed(LocaleManager.shared.string("The selected window is covered at the scroll point. Finish to save the collected portion or Cancel to discard."))
+            throw selectedWindowNotFrontmost()
         }
         let system = AXUIElementCreateSystemWide()
         var hit: AXUIElement?
@@ -147,20 +171,35 @@ enum ScrollDriver {
         }
     }
 
-    static func viewport(selection: WindowPickerSelection) throws -> (viewport: ScrollViewport, container: AXUIElement) {
+    static func windowFallbackViewport(for selection: WindowPickerSelection) -> ScrollViewport {
+        ScrollViewport(windowRect: selection.bounds,
+                       relativeScrollPoint: CGPoint(x: selection.clickPoint.x - selection.bounds.minX,
+                                                    y: selection.clickPoint.y - selection.bounds.minY),
+                       windowBounds: selection.bounds)
+    }
+
+    static func viewport(selection: WindowPickerSelection) throws -> ScrollViewportResolution {
         guard AXIsProcessTrusted() else { throw ScrollDriverError.accessibilityDenied }
         let system = AXUIElementCreateSystemWide()
         var hit: AXUIElement?
         let result = AXUIElementCopyElementAtPosition(system, Float(selection.clickPoint.x), Float(selection.clickPoint.y), &hit)
-        guard result == .success, let hit else { throw ScrollDriverError.scrollAreaUnavailable }
+        let windowViewport = windowFallbackViewport(for: selection)
+        guard result == .success, let hit else {
+            Log.capture.info("scroll viewport fallback · AXError \(result.rawValue, privacy: .public) · hit element unavailable")
+            return .window(viewport: windowViewport)
+        }
 
         var current: AXUIElement? = hit
         var scrollRect: CGRect?
         var scrollContainer: AXUIElement?
+        var chain: [String] = []
         for _ in 0..<14 {
             guard let element = current else { break }
-            if let role = stringAttribute(element, kAXRoleAttribute as String),
-               let frame = frameOf(element),
+            let role = stringAttribute(element, kAXRoleAttribute as String) ?? "<role-unavailable>"
+            let frame = frameOf(element)
+            let geometry = frame.map { String(format: "%.0f,%.0f %.0fx%.0f", $0.minX, $0.minY, $0.width, $0.height) } ?? "<frame-unavailable>"
+            chain.append("\(role)@\(geometry)")
+            if let frame,
                ScrollAncestorResolver.isSuitable(role: role, frame: frame,
                                                  windowBounds: selection.bounds) {
                 let rect = frame.intersection(selection.bounds)
@@ -175,13 +214,15 @@ enum ScrollDriver {
         }
         guard let rect = scrollRect, rect.width >= 80, rect.height >= 80,
               let resolvedContainer = scrollContainer else {
-            throw ScrollDriverError.scrollAreaUnavailable
+            Log.capture.info("scroll viewport fallback · AXError \(result.rawValue, privacy: .public) · chain \(chain.joined(separator: " > "), privacy: .public)")
+            return .window(viewport: windowViewport)
         }
-        return (ScrollViewport(windowRect: rect,
-                               relativeScrollPoint: CGPoint(x: selection.clickPoint.x - selection.bounds.minX,
-                                                            y: selection.clickPoint.y - selection.bounds.minY),
-                               windowBounds: selection.bounds),
-                resolvedContainer)
+        Log.capture.info("scroll viewport resolved · AXError \(result.rawValue, privacy: .public) · chain \(chain.joined(separator: " > "), privacy: .public) · viewport \(rect.debugDescription, privacy: .public)")
+        return .accessibility(viewport: ScrollViewport(windowRect: rect,
+                                                        relativeScrollPoint: CGPoint(x: selection.clickPoint.x - selection.bounds.minX,
+                                                                                     y: selection.clickPoint.y - selection.bounds.minY),
+                                                        windowBounds: selection.bounds),
+                              container: resolvedContainer)
     }
 
     static func sendScroll(axis: ScrollAxis, pixels: Int, at point: CGPoint) throws {
@@ -250,6 +291,10 @@ enum ScrollDriver {
     private static func sameWindowFrame(_ a: CGRect, _ b: CGRect) -> Bool {
         abs(a.minX - b.minX) < 3 && abs(a.minY - b.minY) < 3
             && abs(a.width - b.width) < 3 && abs(a.height - b.height) < 3
+    }
+
+    private static func selectedWindowNotFrontmost() -> WindowFrameSourceError {
+        .captureFailed(LocaleManager.shared.string("The selected window is covered at the scroll point. Finish to save the collected portion or Cancel to discard."))
     }
 
     private static func stringAttribute(_ element: AXUIElement, _ key: String) -> String? {

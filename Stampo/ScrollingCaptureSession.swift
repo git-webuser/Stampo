@@ -1,10 +1,14 @@
 import AppKit
 import ApplicationServices
 import ScreenCaptureKit
+import os
 
 @MainActor
 final class ScrollingCaptureSession {
     private enum State { case preparing, capturing, awaitingDecision, finished }
+    private enum DiagnosticStage: String {
+        case raiseWindow, resolveViewport, validateTarget, capture, probeMotion, match, save
+    }
 
     var onFinished: ((CGImage) -> Void)?
     var onCancelled: (() -> Void)?
@@ -19,6 +23,7 @@ final class ScrollingCaptureSession {
     private var task: Task<Void, Never>?
     private var stopped = false
     private var state: State = .preparing
+    private var diagnosticStage: DiagnosticStage = .raiseWindow
     private var viewport: ScrollViewport?
     private var scrollContainer: AXUIElement?
     private var scale: CGFloat = 1
@@ -82,7 +87,9 @@ final class ScrollingCaptureSession {
             onFinished?(image)
         } catch {
             releaseCaptureBuffers()
-            UserFacingError.present(.screenCaptureFailed(reason: error.localizedDescription))
+            diagnosticStage = .save
+            logFailure(error)
+            presentFailure(error)
             onCancelled?()
         }
     }
@@ -123,17 +130,41 @@ final class ScrollingCaptureSession {
                 try await Task.sleep(for: .seconds(delaySeconds))
             }
             try ensureActive()
+            diagnosticStage = .raiseWindow
             try activateSelectedWindow(selection)
             try await waitForTargetFocus()
             try ensureActive()
             scale = Self.backingScale(for: selection.bounds)
             try checkWindowAndFocus()
-            let target = try ScrollDriver.viewport(selection: selection)
-            viewport = target.viewport
-            scrollContainer = target.container
-            try ScrollDriver.validateScrollTarget(selection: selection, point: selection.clickPoint,
-                                                  container: target.container)
+            diagnosticStage = .resolveViewport
+            switch try ScrollDriver.viewport(selection: selection) {
+            case .accessibility(let resolved, let container):
+                viewport = resolved
+                scrollContainer = container
+                diagnosticStage = .validateTarget
+                do {
+                    try ScrollDriver.validateScrollTarget(selection: selection, point: selection.clickPoint,
+                                                          container: container)
+                } catch ScrollDriverError.scrollAreaUnavailable {
+                    // AX may expose a partial Chromium tree: keep the selected
+                    // CG window and let the pixel probe establish the viewport.
+                    Log.capture.info("scroll capture viewport fallback: AX target identity was incomplete")
+                    viewport = ScrollDriver.windowFallbackViewport(for: selection)
+                    scrollContainer = nil
+                    try ScrollDriver.validateSelectedWindow(selection: selection, point: selection.clickPoint)
+                }
+            case .window(let resolved):
+                // Chromium and other complex apps may provide a window capture
+                // before exposing a complete AXWebArea chain. Pixel probing
+                // will reduce this to the region that actually moves.
+                viewport = resolved
+                scrollContainer = nil
+                Log.capture.info("scroll capture viewport fallback: AX hit did not resolve a suitable scroll container")
+                diagnosticStage = .validateTarget
+                try ScrollDriver.validateSelectedWindow(selection: selection, point: selection.clickPoint)
+            }
             state = .capturing
+            diagnosticStage = .capture
             let initialViewport = try await ScrollCaptureCancellationBoundary.awaitActive {
                 try await self.captureViewport()
             }
@@ -142,9 +173,8 @@ final class ScrollingCaptureSession {
             let probeStep = max(24, min(56, axisLength(of: initialViewport) / 10))
             try ensureActive()
             let probePoint = currentScrollPoint()
-            guard self.scrollContainer != nil else { throw ScrollDriverError.scrollAreaUnavailable }
-            try ScrollDriver.validateScrollTarget(selection: selection, point: probePoint,
-                                                  container: self.scrollContainer!)
+            diagnosticStage = .probeMotion
+            try validateCurrentScrollTarget(at: probePoint)
             try ScrollDriver.sendScroll(axis: axis, pixels: probeStep, at: probePoint)
             let probeViewport = try await ScrollCaptureCancellationBoundary.awaitActive {
                 try await self.captureStableViewport(reference: initialViewport)
@@ -157,7 +187,7 @@ final class ScrollingCaptureSession {
             guard let movingRect = Self.movingContentRect(before: initialViewport, after: probeViewport, axis: axis),
                   let first = initialViewport.cropped(to: movingRect),
                   let probe = probeViewport.cropped(to: movingRect)
-            else { throw ScrollDriverError.scrollAreaUnavailable }
+            else { throw ScrollDriverError.noMovingContent }
             guard let viewport, let croppedViewport = viewport.cropped(to: movingRect, backingScale: scale) else {
                 throw ScrollDriverError.scrollAreaUnavailable
             }
@@ -170,6 +200,7 @@ final class ScrollingCaptureSession {
             var unmatchedScroll = 0
 
             do {
+                diagnosticStage = .match
                 let match = try FrameMatcher.match(previous: first, current: probe, axis: axis,
                                                    maximumOffset: probeMotionLimit + 24)
                 try ensureActive()
@@ -201,10 +232,10 @@ final class ScrollingCaptureSession {
                                                                       viewportLength: axisLength(of: oldFrame))
                 let point = currentScrollPoint()
                 try ensureActive()
-                guard self.scrollContainer != nil else { throw ScrollDriverError.scrollAreaUnavailable }
-                try ScrollDriver.validateScrollTarget(selection: selection, point: point,
-                                                      container: self.scrollContainer!)
+                diagnosticStage = .validateTarget
+                try validateCurrentScrollTarget(at: point)
                 try ScrollDriver.sendScroll(axis: axis, pixels: currentStep, at: point)
+                diagnosticStage = .capture
                 let next = try await ScrollCaptureCancellationBoundary.awaitActive {
                     try await self.captureStableViewport(reference: oldFrame)
                 }
@@ -225,6 +256,7 @@ final class ScrollingCaptureSession {
                 }
                 zeroMotionCount = 0
                 do {
+                    diagnosticStage = .match
                     let axis = self.axis
                     let maximumOffset = motionLimit + unmatchedScroll + 32
                     let match = try await ScrollCaptureCancellationBoundary.awaitActive {
@@ -267,8 +299,9 @@ final class ScrollingCaptureSession {
             return
         } catch {
             if !stopped {
+                logFailure(error)
                 guard !assembler.strips.isEmpty else {
-                    UserFacingError.present(.screenCaptureFailed(reason: localizedMessage(for: error)))
+                    presentFailure(error)
                     cancel()
                     return
                 }
@@ -277,6 +310,29 @@ final class ScrollingCaptureSession {
                 lastStatus = message
             }
         }
+    }
+
+    private func validateCurrentScrollTarget(at point: CGPoint) throws {
+        guard scrollContainer != nil else {
+            try ScrollDriver.validateSelectedWindow(selection: selection, point: point)
+            return
+        }
+        try ScrollDriver.validateScrollTarget(selection: selection, point: point, container: scrollContainer!)
+    }
+
+    private func presentFailure(_ error: Error) {
+        switch error {
+        case WindowFrameSourceError.permissionDenied:
+            UserFacingError.present(.screenCaptureFailed(reason: error.localizedDescription))
+        case ScrollDriverError.accessibilityDenied:
+            UserFacingError.present(.accessibilityPermission)
+        default:
+            UserFacingError.present(.scrollingCaptureFailed(reason: localizedMessage(for: error)))
+        }
+    }
+
+    private func logFailure(_ error: Error) {
+        Log.capture.error("scroll capture failed at stage \(self.diagnosticStage.rawValue, privacy: .public): \(error.localizedDescription, privacy: .public)")
     }
 
     private func pause(with message: String) {
@@ -387,41 +443,59 @@ final class ScrollingCaptureSession {
         return total / Double(max(1, n))
     }
 
-    /// Trims sticky controls from the AX-provided scroll viewport by comparing
-    /// the small probe pair. The first-to-last active band is the portion that
-    /// actually moved; fixed headers and toolbars are left out of every frame.
+    /// Finds the 2D bounding box of pixels that changed between the probe pair.
+    /// This works for an AX-resolved viewport and for a whole-window fallback,
+    /// where fixed sidebars/headers must be excluded before stitching.
     nonisolated static func movingContentRect(before: CaptureFrame, after: CaptureFrame,
                                                axis: ScrollAxis) -> CGRect? {
         guard before.width == after.width, before.height == after.height else { return nil }
-        let length = axis == .vertical ? before.height : before.width
-        let cross = axis == .vertical ? before.width : before.height
-        guard length >= 120, cross >= 80 else { return nil }
-        var first: Int?, last: Int?
-        for along in 0..<length {
-            var total = 0.0
-            let strideCross = max(1, cross / 220)
-            var count = 0
-            for across in stride(from: 0, to: cross, by: strideCross) {
-                let x = axis == .vertical ? across : along
-                let y = axis == .vertical ? along : across
-                let i = (y * before.width + x) * 4
-                total += Double(abs(Int(before.pixels[i]) - Int(after.pixels[i]))
-                              + abs(Int(before.pixels[i + 1]) - Int(after.pixels[i + 1]))
-                              + abs(Int(before.pixels[i + 2]) - Int(after.pixels[i + 2]))) / 765
-                count += 1
+        let primaryLength = axis == .vertical ? before.height : before.width
+        let crossLength = axis == .vertical ? before.width : before.height
+        guard primaryLength >= 120, crossLength >= 80 else { return nil }
+
+        func activeBounds(length: Int, cross: Int, xFor: (Int, Int) -> Int,
+                          yFor: (Int, Int) -> Int) -> (Int, Int)? {
+            var first: Int?, last: Int?
+            let crossStride = max(1, cross / 220)
+            for position in 0..<length {
+                var total = 0.0
+                var count = 0
+                for across in stride(from: 0, to: cross, by: crossStride) {
+                    let x = xFor(position, across), y = yFor(position, across)
+                    let i = (y * before.width + x) * 4
+                    total += Double(abs(Int(before.pixels[i]) - Int(after.pixels[i]))
+                                  + abs(Int(before.pixels[i + 1]) - Int(after.pixels[i + 1]))
+                                  + abs(Int(before.pixels[i + 2]) - Int(after.pixels[i + 2]))) / 765
+                    count += 1
+                }
+                if total / Double(max(1, count)) > 0.012 {
+                    if first == nil { first = position }
+                    last = position
+                }
             }
-            if total / Double(max(1, count)) > 0.012 {
-                if first == nil { first = along }
-                last = along
-            }
+            guard let first, let last else { return nil }
+            return (first, last + 1)
         }
-        guard let first, let last, last - first >= length / 3 else { return nil }
-        let lower = first
-        let upper = min(length, last + 1)
-        guard upper - lower >= length / 3 else { return nil }
+
+        let primary: (Int, Int)?
+        let cross: (Int, Int)?
+        if axis == .vertical {
+            primary = activeBounds(length: before.height, cross: before.width,
+                                   xFor: { _, across in across }, yFor: { position, _ in position })
+            cross = activeBounds(length: before.width, cross: before.height,
+                                 xFor: { position, _ in position }, yFor: { _, across in across })
+        } else {
+            primary = activeBounds(length: before.width, cross: before.height,
+                                   xFor: { position, _ in position }, yFor: { _, across in across })
+            cross = activeBounds(length: before.height, cross: before.width,
+                                 xFor: { _, across in across }, yFor: { position, _ in position })
+        }
+        guard let (p0, p1) = primary, let (c0, c1) = cross,
+              p1 - p0 >= primaryLength / 3,
+              c1 - c0 >= max(80, crossLength / 3) else { return nil }
         return axis == .vertical
-            ? CGRect(x: 0, y: lower, width: before.width, height: upper - lower)
-            : CGRect(x: lower, y: 0, width: upper - lower, height: before.height)
+            ? CGRect(x: c0, y: p0, width: c1 - c0, height: p1 - p0)
+            : CGRect(x: p0, y: c0, width: p1 - p0, height: c1 - c0)
     }
 
     private static func backingScale(for bounds: CGRect) -> CGFloat {

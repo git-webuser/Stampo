@@ -71,6 +71,21 @@ import Testing
         return CaptureFrame(width: width, height: height, pixels: bytes)
     }
 
+    private func paneTexture(width: Int, height: Int, axis: ScrollAxis, offset: Int) -> CaptureFrame {
+        var bytes = [UInt8](repeating: 255, count: width * height * 4)
+        for y in 0..<height {
+            for x in 0..<width {
+                let moving = x >= 32 && y >= 20 && (axis == .vertical ? y < height - 12 : x < width - 12)
+                let sourceX = x + (moving && axis == .horizontal ? offset : 0)
+                let sourceY = y + (moving && axis == .vertical ? offset : 0)
+                let value = UInt8(truncatingIfNeeded: sourceX * 37 + sourceY * 73 + sourceX * sourceY * 11)
+                let i = (y * width + x) * 4
+                bytes[i] = value; bytes[i + 1] = value; bytes[i + 2] = value; bytes[i + 3] = 255
+            }
+        }
+        return CaptureFrame(width: width, height: height, pixels: bytes)
+    }
+
     @Test func matchesMeasuredVerticalAndHorizontalMotion() throws {
         let vertical = try FrameMatcher.match(previous: texture(width: 160, height: 180),
                                               current: texture(width: 160, height: 180, yOffset: 23),
@@ -302,6 +317,51 @@ import Testing
         #expect(later1.height == later2.height)
         #expect(later1.width == Int(cropped.windowRect.width * 2))
         #expect(later1.height == Int(cropped.windowRect.height * 2))
+    }
+
+    @Test func movingBoundsCropFixedSidebarAndHeaderForBothAxes() throws {
+        for axis in ScrollAxis.allCases {
+            let before = paneTexture(width: 240, height: 200, axis: axis, offset: 0)
+            let after = paneTexture(width: 240, height: 200, axis: axis, offset: 23)
+            let moving = try #require(ScrollingCaptureSession.movingContentRect(before: before,
+                                                                                  after: after,
+                                                                                  axis: axis))
+            #expect(moving.minX >= 32)
+            #expect(moving.minY >= 20)
+            #expect(moving.width >= 160)
+            #expect(moving.height >= 140)
+        }
+    }
+
+    @Test func stationaryWindowDoesNotProduceAMovingViewport() {
+        let frame = texture(width: 240, height: 200)
+        for axis in ScrollAxis.allCases {
+            #expect(ScrollingCaptureSession.movingContentRect(before: frame, after: frame, axis: axis) == nil)
+        }
+    }
+
+    @Test func wholeWindowFallbackPreservesTheOriginalClickPoint() {
+        let selection = WindowPickerSelection(windowID: 17, processID: 42,
+                                              clickPoint: CGPoint(x: 463, y: 371),
+                                              bounds: CGRect(x: 400, y: 250, width: 500, height: 400))
+        let viewport = ScrollDriver.windowFallbackViewport(for: selection)
+        #expect(viewport.windowRect == selection.bounds)
+        #expect(viewport.relativeScrollPoint == CGPoint(x: 63, y: 121))
+        #expect(viewport.cropRectInWindowPoints == CGRect(origin: .zero, size: selection.bounds.size))
+    }
+
+    @Test func scrollingCaptureFailureDoesNotRouteToPermissionSettings() {
+        let kind = UserFacingError.Kind.scrollingCaptureFailed(reason: "probe had no reliable movement")
+        #expect(!kind.isPermissionKind)
+        if case nil = kind.remediation { } else { Issue.record("Scrolling capture should not suggest a permission fix") }
+        #expect(kind.title == LocaleManager.shared.string("Screenshot failed"))
+
+        let screenRecording = UserFacingError.Kind.screenCaptureFailed(reason: nil)
+        if case .openScreenRecordingSettings? = screenRecording.remediation { }
+        else { Issue.record("Screen capture permission failure should link to Screen Recording settings") }
+        let accessibility = UserFacingError.Kind.accessibilityPermission
+        if case .openAccessibilitySettings? = accessibility.remediation { }
+        else { Issue.record("Accessibility permission failure should link to Accessibility settings") }
     }
 
     @Test func cancellingDuringInitialCapturePreventsTheFirstScrollEvent() async throws {
