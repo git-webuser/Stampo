@@ -2,6 +2,34 @@ import AppKit
 import ApplicationServices
 import CoreGraphics
 
+nonisolated struct ScrollAncestorCandidate<Identity: Equatable> {
+    let identity: Identity
+    let role: String
+    let frame: CGRect
+}
+
+nonisolated enum ScrollAncestorResolver {
+    static func isSuitable(role: String, frame: CGRect, windowBounds: CGRect) -> Bool {
+        guard role == (kAXScrollAreaRole as String) || role == "AXWebArea" || role == "AXTable" else {
+            return false
+        }
+        let visible = frame.intersection(windowBounds)
+        return visible.width >= 80 && visible.height >= 80
+    }
+
+    static func nearestSuitableIdentity<Identity: Equatable>(
+        in ancestors: [ScrollAncestorCandidate<Identity>], windowBounds: CGRect
+    ) -> Identity? {
+        ancestors.first(where: { isSuitable(role: $0.role, frame: $0.frame, windowBounds: windowBounds) })?.identity
+    }
+
+    static func matchesSelectedIdentity<Identity: Equatable>(
+        _ selected: Identity, in ancestors: [ScrollAncestorCandidate<Identity>], windowBounds: CGRect
+    ) -> Bool {
+        nearestSuitableIdentity(in: ancestors, windowBounds: windowBounds) == selected
+    }
+}
+
 struct ScrollViewport: Equatable, Sendable {
     /// Viewport within the selected window, in Quartz points.
     let windowRect: CGRect
@@ -91,26 +119,32 @@ enum ScrollDriver {
         var hit: AXUIElement?
         guard AXUIElementCopyElementAtPosition(system, Float(point.x), Float(point.y), &hit) == .success,
               var current = hit else { throw ScrollDriverError.scrollAreaUnavailable }
-        var foundScrollableAncestor = false
+        var ancestors: [AXUIElement] = []
+        var selectedWindowFrame: CGRect?
         for _ in 0..<16 {
-            if let role = stringAttribute(current, kAXRoleAttribute as String) {
-                if isScrollableRole(role) {
-                    guard CFEqual(current, container) else { throw ScrollDriverError.scrollAreaUnavailable }
-                    foundScrollableAncestor = true
-                }
-                if role == (kAXWindowRole as String) {
-                    guard foundScrollableAncestor, let frame = frameOf(current), sameWindowFrame(frame, top.bounds) else {
-                        throw ScrollDriverError.scrollAreaUnavailable
-                    }
-                    return
-                }
+            ancestors.append(current)
+            if stringAttribute(current, kAXRoleAttribute as String) == (kAXWindowRole as String) {
+                selectedWindowFrame = frameOf(current)
+                break
             }
             var parent: CFTypeRef?
             guard AXUIElementCopyAttributeValue(current, kAXParentAttribute as CFString, &parent) == .success,
                   let next = parent, CFGetTypeID(next) == AXUIElementGetTypeID() else { break }
             current = (next as! AXUIElement)
         }
-        throw ScrollDriverError.scrollAreaUnavailable
+        guard let selectedWindowFrame, sameWindowFrame(selectedWindowFrame, top.bounds),
+              let selectedIndex = ancestors.firstIndex(where: { CFEqual($0, container) }) else {
+            throw ScrollDriverError.scrollAreaUnavailable
+        }
+        let candidates = ancestors.enumerated().compactMap { index, element -> ScrollAncestorCandidate<Int>? in
+            guard let role = stringAttribute(element, kAXRoleAttribute as String),
+                  let frame = frameOf(element) else { return nil }
+            return ScrollAncestorCandidate(identity: index, role: role, frame: frame)
+        }
+        guard ScrollAncestorResolver.matchesSelectedIdentity(selectedIndex, in: candidates,
+                                                              windowBounds: selection.bounds) else {
+            throw ScrollDriverError.scrollAreaUnavailable
+        }
     }
 
     static func viewport(selection: WindowPickerSelection) throws -> (viewport: ScrollViewport, container: AXUIElement) {
@@ -126,15 +160,13 @@ enum ScrollDriver {
         for _ in 0..<14 {
             guard let element = current else { break }
             if let role = stringAttribute(element, kAXRoleAttribute as String),
-               role == (kAXScrollAreaRole as String) || role == "AXWebArea" || role == "AXTable" {
-                if let frame = frameOf(element), frame.width >= 80, frame.height >= 80 {
-                    let rect = frame.intersection(selection.bounds)
-                    if rect.width >= 80, rect.height >= 80 {
-                        scrollRect = rect
-                        scrollContainer = element
-                        break
-                    }
-                }
+               let frame = frameOf(element),
+               ScrollAncestorResolver.isSuitable(role: role, frame: frame,
+                                                 windowBounds: selection.bounds) {
+                let rect = frame.intersection(selection.bounds)
+                scrollRect = rect
+                scrollContainer = element
+                break
             }
             var parent: CFTypeRef?
             guard AXUIElementCopyAttributeValue(element, kAXParentAttribute as CFString, &parent) == .success,
@@ -224,10 +256,6 @@ enum ScrollDriver {
         var value: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, key as CFString, &value) == .success else { return nil }
         return value as? String
-    }
-
-    private static func isScrollableRole(_ role: String) -> Bool {
-        role == (kAXScrollAreaRole as String) || role == "AXWebArea" || role == "AXTable"
     }
 
     private static func frameOf(_ element: AXUIElement) -> CGRect? {

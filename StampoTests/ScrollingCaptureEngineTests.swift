@@ -129,6 +129,46 @@ import Testing
         }
     }
 
+    @Test func axResolverAcceptsWebAreaInsideScrollArea() {
+        let bounds = CGRect(x: 0, y: 0, width: 400, height: 300)
+        let chain = [
+            ScrollAncestorCandidate(identity: "web", role: "AXWebArea", frame: bounds),
+            ScrollAncestorCandidate(identity: "scroll", role: "AXScrollArea", frame: bounds)
+        ]
+        #expect(ScrollAncestorResolver.matchesSelectedIdentity("web", in: chain, windowBounds: bounds))
+    }
+
+    @Test func axResolverAcceptsTableInsideScrollArea() {
+        let bounds = CGRect(x: 0, y: 0, width: 400, height: 300)
+        let chain = [
+            ScrollAncestorCandidate(identity: "table", role: "AXTable", frame: bounds),
+            ScrollAncestorCandidate(identity: "scroll", role: "AXScrollArea", frame: bounds)
+        ]
+        #expect(ScrollAncestorResolver.matchesSelectedIdentity("table", in: chain, windowBounds: bounds))
+    }
+
+    @Test func axResolverRejectsAChangedInnerContainer() {
+        let bounds = CGRect(x: 0, y: 0, width: 400, height: 300)
+        let chain = [
+            ScrollAncestorCandidate(identity: "new-inner-table", role: "AXTable", frame: bounds),
+            ScrollAncestorCandidate(identity: "original-web", role: "AXWebArea", frame: bounds),
+            ScrollAncestorCandidate(identity: "scroll", role: "AXScrollArea", frame: bounds)
+        ]
+        #expect(!ScrollAncestorResolver.matchesSelectedIdentity("original-web", in: chain,
+                                                                 windowBounds: bounds))
+    }
+
+    @Test func axResolverSkipsAnIneligibleSmallInnerContainer() {
+        let bounds = CGRect(x: 0, y: 0, width: 400, height: 300)
+        let chain = [
+            ScrollAncestorCandidate(identity: "small-table", role: "AXTable",
+                                    frame: CGRect(x: 10, y: 10, width: 60, height: 60)),
+            ScrollAncestorCandidate(identity: "web", role: "AXWebArea", frame: bounds),
+            ScrollAncestorCandidate(identity: "scroll", role: "AXScrollArea", frame: bounds)
+        ]
+        #expect(ScrollAncestorResolver.matchesSelectedIdentity("web", in: chain, windowBounds: bounds))
+    }
+
     @Test func appendsOnlyTheNewBottomBandForAnIncompleteFinalStep() throws {
         let first = texture(width: 120, height: 100)
         let last = texture(width: 120, height: 100, yOffset: 17)
