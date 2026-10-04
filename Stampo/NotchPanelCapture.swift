@@ -91,6 +91,7 @@ extension NotchPanelController {
             } else {
                 // .window
                 self.windowPickerOverlay.onSelectedWindow = nil
+                self.windowPickerOverlay.badge = nil
                 self.windowPickerOverlay.onSelected = { [weak self] windowID in
                     guard let self else { return }
                     guard self.animationGenerationMatches(selectionToken),
@@ -99,6 +100,11 @@ extension NotchPanelController {
                     self.beginCountdownAfterPreSelection(target: .windowID(windowID), seconds: seconds, screen: screen)
                 }
                 if let axis = mode.scrollAxis {
+                    // The picker is the same one an ordinary Window shot uses;
+                    // only here is the click not obviously "this window".
+                    self.windowPickerOverlay.badge = ScanModeBadge(
+                        title: LocaleManager.shared.string("Click the area to scroll"),
+                        symbolName: mode.icon)
                     self.windowPickerOverlay.onSelected = nil
                     self.windowPickerOverlay.onSelectedWindow = { [weak self] selection in
                         guard let self else { return }

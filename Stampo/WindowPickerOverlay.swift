@@ -20,6 +20,9 @@ final class WindowPickerOverlay {
     /// unchanged for ordinary window screenshots.
     var onSelectedWindow: ((WindowPickerSelection) -> Void)?
     var onCancelled: (() -> Void)?
+    /// A hint that rides the pointer over the picker — scrolling capture says
+    /// what the click is for. Nil for an ordinary window shot, which needs none.
+    var badge: ScanModeBadge?
 
     private var panel: NSPanel?
     private var targetScreen: NSScreen?
@@ -46,6 +49,7 @@ final class WindowPickerOverlay {
         let view = WindowPickerView(frame: NSRect(origin: .zero, size: frame.size))
         view.targetScreen = screen
         view.wpcCursor = wpcCursor          // view uses same cursor instance for cursor-rects
+        view.badge = badge
         view.onSelected = { [weak self] selection in
             self?.dismiss()
             if let selection {
@@ -202,9 +206,12 @@ private final class WindowPickerView: NSView {
     var wpcCursor: NSCursor = .arrow      // set by WindowPickerOverlay before display
     var onSelected: ((WindowPickerSelection?) -> Void)?
     var onCancelled: (() -> Void)?
+    var badge: ScanModeBadge?
 
     private var hoveredSelection: WindowPickerSelection?
     private var hoveredViewRect: CGRect?
+    /// Where the pointer is, in view coordinates, while a badge follows it.
+    private var hoverPoint: NSPoint?
 
     override var isOpaque: Bool { false }
     override var acceptsFirstResponder: Bool { true }
@@ -240,6 +247,7 @@ private final class WindowPickerView: NSView {
     override func mouseMoved(with event: NSEvent) {
         wpcCursor.set()
         let pt = convert(event.locationInWindow, from: nil)
+        hoverPoint = pt
         updateHover(at: pt)
     }
 
@@ -296,7 +304,10 @@ private final class WindowPickerView: NSView {
         ctx.setFillColor(NSColor.black.withAlphaComponent(0.18).cgColor)
         ctx.fill(bounds)
 
-        guard let rect = hoveredViewRect, rect.width > 0, rect.height > 0 else { return }
+        guard let rect = hoveredViewRect, rect.width > 0, rect.height > 0 else {
+            drawBadge()
+            return
+        }
 
         ctx.clear(rect)
 
@@ -304,5 +315,13 @@ private final class WindowPickerView: NSView {
         ctx.setLineWidth(2.0)
         ctx.addRect(rect.insetBy(dx: 1, dy: 1))
         ctx.strokePath()
+        drawBadge()
+    }
+
+    /// Drawn last, over everything: the highlight is the window the click
+    /// will pick, and the badge says what picking it is for.
+    private func drawBadge() {
+        guard let badge, let hoverPoint else { return }
+        badge.draw(in: badge.frame(nearPointer: hoverPoint, in: bounds))
     }
 }
