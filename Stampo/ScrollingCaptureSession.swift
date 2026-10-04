@@ -207,7 +207,7 @@ final class ScrollingCaptureSession {
             let probePoint = currentScrollPoint()
             diagnosticStage = .probeMotion
             try validateCurrentScrollTarget(at: probePoint)
-            try ScrollDriver.sendScroll(axis: axis, pixels: probeStep, at: probePoint)
+            try ScrollDriver.sendScroll(axis: axis, pixels: probeStep, backingScale: scale, at: probePoint)
             let probeViewport = try await ScrollCaptureCancellationBoundary.awaitActive {
                 try await self.captureStableViewport(reference: initialViewport)
             }
@@ -265,7 +265,7 @@ final class ScrollingCaptureSession {
                 try ensureActive()
                 diagnosticStage = .validateTarget
                 try validateCurrentScrollTarget(at: point)
-                try ScrollDriver.sendScroll(axis: axis, pixels: currentStep, at: point)
+                try ScrollDriver.sendScroll(axis: axis, pixels: currentStep, backingScale: scale, at: point)
                 diagnosticStage = .capture
                 let next = try await ScrollCaptureCancellationBoundary.awaitActive {
                     try await self.captureStableViewport(reference: oldFrame)

@@ -298,8 +298,8 @@ enum ScrollDriver {
                               container: resolvedContainer)
     }
 
-    static func sendScroll(axis: ScrollAxis, pixels: Int, at point: CGPoint) throws {
-        let lines = lineDelta(for: pixels)
+    static func sendScroll(axis: ScrollAxis, pixels: Int, backingScale: CGFloat, at point: CGPoint) throws {
+        let lines = lineDelta(for: pixels, backingScale: backingScale)
         guard pixels > 0,
               let event = CGEvent(scrollWheelEvent2Source: nil, units: .line, wheelCount: 2,
                                   wheel1: axis == .vertical ? -lines : 0,
@@ -312,12 +312,18 @@ enum ScrollDriver {
     /// Quartz wheel events use small signed counts. The session reasons in
     /// captured pixels; convert its target step to a capped line count and use
     /// this conservative upper bound only for the frame search.
-    static func lineDelta(for pixelStep: Int) -> Int32 {
-        Int32(min(10, max(1, (pixelStep + 99) / 100)))
+    ///
+    /// A line is a distance on screen, so the count follows the step in
+    /// points: at 2x a step of 1080 captured pixels is 540 points, the same
+    /// six lines as 540 pixels at 1x. Counted from pixels, Retina scrolled
+    /// twice as far per event and could outrun the overlap between frames.
+    static func lineDelta(for pixelStep: Int, backingScale: CGFloat) -> Int32 {
+        let points = Int((CGFloat(pixelStep) / max(1, backingScale)).rounded(.up))
+        return Int32(min(10, max(1, (points + 99) / 100)))
     }
 
     static func maximumLikelyMovement(pixelStep: Int, backingScale: CGFloat, viewportLength: Int) -> Int {
-        let estimate = Int(CGFloat(lineDelta(for: pixelStep)) * 90 * backingScale)
+        let estimate = Int(CGFloat(lineDelta(for: pixelStep, backingScale: backingScale)) * 90 * backingScale)
         return min(max(1, viewportLength * 3 / 4), estimate)
     }
 

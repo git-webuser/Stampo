@@ -725,6 +725,19 @@ import Testing
         #expect(await counter.value == 0)
     }
 
+    @Test func wheelLinesFollowTheStepInPointsNotInCapturedPixels() {
+        // 540 points is six lines at either scale; the capture is twice the pixels at 2x.
+        #expect(ScrollDriver.lineDelta(for: 540, backingScale: 1) == 6)
+        #expect(ScrollDriver.lineDelta(for: 1080, backingScale: 2) == 6)
+        // Rounded up, never zero, capped at ten.
+        #expect(ScrollDriver.lineDelta(for: 101, backingScale: 1) == 2)
+        #expect(ScrollDriver.lineDelta(for: 24, backingScale: 2) == 1)
+        #expect(ScrollDriver.lineDelta(for: 5000, backingScale: 1) == 10)
+        // The search bound is in pixels again: lines × 90 points × scale.
+        #expect(ScrollDriver.maximumLikelyMovement(pixelStep: 1080, backingScale: 2, viewportLength: 3000) == 6 * 90 * 2)
+        #expect(ScrollDriver.maximumLikelyMovement(pixelStep: 540, backingScale: 1, viewportLength: 3000) == 6 * 90)
+    }
+
     @Test func theStripShowsARingWhileWorkingAndSavingAndAWarningWhenPaused() {
         #expect(ScrollStripPhase(.capturing) == .running)
         #expect(ScrollStripPhase(.saving) == .running)
