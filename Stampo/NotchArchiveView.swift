@@ -975,8 +975,7 @@ struct NotchArchiveView: View {
     }
 
     private var schemeMenu: some View {
-        PanelChoiceMenuButton(selection: $scheme, options: ColorSchemeType.allCases,
-                              title: \.title, labelKey: "Color format", metrics: metrics)
+        ArchiveSchemeMenuButton(scheme: $scheme, metrics: metrics)
             .help("Color format")
             .accessibilityLabel("Color format: \(scheme.title)")
     }
@@ -2626,6 +2625,159 @@ struct ArchiveSelectionCountButton: View {
     private var foreground: Color {
         if isMenuOpen || isPressed || isHovered { return .white }
         return PanelChrome.foreground(0.8, contrast)
+    }
+}
+
+// MARK: - PopUpSchemeButtonWrapper
+
+private struct PopUpSchemeButtonWrapper: NSViewRepresentable {
+    @Binding var selection: ColorSchemeType
+    var onOpen:  () -> Void
+    var onClose: () -> Void
+    @Environment(\.locale) private var locale
+
+    func makeNSView(context: Context) -> NSPopUpButton {
+        let button = PanelPopUpButton()
+        button.isBordered       = false
+        button.isTransparent    = true
+        button.pullsDown        = true
+        button.autoresizingMask = []
+        (button.cell as? NSPopUpButtonCell)?.arrowPosition = .noArrow
+
+        // pullsDown=true: the first item acts as the hidden button title,
+        // so we add an empty placeholder to make HEX the first visible option.
+        button.addItem(withTitle: "")
+        for s in ColorSchemeType.allCases {
+            button.addItem(withTitle: s.title)
+        }
+
+        button.target = context.coordinator
+        button.action = #selector(Coordinator.selectionChanged(_:))
+
+        NotificationCenter.default.addObserver(
+            context.coordinator,
+            selector: #selector(Coordinator.menuWillOpen(_:)),
+            name: NSPopUpButton.willPopUpNotification,
+            object: button
+        )
+        NotificationCenter.default.addObserver(
+            context.coordinator,
+            selector: #selector(Coordinator.menuDidClose(_:)),
+            name: NSMenu.didEndTrackingNotification,
+            object: button.menu
+        )
+
+        return button
+    }
+
+    func updateNSView(_ button: NSPopUpButton, context: Context) {
+        // Via LocaleManager rather than String(localized:), which reads the
+        // process language and so ignores the in-app language picker; set here
+        // rather than in makeNSView so it follows a language change.
+        button.setAccessibilityLabel(LocaleManager.string("Color format", locale: locale))
+
+        // +1 — offset for the empty placeholder at index 0 (pullsDown = true)
+        let idx = (ColorSchemeType.allCases.firstIndex(of: selection) ?? 0) + 1
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = 0
+            button.selectItem(at: idx)
+        }
+        context.coordinator.parent = self
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    final class Coordinator: NSObject {
+        var parent: PopUpSchemeButtonWrapper
+
+        init(_ parent: PopUpSchemeButtonWrapper) { self.parent = parent }
+
+        deinit { NotificationCenter.default.removeObserver(self) }
+
+        @objc func selectionChanged(_ sender: NSPopUpButton) {
+            let cases = ColorSchemeType.allCases
+            // -1 — compensate for the empty placeholder at index 0 (pullsDown = true)
+            let idx = sender.indexOfSelectedItem - 1
+            guard idx >= 0, idx < cases.count else { return }
+            DispatchQueue.main.async { self.parent.selection = cases[idx] }
+        }
+
+        @objc func menuWillOpen(_ notification: Notification) {
+            DispatchQueue.main.async { self.parent.onOpen() }
+        }
+
+        @objc func menuDidClose(_ notification: Notification) {
+            DispatchQueue.main.async { self.parent.onClose() }
+        }
+    }
+}
+
+// MARK: - ArchiveSchemeMenuButton
+
+private struct ArchiveSchemeMenuButton: View {
+    @Binding var scheme: ColorSchemeType
+    let metrics: NotchMetrics
+
+    @State private var isHovered  = false
+    @State private var isPressed  = false
+    @State private var isMenuOpen = false
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Text(scheme.title)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(labelColor)
+            Image(systemName: "chevron.down")
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(chevronColor)
+        }
+        .padding(.horizontal, 8)
+        .frame(height: metrics.buttonHeight)
+        .background(
+            RoundedRectangle(cornerRadius: metrics.buttonRadius, style: .continuous)
+                .fill(backgroundColor)
+        )
+        .overlay {
+            PopUpSchemeButtonWrapper(
+                selection: $scheme,
+                onOpen:  { isMenuOpen = true  },
+                onClose: { isMenuOpen = false }
+            )
+        }
+        .fixedSize()
+        .scaleEffect(isPressed ? 0.88 : 1.0)
+        .animation(.spring(response: 0.18, dampingFraction: 0.7), value: isPressed)
+        .contentShape(Rectangle())
+        .clipped()
+        .onHover { isHovered = $0 }
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { _ in isPressed = true  }
+                .onEnded   { _ in isPressed = false }
+        )
+        .animation(.easeInOut(duration: 0.12), value: isHovered)
+        .animation(.easeInOut(duration: 0.12), value: isMenuOpen)
+    }
+
+    private var labelColor: Color {
+        if isMenuOpen { return .white }
+        if isPressed  { return .white }
+        if isHovered  { return .white }
+        return .white.opacity(0.8)
+    }
+
+    private var chevronColor: Color {
+        if isMenuOpen { return .white }
+        if isPressed  { return .white }
+        if isHovered  { return .white }
+        return .white.opacity(0.8)
+    }
+
+    private var backgroundColor: Color {
+        if isMenuOpen { return .white.opacity(0.22) }
+        if isPressed  { return .white.opacity(0.28) }
+        if isHovered  { return .white.opacity(0.16) }
+        return .clear
     }
 }
 
