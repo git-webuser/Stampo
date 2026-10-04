@@ -28,7 +28,10 @@ final class ScrollingCaptureSession {
     var onStatus: ((ScrollCaptureStatus) -> Void)?
 
     private let selection: WindowPickerSelection
-    private let axis: ScrollAxis
+    /// The direction asked for until the probe has settled, the direction the
+    /// capture actually goes after it: a page that does not scroll that way
+    /// may scroll the other.
+    private var axis: ScrollAxis
     private let excludeScrollbars: Bool
     private let activateSelectedWindow: @MainActor (WindowPickerSelection) throws -> Void
     /// Whether Stampo's own visible UI (the notch panel) is over a Quartz
@@ -184,44 +187,57 @@ final class ScrollingCaptureSession {
                 throw ScrollDriverError.scrollAreaUnavailable
             }
             viewport = baseViewport
-            if excludeScrollbars {
-                let axScrollbarInset = ScrollDriver.scrollbarInsetPoints(container: scrollContainer,
-                                                                          viewport: baseViewport.windowRect,
-                                                                          axis: axis)
-                let reservedPoints = axScrollbarInset ?? Geometry.fallbackScrollbarInsetPoints
-                guard let adjusted = baseViewport.excludingScrollbar(axis: axis, insetPoints: reservedPoints) else {
-                    throw ScrollDriverError.scrollAreaUnavailable
-                }
-                viewport = adjusted
-                let source = axScrollbarInset == nil ? "fixed edge reserve" : "AX scrollbar geometry"
-                Log.capture.info("scrollbar edge excluded · \(reservedPoints, privacy: .public) points · \(source, privacy: .public)")
-            }
             diagnosticStage = .capture
-            let initialViewport = try await ScrollCaptureCancellationBoundary.awaitActive {
-                try await self.captureViewport()
+            // One look at the whole window before anything moves. It is the
+            // start of the capture whichever way the capture ends up going, so
+            // the beginning is never lost to a probe in the wrong direction —
+            // and being the whole window, it can be cropped for either axis
+            // without scrolling back.
+            var before = try await ScrollCaptureCancellationBoundary.awaitActive {
+                try await self.captureWindow()
             }
             try ensureActive()
             try checkWindowAndFocus()
-            let probeStep = max(24, min(56, axisLength(of: initialViewport) / 10))
-            try ensureActive()
-            let probePoint = currentScrollPoint()
-            diagnosticStage = .probeMotion
-            try validateCurrentScrollTarget(at: probePoint)
-            try ScrollDriver.sendScroll(axis: axis, pixels: probeStep, backingScale: scale, at: probePoint)
-            let probeViewport = try await ScrollCaptureCancellationBoundary.awaitActive {
-                try await self.captureStableViewport(reference: initialViewport)
+
+            var settled: (axis: ScrollAxis, viewport: ScrollViewport, outcome: ProbeOutcome,
+                          step: Int, motionLimit: Int)?
+            for candidate in Self.probeOrder(preferred: axis) {
+                let candidateViewport = try viewport(for: candidate, within: baseViewport)
+                let initial = try cropped(before, to: candidateViewport)
+                let probeStep = max(24, min(56, axisLength(of: initial, along: candidate) / 10))
+                try ensureActive()
+                let probePoint = currentScrollPoint()
+                diagnosticStage = .probeMotion
+                try validateCurrentScrollTarget(at: probePoint)
+                try ScrollDriver.sendScroll(axis: candidate, pixels: probeStep, backingScale: scale, at: probePoint)
+                let after = try await ScrollCaptureCancellationBoundary.awaitActive {
+                    try await self.captureStableWindow(viewport: candidateViewport)
+                }
+                try ensureActive()
+                try checkWindowAndFocus()
+                if let outcome = Self.probeOutcome(before: before, after: after,
+                                                   viewportPixels: pixelRect(of: candidateViewport),
+                                                   axis: candidate,
+                                                   preserveCrossAxis: scrollContainer != nil) {
+                    let motionLimit = ScrollDriver.maximumLikelyMovement(
+                        pixelStep: probeStep, backingScale: scale,
+                        viewportLength: axisLength(of: initial, along: candidate))
+                    settled = (candidate, candidateViewport, outcome, probeStep, motionLimit)
+                    break
+                }
+                // Nothing moved that way. The next axis starts from what the
+                // window shows now; when the probe moved nothing at all that is
+                // the very frame taken before it.
+                before = after
             }
-            try ensureActive()
-            try checkWindowAndFocus()
-            let probeMotionLimit = ScrollDriver.maximumLikelyMovement(pixelStep: probeStep,
-                                                                       backingScale: scale,
-                                                                       viewportLength: axisLength(of: initialViewport))
-            guard let movingRect = Self.movingContentRect(before: initialViewport, after: probeViewport, axis: axis,
-                                                          preserveCrossAxis: scrollContainer != nil),
-                  let first = initialViewport.cropped(to: movingRect),
-                  let probe = probeViewport.cropped(to: movingRect)
-            else { throw ScrollDriverError.noMovingContent }
-            guard let viewport, let croppedViewport = viewport.cropped(to: movingRect, backingScale: scale) else {
+            guard let settled else { throw ScrollDriverError.noMovingContent }
+            axis = settled.axis
+            assembler = ImageAssembler(axis: axis)
+            let (first, probe) = (settled.outcome.first, settled.outcome.probe)
+            let probeStep = settled.step
+            let probeMotionLimit = settled.motionLimit
+            guard let croppedViewport = settled.viewport.cropped(to: settled.outcome.movingRect,
+                                                                 backingScale: scale) else {
                 throw ScrollDriverError.scrollAreaUnavailable
             }
             self.viewport = croppedViewport
@@ -372,16 +388,63 @@ final class ScrollingCaptureSession {
         onStatus?(.paused(reason: reason))
     }
 
-    private func captureViewport() async throws -> CaptureFrame {
+    /// The whole selected window, as one frame.
+    private func captureWindow() async throws -> CaptureFrame {
         try ensureActive()
-        guard let viewport else { throw ScrollDriverError.scrollAreaUnavailable }
         let full = try await source.capture(windowID: selection.windowID, scale: scale)
         try ensureActive()
-        let pointsRect = viewport.cropRectInWindowPoints
-        let rect = CGRect(x: pointsRect.minX * scale, y: pointsRect.minY * scale,
-                          width: pointsRect.width * scale, height: pointsRect.height * scale)
-        guard let crop = full.cropped(to: rect) else { throw WindowFrameSourceError.invalidFrame }
+        return full
+    }
+
+    private func captureViewport() async throws -> CaptureFrame {
+        guard let viewport else { throw ScrollDriverError.scrollAreaUnavailable }
+        return try cropped(try await captureWindow(), to: viewport)
+    }
+
+    /// The viewport's region of a whole-window frame.
+    private func cropped(_ full: CaptureFrame, to viewport: ScrollViewport) throws -> CaptureFrame {
+        guard let crop = full.cropped(to: pixelRect(of: viewport)) else {
+            throw WindowFrameSourceError.invalidFrame
+        }
         return crop
+    }
+
+    private func pixelRect(of viewport: ScrollViewport) -> CGRect {
+        let points = viewport.cropRectInWindowPoints
+        return CGRect(x: points.minX * scale, y: points.minY * scale,
+                      width: points.width * scale, height: points.height * scale)
+    }
+
+    /// The viewport for one direction. The scrollbar to leave out is the one
+    /// along that direction's edge, so it depends on the axis being tried.
+    private func viewport(for axis: ScrollAxis, within base: ScrollViewport) throws -> ScrollViewport {
+        guard excludeScrollbars else { return base }
+        let axScrollbarInset = ScrollDriver.scrollbarInsetPoints(container: scrollContainer,
+                                                                  viewport: base.windowRect,
+                                                                  axis: axis)
+        let reservedPoints = axScrollbarInset ?? Geometry.fallbackScrollbarInsetPoints
+        guard let adjusted = base.excludingScrollbar(axis: axis, insetPoints: reservedPoints) else {
+            throw ScrollDriverError.scrollAreaUnavailable
+        }
+        let origin = axScrollbarInset == nil ? "fixed edge reserve" : "AX scrollbar geometry"
+        Log.capture.info("scrollbar edge excluded · \(reservedPoints, privacy: .public) points · \(origin, privacy: .public)")
+        return adjusted
+    }
+
+    /// The probe's second look, still the whole window. Settled is judged on
+    /// the candidate viewport — the part that is going to be stitched — so a
+    /// title bar or a fading scrollbar does not keep it waiting.
+    private func captureStableWindow(viewport candidate: ScrollViewport) async throws -> CaptureFrame {
+        var latest = try await captureWindow()
+        let deadline = Date().addingTimeInterval(1.8)
+        while Date() < deadline && !Task.isCancelled {
+            try await Task.sleep(for: .milliseconds(140))
+            let next = try await captureWindow()
+            let change = meanDifference(try cropped(latest, to: candidate), try cropped(next, to: candidate))
+            latest = next
+            if change < 0.003 { return latest }
+        }
+        return latest
     }
 
     private func captureStableViewport(reference: CaptureFrame) async throws -> CaptureFrame {
@@ -443,8 +506,8 @@ final class ScrollingCaptureSession {
                        y: bounds.minY + viewport.relativeScrollPoint.y)
     }
 
-    private func axisLength(of frame: CaptureFrame) -> Int {
-        axis == .vertical ? frame.height : frame.width
+    private func axisLength(of frame: CaptureFrame, along axis: ScrollAxis? = nil) -> Int {
+        (axis ?? self.axis) == .vertical ? frame.height : frame.width
     }
 
     private func localizedMessage(for error: Error) -> String {
@@ -471,6 +534,39 @@ final class ScrollingCaptureSession {
             n += 1
         }
         return total / Double(max(1, n))
+    }
+
+    /// The directions to probe, in order: the one asked for, then the other. A
+    /// page that does not scroll the way the picker said may scroll the other
+    /// way, and neither answering is the "does not scroll" of the alert.
+    nonisolated static func probeOrder(preferred: ScrollAxis) -> [ScrollAxis] {
+        [preferred, preferred == .vertical ? .horizontal : .vertical]
+    }
+
+    /// What a probe in one direction found.
+    struct ProbeOutcome {
+        /// The frame before the probe and the one after, cut to the part that
+        /// moved.
+        let first: CaptureFrame
+        let probe: CaptureFrame
+        /// That part, in pixels of the viewport's crop.
+        let movingRect: CGRect
+    }
+
+    /// Cuts two whole-window frames to a direction's viewport and finds what
+    /// moved between them. Nil when nothing did in that direction. Taking
+    /// whole-window frames is what lets one starting frame serve either axis.
+    nonisolated static func probeOutcome(before: CaptureFrame, after: CaptureFrame,
+                                          viewportPixels: CGRect, axis: ScrollAxis,
+                                          preserveCrossAxis: Bool) -> ProbeOutcome? {
+        guard let initial = before.cropped(to: viewportPixels),
+              let moved = after.cropped(to: viewportPixels),
+              let movingRect = movingContentRect(before: initial, after: moved, axis: axis,
+                                                 preserveCrossAxis: preserveCrossAxis),
+              let first = initial.cropped(to: movingRect),
+              let probe = moved.cropped(to: movingRect)
+        else { return nil }
+        return ProbeOutcome(first: first, probe: probe, movingRect: movingRect)
     }
 
     /// Finds the 2D bounding box of pixels that changed between the probe pair.

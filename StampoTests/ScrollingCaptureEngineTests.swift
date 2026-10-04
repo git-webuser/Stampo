@@ -756,6 +756,41 @@ import Testing
         }
     }
 
+    @Test func theAskedDirectionIsProbedFirstAndTheOtherSecond() {
+        #expect(ScrollingCaptureSession.probeOrder(preferred: .vertical) == [.vertical, .horizontal])
+        #expect(ScrollingCaptureSession.probeOrder(preferred: .horizontal) == [.horizontal, .vertical])
+    }
+
+    @Test func oneWholeWindowFrameServesWhicheverAxisTheProbeSettlesOn() throws {
+        // A window that scrolls only sideways: a probe the wrong way changes
+        // nothing, so the frame after it is the frame before it.
+        let start = paneTexture(width: 240, height: 200, axis: .horizontal, offset: 0)
+        let sideways = paneTexture(width: 240, height: 200, axis: .horizontal, offset: 23)
+        let whole = CGRect(x: 0, y: 0, width: 240, height: 200)
+
+        #expect(ScrollingCaptureSession.probeOutcome(before: start, after: start, viewportPixels: whole,
+                                                     axis: .vertical, preserveCrossAxis: false) == nil)
+
+        // The probe along the right axis finds the same start frame's moving part.
+        let outcome = try #require(ScrollingCaptureSession.probeOutcome(
+            before: start, after: sideways, viewportPixels: whole, axis: .horizontal,
+            preserveCrossAxis: false))
+        #expect(outcome.movingRect.minX >= 32)
+        #expect(outcome.movingRect.minY >= 20)
+        #expect(outcome.first.width == outcome.probe.width && outcome.first.height == outcome.probe.height)
+        // The first frame is the start, cut: the pixels are the start's own.
+        let rect = outcome.movingRect
+        #expect(outcome.first.pixels == start.cropped(to: rect)?.pixels)
+
+        // The bar to leave out belongs to the final axis: the same frames,
+        // cropped for it, give a frame inside that viewport.
+        let belowTheBar = CGRect(x: 0, y: 0, width: 240, height: 180)
+        let cropped = try #require(ScrollingCaptureSession.probeOutcome(
+            before: start, after: sideways, viewportPixels: belowTheBar, axis: .horizontal,
+            preserveCrossAxis: false))
+        #expect(cropped.first.height <= 180)
+    }
+
     @Test func oneScrollingModeCoversBothDirections() {
         #expect(CaptureMode.allCases == [.selection, .window, .scroll, .screen])
         #expect(CaptureMode(rawValue: CaptureMode.scroll.rawValue) == .scroll)
