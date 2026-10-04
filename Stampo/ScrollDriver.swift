@@ -142,7 +142,7 @@ enum ScrollDriver {
             return ScrollAncestorCandidate(identity: index, role: role, frame: frame)
         }
         guard ScrollAncestorResolver.matchesSelectedIdentity(selectedIndex, in: candidates,
-                                                              windowBounds: selection.bounds) else {
+                                                              windowBounds: top.bounds) else {
             throw ScrollDriverError.scrollAreaUnavailable
         }
     }

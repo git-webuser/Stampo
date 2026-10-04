@@ -169,6 +169,19 @@ import Testing
         #expect(ScrollAncestorResolver.matchesSelectedIdentity("web", in: chain, windowBounds: bounds))
     }
 
+    @Test func axResolverUsesTheMovedWindowsCurrentBounds() {
+        let originalBounds = CGRect(x: 0, y: 0, width: 400, height: 300)
+        let currentBounds = CGRect(x: 520, y: 140, width: 400, height: 300)
+        let containerFrame = currentBounds.insetBy(dx: 20, dy: 20)
+        let chain = [ScrollAncestorCandidate(identity: "web", role: "AXWebArea",
+                                             frame: containerFrame)]
+
+        #expect(ScrollAncestorResolver.matchesSelectedIdentity("web", in: chain,
+                                                                 windowBounds: currentBounds))
+        #expect(!ScrollAncestorResolver.matchesSelectedIdentity("web", in: chain,
+                                                                  windowBounds: originalBounds))
+    }
+
     @Test func appendsOnlyTheNewBottomBandForAnIncompleteFinalStep() throws {
         let first = texture(width: 120, height: 100)
         let last = texture(width: 120, height: 100, yOffset: 17)
