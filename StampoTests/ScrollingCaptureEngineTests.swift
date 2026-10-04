@@ -805,8 +805,8 @@ import Testing
             #expect(direction.other != direction)
             #expect(direction.other.other == direction)
         }
-        #expect(ScrollDirection.down.icon == "arrow.down.to.line")
-        #expect(ScrollDirection.right.icon == "arrow.right.to.line")
+        #expect(ScrollDirection.down.icon == "arrow.up.and.down.text.horizontal")
+        #expect(ScrollDirection.right.icon == "arrow.left.and.right.text.vertical")
     }
 
     @Test func voiceOverHearsTheDirectionOnlyForScrolling() {

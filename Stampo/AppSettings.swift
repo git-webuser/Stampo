@@ -456,7 +456,11 @@ enum ScrollDirection: String, CaseIterable, Equatable, Sendable {
     /// "next" and "previous" are the same step.
     var other: ScrollDirection { self == .down ? .right : .down }
 
-    var icon: String { self == .down ? "arrow.down.to.line" : "arrow.right.to.line" }
+    /// Lines of text with an arrow through them, rather than an arrow to a
+    /// line, which reads as "download". Both ship with macOS 13.
+    var icon: String {
+        self == .down ? "arrow.up.and.down.text.horizontal" : "arrow.left.and.right.text.vertical"
+    }
 
     func localizedTitle(_ locale: Locale = LocaleManager.shared.locale) -> String {
         switch self {

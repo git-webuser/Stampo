@@ -19,6 +19,11 @@ import Testing
         assertSymbols(ArchiveDropZone.allCases.map(\.icon))
     }
 
+    /// The Scrolling mode's glyphs — both directions, and the hotkey's.
+    @Test func scrollingSymbolsExist() {
+        assertSymbols(ScrollDirection.allCases.map(\.icon) + [HotkeyAction.scroll.icon])
+    }
+
     @Test func waitStripSymbolsExist() {
         assertSymbols([PanelWait.translating, .saving, .saved].map(\.systemImage))
     }

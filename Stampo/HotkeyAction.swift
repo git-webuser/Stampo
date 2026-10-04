@@ -172,7 +172,7 @@ enum HotkeyAction: UInt32, CaseIterable {
         case .collectFiles: return "pin"
         case .shareLastItem: return "square.and.arrow.up"
         case .translateClipboard: return "translate"
-        case .scroll: return "arrow.down.to.line"
+        case .scroll: return "arrow.up.and.down.text.horizontal"
         }
     }
 
