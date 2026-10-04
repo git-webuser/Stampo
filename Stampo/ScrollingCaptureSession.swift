@@ -4,6 +4,8 @@ import ScreenCaptureKit
 
 @MainActor
 final class ScrollingCaptureSession {
+    private enum State { case preparing, capturing, awaitingDecision, finished }
+
     var onFinished: ((CGImage) -> Void)?
     var onCancelled: (() -> Void)?
 
@@ -15,6 +17,7 @@ final class ScrollingCaptureSession {
     private var escapeToken: UUID?
     private var task: Task<Void, Never>?
     private var stopped = false
+    private var state: State = .preparing
     private var viewport: ScrollViewport?
     private var scale: CGFloat = 1
     private var lastStatus = "Preparing capture…"
@@ -43,14 +46,6 @@ final class ScrollingCaptureSession {
             cancel()
             return
         }
-        do {
-            viewport = try ScrollDriver.viewport(selection: selection)
-            scale = Self.backingScale(for: selection.bounds)
-        } catch {
-            UserFacingError.present(.screenCaptureFailed(reason: localizedMessage(for: error)))
-            cancel()
-            return
-        }
         let windowScreen = NSScreen.screens.first { Self.appKitFrame(from: selection.bounds).intersects($0.frame) }
         hud = ScrollingCaptureHUD(axis: axis, onFinish: { [weak self] in self?.finish() },
                                   onCancel: { [weak self] in self?.cancel() })
@@ -62,12 +57,15 @@ final class ScrollingCaptureSession {
     func finish() {
         guard !stopped else { return }
         stopped = true
+        state = .finished
         task?.cancel()
         cleanup()
         do {
             let image = try assembler.makeImage(maxPixels: 20_000_000)
+            releaseCaptureBuffers()
             onFinished?(image)
         } catch {
+            releaseCaptureBuffers()
             UserFacingError.present(.screenCaptureFailed(reason: error.localizedDescription))
             onCancelled?()
         }
@@ -76,8 +74,10 @@ final class ScrollingCaptureSession {
     func cancel() {
         guard !stopped else { return }
         stopped = true
+        state = .finished
         task?.cancel()
         cleanup()
+        releaseCaptureBuffers()
         onCancelled?()
     }
 
@@ -89,19 +89,43 @@ final class ScrollingCaptureSession {
         task = nil
     }
 
+    private func releaseCaptureBuffers() {
+        previous = nil
+        assembler.reset()
+    }
+
+    private func ensureActive() throws {
+        guard !Task.isCancelled, !stopped else { throw CancellationError() }
+    }
+
     private func run() async {
         do {
             if delaySeconds > 0 {
                 hud?.update(String(format: LocaleManager.shared.string("Starting in %d seconds…"), delaySeconds))
                 try await Task.sleep(for: .seconds(delaySeconds))
             }
+            try ScrollDriver.raiseSelectedWindow(selection)
             try await waitForTargetFocus()
+            try ensureActive()
+            scale = Self.backingScale(for: selection.bounds)
             try checkWindowAndFocus()
-            let initialViewport = try await captureViewport()
+            try ScrollDriver.validateScrollTarget(selection: selection, point: selection.clickPoint)
+            viewport = try ScrollDriver.viewport(selection: selection)
+            state = .capturing
+            let initialViewport = try await ScrollCaptureCancellationBoundary.awaitActive {
+                try await self.captureViewport()
+            }
+            try ensureActive()
             try checkWindowAndFocus()
             let probeStep = max(24, min(56, axisLength(of: initialViewport) / 10))
-            try ScrollDriver.sendScroll(axis: axis, pixels: probeStep, at: currentScrollPoint())
-            let probeViewport = try await captureStableViewport(reference: initialViewport)
+            try ensureActive()
+            let probePoint = currentScrollPoint()
+            try ScrollDriver.validateScrollTarget(selection: selection, point: probePoint)
+            try ScrollDriver.sendScroll(axis: axis, pixels: probeStep, at: probePoint)
+            let probeViewport = try await ScrollCaptureCancellationBoundary.awaitActive {
+                try await self.captureStableViewport(reference: initialViewport)
+            }
+            try ensureActive()
             try checkWindowAndFocus()
             let probeMotionLimit = ScrollDriver.maximumLikelyMovement(pixelStep: probeStep,
                                                                        backingScale: scale,
@@ -110,17 +134,13 @@ final class ScrollingCaptureSession {
                   let first = initialViewport.cropped(to: movingRect),
                   let probe = probeViewport.cropped(to: movingRect)
             else { throw ScrollDriverError.scrollAreaUnavailable }
-            if let viewport {
-                self.viewport = ScrollViewport(
-                    windowRect: viewport.windowRect.offsetBy(dx: movingRect.minX / scale,
-                                                            dy: movingRect.minY / scale),
-                    relativeScrollPoint: viewport.relativeScrollPoint,
-                    windowBounds: viewport.windowBounds
-                )
+            guard let viewport, let croppedViewport = viewport.cropped(to: movingRect, backingScale: scale) else {
+                throw ScrollDriverError.scrollAreaUnavailable
             }
+            self.viewport = croppedViewport
             assembler.begin(with: first)
             previous = probe
-            lastStatus = axis == .vertical ? LocaleManager.shared.string("Scroll down to capture more") : LocaleManager.shared.string("Scroll right to capture more")
+            lastStatus = LocaleManager.shared.string("Capturing automatically…")
             hud?.update(lastStatus)
             var requestedStep = max(24, Int(Double(axisLength(of: first)) * 0.60))
             var unmatchedScroll = 0
@@ -128,6 +148,7 @@ final class ScrollingCaptureSession {
             do {
                 let match = try FrameMatcher.match(previous: first, current: probe, axis: axis,
                                                    maximumOffset: probeMotionLimit + 24)
+                try ensureActive()
                 try assembler.append(probe, movement: match.offset)
             } catch {
                 // The selected scroll view did not yield stable moving content
@@ -140,12 +161,12 @@ final class ScrollingCaptureSession {
 
             while !Task.isCancelled && !stopped {
                 guard Date().timeIntervalSince(startedAt) < 90 else {
-                    hud?.update(LocaleManager.shared.string("Time limit reached · Finish to save or Cancel to discard"))
+                    pause(with: LocaleManager.shared.string("Time limit reached · Finish to save or Cancel to discard"))
                     return
                 }
                 guard assembler.totalLength < 20_000,
                       (axis == .vertical ? first.width * assembler.totalLength : first.height * assembler.totalLength) < 20_000_000 else {
-                    hud?.update(LocaleManager.shared.string("Size limit reached · Finish to save or Cancel to discard"))
+                    pause(with: LocaleManager.shared.string("Size limit reached · Finish to save or Cancel to discard"))
                     return
                 }
                 guard let oldFrame = previous else { return }
@@ -155,42 +176,53 @@ final class ScrollingCaptureSession {
                                                                       backingScale: scale,
                                                                       viewportLength: axisLength(of: oldFrame))
                 let point = currentScrollPoint()
+                try ensureActive()
+                try ScrollDriver.validateScrollTarget(selection: selection, point: point)
                 try ScrollDriver.sendScroll(axis: axis, pixels: currentStep, at: point)
-                let next = try await captureStableViewport(reference: oldFrame)
-                if Task.isCancelled || stopped { return }
+                let next = try await ScrollCaptureCancellationBoundary.awaitActive {
+                    try await self.captureStableViewport(reference: oldFrame)
+                }
+                try ensureActive()
                 try checkWindowAndFocus()
 
                 if meanDifference(oldFrame, next) < 0.006 {
                     zeroMotionCount += 1
                     consecutiveFailures = 0
-                    lastStatus = zeroMotionCount >= 3
-                        ? LocaleManager.shared.string("End of scroll area · Finish to save or Cancel to discard")
-                        : LocaleManager.shared.string("No movement detected · checking…")
+                    if zeroMotionCount >= 3 {
+                        pause(with: LocaleManager.shared.string("Capture complete · Finish to save or Cancel to discard"))
+                        return
+                    }
+                    lastStatus = LocaleManager.shared.string("No movement detected · checking…")
                     hud?.update(lastStatus)
-                    if zeroMotionCount >= 3 { return }
                     // Move a little farther to rule out a missed high-resolution event.
                     continue
                 }
                 zeroMotionCount = 0
                 do {
                     let axis = self.axis
-                    let match = try await Task.detached(priority: .userInitiated) {
-                        try FrameMatcher.match(previous: oldFrame, current: next, axis: axis,
-                                               maximumOffset: motionLimit + unmatchedScroll + 32)
-                    }.value
+                    let maximumOffset = motionLimit + unmatchedScroll + 32
+                    let match = try await ScrollCaptureCancellationBoundary.awaitActive {
+                        try await Task.detached(priority: .userInitiated) {
+                            try FrameMatcher.match(previous: oldFrame, current: next, axis: axis,
+                                                   maximumOffset: maximumOffset)
+                        }.value
+                    }
+                    try ensureActive()
                     let combinedLength = assembler.totalLength + match.offset
                     let crossLength = axis == .vertical ? next.width : next.height
                     guard combinedLength <= 20_000, crossLength * combinedLength <= 20_000_000 else {
-                        hud?.update(LocaleManager.shared.string("Size limit reached · Finish to save or Cancel to discard"))
+                        pause(with: LocaleManager.shared.string("Size limit reached · Finish to save or Cancel to discard"))
                         return
                     }
+                    try ensureActive()
                     try assembler.append(next, movement: match.offset)
                     previous = next
                     unmatchedScroll = 0
                     requestedStep = max(24, Int(Double(axisLength(of: next)) * 0.60))
                     consecutiveFailures = 0
-                    let statusKey = axis == .vertical ? "Captured %d pixels · scroll down" : "Captured %d pixels · scroll right"
-                    hud?.update(String(format: LocaleManager.shared.string(statusKey), assembler.totalLength))
+                    hud?.update(String(format: LocaleManager.shared.string("Captured %d pixels"), assembler.totalLength))
+                } catch is CancellationError {
+                    throw CancellationError()
                 } catch {
                     consecutiveFailures += 1
                     if consecutiveFailures <= 2 {
@@ -200,7 +232,7 @@ final class ScrollingCaptureSession {
                         unmatchedScroll += motionLimit
                         hud?.update(LocaleManager.shared.string("Unclear frame · retrying with a shorter scroll…"))
                     } else {
-                        hud?.update(LocaleManager.shared.string("Could not align frame · Finish to save or Cancel to discard"))
+                        pause(with: LocaleManager.shared.string("Could not align frame · Finish to save or Cancel to discard"))
                         return
                     }
                 }
@@ -215,29 +247,39 @@ final class ScrollingCaptureSession {
                     return
                 }
                 let message = localizedMessage(for: error)
-                hud?.update("\(message) · \(LocaleManager.shared.string("Finish to save or Cancel to discard"))")
+                pause(with: "\(message) · \(LocaleManager.shared.string("Finish to save or Cancel to discard"))")
                 lastStatus = message
             }
         }
     }
 
+    private func pause(with message: String) {
+        state = .awaitingDecision
+        previous = nil
+        lastStatus = message
+        hud?.update(message)
+    }
+
     private func captureViewport() async throws -> CaptureFrame {
+        try ensureActive()
         guard let viewport else { throw ScrollDriverError.scrollAreaUnavailable }
         let full = try await source.capture(windowID: selection.windowID, scale: scale)
-        let x = (viewport.windowRect.minX - viewport.windowBounds.minX) * scale
-        let y = (viewport.windowRect.minY - viewport.windowBounds.minY) * scale
-        let rect = CGRect(x: x, y: y, width: viewport.windowRect.width * scale,
-                          height: viewport.windowRect.height * scale)
+        try ensureActive()
+        let pointsRect = viewport.cropRectInWindowPoints
+        let rect = CGRect(x: pointsRect.minX * scale, y: pointsRect.minY * scale,
+                          width: pointsRect.width * scale, height: pointsRect.height * scale)
         guard let crop = full.cropped(to: rect) else { throw WindowFrameSourceError.invalidFrame }
         return crop
     }
 
     private func captureStableViewport(reference: CaptureFrame) async throws -> CaptureFrame {
         var latest = try await captureViewport()
+        try ensureActive()
         let deadline = Date().addingTimeInterval(1.8)
         while Date() < deadline && !Task.isCancelled {
             try await Task.sleep(for: .milliseconds(140))
             let next = try await captureViewport()
+            try ensureActive()
             let change = meanDifference(latest, next)
             latest = next
             if change < 0.003 { return latest }
@@ -248,7 +290,8 @@ final class ScrollingCaptureSession {
     }
 
     private func checkWindowAndFocus() throws {
-        guard let now = ScrollDriver.currentWindowBounds(selection.windowID) else {
+        guard let now = ScrollDriver.currentWindowBounds(selection.windowID),
+              ScrollDriver.currentWindowOwnerPID(selection.windowID) == selection.processID else {
             throw WindowFrameSourceError.windowUnavailable
         }
         guard abs(now.width - selection.bounds.width) < 1,
@@ -266,7 +309,15 @@ final class ScrollingCaptureSession {
     private func waitForTargetFocus() async throws {
         let deadline = Date().addingTimeInterval(1.2)
         while Date() < deadline && !Task.isCancelled {
-            if NSWorkspace.shared.frontmostApplication?.processIdentifier == selection.processID { return }
+            if NSWorkspace.shared.frontmostApplication?.processIdentifier == selection.processID {
+                do {
+                    try ScrollDriver.validateScrollTarget(selection: selection, point: selection.clickPoint)
+                    return
+                } catch {
+                    // Wait briefly for activation to expose the exact selected
+                    // window; a covered point is never sent a scroll event.
+                }
+            }
             try await Task.sleep(for: .milliseconds(80))
         }
         throw WindowFrameSourceError.captureFailed(LocaleManager.shared.string("The selected app lost focus. Finish to save the collected portion or Cancel to discard."))
@@ -313,8 +364,8 @@ final class ScrollingCaptureSession {
     /// Trims sticky controls from the AX-provided scroll viewport by comparing
     /// the small probe pair. The first-to-last active band is the portion that
     /// actually moved; fixed headers and toolbars are left out of every frame.
-    private static func movingContentRect(before: CaptureFrame, after: CaptureFrame,
-                                          axis: ScrollAxis) -> CGRect? {
+    nonisolated static func movingContentRect(before: CaptureFrame, after: CaptureFrame,
+                                               axis: ScrollAxis) -> CGRect? {
         guard before.width == after.width, before.height == after.height else { return nil }
         let length = axis == .vertical ? before.height : before.width
         let cross = axis == .vertical ? before.width : before.height
@@ -339,9 +390,8 @@ final class ScrollingCaptureSession {
             }
         }
         guard let first, let last, last - first >= length / 3 else { return nil }
-        let padding = 8
-        let lower = max(0, first - padding)
-        let upper = min(length, last + padding + 1)
+        let lower = first
+        let upper = min(length, last + 1)
         guard upper - lower >= length / 3 else { return nil }
         return axis == .vertical
             ? CGRect(x: 0, y: lower, width: before.width, height: upper - lower)

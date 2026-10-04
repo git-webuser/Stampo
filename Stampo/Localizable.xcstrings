@@ -9315,22 +9315,22 @@
         }
       }
     },
-    "Captured %d pixels · scroll down" : {
+    "Captured %d pixels" : {
       "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Captured %d pixels · scroll down" } },
-        "ru" : { "stringUnit" : { "state" : "translated", "value" : "Собрано %d пикселей · прокручивайте вниз" } }
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Captured %d pixels" } },
+        "ru" : { "stringUnit" : { "state" : "translated", "value" : "Собрано %d пикселей" } }
       }
     },
-    "Captured %d pixels · scroll right" : {
+    "Capture complete · Finish to save or Cancel to discard" : {
       "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Captured %d pixels · scroll right" } },
-        "ru" : { "stringUnit" : { "state" : "translated", "value" : "Собрано %d пикселей · прокручивайте вправо" } }
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Capture complete · Finish to save or Cancel to discard" } },
+        "ru" : { "stringUnit" : { "state" : "translated", "value" : "Захват завершён · Завершить для сохранения или отменить" } }
       }
     },
-    "End of scroll area · Finish to save or Cancel to discard" : {
+    "Capturing automatically…" : {
       "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "End of scroll area · Finish to save or Cancel to discard" } },
-        "ru" : { "stringUnit" : { "state" : "translated", "value" : "Конец области · Завершить для сохранения или Отменить" } }
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Capturing automatically…" } },
+        "ru" : { "stringUnit" : { "state" : "translated", "value" : "Автоматический захват…" } }
       }
     },
     "Finish" : {
@@ -9393,18 +9393,6 @@
         "ru" : { "stringUnit" : { "state" : "translated", "value" : "Прокрутка вправо" } }
       }
     },
-    "Scroll down to capture more" : {
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Scroll down to capture more" } },
-        "ru" : { "stringUnit" : { "state" : "translated", "value" : "Прокручивайте вниз для продолжения" } }
-      }
-    },
-    "Scroll right to capture more" : {
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Scroll right to capture more" } },
-        "ru" : { "stringUnit" : { "state" : "translated", "value" : "Прокручивайте вправо для продолжения" } }
-      }
-    },
     "Size limit reached · Finish to save or Cancel to discard" : {
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Size limit reached · Finish to save or Cancel to discard" } },
@@ -9421,6 +9409,12 @@
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "The selected app lost focus. Finish to save the collected portion or Cancel to discard." } },
         "ru" : { "stringUnit" : { "state" : "translated", "value" : "Фокус приложения изменился. Завершите для сохранения части или отмените." } }
+      }
+    },
+    "The selected window is covered at the scroll point. Finish to save the collected portion or Cancel to discard." : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "The selected window is covered at the scroll point. Finish to save the collected portion or Cancel to discard." } },
+        "ru" : { "stringUnit" : { "state" : "translated", "value" : "Точка прокрутки перекрыта. Завершите для сохранения части или отмените." } }
       }
     },
     "The selected window has no capturable image." : {

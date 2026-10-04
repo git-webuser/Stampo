@@ -4,7 +4,7 @@ import Testing
 
 @Suite struct ScrollingCaptureEngineTests {
     private func texture(width: Int, height: Int, xOffset: Int = 0, yOffset: Int = 0,
-                        repeatedRows: Int? = nil, stickyHeader: Int = 0,
+                        repeatedRows: Int? = nil, stickyHeader: Int = 0, stickyFooter: Int = 0,
                         animated: Bool = false) -> CaptureFrame {
         var bytes = [UInt8](repeating: 255, count: width * height * 4)
         for y in 0..<height {
@@ -13,7 +13,9 @@ import Testing
                 let logicalX = x + xOffset
                 let n = repeatedRows.map { logicalY % $0 } ?? logicalY
                 var value = UInt8(truncatingIfNeeded: (n &* 73 &+ logicalX &* 37 &+ n &* logicalX &* 11) & 255)
-                if y < stickyHeader { value = UInt8(truncatingIfNeeded: x &* 37 & 255) }
+                if y < stickyHeader || y >= height - stickyFooter {
+                    value = UInt8(truncatingIfNeeded: x &* 37 & 255)
+                }
                 if animated && x < 5 && y < 5 { value = (x + y) % 2 == 0 ? 0 : 255 }
                 let i = (y * width + x) * 4
                 bytes[i] = value
@@ -103,6 +105,100 @@ import Testing
         #expect(CaptureFrame(image: image)?.pixels == texture(width: 113, height: 90).pixels)
     }
 
+    @Test func threeSequentialAppendsPreserveEveryPixelOnBothAxes() throws {
+        for axis in ScrollAxis.allCases {
+            let width = axis == .vertical ? 120 : 90
+            let height = axis == .vertical ? 90 : 120
+            let increments = [11, 17, 7]
+            var assembler = ImageAssembler(axis: axis)
+            assembler.begin(with: texture(width: width, height: height))
+            var offset = 0
+            for movement in increments {
+                offset += movement
+                let next = texture(width: width, height: height,
+                                   xOffset: axis == .horizontal ? offset : 0,
+                                   yOffset: axis == .vertical ? offset : 0)
+                try assembler.append(next, movement: movement)
+            }
+
+            let image = try assembler.makeImage(maxPixels: 100_000)
+            let expected = texture(width: axis == .horizontal ? width + offset : width,
+                                   height: axis == .vertical ? height + offset : height)
+            #expect(CaptureFrame(image: image)?.pixels == expected.pixels)
+            #expect(assembler.totalLength == (axis == .vertical ? height : width) + offset)
+        }
+    }
+
+    @Test func trimmedViewportKeepsRetinaCropGeometryAndStableFrameDimensions() throws {
+        let before = texture(width: 180, height: 220, stickyHeader: 14, stickyFooter: 18)
+        let after = texture(width: 180, height: 220, yOffset: 21,
+                            stickyHeader: 14, stickyFooter: 18)
+        let moving = try #require(ScrollingCaptureSession.movingContentRect(before: before,
+                                                                              after: after,
+                                                                              axis: .vertical))
+        #expect(moving.minY >= 14)
+        #expect(moving.maxY <= CGFloat(before.height - 18))
+
+        let windowBounds = CGRect(x: 400, y: 250, width: 500, height: 400)
+        let originalViewport = ScrollViewport(windowRect: CGRect(x: 430, y: 280, width: 90, height: 110),
+                                              relativeScrollPoint: CGPoint(x: 40, y: 50),
+                                              windowBounds: windowBounds)
+        let cropped = try #require(originalViewport.cropped(to: moving, backingScale: 2))
+        #expect(cropped.windowRect.minX == 430 + moving.minX / 2)
+        #expect(cropped.windowRect.minY == 280 + moving.minY / 2)
+        #expect(cropped.windowRect.width == moving.width / 2)
+        #expect(cropped.windowRect.height == moving.height / 2)
+        #expect(cropped.cropRectInWindowPoints == CGRect(x: cropped.windowRect.minX - windowBounds.minX,
+                                                         y: cropped.windowRect.minY - windowBounds.minY,
+                                                         width: cropped.windowRect.width,
+                                                         height: cropped.windowRect.height))
+
+        let later1 = try #require(before.cropped(to: moving))
+        let later2 = try #require(after.cropped(to: moving))
+        #expect(later1.width == later2.width)
+        #expect(later1.height == later2.height)
+        #expect(later1.width == Int(cropped.windowRect.width * 2))
+        #expect(later1.height == Int(cropped.windowRect.height * 2))
+    }
+
+    @Test func cancellingDuringInitialCapturePreventsTheFirstScrollEvent() async throws {
+        let latch = AsyncLatch()
+        let counter = EventCounter()
+        let delayedCapture = Task {
+            try await ScrollCaptureCancellationBoundary.awaitActive {
+                await latch.park()
+                return CaptureFrame(width: 100, height: 90,
+                                    pixels: [UInt8](repeating: 0, count: 100 * 90 * 4))
+            }
+            await counter.recordEvent()
+        }
+        await latch.waitUntilStarted()
+        delayedCapture.cancel()
+        await latch.release()
+        do { try await delayedCapture.value; Issue.record("Expected cancellation") }
+        catch is CancellationError { }
+        #expect(await counter.value == 0)
+    }
+
+    @Test func cancellingDuringMatcherPreventsAppendingOrPublishing() async throws {
+        let latch = AsyncLatch()
+        let counter = EventCounter()
+        let delayedMatcher = Task {
+            let _: FrameMatch = try await ScrollCaptureCancellationBoundary.awaitActive {
+                await latch.park()
+                return FrameMatch(offset: 12, confidence: 1, independentRegions: 5)
+            }
+            await counter.recordEvent()
+            await counter.recordEvent()
+        }
+        await latch.waitUntilStarted()
+        delayedMatcher.cancel()
+        await latch.release()
+        do { try await delayedMatcher.value; Issue.record("Expected cancellation") }
+        catch is CancellationError { }
+        #expect(await counter.value == 0)
+    }
+
     @Test @MainActor func cancellingDiscardsTheCollectedImage() {
         let selection = WindowPickerSelection(windowID: 17, processID: 42,
                                               clickPoint: CGPoint(x: 15, y: 15),
@@ -116,4 +212,34 @@ import Testing
         #expect(didCancel)
         #expect(!didFinish)
     }
+}
+
+private actor AsyncLatch {
+    private var continuation: CheckedContinuation<Void, Never>?
+    private var startContinuation: CheckedContinuation<Void, Never>?
+    private var started = false
+
+    func park() async {
+        await withCheckedContinuation { continuation in
+            self.started = true
+            self.startContinuation?.resume()
+            self.startContinuation = nil
+            self.continuation = continuation
+        }
+    }
+
+    func waitUntilStarted() async {
+        if started { return }
+        await withCheckedContinuation { startContinuation = $0 }
+    }
+
+    func release() {
+        continuation?.resume()
+        continuation = nil
+    }
+}
+
+private actor EventCounter {
+    private(set) var value = 0
+    func recordEvent() { value += 1 }
 }

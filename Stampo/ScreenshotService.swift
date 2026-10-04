@@ -17,6 +17,7 @@ final class ScreenshotService {
     private nonisolated let store = ScreenshotFileStore()
     private(set) var lastCaptureURL: URL?
     private var scrollingSession: ScrollingCaptureSession?
+    private var captureInProgress = false
 
     private let thumbnailHUD = ScreenshotThumbnailHUD()
 
@@ -48,7 +49,8 @@ final class ScreenshotService {
     /// Starts the single in-memory scrolling capture session. The final image
     /// enters the same store/publish pipeline as an ordinary screenshot.
     func captureScrolling(selection: WindowPickerSelection, axis: ScrollAxis, preferredScreen: NSScreen?, delaySeconds: Int = 0) {
-        guard scrollingSession == nil else { return }
+        guard !captureInProgress, scrollingSession == nil else { return }
+        captureInProgress = true
         let session = ScrollingCaptureSession(selection: selection, axis: axis, delaySeconds: delaySeconds)
         scrollingSession = session
         session.onFinished = { [weak self] image in
@@ -56,7 +58,10 @@ final class ScreenshotService {
             self.scrollingSession = nil
             self.saveScrollingImage(image, on: preferredScreen)
         }
-        session.onCancelled = { [weak self] in self?.scrollingSession = nil }
+        session.onCancelled = { [weak self] in
+            self?.scrollingSession = nil
+            self?.captureInProgress = false
+        }
         session.start()
     }
 
@@ -72,9 +77,10 @@ final class ScreenshotService {
                     throw ScreenshotFileStore.SaveError.encodingFailed
                 }
                 let url = try store.saveEncodedImage(data, format: format)
-                await service?.publish(url, on: screen)
+                await service?.finishScrollingSave(url, on: screen)
             } catch {
-                await MainActor.run {
+                await MainActor.run { [weak service] in
+                    service?.captureInProgress = false
                     UserFacingError.present(.screenCaptureFailed(reason: error.localizedDescription))
                 }
             }
@@ -82,6 +88,8 @@ final class ScreenshotService {
     }
 
     func capture(mode: CaptureMode, delaySeconds: Int, preferredScreen: NSScreen?) {
+        guard !captureInProgress, scrollingSession == nil else { return }
+        captureInProgress = true
         let displayID = preferredScreen?.displayID
         let frontmostWindowID = mode == .window
             ? FrontmostWindowResolver.frontmostWindowID()
@@ -114,6 +122,8 @@ final class ScreenshotService {
     }
 
     func captureRect(_ rect: CGRect, preferredScreen: NSScreen?) {
+        guard !captureInProgress, scrollingSession == nil else { return }
+        captureInProgress = true
         let displayID = preferredScreen?.displayID
         let configuration = ScreenshotCaptureConfiguration.current
         let capturer = self.capturer
@@ -132,6 +142,8 @@ final class ScreenshotService {
     }
 
     func captureWindowID(_ windowID: CGWindowID, preferredScreen: NSScreen?) {
+        guard !captureInProgress, scrollingSession == nil else { return }
+        captureInProgress = true
         let displayID = preferredScreen?.displayID
         let configuration = ScreenshotCaptureConfiguration.current
         let capturer = self.capturer
@@ -211,6 +223,7 @@ final class ScreenshotService {
     // MARK: - Main actor
 
     private func finish(_ result: CaptureWorkerResult, preferredDisplayID: CGDirectDisplayID?) {
+        captureInProgress = false
         let preferredScreen = preferredDisplayID.flatMap { id in
             NSScreen.screens.first { $0.displayID == id }
         }
@@ -253,5 +266,10 @@ final class ScreenshotService {
         thumbnailHUD.onDelete = { [weak self] in self?.onDelete?(url) }
         thumbnailHUD.show(imageURL: url, on: screen)
         onCaptured?(url)
+    }
+
+    private func finishScrollingSave(_ url: URL, on screen: NSScreen?) {
+        captureInProgress = false
+        publish(url, on: screen)
     }
 }

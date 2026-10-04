@@ -1,6 +1,16 @@
 import AppKit
 import CoreGraphics
 
+nonisolated enum ScrollCaptureCancellationBoundary {
+    /// Await an injectable operation and refuse to continue if the session was
+    /// cancelled while the operation was suspended.
+    static func awaitActive<Value: Sendable>(_ operation: @Sendable () async throws -> Value) async throws -> Value {
+        let value = try await operation()
+        guard !Task.isCancelled else { throw CancellationError() }
+        return value
+    }
+}
+
 /// The only direction a scrolling capture may advance.
 nonisolated enum ScrollAxis: String, CaseIterable, Equatable, Sendable {
     case vertical
@@ -207,19 +217,22 @@ nonisolated struct ImageAssembler: Sendable {
     let axis: ScrollAxis
     private(set) var strips: [CaptureStrip] = []
     private(set) var totalLength = 0
+    private(set) var viewportWidth = 0
+    private(set) var viewportHeight = 0
 
     mutating func begin(with frame: CaptureFrame) {
         guard strips.isEmpty else { return }
+        viewportWidth = frame.width
+        viewportHeight = frame.height
         let length = axis == .vertical ? frame.height : frame.width
         strips.append(CaptureStrip(frame: frame, start: 0))
         totalLength = length
     }
 
     mutating func append(_ frame: CaptureFrame, movement: Int) throws {
-        guard let last = strips.last, frame.width == last.frame.width, frame.height == last.frame.height,
+        guard !strips.isEmpty, frame.width == viewportWidth, frame.height == viewportHeight,
               movement > 0, movement < (axis == .vertical ? frame.height : frame.width)
         else { throw FrameMatchError.noReliableMotion }
-        let length = axis == .vertical ? frame.height : frame.width
         // Add only the newly exposed band. Direction is normalized so the
         // assembled document reads top-to-bottom / left-to-right.
         let band = axis == .vertical
@@ -228,7 +241,13 @@ nonisolated struct ImageAssembler: Sendable {
         guard let band else { throw FrameMatchError.noReliableMotion }
         strips.append(CaptureStrip(frame: band, start: totalLength))
         totalLength += movement
-        _ = length
+    }
+
+    mutating func reset() {
+        strips.removeAll(keepingCapacity: false)
+        totalLength = 0
+        viewportWidth = 0
+        viewportHeight = 0
     }
 
     func makeImage(maxPixels: Int) throws -> CGImage {
