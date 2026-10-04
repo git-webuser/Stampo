@@ -446,7 +446,7 @@ enum AppSettings {
 
 /// The way a scrolling capture goes. The panel and the window picker share
 /// one value, so ⇥ in the picker is the same choice as the panel's.
-nonisolated enum ScrollDirection: String, CaseIterable, Equatable, Sendable {
+enum ScrollDirection: String, CaseIterable, Equatable, Sendable {
     case down
     case right
 
