@@ -142,7 +142,26 @@ import Testing
     /// ⇥ is only worth claiming where the header has a list to step through.
     @Test(arguments: [PanelState.archive, .translate])
     func theTwoRoutesWithAListHoldTheCycleKey(state: PanelState) {
-        #expect(state.wantsCycleHotkey)
+        #expect(state.wantsCycleHotkey(scrollModeSelected: false))
+        #expect(state.wantsCycleHotkey(scrollModeSelected: true))
+    }
+
+    /// Main has one thing to step through, and only in Scrolling: the
+    /// direction. In any other mode the key is not the panel's.
+    @Test func mainHoldsTheCycleKeyOnlyInTheScrollingMode() {
+        #expect(PanelState.main.wantsCycleHotkey(scrollModeSelected: true))
+        #expect(!PanelState.main.wantsCycleHotkey(scrollModeSelected: false))
+    }
+
+    /// The view's half of the same rule: which route has something to step
+    /// through. Together with the state's, the pointer being on the panel and
+    /// the setting being on, that is the whole condition for holding ⇥.
+    @Test func routesStepThroughSomethingOnlyWhereThereIsSomething() {
+        #expect(NotchPanelRoute.archive.cyclesSomething(scrollModeSelected: false))
+        #expect(NotchPanelRoute.translate.cyclesSomething(scrollModeSelected: false))
+        #expect(NotchPanelRoute.main.cyclesSomething(scrollModeSelected: true))
+        #expect(!NotchPanelRoute.main.cyclesSomething(scrollModeSelected: false))
+        #expect(!NotchPanelRoute.cdwn.cyclesSomething(scrollModeSelected: true))
     }
 
     /// Everything else hands it straight back. This is the dangerous half: a
@@ -152,7 +171,10 @@ import Testing
                       .scrollCapture, .waiting, .transitioning(to: .translate),
                       .preSelection(.selection), .stale(reason: .sleep)])
     func everyOtherStateHandsTheCycleKeyBack(state: PanelState) {
-        #expect(!state.wantsCycleHotkey)
+        #expect(!state.wantsCycleHotkey(scrollModeSelected: false))
+        // Not even in Scrolling: that mode's ⇥ is Main's alone.
+        if case .main = state { return }
+        #expect(!state.wantsCycleHotkey(scrollModeSelected: true))
     }
 
     /// The share sheet is our own window: holding the hotkey would eat the Esc

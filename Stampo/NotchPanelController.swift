@@ -224,6 +224,20 @@ enum PanelWait: Equatable {
     }
 }
 
+extension NotchPanelRoute {
+    /// Whether ⇥ has anything to step through on this route: the archive's
+    /// format, the translator's language, and — on Main, with Scrolling chosen —
+    /// the direction. The countdown has nothing, and neither does Main in any
+    /// other mode, where ⇥ is not the panel's to take.
+    func cyclesSomething(scrollModeSelected: Bool) -> Bool {
+        switch self {
+        case .archive, .translate: return true
+        case .main:                return scrollModeSelected
+        case .cdwn:                return false
+        }
+    }
+}
+
 /// What the scrolling capture's strip shows in the arc's place.
 enum ScrollStripPhase: Equatable {
     case running
@@ -278,19 +292,22 @@ extension PanelState {
 
     /// Whether the panel may hold ⇥ right now.
     ///
-    /// Only the two routes with a list in their header: the archive's colour
-    /// format and the translator's language. Everything else — Main, the
-    /// countdown, the wait, and every state where the panel is leaving or gone
-    /// — hands the key back, because holding it consumes ⇥ for every app on
-    /// the machine and the panel can be pinned open indefinitely.
+    /// Only where there is something for it to step through: the archive's
+    /// colour format, the translator's language, and — in Main, with the
+    /// Scrolling mode chosen — the scroll direction, which the mode's glyph
+    /// shows. Everything else — Main in any other mode, the countdown, the
+    /// wait, and every state where the panel is leaving or gone — hands the
+    /// key back, because holding it consumes ⇥ for every app on the machine
+    /// and the panel can be pinned open indefinitely.
     ///
     /// Being in one of these states is necessary, not sufficient: the view
     /// pushes the owner only while the pointer is also on the panel, the way
     /// Space is only held over a cell.
-    var wantsCycleHotkey: Bool {
+    func wantsCycleHotkey(scrollModeSelected: Bool) -> Bool {
         switch self {
         case .archive, .translate: return true
-        case .hidden, .showing, .main, .transitioning, .hiding,
+        case .main: return scrollModeSelected
+        case .hidden, .showing, .transitioning, .hiding,
              .countdown, .scrollCapture, .waiting, .preSelection, .stale: return false
         }
     }
@@ -682,6 +699,7 @@ private struct NotchPanelRootView: View {
             updateCycleHotkeys()
         }
         .onChange(of: rootState.route) { _, _ in updateCycleHotkeys() }
+        .onChange(of: model.mode) { _, _ in updateCycleHotkeys() }
         .onChange(of: cycleEnabled) { _, _ in updateCycleHotkeys() }
         .onDisappear {
             isPointerInside = false
@@ -698,7 +716,7 @@ private struct NotchPanelRootView: View {
         shiftTabToken = nil
 
         guard cycleEnabled, isPointerInside,
-              rootState.route == .archive || rootState.route == .translate
+              rootState.route.cyclesSomething(scrollModeSelected: model.mode == .scroll)
         else { return }
 
         tabToken = TransientHotkeyCenter.tab.push { onCycleHeader(false) }
@@ -2228,7 +2246,7 @@ final class NotchPanelController: NSObject {
         // reason to fire false. The owner would stay pushed and ⇥ would be
         // gone from every app on the machine, which is the exact shape of the
         // Space leak this file already carries a fix for.
-        if !state.wantsCycleHotkey {
+        if !state.wantsCycleHotkey(scrollModeSelected: model.mode == .scroll) {
             TransientHotkeyCenter.tab.releaseAll()
             TransientHotkeyCenter.shiftTab.releaseAll()
         }
@@ -2373,7 +2391,8 @@ final class NotchPanelController: NSObject {
     /// One key for two things because they are the same thing from the user's
     /// side — the pop-up in the top-left corner of whichever surface is up.
     /// The archive's is the colour format, the translator's is the language,
-    /// and neither surface has a second list to confuse it with.
+    /// and neither surface has a second list to confuse it with. Main has none
+    /// of its own: in Scrolling the key turns the direction instead.
     ///
     /// The two are not equally cheap, and that is deliberate rather than
     /// overlooked: cycling a colour format redraws a label, while cycling a
@@ -2404,8 +2423,16 @@ final class NotchPanelController: NSObject {
             model.beginRework()
             ArchiveTranslate.run(shown.text, to: next,
                                  archiveModel: archiveModel, on: currentScreen)
+        case .main:
+            // Main steps through one thing only, and only in Scrolling: which
+            // way it goes. The mode's glyph is what shows the answer. With two
+            // directions ⇥ and ⇧⇥ are the same step.
+            guard model.mode == .scroll else { return }
+            let next = model.scrollDirection.other
+            AppSettings.scrollDirection = next
+            model.scrollDirection = next
         default:
-            // `.main` and the countdown have no header list to step through.
+            // The countdown has no header list to step through.
             break
         }
     }

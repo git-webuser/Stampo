@@ -733,7 +733,7 @@ import Testing
             "Click the area to scroll",
             "Done",
             HotkeyAction.scroll.labelKey, HotkeyAction.scroll.hintKey ?? "",
-            "Scrolling", "Scroll direction", "Down", "Right",
+            "Scrolling", "Down", "Right",
             "Scrolling capture failed",
             "Scrolling capture needs Accessibility access",
             "Grant Accessibility access to Stampo to scroll windows.",
@@ -807,6 +807,16 @@ import Testing
         }
         #expect(ScrollDirection.down.icon == "arrow.down.to.line")
         #expect(ScrollDirection.right.icon == "arrow.right.to.line")
+    }
+
+    @Test func voiceOverHearsTheDirectionOnlyForScrolling() {
+        let ru = Locale(identifier: "ru"), en = Locale(identifier: "en")
+        #expect(CaptureMode.scroll.accessibilityValue(direction: .down, locale: ru) == "Прокрутка, вниз")
+        #expect(CaptureMode.scroll.accessibilityValue(direction: .right, locale: ru) == "Прокрутка, вправо")
+        #expect(CaptureMode.scroll.accessibilityValue(direction: .down, locale: en) == "Scrolling, down")
+        #expect(CaptureMode.scroll.accessibilityValue(direction: .right, locale: en) == "Scrolling, right")
+        // The direction is not part of any other mode.
+        #expect(CaptureMode.window.accessibilityValue(direction: .right, locale: en) == "Window")
     }
 
     @Test func oneHotkeyCoversScrollingAndTheOldIDStaysRetired() {

@@ -7088,22 +7088,6 @@
         }
       }
     },
-    "Scroll direction" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Scroll direction"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Направление прокрутки"
-          }
-        }
-      }
-    },
     "Scrolling" : {
       "localizations" : {
         "en" : {

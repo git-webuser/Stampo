@@ -22,6 +22,13 @@ enum CaptureMode: CaseIterable, Equatable, Sendable {
     }
     var title: String { localizedTitle() }
 
+    /// What VoiceOver reads as the mode's value: its name, and for Scrolling
+    /// the direction, since the glyph that shows it is not read.
+    func accessibilityValue(direction: ScrollDirection, locale: Locale = LocaleManager.shared.locale) -> String {
+        guard self == .scroll else { return localizedTitle(locale) }
+        return "\(localizedTitle(locale)), \(direction.localizedTitle(locale).lowercased(with: locale))"
+    }
+
     var icon: String { icon(direction: AppSettings.scrollDirection) }
 
     /// The glyph for a mode; Scrolling takes the direction's, so the cell says
@@ -123,6 +130,10 @@ struct NotchPanelView: View {
     /// The mode cell's icon lags its model the same way, for the same reason —
     /// it is swapped behind a fade rather than replaced under the pointer.
     @State private var shownMode: CaptureMode?
+    /// The direction the Scrolling glyph shows. It is part of the mode cell's
+    /// icon, so it lags with it: ⇥ turning the direction is the same swap of
+    /// one glyph for another, and goes through the same fade.
+    @State private var shownDirection: ScrollDirection?
     @State private var modeGlyphOpacity: Double = 1
     @State private var modeHighlightSuppressed = false
     @State private var modeStaging: Task<Void, Never>?
@@ -139,7 +150,15 @@ struct NotchPanelView: View {
         .allowsHitTesting(interaction.isEnabled)
         .animation(nil, value: interaction.isEnabled)
         .onChange(of: model.delay) { _, newDelay in stageDelayChange(to: newDelay) }
-        .onChange(of: model.mode)  { _, newMode in stageModeChange(to: newMode) }
+        .onChange(of: model.mode)  { _, newMode in
+            stageModeChange(to: newMode, direction: model.scrollDirection)
+        }
+        .onChange(of: model.scrollDirection) { _, newDirection in
+            // Another mode's glyph does not show the direction, so there is
+            // nothing to swap; it is only remembered for when Scrolling is.
+            guard model.mode == .scroll else { shownDirection = newDirection; return }
+            stageModeChange(to: model.mode, direction: newDirection)
+        }
         // Both sequences sleep in the middle. The panel is torn down and rebuilt
         // for a Space switch, a sleep or a display change, and a task left
         // running wakes to write into `@State` that no longer belongs to
@@ -252,7 +271,7 @@ struct NotchPanelView: View {
     /// there is nothing for the fade to cover. It runs anyway, because a panel
     /// where one menu cell dissolves and the one beside it snaps is a panel
     /// with two opinions about what changing a value looks like.
-    private func stageModeChange(to newMode: CaptureMode) {
+    private func stageModeChange(to newMode: CaptureMode, direction newDirection: ScrollDirection) {
         modeStaging?.cancel()
         withAnimation(.easeInOut(duration: PanelTiming.delayHighlightRelease)) {
             modeHighlightSuppressed = true
@@ -261,6 +280,7 @@ struct NotchPanelView: View {
         // See `stageDelayChange` on why this asks `isEnabled`.
         guard interaction.isEnabled else {
             shownMode = newMode
+            shownDirection = newDirection
             modeGlyphOpacity = 1
             onModeDelayChanged()
             return
@@ -277,6 +297,7 @@ struct NotchPanelView: View {
             guard !Task.isCancelled else { return }
 
             shownMode = newMode
+            shownDirection = newDirection
             onModeDelayChanged()
 
             withAnimation(.easeOut(duration: PanelTiming.delayGlyphFade)) {
@@ -359,6 +380,7 @@ struct NotchPanelView: View {
         // side. Same reason `notchLayout` states for `contentVisibility`.
         .animation(nil, value: model.delay)
         .animation(nil, value: model.mode)
+        .animation(nil, value: model.scrollDirection)
     }
 
     // MARK: - Cells
@@ -381,11 +403,12 @@ struct NotchPanelView: View {
             metrics: metrics,
             onPickColor: onPickColor,
             onScan: onScan,
-            iconName: (shownMode ?? model.mode).icon(direction: model.scrollDirection),
+            iconName: (shownMode ?? model.mode).icon(direction: shownDirection ?? model.scrollDirection),
             glyphOpacity: modeGlyphOpacity,
             highlightSuppressed: $modeHighlightSuppressed
         )
         .animation(nil, value: model.mode)
+        .animation(nil, value: model.scrollDirection)
         .help("Capture mode")
         // No .accessibilityLabel here: the cell is a ZStack around an
         // NSPopUpButton, so the label that actually reaches VoiceOver is the
@@ -469,6 +492,9 @@ struct NotchPanelView: View {
 
 private struct PopUpModeButtonWrapper: NSViewRepresentable {
     @Binding var selection: CaptureMode
+    /// Which way Scrolling goes: the glyph shows it to the eye, and the value
+    /// VoiceOver reads has to say it too.
+    var scrollDirection: ScrollDirection
     var onPickColor: () -> Void
     var onScan: () -> Void
     var onOpen:  () -> Void
@@ -550,7 +576,7 @@ private struct PopUpModeButtonWrapper: NSViewRepresentable {
         // leaning on the cell's implicit value: the button is transparent and
         // borderless, and the mode is the one thing VoiceOver must announce.
         button.setAccessibilityLabel(LocaleManager.string("Capture mode", locale: locale))
-        button.setAccessibilityValue(selection.localizedTitle(locale))
+        button.setAccessibilityValue(selection.accessibilityValue(direction: scrollDirection, locale: locale))
         // Separator is at allCases.count + 1, Pick Color at + 2, Scan at + 3.
         button.item(at: CaptureMode.allCases.count + 2)?.title =
             LocaleManager.string("Pick Color", locale: locale)
@@ -752,6 +778,7 @@ private struct PanelModeMenuButton: View {
         return ZStack {
             PopUpModeButtonWrapper(
                 selection: $model.mode,
+                scrollDirection: model.scrollDirection,
                 onPickColor: onPickColor,
                 onScan: onScan,
                 onOpen:  { isMenuOpen = true; highlightSuppressed = false },
