@@ -37,6 +37,10 @@ final class ScreenshotService {
     /// capture never scrolls through it.
     var scrollingOwnUICovers: ((CGPoint) -> Bool)?
 
+    /// The notch panel's window number, the one window of ours a scrolling
+    /// capture looks through.
+    var scrollingIgnoredWindows: (() -> Set<CGWindowID>)?
+
     /// What the notch strip should show while a scrolling capture runs.
     var onScrollingStatus: ((ScrollCaptureStatus) -> Void)?
 
@@ -76,6 +80,9 @@ final class ScreenshotService {
                                               excludeScrollbars: AppSettings.excludeScrollbars,
                                               ownUICovers: { [weak self] point in
                                                   self?.scrollingOwnUICovers?(point) ?? false
+                                              },
+                                              ignoredWindows: { [weak self] in
+                                                  self?.scrollingIgnoredWindows?() ?? []
                                               })
         scrollingSession = session
         session.onStatus = { [weak self] status in self?.onScrollingStatus?(status) }

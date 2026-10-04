@@ -1029,6 +1029,10 @@ final class NotchPanelController: NSObject {
             guard let self, case .scrollCapture = self.state else { return }
             self.hideAnimated(reason: .scrollCaptureEnded)
         }
+        screenshot.scrollingIgnoredWindows = { [weak self] in
+            guard let number = self?.panel?.windowNumber, number > 0 else { return [] }
+            return [CGWindowID(number)]
+        }
         screenshot.scrollingOwnUICovers = { [weak self] quartzPoint in
             guard let self, let panel = self.panel, panel.isVisible else { return false }
             let primaryHeight = NSScreen.screens.first(where: { $0.frame.origin == .zero })?.frame.height

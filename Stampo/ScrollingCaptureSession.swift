@@ -37,6 +37,9 @@ final class ScrollingCaptureSession {
     /// Whether Stampo's own visible UI (the notch panel) is over a Quartz
     /// point. Own windows are not in the frontmost-window check.
     private let ownUICovers: @MainActor (CGPoint) -> Bool
+    /// Window numbers of ours that do not count as covering the page: the
+    /// notch panel's. Every other window of Stampo over the point does.
+    private let ignoredWindows: @MainActor () -> Set<CGWindowID>
     private let source = WindowFrameSource()
     private var escapeToken: UUID?
     private var task: Task<Void, Never>?
@@ -54,14 +57,16 @@ final class ScrollingCaptureSession {
     init(selection: WindowPickerSelection, axis: ScrollAxis,
          excludeScrollbars: Bool = true,
          activateSelectedWindow: (@MainActor (WindowPickerSelection) throws -> Void)? = nil,
-         ownUICovers: @escaping @MainActor (CGPoint) -> Bool = { _ in false }) {
+         ownUICovers: @escaping @MainActor (CGPoint) -> Bool = { _ in false },
+         ignoredWindows: @escaping @MainActor () -> Set<CGWindowID> = { [] }) {
         self.selection = selection
         self.axis = axis
         self.excludeScrollbars = excludeScrollbars
         self.activateSelectedWindow = activateSelectedWindow ?? { selected in
-            try ScrollDriver.raiseSelectedWindow(selected)
+            try ScrollDriver.raiseSelectedWindow(selected, ignoring: ignoredWindows())
         }
         self.ownUICovers = ownUICovers
+        self.ignoredWindows = ignoredWindows
         self.assembler = ImageAssembler(axis: axis)
     }
 
@@ -164,14 +169,15 @@ final class ScrollingCaptureSession {
                 diagnosticStage = .validateTarget
                 do {
                     try ScrollDriver.validateScrollTarget(selection: selection, point: selection.clickPoint,
-                                                          container: container)
+                                                          container: container, ignoring: ignoredWindows())
                 } catch ScrollDriverError.scrollAreaUnavailable {
                     // AX may expose a partial Chromium tree: keep the selected
                     // CG window and let the pixel probe establish the viewport.
                     Log.capture.info("scroll capture viewport fallback: AX target identity was incomplete")
                     viewport = ScrollDriver.windowFallbackViewport(for: selection)
                     scrollContainer = nil
-                    try ScrollDriver.validateSelectedWindow(selection: selection, point: selection.clickPoint)
+                    try ScrollDriver.validateSelectedWindow(selection: selection, point: selection.clickPoint,
+                                                        ignoring: ignoredWindows())
                 }
             case .window(let resolved):
                 // Chromium and other complex apps may provide a window capture
@@ -181,7 +187,8 @@ final class ScrollingCaptureSession {
                 scrollContainer = nil
                 Log.capture.info("scroll capture viewport fallback: AX hit did not resolve a suitable scroll container")
                 diagnosticStage = .validateTarget
-                try ScrollDriver.validateSelectedWindow(selection: selection, point: selection.clickPoint)
+                try ScrollDriver.validateSelectedWindow(selection: selection, point: selection.clickPoint,
+                                                        ignoring: ignoredWindows())
             }
             guard let baseViewport = viewport?.insetWindowEdges(points: Geometry.roundedWindowEdgeInsetPoints) else {
                 throw ScrollDriverError.scrollAreaUnavailable
@@ -360,10 +367,12 @@ final class ScrollingCaptureSession {
     private func validateCurrentScrollTarget(at point: CGPoint) throws {
         guard !ownUICovers(point) else { throw ScrollDriver.selectedWindowNotFrontmost() }
         guard scrollContainer != nil else {
-            try ScrollDriver.validateSelectedWindow(selection: selection, point: point)
+            try ScrollDriver.validateSelectedWindow(selection: selection, point: point,
+                                                    ignoring: ignoredWindows())
             return
         }
-        try ScrollDriver.validateScrollTarget(selection: selection, point: point, container: scrollContainer!)
+        try ScrollDriver.validateScrollTarget(selection: selection, point: point, container: scrollContainer!,
+                                              ignoring: ignoredWindows())
     }
 
     private func presentFailure(_ error: Error) {
@@ -486,7 +495,8 @@ final class ScrollingCaptureSession {
         while Date() < deadline && !Task.isCancelled {
             if NSWorkspace.shared.frontmostApplication?.processIdentifier == selection.processID {
                 do {
-                    try ScrollDriver.validateSelectedWindow(selection: selection, point: selection.clickPoint)
+                    try ScrollDriver.validateSelectedWindow(selection: selection, point: selection.clickPoint,
+                                                        ignoring: ignoredWindows())
                     return
                 } catch {
                     // Wait briefly for activation to expose the exact selected

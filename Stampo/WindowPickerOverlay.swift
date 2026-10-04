@@ -48,6 +48,10 @@ final class WindowPickerOverlay {
         let frame = screen.frame
 
         let panel = makeOverlayPanel(frame: frame)
+        // No system disappearance animation, as on the notch panel: on macOS 27
+        // `orderOut` leaves the window under the pointer for ~0.3 s, fading,
+        // and a scroll sent in that time goes to the picker, not the page.
+        panel.animationBehavior = .none
         let wpcCursor = makeWindowCaptureCursor()
 
         let view = WindowPickerView(frame: NSRect(origin: .zero, size: frame.size))

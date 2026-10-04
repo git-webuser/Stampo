@@ -840,6 +840,31 @@ import Testing
         #expect(ScrollDriver.maximumLikelyMovement(pixelStep: 540, backingScale: 1, viewportLength: 3000) == 6 * 90)
     }
 
+    @Test func aWindowOfOursOverThePointCoversItUnlessItIsTheIgnoredPanel() {
+        let page = ScrollDriver.WindowListEntry(windowID: 7, processID: 100,
+                                                bounds: CGRect(x: 0, y: 0, width: 800, height: 600), alpha: 1)
+        // The picker, still fading: nearly transparent, full screen, ours.
+        let fadingPicker = ScrollDriver.WindowListEntry(windowID: 9, processID: 1,
+                                                        bounds: CGRect(x: 0, y: 0, width: 1280, height: 832), alpha: 0.2)
+        // The notch panel's window: tall, transparent below its content, ours.
+        let notchPanel = ScrollDriver.WindowListEntry(windowID: 5, processID: 1,
+                                                      bounds: CGRect(x: 380, y: 0, width: 520, height: 168), alpha: 1)
+        let point = CGPoint(x: 400, y: 100)
+
+        // Front to back: a window of ours on top is what is under the pointer.
+        let covered = ScrollDriver.topmostWindow(at: point, in: [fadingPicker, page], ignoring: [])
+        #expect(covered?.windowID == 9)
+        // The panel is looked through, and the page behind it is the answer.
+        let through = ScrollDriver.topmostWindow(at: point, in: [notchPanel, page], ignoring: [5])
+        #expect(through?.windowID == 7)
+        // Only that one: another window of ours over the point still covers it.
+        let stillCovered = ScrollDriver.topmostWindow(at: point, in: [fadingPicker, notchPanel, page], ignoring: [5])
+        #expect(stillCovered?.windowID == 9)
+        // Gone once it has gone: fully transparent windows are not there.
+        let gone = ScrollDriver.WindowListEntry(windowID: 9, processID: 1, bounds: fadingPicker.bounds, alpha: 0)
+        #expect(ScrollDriver.topmostWindow(at: point, in: [gone, page], ignoring: [])?.windowID == 7)
+    }
+
     @Test func theStripShowsARingWhileWorkingAndSavingAndAWarningWhenPaused() {
         #expect(ScrollStripPhase(.capturing) == .running)
         #expect(ScrollStripPhase(.saving) == .running)

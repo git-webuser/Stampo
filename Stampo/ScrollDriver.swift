@@ -134,7 +134,7 @@ enum ScrollDriver {
         return AXIsProcessTrustedWithOptions(options)
     }
 
-    static func raiseSelectedWindow(_ selection: WindowPickerSelection) throws {
+    static func raiseSelectedWindow(_ selection: WindowPickerSelection, ignoring: Set<CGWindowID> = []) throws {
         guard AXIsProcessTrusted() else { throw ScrollDriverError.accessibilityDenied }
         guard let app = NSRunningApplication(processIdentifier: selection.processID) else {
             throw ScrollDriverError.scrollAreaUnavailable
@@ -143,7 +143,7 @@ enum ScrollDriver {
         // The picker selected a concrete CG window. If that exact window is
         // already topmost at the original click point, no AX window lookup is
         // needed (Chromium can expose incomplete window geometry).
-        if let top = frontmostWindow(at: selection.clickPoint),
+        if let top = frontmostWindow(at: selection.clickPoint, ignoring: ignoring),
            top.windowID == selection.windowID, top.processID == selection.processID { return }
         let application = AXUIElementCreateApplication(selection.processID)
         AXUIElementSetMessagingTimeout(application, messagingTimeout)
@@ -162,15 +162,16 @@ enum ScrollDriver {
             // the exact CG window and PID at the click point before scrolling.
             return
         }
-        if let top = frontmostWindow(at: selection.clickPoint),
+        if let top = frontmostWindow(at: selection.clickPoint, ignoring: ignoring),
            top.windowID == selection.windowID, top.processID == selection.processID {
             return
         }
         throw selectedWindowNotFrontmost()
     }
 
-    static func validateSelectedWindow(selection: WindowPickerSelection, point: CGPoint) throws {
-        guard let top = frontmostWindow(at: point),
+    static func validateSelectedWindow(selection: WindowPickerSelection, point: CGPoint,
+                                       ignoring: Set<CGWindowID> = []) throws {
+        guard let top = frontmostWindow(at: point, ignoring: ignoring),
               top.windowID == selection.windowID,
               top.processID == selection.processID else {
             throw selectedWindowNotFrontmost()
@@ -178,8 +179,8 @@ enum ScrollDriver {
     }
 
     static func validateScrollTarget(selection: WindowPickerSelection, point: CGPoint,
-                                     container: AXUIElement) throws {
-        guard let top = frontmostWindow(at: point),
+                                     container: AXUIElement, ignoring: Set<CGWindowID> = []) throws {
+        guard let top = frontmostWindow(at: point, ignoring: ignoring),
               top.windowID == selection.windowID,
               top.processID == selection.processID else {
             throw selectedWindowNotFrontmost()
@@ -342,28 +343,46 @@ enum ScrollDriver {
         return info[kCGWindowOwnerPID as String] as? pid_t
     }
 
-    private struct WindowAtPoint {
+    struct WindowAtPoint: Equatable {
         let windowID: CGWindowID
         let processID: pid_t
         let bounds: CGRect
     }
 
-    /// Stampo's own windows are skipped: the notch panel's window is far
-    /// taller than what it draws and passes the mouse through, so its frame
-    /// would "cover" the top of the screen. The session asks the panel about
-    /// its visible content instead.
-    private static func frontmostWindow(at point: CGPoint) -> WindowAtPoint? {
-        guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else { return nil }
-        let ownPID = ProcessInfo.processInfo.processIdentifier
-        for info in list {
-            guard let bounds = info[kCGWindowBounds as String] as? [String: Any],
-                  let rect = rect(from: bounds), rect.contains(point),
-                  (info[kCGWindowAlpha as String] as? CGFloat ?? 1) > 0.01,
-                  let window = info[kCGWindowNumber as String] as? UInt32,
-                  let pid = info[kCGWindowOwnerPID as String] as? pid_t, pid != ownPID else { continue }
-            return WindowAtPoint(windowID: CGWindowID(window), processID: pid, bounds: rect)
+    /// One row of the window list, front to back.
+    struct WindowListEntry: Equatable {
+        let windowID: CGWindowID
+        let processID: pid_t
+        let bounds: CGRect
+        let alpha: CGFloat
+    }
+
+    /// The window on top at a point. Only `ignoring` is skipped — in practice
+    /// the notch panel, whose window is far taller than what it draws and
+    /// passes the mouse through (the session asks the panel about its visible
+    /// content instead). Any other window of ours over the point counts as
+    /// covering it: a picker still fading out would otherwise take a scroll
+    /// meant for the page under it.
+    nonisolated static func topmostWindow(at point: CGPoint, in entries: [WindowListEntry],
+                                          ignoring: Set<CGWindowID>) -> WindowAtPoint? {
+        for entry in entries where entry.bounds.contains(point) && entry.alpha > 0.01
+            && !ignoring.contains(entry.windowID) {
+            return WindowAtPoint(windowID: entry.windowID, processID: entry.processID, bounds: entry.bounds)
         }
         return nil
+    }
+
+    private static func frontmostWindow(at point: CGPoint, ignoring: Set<CGWindowID>) -> WindowAtPoint? {
+        guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else { return nil }
+        let entries = list.compactMap { info -> WindowListEntry? in
+            guard let bounds = info[kCGWindowBounds as String] as? [String: Any],
+                  let rect = rect(from: bounds),
+                  let window = info[kCGWindowNumber as String] as? UInt32,
+                  let pid = info[kCGWindowOwnerPID as String] as? pid_t else { return nil }
+            return WindowListEntry(windowID: CGWindowID(window), processID: pid, bounds: rect,
+                                   alpha: info[kCGWindowAlpha as String] as? CGFloat ?? 1)
+        }
+        return topmostWindow(at: point, in: entries, ignoring: ignoring)
     }
 
     private static func rect(from bounds: [String: Any]) -> CGRect? {
