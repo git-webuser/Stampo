@@ -1,4 +1,5 @@
 import CoreGraphics
+import Foundation
 import Testing
 @testable import Stampo
 
@@ -333,6 +334,26 @@ import Testing
         }
     }
 
+    @Test func knownAccessibilityViewportKeepsItsFullCrossAxisWidth() throws {
+        for axis in ScrollAxis.allCases {
+            let before = paneTexture(width: 240, height: 200, axis: axis, offset: 0)
+            let after = paneTexture(width: 240, height: 200, axis: axis, offset: 23)
+            let moving = try #require(ScrollingCaptureSession.movingContentRect(before: before,
+                                                                                  after: after,
+                                                                                  axis: axis,
+                                                                                  preserveCrossAxis: true))
+            if axis == .vertical {
+                #expect(moving.minX == 0)
+                #expect(moving.width == 240)
+                #expect(moving.minY >= 20)
+            } else {
+                #expect(moving.minY == 0)
+                #expect(moving.height == 200)
+                #expect(moving.minX >= 32)
+            }
+        }
+    }
+
     @Test func stationaryWindowDoesNotProduceAMovingViewport() {
         let frame = texture(width: 240, height: 200)
         for axis in ScrollAxis.allCases {
@@ -354,7 +375,14 @@ import Testing
         let kind = UserFacingError.Kind.scrollingCaptureFailed(reason: "probe had no reliable movement")
         #expect(!kind.isPermissionKind)
         if case nil = kind.remediation { } else { Issue.record("Scrolling capture should not suggest a permission fix") }
-        #expect(kind.title == LocaleManager.shared.string("Screenshot failed"))
+        #expect(kind.title == LocaleManager.shared.string("Scrolling capture failed"))
+        #expect(kind.message == "probe had no reliable movement")
+        #expect(!kind.message.localizedCaseInsensitiveContains("screen recording"))
+        #expect(!kind.message.localizedCaseInsensitiveContains("scrollable area"))
+        let generic = UserFacingError.Kind.scrollingCaptureFailed(reason: nil)
+        #expect(generic.message == LocaleManager.shared.string("Stampo couldn't complete scrolling capture. Try again."))
+        #expect(!generic.message.localizedCaseInsensitiveContains("screen recording"))
+        #expect(!generic.message.localizedCaseInsensitiveContains("scrollable area"))
 
         let screenRecording = UserFacingError.Kind.screenCaptureFailed(reason: nil)
         if case .openScreenRecordingSettings? = screenRecording.remediation { }
@@ -362,6 +390,22 @@ import Testing
         let accessibility = UserFacingError.Kind.accessibilityPermission
         if case .openAccessibilitySettings? = accessibility.remediation { }
         else { Issue.record("Accessibility permission failure should link to Accessibility settings") }
+    }
+
+    @Test @MainActor func scrollingEncodingFailureUsesSpecificNeutralMessage() {
+        let kind = ScreenshotService.scrollingSaveErrorKind(ScreenshotFileStore.SaveError.encodingFailed)
+        #expect(kind.message == LocaleManager.shared.string("Stampo couldn't encode the scrolling image."))
+        #expect(!kind.message.localizedCaseInsensitiveContains("screen recording"))
+        #expect(!kind.message.localizedCaseInsensitiveContains("scrollable area"))
+        if case nil = kind.remediation { } else { Issue.record("Encoding failure should not suggest a permission fix") }
+
+        let deniedWrite = NSError(domain: NSCocoaErrorDomain,
+                                  code: CocoaError.Code.fileWriteNoPermission.rawValue)
+        let directoryKind = ScreenshotService.scrollingSaveErrorKind(deniedWrite)
+        if case .saveDirectoryInaccessible = directoryKind { }
+        else { Issue.record("A destination write permission failure should identify the save folder") }
+        if case .openAppSettings? = directoryKind.remediation { }
+        else { Issue.record("Save folder failure should route to Stampo Capture settings") }
     }
 
     @Test func cancellingDuringInitialCapturePreventsTheFirstScrollEvent() async throws {

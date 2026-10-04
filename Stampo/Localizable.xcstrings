@@ -6959,6 +6959,23 @@
         }
       }
     },
+    "Scrolling capture failed" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Scrolling capture failed"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не удалось выполнить прокрутку"
+          }
+        }
+      }
+    },
     "Screenshots, scanning, editing, and files — all in Stampo." : {
       "comment" : "Onboarding subtitle summarizing Stampo's current feature set",
       "localizations" : {
@@ -7869,6 +7886,40 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Stampo не может сохранить скриншоты в \"%@\". Папка могла быть перемещена, переименована или доступ к ней был отозван. Выберите новую папку в Настройки → Съёмка."
+          }
+        }
+      }
+    },
+    "Stampo couldn't complete scrolling capture. Try again." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stampo couldn't complete scrolling capture. Try again."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не удалось выполнить прокрутку. Попробуйте ещё раз."
+          }
+        }
+      }
+    },
+    "Stampo couldn't encode the scrolling image." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stampo couldn't encode the scrolling image."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не удалось подготовить изображение прокрутки."
           }
         }
       }

@@ -184,7 +184,8 @@ final class ScrollingCaptureSession {
             let probeMotionLimit = ScrollDriver.maximumLikelyMovement(pixelStep: probeStep,
                                                                        backingScale: scale,
                                                                        viewportLength: axisLength(of: initialViewport))
-            guard let movingRect = Self.movingContentRect(before: initialViewport, after: probeViewport, axis: axis),
+            guard let movingRect = Self.movingContentRect(before: initialViewport, after: probeViewport, axis: axis,
+                                                          preserveCrossAxis: scrollContainer != nil),
                   let first = initialViewport.cropped(to: movingRect),
                   let probe = probeViewport.cropped(to: movingRect)
             else { throw ScrollDriverError.noMovingContent }
@@ -447,7 +448,7 @@ final class ScrollingCaptureSession {
     /// This works for an AX-resolved viewport and for a whole-window fallback,
     /// where fixed sidebars/headers must be excluded before stitching.
     nonisolated static func movingContentRect(before: CaptureFrame, after: CaptureFrame,
-                                               axis: ScrollAxis) -> CGRect? {
+                                               axis: ScrollAxis, preserveCrossAxis: Bool = false) -> CGRect? {
         guard before.width == after.width, before.height == after.height else { return nil }
         let primaryLength = axis == .vertical ? before.height : before.width
         let crossLength = axis == .vertical ? before.width : before.height
@@ -490,9 +491,17 @@ final class ScrollingCaptureSession {
             cross = activeBounds(length: before.height, cross: before.width,
                                  xFor: { _, across in across }, yFor: { position, _ in position })
         }
-        guard let (p0, p1) = primary, let (c0, c1) = cross,
-              p1 - p0 >= primaryLength / 3,
-              c1 - c0 >= max(80, crossLength / 3) else { return nil }
+        guard let (p0, p1) = primary, p1 - p0 >= primaryLength / 3 else { return nil }
+        let c0: Int, c1: Int
+        if preserveCrossAxis {
+            c0 = 0
+            c1 = crossLength
+        } else {
+            guard let (activeStart, activeEnd) = cross,
+                  activeEnd - activeStart >= max(80, crossLength / 3) else { return nil }
+            c0 = activeStart
+            c1 = activeEnd
+        }
         return axis == .vertical
             ? CGRect(x: c0, y: p0, width: c1 - c0, height: p1 - p0)
             : CGRect(x: p0, y: c0, width: p1 - p0, height: c1 - c0)

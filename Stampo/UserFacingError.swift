@@ -64,7 +64,7 @@ enum UserFacingError {
             case .screenCaptureFailed:
                 return lm.string("Screenshot failed")
             case .scrollingCaptureFailed:
-                return lm.string("Screenshot failed")
+                return lm.string("Scrolling capture failed")
             case .accessibilityPermission:
                 return lm.string("Scrolling capture needs Accessibility access")
             case .colorPickerUnavailable:
@@ -86,9 +86,7 @@ enum UserFacingError {
                 }
                 return base
             case .scrollingCaptureFailed(let reason):
-                let base = lm.string("Stampo could not identify a scrollable area at that point. Click inside the page or table and try again.")
-                if let reason { return base + "\n\n" + String(format: lm.string("Details: %@"), reason) }
-                return base
+                return reason ?? lm.string("Stampo couldn't complete scrolling capture. Try again.")
             case .colorPickerUnavailable(let reason):
                 let base = lm.string("The color picker can't read pixel data. Grant Screen Recording permission to Stampo so it can sample colors from the screen.")
                 if let r = reason {

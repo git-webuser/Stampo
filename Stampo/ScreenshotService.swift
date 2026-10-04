@@ -81,10 +81,30 @@ final class ScreenshotService {
             } catch {
                 await MainActor.run { [weak service] in
                     service?.captureInProgress = false
-                    UserFacingError.present(.screenCaptureFailed(reason: error.localizedDescription))
+                    let nsError = error as NSError
+                    Log.capture.error("scroll capture failed at stage save · \(nsError.domain, privacy: .public) code \(nsError.code, privacy: .public)")
+                    UserFacingError.present(Self.scrollingSaveErrorKind(error))
                 }
             }
         }
+    }
+
+    static func scrollingSaveErrorKind(_ error: Error) -> UserFacingError.Kind {
+        if let saveError = error as? ScreenshotFileStore.SaveError,
+           case .encodingFailed = saveError {
+            return .scrollingCaptureFailed(reason: LocaleManager.shared.string("Stampo couldn't encode the scrolling image."))
+        }
+
+        let nsError = error as NSError
+        let isCocoaPermissionError = nsError.domain == NSCocoaErrorDomain
+            && [CocoaError.Code.fileWriteNoPermission.rawValue,
+                CocoaError.Code.fileReadNoPermission.rawValue].contains(nsError.code)
+        let isPOSIXPermissionError = nsError.domain == NSPOSIXErrorDomain
+            && [1, 13].contains(nsError.code) // EPERM or EACCES during the destination write
+        if isCocoaPermissionError || isPOSIXPermissionError {
+            return .saveDirectoryInaccessible(url: AppSettings.saveDirectoryURL)
+        }
+        return .scrollingCaptureFailed(reason: error.localizedDescription)
     }
 
     func capture(mode: CaptureMode, delaySeconds: Int, preferredScreen: NSScreen?) {
