@@ -89,7 +89,7 @@ final class ScrollingCaptureSession {
         task?.cancel()
         cleanup()
         do {
-            let image = try assembler.makeImage(maxPixels: 20_000_000)
+            let image = try assembler.makeImage()
             releaseCaptureBuffers()
             onFinished?(image)
         } catch {
@@ -243,8 +243,8 @@ final class ScrollingCaptureSession {
                     pause(with: LocaleManager.shared.string("Time limit reached · Finish to save or Cancel to discard"))
                     return
                 }
-                guard assembler.totalLength < 20_000,
-                      (axis == .vertical ? first.width * assembler.totalLength : first.height * assembler.totalLength) < 20_000_000 else {
+                guard assembler.totalLength < ImageAssembler.maxOutputLength,
+                      (axis == .vertical ? first.width : first.height) * assembler.totalLength < ImageAssembler.maxOutputPixels else {
                     pause(with: LocaleManager.shared.string("Size limit reached · Finish to save or Cancel to discard"))
                     return
                 }
@@ -280,7 +280,8 @@ final class ScrollingCaptureSession {
                     try ensureActive()
                     let combinedLength = assembler.totalLength + match.offset
                     let crossLength = axis == .vertical ? next.width : next.height
-                    guard combinedLength <= 20_000, crossLength * combinedLength <= 20_000_000 else {
+                    guard combinedLength <= ImageAssembler.maxOutputLength,
+                          crossLength * combinedLength <= ImageAssembler.maxOutputPixels else {
                         pause(with: LocaleManager.shared.string("Size limit reached · Finish to save or Cancel to discard"))
                         return
                     }
@@ -537,13 +538,19 @@ final class ScrollingCaptureSession {
         var displays = [CGDirectDisplayID](repeating: 0, count: Int(count))
         guard CGGetActiveDisplayList(count, &displays, &count) == .success else { return 1 }
         let center = CGPoint(x: bounds.midX, y: bounds.midY)
-        for display in displays {
-            let rect = CGDisplayBounds(display)
-            if rect.contains(center), rect.width > 0 {
-                return max(1, CGFloat(CGDisplayPixelsWide(display)) / rect.width)
-            }
+        guard let display = displays.first(where: { CGDisplayBounds($0).contains(center) }) else { return 1 }
+        if let mode = CGDisplayCopyDisplayMode(display),
+           let scale = backingScale(pixelWidth: mode.pixelWidth, pointWidth: mode.width) {
+            return scale
         }
-        return 1
+        return NSScreen.screens.first { $0.displayID == display }?.backingScaleFactor ?? 1
+    }
+
+    /// Backing pixels per point of a display mode. `CGDisplayPixelsWide`
+    /// counts points on a Retina display, so it reads 2x as 1x.
+    nonisolated static func backingScale(pixelWidth: Int, pointWidth: Int) -> CGFloat? {
+        guard pixelWidth > 0, pointWidth > 0 else { return nil }
+        return max(1, CGFloat(pixelWidth) / CGFloat(pointWidth))
     }
 
     /// Window-list bounds are Quartz top-left coordinates; NSScreen frames are

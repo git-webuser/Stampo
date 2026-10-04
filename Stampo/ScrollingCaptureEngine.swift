@@ -22,34 +22,42 @@ nonisolated enum ScrollAxis: String, CaseIterable, Equatable, Sendable {
 /// A compact, immutable RGBA frame. Pixel coordinates use the same top-left
 /// origin as CGImage and ScreenCaptureKit.
 nonisolated struct CaptureFrame: Equatable, Sendable {
+    static let bitmapInfo = CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue
+
     let width: Int
     let height: Int
     let pixels: [UInt8]
+    /// The capture's own color space. Pixels stay in it, and the stitched
+    /// image is tagged with it, so its profile matches a plain window shot.
+    let colorSpace: CGColorSpace
 
-    init(width: Int, height: Int, pixels: [UInt8]) {
+    init(width: Int, height: Int, pixels: [UInt8],
+         colorSpace: CGColorSpace = CGColorSpace(name: CGColorSpace.sRGB)!) {
         self.width = width
         self.height = height
         self.pixels = pixels
+        self.colorSpace = colorSpace
     }
 
     init?(image: CGImage) {
         let w = image.width, h = image.height
         guard w > 0, h > 0, w <= 12_000, h <= 12_000,
               w * h <= 25_000_000 else { return nil }
+        let space = image.colorSpace.flatMap { $0.model == .rgb && $0.supportsOutput ? $0 : nil }
+            ?? CGColorSpace(name: CGColorSpace.sRGB)!
         var bytes = [UInt8](repeating: 0, count: w * h * 4)
         let rendered = bytes.withUnsafeMutableBytes { raw -> Bool in
             guard let base = raw.baseAddress,
                   let context = CGContext(data: base, width: w, height: h,
                                           bitsPerComponent: 8, bytesPerRow: w * 4,
-                                          space: CGColorSpaceCreateDeviceRGB(),
-                                          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue)
+                                          space: space, bitmapInfo: Self.bitmapInfo)
             else { return false }
             context.interpolationQuality = .none
             context.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
             return true
         }
         guard rendered else { return nil }
-        self.init(width: w, height: h, pixels: bytes)
+        self.init(width: w, height: h, pixels: bytes, colorSpace: space)
     }
 
     subscript(x: Int, y: Int, channel: Int) -> UInt8 {
@@ -68,7 +76,7 @@ nonisolated struct CaptureFrame: Equatable, Sendable {
             let target = row * (x1 - x0) * 4
             out.replaceSubrange(target..<(target + (x1 - x0) * 4), with: pixels[source..<(source + (x1 - x0) * 4)])
         }
-        return CaptureFrame(width: x1 - x0, height: y1 - y0, pixels: out)
+        return CaptureFrame(width: x1 - x0, height: y1 - y0, pixels: out, colorSpace: colorSpace)
     }
 }
 
@@ -292,6 +300,11 @@ nonisolated struct CaptureStrip: Sendable {
 /// Keeps independent bands until the one final allocation, avoiding repeated
 /// reallocation and copy of an ever-growing bitmap at every scroll step.
 nonisolated struct ImageAssembler: Sendable {
+    /// The stitched image stops growing at either limit (60 M pixels is
+    /// about 240 MB of RGBA).
+    static let maxOutputPixels = 60_000_000
+    static let maxOutputLength = 20_000
+
     let axis: ScrollAxis
     private(set) var strips: [CaptureStrip] = []
     private(set) var totalLength = 0
@@ -328,33 +341,33 @@ nonisolated struct ImageAssembler: Sendable {
         viewportHeight = 0
     }
 
-    func makeImage(maxPixels: Int) throws -> CGImage {
+    func makeImage(maxPixels: Int = ImageAssembler.maxOutputPixels) throws -> CGImage {
         guard let first = strips.first else { throw FrameMatchError.noReliableMotion }
         let width = axis == .vertical ? first.frame.width : totalLength
         let height = axis == .vertical ? totalLength : first.frame.height
-        guard width > 0, height > 0, width <= 20_000, height <= 20_000,
+        guard width > 0, height > 0, width <= Self.maxOutputLength, height <= Self.maxOutputLength,
               width * height <= maxPixels else { throw FrameMatchError.outputLimitExceeded }
-        var bytes = [UInt8](repeating: 0, count: width * height * 4)
+        // Bands go straight into the one output buffer: no intermediate copy.
+        guard let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
+                                      bytesPerRow: width * 4, space: first.frame.colorSpace,
+                                      bitmapInfo: CaptureFrame.bitmapInfo),
+              let data = context.data
+        else { throw FrameMatchError.outputLimitExceeded }
+        let output = data.assumingMemoryBound(to: UInt8.self)
+        let outputRow = context.bytesPerRow
         for strip in strips {
-            let rowWidth = strip.frame.width
-            if axis == .vertical {
+            let rowBytes = strip.frame.width * 4
+            strip.frame.pixels.withUnsafeBufferPointer { source in
+                guard let base = source.baseAddress else { return }
                 for y in 0..<strip.frame.height {
-                    let src = y * rowWidth * 4, dst = (strip.start + y) * width * 4
-                    bytes.replaceSubrange(dst..<(dst + rowWidth * 4), with: strip.frame.pixels[src..<(src + rowWidth * 4)])
-                }
-            } else {
-                for y in 0..<height {
-                    let src = y * rowWidth * 4, dst = (y * width + strip.start) * 4
-                    bytes.replaceSubrange(dst..<(dst + rowWidth * 4), with: strip.frame.pixels[src..<(src + rowWidth * 4)])
+                    let target = axis == .vertical
+                        ? (strip.start + y) * outputRow
+                        : y * outputRow + strip.start * 4
+                    (output + target).update(from: base + y * rowBytes, count: rowBytes)
                 }
             }
         }
-        guard let provider = CGDataProvider(data: Data(bytes) as CFData),
-              let image = CGImage(width: width, height: height, bitsPerComponent: 8, bitsPerPixel: 32,
-                                  bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
-                                  bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue),
-                                  provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent)
-        else { throw FrameMatchError.noReliableMotion }
+        guard let image = context.makeImage() else { throw FrameMatchError.outputLimitExceeded }
         return image
     }
 }

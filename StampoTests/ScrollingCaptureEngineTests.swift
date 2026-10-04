@@ -387,6 +387,33 @@ import Testing
         }
     }
 
+    @Test func backingScaleComesFromTheDisplayModePixels() {
+        #expect(ScrollingCaptureSession.backingScale(pixelWidth: 2880, pointWidth: 1440) == 2)
+        // "More Space" on a 2880-pixel panel renders 1680 points at 3360 pixels.
+        #expect(ScrollingCaptureSession.backingScale(pixelWidth: 3360, pointWidth: 1680) == 2)
+        #expect(ScrollingCaptureSession.backingScale(pixelWidth: 1920, pointWidth: 1920) == 1)
+        #expect(ScrollingCaptureSession.backingScale(pixelWidth: 0, pointWidth: 1440) == nil)
+        #expect(ScrollingCaptureSession.backingScale(pixelWidth: 2880, pointWidth: 0) == nil)
+    }
+
+    @Test func stitchedImageKeepsTheCaptureColorSpace() throws {
+        let p3 = try #require(CGColorSpace(name: CGColorSpace.displayP3))
+        let context = try #require(CGContext(data: nil, width: 40, height: 30, bitsPerComponent: 8,
+                                             bytesPerRow: 160, space: p3, bitmapInfo: CaptureFrame.bitmapInfo))
+        context.setFillColor(CGColor(colorSpace: p3, components: [1, 0, 0, 1])!)
+        context.fill(CGRect(x: 0, y: 0, width: 40, height: 30))
+        let source = try #require(context.makeImage())
+        let frame = try #require(CaptureFrame(image: source))
+        #expect(frame.colorSpace.name == CGColorSpace.displayP3)
+        #expect([frame[5, 5, 0], frame[5, 5, 1], frame[5, 5, 2]] == [255, 0, 0])
+
+        var assembler = ImageAssembler(axis: .vertical)
+        assembler.begin(with: frame)
+        let image = try assembler.makeImage()
+        #expect(image.colorSpace?.name == CGColorSpace.displayP3)
+        #expect(CaptureFrame(image: image)?.pixels == frame.pixels)
+    }
+
     @Test func horizontalAssemblerAddsOnlyNewRightBand() throws {
         let first = texture(width: 100, height: 90)
         let shifted = texture(width: 100, height: 90, xOffset: 13)
