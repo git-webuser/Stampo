@@ -155,8 +155,32 @@ nonisolated enum FrameMatcher {
         // A constant offset across independent patches is stronger than a
         // single low color error. We down-rank candidates that only fit one
         // part of the window (e.g. a blinking caret).
-        let best = costs.indices.min { costs[$0] < costs[$1] } ?? 0
-        guard best > 0, costs[best] < 0.20 else { throw FrameMatchError.noReliableMotion }
+        let coarseBest = costs.indices.min { costs[$0] < costs[$1] } ?? 0
+        guard coarseBest > 0, costs[coarseBest] < 0.20 else { throw FrameMatchError.noReliableMotion }
+
+        // The coarse grid skips rows, so neighbouring offsets can tie when
+        // the only detail is a few band edges. Settle the final pixel on
+        // every row of the overlap.
+        let crossSamples = across.map { min(crossLength - 1, Int($0 * Double(crossLength))) }
+        func denseCost(_ delta: Int) -> Double {
+            var sum = 0, samples = 0
+            for along in 0..<(axisLength - delta) {
+                for cross in crossSamples {
+                    let i = axis == .vertical ? ((along + delta) * w + cross) * 4 : (cross * w + along + delta) * 4
+                    let j = axis == .vertical ? (along * w + cross) * 4 : (cross * w + along) * 4
+                    sum += abs(Int(previous.pixels[i]) - Int(current.pixels[j]))
+                        + abs(Int(previous.pixels[i + 1]) - Int(current.pixels[j + 1]))
+                        + abs(Int(previous.pixels[i + 2]) - Int(current.pixels[j + 2]))
+                    samples += 1
+                }
+            }
+            return Double(sum) / Double(max(1, samples))
+        }
+        var best = coarseBest, bestDense = denseCost(coarseBest)
+        for delta in max(1, coarseBest - 2)...min(limit, coarseBest + 2) where delta != coarseBest {
+            let cost = denseCost(delta)
+            if cost < bestDense { best = delta; bestDense = cost }
+        }
 
         // Measure perpendicular movement only after aligning the primary
         // displacement. Checking raw frame pairs confounds diagonal movement
@@ -170,14 +194,30 @@ nonisolated enum FrameMatcher {
             throw FrameMatchError.crossAxisMotion
         }
 
-        var agreeing = 0
+        // Each band judges the whole-frame offset instead of electing its own.
+        // A blank margin or zebra stripes fit many offsets equally well, so
+        // they agree without deciding; a band that fits clearly better
+        // elsewhere votes against. One dissenter (a caret, an animation) is
+        // tolerated, and at least one band must pin the offset down.
+        let tolerance = 0.005
+        var agreeing = 0, decisive = 0, against = 0, bandMargin = 0.0
         for region in regionCosts {
-            if let candidate = region.indices.min(by: { region[$0] < region[$1] }),
-               abs(candidate - best) <= 2, region[candidate] < 0.24 { agreeing += 1 }
+            let atBest = region[best]
+            guard atBest.isFinite, let lowest = region.min() else { continue }
+            guard atBest - lowest <= tolerance else { against += 1; continue }
+            agreeing += 1
+            let alternative = region.indices.lazy.filter { abs($0 - best) > 2 }.map { region[$0] }.min() ?? .infinity
+            if alternative - atBest > tolerance {
+                decisive += 1
+                bandMargin = max(bandMargin, (alternative - atBest) / max(alternative, 0.015))
+            }
         }
-        guard agreeing >= 3 else { throw FrameMatchError.ambiguousMotion }
+        guard against <= 1, decisive >= 1 else { throw FrameMatchError.ambiguousMotion }
+        // Blank or striped bands fit far offsets too and would dilute a
+        // whole-frame margin, so the strongest deciding band also counts.
         let alternative = costs.enumerated().filter { abs($0.offset - best) > 2 }.map(\.element).min() ?? 1
-        let margin = max(0, min(1, (alternative - costs[best]) / max(alternative, 0.015)))
+        let frameMargin = (alternative - costs[best]) / max(alternative, 0.015)
+        let margin = max(0, min(1, max(frameMargin, bandMargin)))
         let confidence = min(1, (1 - costs[best]) * 0.55 + margin * 0.45)
         guard confidence >= minimumConfidence else { throw FrameMatchError.ambiguousMotion }
 
@@ -191,15 +231,14 @@ nonisolated enum FrameMatcher {
         let range = primaryAxis == .vertical ? width : height
         let residualLimit = min(max(0, limit), max(0, range / 4))
         guard residualLimit > 0 else { return (0, .infinity) }
-        var best = (offset: 0, error: Double.infinity)
 
-        for residual in (-residualLimit)...residualLimit {
+        func meanError(at residual: Int) -> Double? {
             var error = 0.0, samples = 0
             if primaryAxis == .vertical {
                 let crossStart = max(0, -residual)
                 let crossEnd = min(width, width - residual)
                 let alongEnd = height - primaryOffset
-                guard crossEnd > crossStart, alongEnd > 0 else { continue }
+                guard crossEnd > crossStart, alongEnd > 0 else { return nil }
                 for x in stride(from: crossStart, to: crossEnd, by: max(1, (crossEnd - crossStart) / 24)) {
                     for y in stride(from: 0, to: alongEnd, by: max(1, alongEnd / 48)) {
                         let previousIndex = ((y + primaryOffset) * width + x + residual) * 4
@@ -212,7 +251,7 @@ nonisolated enum FrameMatcher {
                 let crossStart = max(0, -residual)
                 let crossEnd = min(height, height - residual)
                 let alongEnd = width - primaryOffset
-                guard crossEnd > crossStart, alongEnd > 0 else { continue }
+                guard crossEnd > crossStart, alongEnd > 0 else { return nil }
                 for y in stride(from: crossStart, to: crossEnd, by: max(1, (crossEnd - crossStart) / 24)) {
                     for x in stride(from: 0, to: alongEnd, by: max(1, alongEnd / 48)) {
                         let previousIndex = ((y + residual) * width + x + primaryOffset) * 4
@@ -222,9 +261,18 @@ nonisolated enum FrameMatcher {
                     }
                 }
             }
-            let score = error / Double(max(1, samples))
-            if score < best.error { best = (residual, score) }
+            return error / Double(max(1, samples))
         }
+
+        // No sideways movement is the default. Content without vertical
+        // detail (full-width bands) fits every residual equally, so a
+        // non-zero residual has to be clearly better than zero to count.
+        guard let zero = meanError(at: 0) else { return (0, .infinity) }
+        var best = (offset: 0, error: Double.infinity)
+        for residual in (-residualLimit)...residualLimit where residual != 0 {
+            if let score = meanError(at: residual), score < best.error { best = (residual, score) }
+        }
+        guard best.error <= zero - 2, best.error <= zero * 0.75 else { return (0, zero) }
         return best
     }
 

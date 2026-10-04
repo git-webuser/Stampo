@@ -49,24 +49,64 @@ import Testing
         return CaptureFrame(width: width, height: height, pixels: bytes)
     }
 
+    private func noise(_ x: Int, _ y: Int) -> UInt64 {
+        var hash = (UInt64(bitPattern: Int64(x)) &* 0x9E37_79B9_7F4A_7C15)
+            ^ (UInt64(bitPattern: Int64(y)) &* 0xD1B5_4A32_D192_ED03)
+        hash ^= hash >> 30
+        hash &*= 0xBF58_476D_1CE4_E5B9
+        hash ^= hash >> 27
+        hash &*= 0x94D0_49BB_1331_11EB
+        hash ^= hash >> 31
+        return hash
+    }
+
     private func aperiodicTexture(width: Int, height: Int, xOffset: Int, yOffset: Int) -> CaptureFrame {
         var bytes = [UInt8](repeating: 255, count: width * height * 4)
         for y in 0..<height {
             for x in 0..<width {
-                let logicalX = UInt64(bitPattern: Int64(x + xOffset))
-                let logicalY = UInt64(bitPattern: Int64(y + yOffset))
-                var hash = (logicalX &* 0x9E37_79B9_7F4A_7C15) ^ (logicalY &* 0xD1B5_4A32_D192_ED03)
-                hash ^= hash >> 30
-                hash &*= 0xBF58_476D_1CE4_E5B9
-                hash ^= hash >> 27
-                hash &*= 0x94D0_49BB_1331_11EB
-                hash ^= hash >> 31
-                let value = UInt8(truncatingIfNeeded: hash >> 56)
+                let value = UInt8(truncatingIfNeeded: noise(x + xOffset, y + yOffset) >> 56)
                 let i = (y * width + x) * 4
                 bytes[i] = value
                 bytes[i + 1] = value
                 bytes[i + 2] = value
                 bytes[i + 3] = 255
+            }
+        }
+        return CaptureFrame(width: width, height: height, pixels: bytes)
+    }
+
+    /// Text only in the left part of the width (chat, mail, code) on a blank
+    /// or zebra background. `inkCoverage` of 256 fills the column with noise;
+    /// lower values leave sparse dark dots, like small text.
+    private func columnTexture(width: Int, height: Int, yOffset: Int, columnFraction: Double,
+                               inkCoverage: Int = 256, zebraRow: Int? = nil) -> CaptureFrame {
+        var bytes = [UInt8](repeating: 255, count: width * height * 4)
+        let columnWidth = Int(Double(width) * columnFraction)
+        for y in 0..<height {
+            let logicalY = y + yOffset
+            let background: UInt8 = zebraRow.map { (logicalY / $0) % 2 == 0 ? 244 : 255 } ?? 255
+            for x in 0..<width {
+                var value = background
+                if x < columnWidth {
+                    let hash = noise(x, logicalY) >> 56
+                    if inkCoverage >= 256 { value = UInt8(truncatingIfNeeded: hash) }
+                    else if Int(hash) < inkCoverage { value = 40 }
+                }
+                let i = (y * width + x) * 4
+                bytes[i] = value; bytes[i + 1] = value; bytes[i + 2] = value; bytes[i + 3] = 255
+            }
+        }
+        return CaptureFrame(width: width, height: height, pixels: bytes)
+    }
+
+    /// Full-width horizontal bands of random grey: no vertical detail at all.
+    private func bandTexture(width: Int, height: Int, yOffset: Int, band: Int) -> CaptureFrame {
+        var bytes = [UInt8](repeating: 255, count: width * height * 4)
+        for y in 0..<height {
+            let value = UInt8(truncatingIfNeeded: noise(0, (y + yOffset) / band) >> 56)
+            for x in 0..<width {
+                let i = (y * width + x) * 4
+                bytes[i] = value; bytes[i + 1] = value; bytes[i + 2] = value; bytes[i + 3] = 255
             }
         }
         return CaptureFrame(width: width, height: height, pixels: bytes)
@@ -186,6 +226,48 @@ import Testing
                                        current: horizontalDiagonal,
                                        axis: .horizontal, maximumOffset: 70)
             }
+        }
+    }
+
+    @Test func findsMotionOfATextColumnPressedToTheLeft() throws {
+        let match = try FrameMatcher.match(
+            previous: columnTexture(width: 200, height: 240, yOffset: 0, columnFraction: 0.35),
+            current: columnTexture(width: 200, height: 240, yOffset: 41, columnFraction: 0.35),
+            axis: .vertical, maximumOffset: 70)
+        #expect(match.offset == 41)
+    }
+
+    @Test func findsMotionOfAZebraTableWithTextOnlyOnTheLeft() throws {
+        let match = try FrameMatcher.match(
+            previous: columnTexture(width: 200, height: 240, yOffset: 0, columnFraction: 0.4,
+                                    inkCoverage: 24, zebraRow: 12),
+            current: columnTexture(width: 200, height: 240, yOffset: 41, columnFraction: 0.4,
+                                   inkCoverage: 24, zebraRow: 12),
+            axis: .vertical, maximumOffset: 70)
+        #expect(match.offset == 41)
+    }
+
+    @Test func sparseTextInOneBandOverZebraRowsIsConfidentEnough() throws {
+        // The stripes fit offsets a period away, so the whole-frame margin is
+        // small; the one band with text still pins the offset down.
+        let match = try FrameMatcher.match(
+            previous: columnTexture(width: 200, height: 240, yOffset: 0, columnFraction: 0.12,
+                                    inkCoverage: 3, zebraRow: 12),
+            current: columnTexture(width: 200, height: 240, yOffset: 41, columnFraction: 0.12,
+                                   inkCoverage: 3, zebraRow: 12),
+            axis: .vertical, maximumOffset: 70)
+        #expect(match.offset == 41)
+    }
+
+    @Test func fullWidthBandsMatchExactlyAndAreNotSidewaysMotion() throws {
+        // Every residual fits bands equally, and the coarse grid can miss the
+        // few band edges that tell neighbouring offsets apart.
+        let previous = bandTexture(width: 200, height: 240, yOffset: 0, band: 9)
+        for offset in 23...27 {
+            let current = bandTexture(width: 200, height: 240, yOffset: offset, band: 9)
+            let match = try FrameMatcher.match(previous: previous, current: current,
+                                               axis: .vertical, maximumOffset: 70)
+            #expect(match.offset == offset)
         }
     }
 
