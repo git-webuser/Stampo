@@ -921,6 +921,9 @@ private struct PanelTimerMenuButton: View {
 
 private struct PanelCaptureButton: View {
     let metrics: NotchMetrics
+    /// "Capture" everywhere but on a running scrolling capture, where the same
+    /// button saves what is collected and says so.
+    var title: LocalizedStringKey = "Capture"
     let action: () -> Void
 
     @Environment(\.colorSchemeContrast) private var contrast
@@ -930,7 +933,7 @@ private struct PanelCaptureButton: View {
 
     var body: some View {
         Button(action: action) {
-            Text("Capture")
+            Text(title)
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(isPressed || isHovered ? .white : PanelChrome.foreground(0.8, contrast))
                 .frame(width: metrics.captureButtonWidth, height: metrics.buttonHeight)
@@ -1119,7 +1122,7 @@ struct CountdownView: View {
     }
 
     private var captureNowCell: some View {
-        PanelCaptureButton(metrics: metrics, action: onCaptureNow)
+        PanelCaptureButton(metrics: metrics, title: captureTitle, action: onCaptureNow)
     }
 
     // MARK: - Helpers
@@ -1128,6 +1131,13 @@ struct CountdownView: View {
     private var arcProgress: Double {
         guard totalSeconds > 0 else { return 0 }
         return Double(totalSeconds - secondsRemaining) / Double(totalSeconds)
+    }
+
+    /// Once a scrolling capture is running the button no longer takes a
+    /// picture: it ends the capture, and it is labelled for that.
+    private var captureTitle: LocalizedStringKey {
+        if case .scrolling = phase { return "Done" }
+        return "Capture"
     }
 
     private var secondsRemaining: Int {

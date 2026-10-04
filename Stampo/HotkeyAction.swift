@@ -146,8 +146,8 @@ enum HotkeyAction: UInt32, CaseIterable {
         case .collectFiles: return "Pin Panel"
         case .shareLastItem: return "Share Last Item"
         case .translateClipboard: return "Translate"
-        case .scrollVertical: return "Scroll Capture Down"
-        case .scrollHorizontal: return "Scroll Capture Right"
+        case .scrollVertical: return "Scrolling Screenshot Down"
+        case .scrollHorizontal: return "Scrolling Screenshot Right"
         }
     }
 

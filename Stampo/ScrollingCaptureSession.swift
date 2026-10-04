@@ -451,9 +451,9 @@ final class ScrollingCaptureSession {
         guard let matchError = error as? FrameMatchError else { return error.localizedDescription }
         let key: String
         switch matchError {
-        case .noReliableMotion: key = "The scrolling area did not move enough to match frames. Try clicking inside the page or table and start again."
-        case .ambiguousMotion: key = "The visible content repeats too much to align reliably. The capture stopped to avoid a damaged image."
-        case .crossAxisMotion: key = "The window moved in both directions. Keep the window size stable and scroll in one direction."
+        case .noReliableMotion: key = "The area doesn't scroll. Click inside the page or table and start again."
+        case .ambiguousMotion: key = "The content is too uniform to align. The capture stopped to avoid a broken image."
+        case .crossAxisMotion: key = "The content moved sideways. Don't move the window during the capture."
         case .outputLimitExceeded: key = "The scrolling image reached the configured size limit."
         }
         return LocaleManager.shared.string(key)

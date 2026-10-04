@@ -93,9 +93,9 @@ nonisolated enum FrameMatchError: Error, Equatable, LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .noReliableMotion: return "The scrolling area did not move enough to match frames. Try clicking inside the page or table and start again."
-        case .ambiguousMotion: return "The visible content repeats too much to align reliably. The capture stopped to avoid a damaged image."
-        case .crossAxisMotion: return "The window moved in both directions. Keep the window size stable and scroll in one direction."
+        case .noReliableMotion: return "The area doesn't scroll. Click inside the page or table and start again."
+        case .ambiguousMotion: return "The content is too uniform to align. The capture stopped to avoid a broken image."
+        case .crossAxisMotion: return "The content moved sideways. Don't move the window during the capture."
         case .outputLimitExceeded: return "The scrolling image reached the configured size limit."
         }
     }

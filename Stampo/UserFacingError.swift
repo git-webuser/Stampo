@@ -94,7 +94,7 @@ enum UserFacingError {
                 }
                 return base
             case .accessibilityPermission:
-                return lm.string("Grant Accessibility access to Stampo to send scroll events.")
+                return lm.string("Grant Accessibility access to Stampo to scroll windows.")
             case .saveDirectoryInaccessible(let url):
                 return String(format: lm.string("Stampo can't write screenshots to \"%@\". The folder may have been moved, renamed, or access was revoked. Choose a new save folder in Settings \u{2192} Capture."), url.lastPathComponent)
             case .backgroundPictureUnreadable:

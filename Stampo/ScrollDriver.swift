@@ -109,10 +109,10 @@ enum ScrollDriverError: Error, LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .accessibilityDenied: return LocaleManager.shared.string("Grant Accessibility access to Stampo to send scroll events.")
-        case .scrollAreaUnavailable: return LocaleManager.shared.string("Stampo could not identify a scrollable area at that point. Click inside the page or table and try again.")
-        case .noMovingContent: return LocaleManager.shared.string("The scrolling area did not move enough to match frames. Try clicking inside the page or table and start again.")
-        case .eventUnavailable: return LocaleManager.shared.string("macOS could not send a scroll event to the selected window.")
+        case .accessibilityDenied: return LocaleManager.shared.string("Grant Accessibility access to Stampo to scroll windows.")
+        case .scrollAreaUnavailable: return LocaleManager.shared.string("There's no scrollable area at that point. Click inside the page or table and try again.")
+        case .noMovingContent: return LocaleManager.shared.string("The area doesn't scroll. Click inside the page or table and start again.")
+        case .eventUnavailable: return LocaleManager.shared.string("macOS couldn't scroll the window.")
         }
     }
 }

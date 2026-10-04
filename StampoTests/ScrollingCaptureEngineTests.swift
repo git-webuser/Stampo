@@ -725,6 +725,37 @@ import Testing
         #expect(await counter.value == 0)
     }
 
+    /// A key missing from the catalog does not fail: it falls back to its own
+    /// English text, which in a Russian UI is a sentence in the wrong language.
+    @Test func everyScrollingStringHasARussianTranslation() {
+        let ru = Locale(identifier: "ru")
+        let keys = [
+            "Click the area to scroll",
+            "Done",
+            HotkeyAction.scrollVertical.labelKey, HotkeyAction.scrollHorizontal.labelKey,
+            "Scroll Capture Down", "Scroll Capture Right",
+            "Scrolling capture failed",
+            "Scrolling capture needs Accessibility access",
+            "Grant Accessibility access to Stampo to scroll windows.",
+            "Stampo couldn't complete scrolling capture. Try again.",
+            "Stampo couldn't encode the scrolling image.",
+            "The window is covered at the scroll point.",
+            "The window size changed.",
+            "The display scale changed.",
+            "The window moved to the background.",
+            "Frames couldn't be aligned.",
+            "The area doesn't scroll. Click inside the page or table and start again.",
+            "There's no scrollable area at that point. Click inside the page or table and try again.",
+            "The content is too uniform to align. The capture stopped to avoid a broken image.",
+            "The content moved sideways. Don't move the window during the capture.",
+            "macOS couldn't scroll the window.",
+        ]
+        for key in keys {
+            let translated = LocaleManager.string(key, locale: ru)
+            #expect(translated != key, "no Russian for \(key)")
+        }
+    }
+
     @Test func wheelLinesFollowTheStepInPointsNotInCapturedPixels() {
         // 540 points is six lines at either scale; the capture is twice the pixels at 2x.
         #expect(ScrollDriver.lineDelta(for: 540, backingScale: 1) == 6)
