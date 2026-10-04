@@ -840,6 +840,41 @@ import Testing
         #expect(ScrollDriver.maximumLikelyMovement(pixelStep: 540, backingScale: 1, viewportLength: 3000) == 6 * 90)
     }
 
+    @Test func calibrationIsTheProbesMovementOverTheLinesItSent() {
+        #expect(ScrollStepPlanner.pixelsPerLine(offset: 80, lines: 2) == 40)
+        #expect(ScrollStepPlanner.pixelsPerLine(offset: 0, lines: 1) == nil)
+        #expect(ScrollStepPlanner.pixelsPerLine(offset: 80, lines: 0) == nil)
+    }
+
+    @Test func stepsAreLinesThatReachTheTargetAndLeaveTheFramesOverlapping() {
+        // 80 px a line, a 1366 px frame: the target (60%) is ten lines, and 800 px is under 1024.
+        #expect(ScrollStepPlanner.lines(target: 820, pixelsPerLine: 80, axisLength: 1366) == 10)
+        // 200 px a line: four lines.
+        #expect(ScrollStepPlanner.lines(target: 820, pixelsPerLine: 200, axisLength: 1366) == 4)
+        // 300 px a line in a 1000 px frame: never more than fits in 750.
+        let lines = ScrollStepPlanner.lines(target: 900, pixelsPerLine: 300, axisLength: 1000)
+        #expect(lines == 2)
+        #expect(Double(lines) * 300 <= 750)
+        // One line is the floor even when a line alone is too long, and ten the ceiling.
+        #expect(ScrollStepPlanner.lines(target: 600, pixelsPerLine: 900, axisLength: 1000) == 1)
+        #expect(ScrollStepPlanner.lines(target: 5000, pixelsPerLine: 10, axisLength: 4000) == 10)
+    }
+
+    @Test func theSearchBoundIsHalfAgainAsFarAsTheLinesMoveAndNeverPastThreeQuarters() {
+        #expect(ScrollStepPlanner.motionLimit(lines: 4, pixelsPerLine: 200, axisLength: 1366) == 1024)
+        #expect(ScrollStepPlanner.motionLimit(lines: 5, pixelsPerLine: 40, axisLength: 1366) == 332)
+    }
+
+    @Test func withoutACalibrationTheOldEstimateFromPointsStillPlansTheStep() {
+        let plan = ScrollStepPlanner.plan(target: 1080, pixelsPerLine: nil, axisLength: 3000, backingScale: 2)
+        #expect(plan.lines == 6)
+        #expect(plan.motionLimit == ScrollDriver.maximumLikelyMovement(pixelStep: 1080, backingScale: 2,
+                                                                       viewportLength: 3000))
+        let calibrated = ScrollStepPlanner.plan(target: 820, pixelsPerLine: 80, axisLength: 1366, backingScale: 2)
+        #expect(calibrated.lines == 10)
+        #expect(calibrated.motionLimit == 1024)
+    }
+
     @Test func aWindowOfOursOverThePointCoversItUnlessItIsTheIgnoredPanel() {
         let page = ScrollDriver.WindowListEntry(windowID: 7, processID: 100,
                                                 bounds: CGRect(x: 0, y: 0, width: 800, height: 600), alpha: 1)

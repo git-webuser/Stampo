@@ -207,7 +207,7 @@ final class ScrollingCaptureSession {
             try checkWindowAndFocus()
 
             var settled: (axis: ScrollAxis, viewport: ScrollViewport, outcome: ProbeOutcome,
-                          step: Int, motionLimit: Int)?
+                          step: Int, lines: Int32, motionLimit: Int)?
             for candidate in Self.probeOrder(preferred: axis) {
                 let candidateViewport = try viewport(for: candidate, within: baseViewport)
                 let initial = try cropped(before, to: candidateViewport)
@@ -216,7 +216,8 @@ final class ScrollingCaptureSession {
                 let probePoint = currentScrollPoint()
                 diagnosticStage = .probeMotion
                 try validateCurrentScrollTarget(at: probePoint)
-                try ScrollDriver.sendScroll(axis: candidate, pixels: probeStep, backingScale: scale, at: probePoint)
+                let probeLines = ScrollDriver.lineDelta(for: probeStep, backingScale: scale)
+                try ScrollDriver.sendScroll(axis: candidate, lines: probeLines, at: probePoint)
                 let after = try await ScrollCaptureCancellationBoundary.awaitActive {
                     try await self.captureStableWindow(viewport: candidateViewport)
                 }
@@ -229,7 +230,7 @@ final class ScrollingCaptureSession {
                     let motionLimit = ScrollDriver.maximumLikelyMovement(
                         pixelStep: probeStep, backingScale: scale,
                         viewportLength: axisLength(of: initial, along: candidate))
-                    settled = (candidate, candidateViewport, outcome, probeStep, motionLimit)
+                    settled = (candidate, candidateViewport, outcome, probeStep, probeLines, motionLimit)
                     break
                 }
                 // Nothing moved that way. The next axis starts from what the
@@ -242,6 +243,7 @@ final class ScrollingCaptureSession {
             assembler = ImageAssembler(axis: axis)
             let (first, probe) = (settled.outcome.first, settled.outcome.probe)
             let probeStep = settled.step
+            let probeLines = settled.lines
             let probeMotionLimit = settled.motionLimit
             guard let croppedViewport = settled.viewport.cropped(to: settled.outcome.movingRect,
                                                                  backingScale: scale) else {
@@ -252,6 +254,10 @@ final class ScrollingCaptureSession {
             previous = probe
             var requestedStep = max(24, Int(Double(axisLength(of: first)) * 0.60))
             var unmatchedScroll = 0
+            /// How far one wheel line moved the page, measured on the probe.
+            /// Nil until a probe has been matched, and then the estimate from
+            /// points is what steps are planned from.
+            var pixelsPerLine: Double?
 
             do {
                 diagnosticStage = .match
@@ -259,6 +265,12 @@ final class ScrollingCaptureSession {
                                                    maximumOffset: probeMotionLimit + 24)
                 try ensureActive()
                 try assembler.append(probe, movement: match.offset)
+                pixelsPerLine = ScrollStepPlanner.pixelsPerLine(offset: match.offset, lines: Int(probeLines))
+                if let pixelsPerLine {
+                    let plan = ScrollStepPlanner.plan(target: requestedStep, pixelsPerLine: pixelsPerLine,
+                                                      axisLength: axisLength(of: first), backingScale: scale)
+                    Log.capture.info("scroll calibrated · \(Int(pixelsPerLine.rounded()), privacy: .public) px per line · \(plan.lines, privacy: .public) lines per step")
+                }
             } catch {
                 // The selected scroll view did not yield stable moving content
                 // across the probe; keep the initial image for a partial save.
@@ -281,14 +293,14 @@ final class ScrollingCaptureSession {
                 guard let oldFrame = previous else { return }
                 try checkWindowAndFocus()
                 let currentStep = min(requestedStep, max(24, axisLength(of: oldFrame) * 3 / 4))
-                let motionLimit = ScrollDriver.maximumLikelyMovement(pixelStep: currentStep,
-                                                                      backingScale: scale,
-                                                                      viewportLength: axisLength(of: oldFrame))
+                let plan = ScrollStepPlanner.plan(target: currentStep, pixelsPerLine: pixelsPerLine,
+                                                  axisLength: axisLength(of: oldFrame), backingScale: scale)
+                let motionLimit = plan.motionLimit
                 let point = currentScrollPoint()
                 try ensureActive()
                 diagnosticStage = .validateTarget
                 try validateCurrentScrollTarget(at: point)
-                try ScrollDriver.sendScroll(axis: axis, pixels: currentStep, backingScale: scale, at: point)
+                try ScrollDriver.sendScroll(axis: axis, lines: plan.lines, at: point)
                 diagnosticStage = .capture
                 let next = try await ScrollCaptureCancellationBoundary.awaitActive {
                     try await self.captureStableViewport(reference: oldFrame)

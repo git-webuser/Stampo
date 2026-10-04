@@ -299,9 +299,10 @@ enum ScrollDriver {
                               container: resolvedContainer)
     }
 
-    static func sendScroll(axis: ScrollAxis, pixels: Int, backingScale: CGFloat, at point: CGPoint) throws {
-        let lines = lineDelta(for: pixels, backingScale: backingScale)
-        guard pixels > 0,
+    /// One wheel event of `lines` lines. How far that moves the page is the
+    /// app's own business — `ScrollStepPlanner` works it out from a probe.
+    static func sendScroll(axis: ScrollAxis, lines: Int32, at point: CGPoint) throws {
+        guard lines > 0,
               let event = CGEvent(scrollWheelEvent2Source: nil, units: .line, wheelCount: 2,
                                   wheel1: axis == .vertical ? -lines : 0,
                                   wheel2: axis == .horizontal ? -lines : 0, wheel3: 0)
@@ -318,12 +319,12 @@ enum ScrollDriver {
     /// points: at 2x a step of 1080 captured pixels is 540 points, the same
     /// six lines as 540 pixels at 1x. Counted from pixels, Retina scrolled
     /// twice as far per event and could outrun the overlap between frames.
-    static func lineDelta(for pixelStep: Int, backingScale: CGFloat) -> Int32 {
+    nonisolated static func lineDelta(for pixelStep: Int, backingScale: CGFloat) -> Int32 {
         let points = Int((CGFloat(pixelStep) / max(1, backingScale)).rounded(.up))
         return Int32(min(10, max(1, (points + 99) / 100)))
     }
 
-    static func maximumLikelyMovement(pixelStep: Int, backingScale: CGFloat, viewportLength: Int) -> Int {
+    nonisolated static func maximumLikelyMovement(pixelStep: Int, backingScale: CGFloat, viewportLength: Int) -> Int {
         let estimate = Int(CGFloat(lineDelta(for: pixelStep, backingScale: backingScale)) * 90 * backingScale)
         return min(max(1, viewportLength * 3 / 4), estimate)
     }
@@ -421,5 +422,66 @@ enum ScrollDriver {
         var point = CGPoint.zero, size = CGSize.zero
         guard AXValueGetValue(p as! AXValue, .cgPoint, &point), AXValueGetValue(s as! AXValue, .cgSize, &size) else { return nil }
         return CGRect(origin: point, size: size)
+    }
+}
+
+// MARK: - ScrollStepPlanner
+
+/// How many wheel lines to send for a step, and how far to look for the result.
+///
+/// A line is not a fixed distance: Safari moves about as far as the guess
+/// behind `ScrollDriver.lineDelta`, Chromium about 40 points where that guess
+/// says 100 — a step meant as 60% of the screen came out as 30%, and twice as
+/// many of them. So the probe, which sends a known number of lines and has its
+/// movement measured by the matcher, calibrates the page: pixels per line.
+nonisolated enum ScrollStepPlanner {
+    static let maxLines = 10
+
+    struct Plan: Equatable {
+        let lines: Int32
+        /// The farthest the matcher need look for the frames' offset.
+        let motionLimit: Int
+    }
+
+    /// Pixels one line moved, from a probe of `lines` lines that moved
+    /// `offset` pixels. Nil when there is nothing to divide by.
+    static func pixelsPerLine(offset: Int, lines: Int) -> Double? {
+        guard offset > 0, lines > 0 else { return nil }
+        return Double(offset) / Double(lines)
+    }
+
+    /// Lines for a target step in pixels: as many as reach it, at least one
+    /// and at most ten, then fewer until the step is no more than three
+    /// quarters of the frame — the frames must overlap or there is nothing to
+    /// stitch them on.
+    static func lines(target: Int, pixelsPerLine: Double, axisLength: Int) -> Int {
+        guard pixelsPerLine > 0 else { return 1 }
+        var lines = min(maxLines, max(1, Int((Double(target) / pixelsPerLine).rounded())))
+        let limit = Double(axisLength) * 0.75
+        while lines > 1, Double(lines) * pixelsPerLine > limit { lines -= 1 }
+        return lines
+    }
+
+    /// The matcher's search bound for `lines` lines: half as far again as the
+    /// calibration says they move, and a margin, never past three quarters of
+    /// the frame.
+    static func motionLimit(lines: Int, pixelsPerLine: Double, axisLength: Int) -> Int {
+        min(axisLength * 3 / 4, Int((Double(lines) * pixelsPerLine * 1.5 + 32).rounded()))
+    }
+
+    /// The step to take. Without a calibration — the probe could not be
+    /// matched — it is the estimate from points that has always been used.
+    static func plan(target: Int, pixelsPerLine: Double?, axisLength: Int,
+                     backingScale: CGFloat) -> Plan {
+        guard let pixelsPerLine else {
+            return Plan(lines: ScrollDriver.lineDelta(for: target, backingScale: backingScale),
+                        motionLimit: ScrollDriver.maximumLikelyMovement(pixelStep: target,
+                                                                        backingScale: backingScale,
+                                                                        viewportLength: axisLength))
+        }
+        let lines = lines(target: target, pixelsPerLine: pixelsPerLine, axisLength: axisLength)
+        return Plan(lines: Int32(lines),
+                    motionLimit: motionLimit(lines: lines, pixelsPerLine: pixelsPerLine,
+                                             axisLength: axisLength))
     }
 }
