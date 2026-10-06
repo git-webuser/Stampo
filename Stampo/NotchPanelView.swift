@@ -1159,9 +1159,10 @@ struct CountdownView: View {
     }
 
     /// Once a scrolling capture is running the button no longer takes a
-    /// picture: it ends the capture, and it is labelled for that.
+    /// picture: it ends the capture and saves what is collected, and it says
+    /// so — "Done" left it unclear that nothing had been saved yet.
     private var captureTitle: LocalizedStringKey {
-        if case .scrolling = phase { return "Done" }
+        if case .scrolling = phase { return "Save" }
         return "Capture"
     }
 

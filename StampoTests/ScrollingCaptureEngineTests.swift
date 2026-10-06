@@ -781,7 +781,7 @@ import Testing
         let ru = Locale(identifier: "ru")
         let keys = [
             "Click the area to scroll",
-            "Done",
+            "Save",
             HotkeyAction.scroll.labelKey, HotkeyAction.scroll.hintKey ?? "",
             "Scrolling", "Down", "Right",
             "Excludes a narrow viewport edge where scrollbars appear; content near that edge may also be cropped.",
