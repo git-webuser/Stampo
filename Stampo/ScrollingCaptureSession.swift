@@ -372,10 +372,17 @@ final class ScrollingCaptureSession {
                     // still contain a reliable overlap to append.
                     zeroMotionCount += 1
                     consecutiveFailures = 0
-                    if zeroMotionCount >= 3 {
-                        // Three frames in a row without movement: the end of
-                        // the content.
-                        finish()
+                    if zeroMotionCount >= 2 {
+                        // Twice without movement. The end of the page — or a
+                        // fixed part of it, which also stops the page moving
+                        // and which is not the end. One line back tells them
+                        // apart: a page that has ended moves.
+                        switch try await endOfPageCheck(stationary: oldFrame, pixelsPerLine: pixelsPerLine) {
+                        case .endOfPage:
+                            finish()
+                        case .pinned:
+                            pause(reason: .partDoesNotScroll)
+                        }
                         return
                     }
                 } catch {
@@ -424,7 +431,7 @@ final class ScrollingCaptureSession {
                         requestedStep = max(12, currentStep / 2)
                         unmatchedScroll += motionLimit
                     } else {
-                        pause(reason: LocaleManager.shared.string("Frames couldn't be aligned."))
+                        pause(reason: .framesNotAligned)
                         return
                     }
                 }
@@ -442,6 +449,36 @@ final class ScrollingCaptureSession {
                 pause(reason: localizedMessage(for: error))
             }
         }
+    }
+
+    /// One line back from where the steps stopped moving the page, and a look at
+    /// whether it moved. `stationary` is the last frame, which the steps left
+    /// unchanged: the frame after the line back shows earlier content, and
+    /// `stationary` is that frame advanced by a line.
+    private func endOfPageCheck(stationary: CaptureFrame, pixelsPerLine: Double?) async throws
+        -> ScrollEndCheck.Verdict {
+        let point = currentScrollPoint()
+        diagnosticStage = .validateTarget
+        try validateCurrentScrollTarget(at: point)
+        try ScrollDriver.sendScroll(axis: axis, lines: 1, backwards: true, at: point)
+        diagnosticStage = .capture
+        let back = try await ScrollCaptureCancellationBoundary.awaitActive {
+            try await self.captureStableViewport(reference: stationary)
+        }
+        try ensureActive()
+        try checkWindowAndFocus()
+        let axis = self.axis
+        let plan = ScrollStepPlanner.plan(target: 1, pixelsPerLine: pixelsPerLine,
+                                          axisLength: axisLength(of: stationary), backingScale: scale)
+        let limit = plan.motionLimit + 32
+        let offset = await Task.detached(priority: .userInitiated) {
+            try? FrameMatcher.match(previous: back, current: stationary, axis: axis, maximumOffset: limit).offset
+        }.value
+        try ensureActive()
+        let moved = Self.movingContentRect(before: stationary, after: back, axis: axis,
+                                           preserveCrossAxis: scrollContainer != nil) != nil
+        Log.capture.info("scroll end check · matched \(offset ?? -1, privacy: .public) px · content moved \(moved, privacy: .public)")
+        return ScrollEndCheck.verdict(matchedOffset: offset, pixelsPerLine: pixelsPerLine, contentMoved: moved)
     }
 
     /// Whether `movement` more pixels fit under the limit. At the limit, with
@@ -496,6 +533,10 @@ final class ScrollingCaptureSession {
     private func pause(reason: String) {
         previous = nil
         onStatus?(.paused(reason: reason))
+    }
+
+    private func pause(reason: ScrollPauseReason) {
+        pause(reason: LocaleManager.shared.string(reason.key))
     }
 
     /// The whole selected window, as one frame.

@@ -785,6 +785,7 @@ import Testing
             HotkeyAction.scroll.labelKey, HotkeyAction.scroll.hintKey ?? "",
             "Scrolling", "Down", "Right",
             "Excludes a narrow viewport edge where scrollbars appear; content near that edge may also be cropped.",
+            "A video or animation is in the way", "This part of the page doesn't scroll",
             "Length limit", "Shrink to fit",
             "At the limit the image drops to standard resolution (1x) and the capture continues — twice as much of the page fits.",
             "MB", "Scrolling Screenshot",
@@ -1518,6 +1519,47 @@ import Testing
         // Gone once it has gone: fully transparent windows are not there.
         let gone = ScrollDriver.WindowListEntry(windowID: 9, processID: 1, bounds: fadingPicker.bounds, alpha: 0)
         #expect(ScrollDriver.topmostWindow(at: point, in: [gone, page], ignoring: [])?.windowID == 7)
+    }
+
+    /// A page that has run out moves when sent a line back; a part that is
+    /// fixed and changes in place does not — the one thing that tells the end of
+    /// the page from a stop that is not.
+    @Test func aLineBackTellsTheEndOfThePageFromAFixedPart() {
+        // The frames matched at about a line: the page moved.
+        #expect(ScrollEndCheck.verdict(matchedOffset: 80, pixelsPerLine: 80, contentMoved: false) == .endOfPage)
+        #expect(ScrollEndCheck.verdict(matchedOffset: 90, pixelsPerLine: 80, contentMoved: false) == .endOfPage)
+        // They did not match, and nothing moved: fixed.
+        #expect(ScrollEndCheck.verdict(matchedOffset: nil, pixelsPerLine: 80, contentMoved: false) == .pinned)
+        // A match that is nothing like a line is not the page moving a line; the
+        // content having moved is then all there is to go by.
+        #expect(ScrollEndCheck.verdict(matchedOffset: 400, pixelsPerLine: 80, contentMoved: false) == .pinned)
+        #expect(ScrollEndCheck.verdict(matchedOffset: 400, pixelsPerLine: 80, contentMoved: true) == .endOfPage)
+        // No match but a block of the viewport changed: moved.
+        #expect(ScrollEndCheck.verdict(matchedOffset: nil, pixelsPerLine: 80, contentMoved: true) == .endOfPage)
+        // Without a calibration any movement found counts.
+        #expect(ScrollEndCheck.verdict(matchedOffset: 37, pixelsPerLine: nil, contentMoved: false) == .endOfPage)
+        // A zero match is no movement.
+        #expect(ScrollEndCheck.verdict(matchedOffset: 0, pixelsPerLine: 80, contentMoved: false) == .pinned)
+    }
+
+    /// The decision on real frames: a page that is sent a line back, and a part
+    /// that stays where it is.
+    @Test func theEndOfPageCheckReadsRealFrames() throws {
+        let height = 260, line = 40
+        let end = videoPage(height: height, offset: 300, videoSeed: 1)
+        let movedBack = videoPage(height: height, offset: 300 - line, videoSeed: 1)
+        let offset = try? FrameMatcher.match(previous: movedBack, current: end, axis: .vertical,
+                                             maximumOffset: line * 3 / 2 + 32).offset
+        #expect(offset == line)
+        #expect(ScrollEndCheck.verdict(matchedOffset: offset, pixelsPerLine: Double(line),
+                                       contentMoved: ScrollingCaptureSession.movingContentRect(
+                                        before: end, after: movedBack, axis: .vertical) != nil) == .endOfPage)
+        // Nothing changed at all: the same frame twice.
+        let same = try? FrameMatcher.match(previous: end, current: end, axis: .vertical,
+                                           maximumOffset: line * 3 / 2 + 32).offset
+        #expect(same == nil)
+        #expect(ScrollingCaptureSession.movingContentRect(before: end, after: end, axis: .vertical) == nil)
+        #expect(ScrollEndCheck.verdict(matchedOffset: same, pixelsPerLine: Double(line), contentMoved: false) == .pinned)
     }
 
     @Test func theStripShowsARingWhileWorkingAndSavingAndAWarningWhenPaused() {

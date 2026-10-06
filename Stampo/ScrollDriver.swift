@@ -301,11 +301,13 @@ enum ScrollDriver {
 
     /// One wheel event of `lines` lines. How far that moves the page is the
     /// app's own business — `ScrollStepPlanner` works it out from a probe.
-    static func sendScroll(axis: ScrollAxis, lines: Int32, at point: CGPoint) throws {
+    static func sendScroll(axis: ScrollAxis, lines: Int32, backwards: Bool = false, at point: CGPoint) throws {
+        // Positive wheel counts scroll up and left, so forward is negative.
+        let signed = backwards ? lines : -lines
         guard lines > 0,
               let event = CGEvent(scrollWheelEvent2Source: nil, units: .line, wheelCount: 2,
-                                  wheel1: axis == .vertical ? -lines : 0,
-                                  wheel2: axis == .horizontal ? -lines : 0, wheel3: 0)
+                                  wheel1: axis == .vertical ? signed : 0,
+                                  wheel2: axis == .horizontal ? signed : 0, wheel3: 0)
         else { throw ScrollDriverError.eventUnavailable }
         event.location = point
         event.post(tap: .cghidEventTap)
@@ -523,5 +525,32 @@ nonisolated enum ScrollStepPlanner {
         return Plan(lines: Int32(lines),
                     motionLimit: motionLimit(lines: lines, pixelsPerLine: pixelsPerLine,
                                              axisLength: axisLength))
+    }
+}
+
+// MARK: - ScrollEndCheck
+
+/// At the end of a page the steps stop moving it, and so they do when a part
+/// of the page is fixed and changes in place — a pinned section with an
+/// animation in it. Told apart by sending one line back: a page that has
+/// ended moves, a fixed part does not.
+nonisolated enum ScrollEndCheck {
+    enum Verdict: Equatable {
+        /// The page moved back: it had run out, and what is collected is all of it.
+        case endOfPage
+        /// It did not: this part is fixed, and what lies beyond is not reachable here.
+        case pinned
+    }
+
+    /// Whether the line back moved the page. The frames before and after it are
+    /// matched as an ordinary step, and a match close to what a line was
+    /// measured to be settles it; failing that, the content having moved at all
+    /// (`contentMoved`, a block of the viewport that changed) does.
+    static func verdict(matchedOffset: Int?, pixelsPerLine: Double?, contentMoved: Bool) -> Verdict {
+        if let matchedOffset, matchedOffset > 0 {
+            let consistent = pixelsPerLine.map { abs(Double(matchedOffset) - $0) <= max(4, $0 * 0.3) } ?? true
+            if consistent { return .endOfPage }
+        }
+        return contentMoved ? .endOfPage : .pinned
     }
 }

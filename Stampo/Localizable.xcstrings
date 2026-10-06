@@ -376,6 +376,22 @@
         }
       }
     },
+    "A video or animation is in the way" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A video or animation is in the way"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Видео или анимация мешают склейке"
+          }
+        }
+      }
+    },
     "Aberration" : {
       "comment" : "Decor inspector — how far the lens spreads the colour channels",
       "extractionState" : "stale",
@@ -8906,6 +8922,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Толщина"
+          }
+        }
+      }
+    },
+    "This part of the page doesn't scroll" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This part of the page doesn't scroll"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Эта часть страницы не прокручивается"
           }
         }
       }
