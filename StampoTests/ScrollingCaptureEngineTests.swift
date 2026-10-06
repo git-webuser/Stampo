@@ -1019,6 +1019,36 @@ import Testing
         #expect(action(20_001, shrunk: true) == .stop)
     }
 
+    /// The length chosen is a wish; memory is a ceiling. 120 M pixels is half a
+    /// gigabyte, and what a width of that leaves is what a capture can be.
+    @Test func theMemoryCeilingCapsTheLengthAtWideWidthsAndTheShrinkLiftsIt() {
+        // A 5K display at 2x: 40 000 would be 205 M pixels.
+        #expect(ScrollLengthLimit.effectiveLimit(limit: 40_000, crossSize: 5_120) == 23_437)
+        // Halved by the shrink, the same width leaves room for all that was asked.
+        #expect(ScrollLengthLimit.effectiveLimit(limit: 40_000, crossSize: 2_560) == 40_000)
+        // The window the 20 000 default was sized for: untouched.
+        #expect(ScrollLengthLimit.effectiveLimit(limit: 40_000, crossSize: 2_516) == 40_000)
+        #expect(ScrollLengthLimit.effectiveLimit(limit: 20_000, crossSize: 5_120) == 20_000)
+        // Nothing to divide by yet.
+        #expect(ScrollLengthLimit.effectiveLimit(limit: 40_000, crossSize: 0) == 40_000)
+    }
+
+    @Test func theAssemblerReadsTheCeilingFromItsOwnWidthBeforeAndAfterAShrink() throws {
+        var assembler = ImageAssembler(axis: .vertical, maxLength: 40_000)
+        #expect(assembler.effectiveLimit == 40_000)
+        assembler.begin(with: texture(width: 5_120, height: 100))
+        #expect(assembler.outputCrossSize == 5_120)
+        #expect(assembler.effectiveLimit == 23_437)
+        // At the limit the question is the same as ever: shrink if allowed, else save.
+        #expect(ScrollLengthLimit.action(lengthAfterAdding: 23_438, limit: assembler.effectiveLimit,
+                                         shrinkToFit: true, frameScale: 2, alreadyShrunk: false) == .shrink)
+        #expect(ScrollLengthLimit.action(lengthAfterAdding: 23_438, limit: assembler.effectiveLimit,
+                                         shrinkToFit: false, frameScale: 2, alreadyShrunk: false) == .stop)
+        assembler.shrinkToHalf()
+        #expect(assembler.outputCrossSize == 2_560)
+        #expect(assembler.effectiveLimit == 40_000)
+    }
+
     @MainActor @Test func theLimitAndTheShrinkSettingStartAtTwentyThousandAndOff() {
         let store = AppSettings.store
         store.removeObject(forKey: AppSettings.Keys.scrollLengthLimit)

@@ -456,6 +456,19 @@ nonisolated struct ImageAssembler: Sendable {
         self.maxLength = maxLength
     }
 
+    /// The image's other side in its own pixels: the frame's, or half of it
+    /// once shrunk. Zero before there is a frame.
+    var outputCrossSize: Int {
+        let cross = axis == .vertical ? viewportWidth : viewportHeight
+        return isShrunk ? (cross + 1) / 2 : cross
+    }
+
+    /// Where the image stops growing: `maxLength`, or less if holding that much
+    /// at this width would pass the memory ceiling.
+    var effectiveLimit: Int {
+        ScrollLengthLimit.effectiveLimit(limit: maxLength, crossSize: outputCrossSize)
+    }
+
     /// How long the image would be after `movement` more pixels of the frames.
     func lengthAfterAdding(_ movement: Int) -> Int {
         isShrunk ? (fullLength + movement) / 2 : fullLength + movement
@@ -552,8 +565,9 @@ nonisolated struct ImageAssembler: Sendable {
         let height = axis == .vertical ? totalLength : first.frame.height
         let along = axis == .vertical ? height : width
         let crossSize = axis == .vertical ? width : height
-        let pixelLimit = maxPixels ?? maxLength * crossSize
-        guard width > 0, height > 0, along <= maxLength,
+        let limit = ScrollLengthLimit.effectiveLimit(limit: maxLength, crossSize: crossSize)
+        let pixelLimit = maxPixels ?? limit * crossSize
+        guard width > 0, height > 0, along <= limit,
               width * height <= pixelLimit else { throw FrameMatchError.outputLimitExceeded }
         // Bands go straight into the one output buffer: no intermediate copy.
         guard let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,

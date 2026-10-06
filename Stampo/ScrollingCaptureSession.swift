@@ -449,8 +449,11 @@ final class ScrollingCaptureSession {
     /// resolution — once — and has room for as much again; otherwise there is
     /// none, and the capture saves what it has.
     private func makeRoom(for movement: Int) -> Bool {
+        // The limit chosen, or less if the image would pass the memory ceiling
+        // at this width — which is read again after a shrink, when it is half
+        // as wide.
         switch ScrollLengthLimit.action(lengthAfterAdding: assembler.lengthAfterAdding(movement),
-                                        limit: lengthLimit, shrinkToFit: shrinkToFit,
+                                        limit: assembler.effectiveLimit, shrinkToFit: shrinkToFit,
                                         frameScale: scale, alreadyShrunk: assembler.isShrunk) {
         case .fits: return true
         case .stop: return false
@@ -458,7 +461,7 @@ final class ScrollingCaptureSession {
             let at = assembler.totalLength
             assembler.shrinkToHalf()
             Log.capture.info("scroll shrink to 1x at \(at, privacy: .public) px")
-            return assembler.lengthAfterAdding(movement) <= lengthLimit
+            return assembler.lengthAfterAdding(movement) <= assembler.effectiveLimit
         }
     }
 

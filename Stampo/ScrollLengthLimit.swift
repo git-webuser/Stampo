@@ -10,6 +10,21 @@ nonisolated enum ScrollLengthLimit {
     static let options = [10_000, 20_000, 40_000]
     static let `default` = 20_000
 
+    /// The most pixels the assembled image may hold, whatever the length chosen:
+    /// 120 M is about half a gigabyte of RGBA, and the image is held whole while
+    /// it is written. The longest it can be is this over its width — so a wide
+    /// window reaches its limit sooner than a narrow one.
+    static let maxOutputPixels = 120_000_000
+
+    /// The length at which a capture actually stops: the one chosen, or what the
+    /// memory ceiling allows at this width if that is less. `crossSize` is the
+    /// image's other side in its own pixels — half the window's after a shrink,
+    /// which is how the shrink makes room twice over.
+    static func effectiveLimit(limit: Int, crossSize: Int) -> Int {
+        guard crossSize > 0 else { return limit }
+        return min(limit, maxOutputPixels / crossSize)
+    }
+
     /// A stored value that is not one of the options (a hand-edited default, a
     /// later version's) reads as the default rather than as an unbounded image.
     static func validated(_ stored: Int?) -> Int {
