@@ -55,6 +55,9 @@ final class ScrollingCaptureSession {
     private var assembler: ImageAssembler
     private var previous: CaptureFrame?
     private var zeroMotionCount = 0
+    /// Whether, in the run of failed steps now going, there were tiles changing
+    /// by themselves: what the pause then says is the reason.
+    private var changingTilesSeen = false
     private var consecutiveFailures = 0
     private let startedAt = Date()
 
@@ -364,6 +367,7 @@ final class ScrollingCaptureSession {
                     predictedInARow = 0
                     requestedStep = max(24, Int(Double(axisLength(of: next)) * 0.60))
                     consecutiveFailures = 0
+                    changingTilesSeen = false
                 } catch is CancellationError {
                     throw CancellationError()
                 } catch FrameMatchError.noReliableMotion where looksStationary {
@@ -421,8 +425,20 @@ final class ScrollingCaptureSession {
                             predictedInARow += 1
                             requestedStep = max(24, Int(Double(axisLength(of: next)) * 0.60))
                             consecutiveFailures = 0
+                            changingTilesSeen = false
                             continue
                         }
+                    }
+                    if undecided, !looksStationary {
+                        // Was it something changing on its own? Looked at once,
+                        // and only now that the step has failed.
+                        let axis = self.axis
+                        let limit = motionLimit + unmatchedScroll + 32
+                        let changing = await Task.detached(priority: .userInitiated) {
+                            FrameMatcher.changingTileCount(previous: oldFrame, current: next, axis: axis,
+                                                           maximumOffset: limit)
+                        }.value
+                        if changing >= 2 { changingTilesSeen = true }
                     }
                     consecutiveFailures += 1
                     if consecutiveFailures <= 2 {
@@ -431,7 +447,7 @@ final class ScrollingCaptureSession {
                         requestedStep = max(12, currentStep / 2)
                         unmatchedScroll += motionLimit
                     } else {
-                        pause(reason: .framesNotAligned)
+                        pause(reason: .forFailedMatches(changingTilesSeen: changingTilesSeen))
                         return
                     }
                 }
@@ -446,7 +462,14 @@ final class ScrollingCaptureSession {
                     cancel()
                     return
                 }
-                pause(reason: localizedMessage(for: error))
+                // The scroll container the capture began on is no longer the one
+                // under the pointer. Mid-capture that is a short line; before
+                // the first frame, the alert has the longer advice.
+                if case ScrollDriverError.scrollAreaUnavailable = error {
+                    pause(reason: .scrollAreaChanged)
+                } else {
+                    pause(reason: localizedMessage(for: error))
+                }
             }
         }
     }
@@ -667,8 +690,7 @@ final class ScrollingCaptureSession {
         let key: String
         switch matchError {
         case .noReliableMotion: key = "The area doesn't scroll. Click inside the page or table and start again."
-        case .ambiguousMotion: key = "The content is too uniform to align. The capture stopped to avoid a broken image."
-        case .crossAxisMotion: key = "The content moved sideways. Don't move the window during the capture."
+        case .ambiguousMotion, .crossAxisMotion: key = ScrollPauseReason.framesNotAligned.key
         case .outputLimitExceeded: key = "The scrolling image reached the configured size limit."
         }
         return LocaleManager.shared.string(key)

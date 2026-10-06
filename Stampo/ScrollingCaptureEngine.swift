@@ -94,8 +94,8 @@ nonisolated enum FrameMatchError: Error, Equatable, LocalizedError {
     var errorDescription: String? {
         switch self {
         case .noReliableMotion: return "The area doesn't scroll. Click inside the page or table and start again."
-        case .ambiguousMotion: return "The content is too uniform to align. The capture stopped to avoid a broken image."
-        case .crossAxisMotion: return "The content moved sideways. Don't move the window during the capture."
+        case .ambiguousMotion: return "Frames couldn't be aligned."
+        case .crossAxisMotion: return "Frames couldn't be aligned."
         case .outputLimitExceeded: return "The scrolling image reached the configured size limit."
         }
     }
@@ -227,6 +227,29 @@ nonisolated enum FrameMatcher {
         let confidence = min(1, (1 - agg[best]) * 0.55 + margin * 0.45)
         guard confidence >= minimumConfidence else { throw FrameMatchError.ambiguousMotion }
         return FrameMatch(offset: best, confidence: confidence, independentRegions: agreeing)
+    }
+
+    /// How many tiles fit no offset at all: they change by themselves, a video
+    /// or an animation, whatever the scroll did. Two or more mean the frames
+    /// are not lining up because something on the page is moving of its own
+    /// accord — worth telling the user, who can pause it. Run when a step has
+    /// already failed, not for every one.
+    ///
+    /// Only tiles that can be scored at every offset up to the limit are looked
+    /// at. A tile lower in the frame has nothing to compare at a large offset —
+    /// the page it would be compared with has scrolled out — and what is left to
+    /// it is the small offsets, where it does not line up because the page
+    /// moved, not because it changes.
+    static func changingTileCount(previous: CaptureFrame, current: CaptureFrame, axis: ScrollAxis,
+                                  maximumOffset: Int) -> Int {
+        guard previous.width == current.width, previous.height == current.height else { return 0 }
+        let axisLength = axis == .vertical ? previous.height : previous.width
+        let limit = min(maximumOffset, max(0, axisLength * 3 / 4))
+        guard limit >= 2 else { return 0 }
+        return tileCurves(previous: previous, current: current, axis: axis, limit: limit).cost.filter { curve in
+            guard curve[limit].isFinite, let lowest = curve.min() else { return false }
+            return lowest > fitThreshold
+        }.count
     }
 
     /// Tiles the sample grid is cut into, along each axis of the frame.

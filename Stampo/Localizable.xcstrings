@@ -8780,38 +8780,6 @@
         }
       }
     },
-    "The content is too uniform to align. The capture stopped to avoid a broken image." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The content is too uniform to align. The capture stopped to avoid a broken image."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Содержимое слишком однообразное, кадры не совместить. Снимок остановлен, чтобы не склеить его с ошибкой."
-          }
-        }
-      }
-    },
-    "The content moved sideways. Don't move the window during the capture." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The content moved sideways. Don't move the window during the capture."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Содержимое сдвинулось вбок. Не двигайте окно во время снимка."
-          }
-        }
-      }
-    },
     "The display scale changed." : {
       "localizations" : {
         "en" : {
@@ -8824,6 +8792,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Масштаб экрана изменился."
+          }
+        }
+      }
+    },
+    "The scroll area under the pointer changed" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The scroll area under the pointer changed"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Под курсором сменилась область прокрутки"
           }
         }
       }

@@ -801,8 +801,7 @@ import Testing
             "Frames couldn't be aligned.",
             "The area doesn't scroll. Click inside the page or table and start again.",
             "There's no scrollable area at that point. Click inside the page or table and try again.",
-            "The content is too uniform to align. The capture stopped to avoid a broken image.",
-            "The content moved sideways. Don't move the window during the capture.",
+            "The scroll area under the pointer changed",
             "macOS couldn't scroll the window.",
         ]
         for key in keys {
@@ -1560,6 +1559,37 @@ import Testing
         #expect(same == nil)
         #expect(ScrollingCaptureSession.movingContentRect(before: end, after: end, axis: .vertical) == nil)
         #expect(ScrollEndCheck.verdict(matchedOffset: same, pixelsPerLine: Double(line), contentMoved: false) == .pinned)
+    }
+
+    /// A step that cannot be placed because something on the page changes by
+    /// itself says so, and the pause then names it; a page that is merely hard
+    /// to align does not.
+    @Test func changingTilesAreCountedWhereAVideoPlaysAndNotOnAPlainPage() {
+        let height = videoFrameHeight, step = videoStep
+        // A video over the middle of both frames, different in each.
+        let rows = 0..<520, columns = 64..<256
+        let before = videoPage(height: height, offset: 97, videoSeed: 1, videoColumns: columns, videoRows: rows)
+        let after = videoPage(height: height, offset: 97 + step, videoSeed: 2, videoColumns: columns, videoRows: rows)
+        #expect(FrameMatcher.changingTileCount(previous: before, current: after, axis: .vertical,
+                                               maximumOffset: height * 3 / 4) >= 2)
+        // The same page with the video frozen: nothing changes by itself.
+        let frozen = videoPage(height: height, offset: 97 + step, videoSeed: 1, videoColumns: columns, videoRows: rows)
+        #expect(FrameMatcher.changingTileCount(previous: before, current: frozen, axis: .vertical,
+                                               maximumOffset: height * 3 / 4) == 0)
+        // Text alone, scrolled.
+        let plainBefore = videoPage(height: height, offset: 97, videoSeed: 1)
+        let plainAfter = videoPage(height: height, offset: 97 + step, videoSeed: 1)
+        #expect(FrameMatcher.changingTileCount(previous: plainBefore, current: plainAfter, axis: .vertical,
+                                               maximumOffset: height * 3 / 4) == 0)
+    }
+
+    @Test func aPauseNamesWhatGotInTheWayOnlyWhenSomethingWasChanging() {
+        #expect(ScrollPauseReason.forFailedMatches(changingTilesSeen: true) == .videoInTheWay)
+        #expect(ScrollPauseReason.forFailedMatches(changingTilesSeen: false) == .framesNotAligned)
+        // The two refusals that used to carry a text of their own — never shown,
+        // since every match is inside a catch — say what a pause says.
+        #expect(FrameMatchError.ambiguousMotion.errorDescription == ScrollPauseReason.framesNotAligned.key)
+        #expect(FrameMatchError.crossAxisMotion.errorDescription == ScrollPauseReason.framesNotAligned.key)
     }
 
     @Test func theStripShowsARingWhileWorkingAndSavingAndAWarningWhenPaused() {
