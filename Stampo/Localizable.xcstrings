@@ -8350,6 +8350,22 @@
         }
       }
     },
+    "Stopped: you scrolled or pressed something" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stopped: you scrolled or pressed something"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Остановлено: вы прокрутили или нажали"
+          }
+        }
+      }
+    },
     "Strength" : {
       "comment" : "Decor inspector — how strongly an effect is felt",
       "extractionState" : "stale",

@@ -46,6 +46,9 @@ final class ScrollingCaptureSession {
     private let ignoredWindows: @MainActor () -> Set<CGWindowID>
     private let source = WindowFrameSource()
     private var escapeToken: UUID?
+    /// Watches for the user's own input while the capture scrolls by itself —
+    /// not during a countdown, and not once it has paused.
+    private var inputMonitor: ScrollInputMonitor?
     private var task: Task<Void, Never>?
     private var stopped = false
     private var diagnosticStage: DiagnosticStage = .raiseWindow
@@ -147,7 +150,35 @@ final class ScrollingCaptureSession {
         onCancelled?()
     }
 
+    private func startInputGuard() {
+        guard inputMonitor == nil else { return }
+        let monitor = ScrollInputMonitor(
+            windowBounds: { [weak self] in
+                guard let self else { return .zero }
+                return ScrollDriver.currentWindowBounds(self.selection.windowID) ?? self.selection.bounds
+            },
+            overOwnUI: { [weak self] point in self?.ownUICovers(point) ?? false },
+            onUserInput: { [weak self] in self?.userInterrupted() })
+        monitor.start()
+        inputMonitor = monitor
+    }
+
+    private func stopInputGuard() {
+        inputMonitor?.stop()
+        inputMonitor = nil
+    }
+
+    /// The user touched something while the capture scrolled. Stop at once — the
+    /// step in flight is not to be trusted — and wait: Save keeps what is
+    /// collected, ✕ drops it.
+    private func userInterrupted() {
+        guard !stopped, inputMonitor != nil else { return }
+        task?.cancel()
+        pause(reason: .userInput)
+    }
+
     private func cleanup() {
+        stopInputGuard()
         if let escapeToken { TransientHotkeyCenter.escape.remove(escapeToken) }
         escapeToken = nil
         task = nil
@@ -216,6 +247,10 @@ final class ScrollingCaptureSession {
             }
             try ensureActive()
             try checkWindowAndFocus()
+
+            // From here the capture scrolls on its own, and a hand on the page
+            // is the one thing that spoils it.
+            startInputGuard()
 
             var settled: (axis: ScrollAxis, viewport: ScrollViewport, outcome: ProbeOutcome,
                           step: Int, lines: Int32, motionLimit: Int)?
@@ -554,6 +589,8 @@ final class ScrollingCaptureSession {
     /// A failure with part of the image already collected: the capture stops
     /// and waits for the user — Done saves what there is, ✕ drops it.
     private func pause(reason: String) {
+        // Paused is not scrolling: nothing here is to be taken for the user's.
+        stopInputGuard()
         previous = nil
         onStatus?(.paused(reason: reason))
     }

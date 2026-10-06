@@ -302,15 +302,24 @@ enum ScrollDriver {
     /// One wheel event of `lines` lines. How far that moves the page is the
     /// app's own business — `ScrollStepPlanner` works it out from a probe.
     static func sendScroll(axis: ScrollAxis, lines: Int32, backwards: Bool = false, at point: CGPoint) throws {
+        guard let event = scrollEvent(axis: axis, lines: lines, backwards: backwards, at: point)
+        else { throw ScrollDriverError.eventUnavailable }
+        event.post(tap: .cghidEventTap)
+    }
+
+    /// The wheel event for `sendScroll`, marked as the capture's own so that
+    /// the guard against the user's input can tell it from theirs.
+    static func scrollEvent(axis: ScrollAxis, lines: Int32, backwards: Bool = false, at point: CGPoint) -> CGEvent? {
         // Positive wheel counts scroll up and left, so forward is negative.
         let signed = backwards ? lines : -lines
         guard lines > 0,
               let event = CGEvent(scrollWheelEvent2Source: nil, units: .line, wheelCount: 2,
                                   wheel1: axis == .vertical ? signed : 0,
                                   wheel2: axis == .horizontal ? signed : 0, wheel3: 0)
-        else { throw ScrollDriverError.eventUnavailable }
+        else { return nil }
         event.location = point
-        event.post(tap: .cghidEventTap)
+        event.setIntegerValueField(.eventSourceUserData, value: ScrollInputGuard.syntheticMarker)
+        return event
     }
 
     /// Quartz wheel events use small signed counts. The session reasons in

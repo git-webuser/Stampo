@@ -14,6 +14,9 @@ nonisolated enum ScrollPauseReason: Equatable, Sendable {
     /// What is under the pointer is no longer the area the capture began on —
     /// the scroll container the click found was replaced as the page changed.
     case scrollAreaChanged
+    /// The user scrolled, pressed a button or a key, or took the pointer off the
+    /// window while the capture was scrolling by itself.
+    case userInput
 
     /// The localization key — the English text.
     var key: String {
@@ -22,6 +25,7 @@ nonisolated enum ScrollPauseReason: Equatable, Sendable {
         case .videoInTheWay:    return "A video or animation is in the way"
         case .partDoesNotScroll: return "This part of the page doesn't scroll"
         case .scrollAreaChanged: return "The scroll area under the pointer changed"
+        case .userInput:         return "Stopped: you scrolled or pressed something"
         }
     }
 

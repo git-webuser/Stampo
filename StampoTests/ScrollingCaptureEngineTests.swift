@@ -802,6 +802,7 @@ import Testing
             "The area doesn't scroll. Click inside the page or table and start again.",
             "There's no scrollable area at that point. Click inside the page or table and try again.",
             "The scroll area under the pointer changed",
+            "Stopped: you scrolled or pressed something",
             "macOS couldn't scroll the window.",
         ]
         for key in keys {
@@ -1590,6 +1591,61 @@ import Testing
         // since every match is inside a catch — say what a pause says.
         #expect(FrameMatchError.ambiguousMotion.errorDescription == ScrollPauseReason.framesNotAligned.key)
         #expect(FrameMatchError.crossAxisMotion.errorDescription == ScrollPauseReason.framesNotAligned.key)
+    }
+
+    /// Who touched the page. The capture's own wheel events reach a global
+    /// monitor like any other and are told by the mark they carry; everything
+    /// else that moves the page, or could, is the user taking over.
+    @Test func inputThatIsNotTheCapturesOwnStopsIt() {
+        let window = CGRect(x: 100, y: 100, width: 800, height: 600)
+        let inside = CGPoint(x: 400, y: 300), outside = CGPoint(x: 1200, y: 300)
+        let marker = ScrollInputGuard.syntheticMarker
+        func input(_ kind: ScrollInputGuard.Kind, data: Int64 = 0, at pointer: CGPoint = CGPoint(x: 400, y: 300),
+                   overUI: Bool = false) -> Bool {
+            ScrollInputGuard.isUserInput(kind, userData: data, pointer: pointer, window: window, overOwnUI: overUI)
+        }
+        // A wheel event: the capture's own is marked, the user's is not.
+        #expect(!input(.scrollWheel, data: marker))
+        #expect(input(.scrollWheel, data: 0))
+        #expect(input(.scrollWheel, data: marker + 1))
+        // Buttons and keys.
+        #expect(input(.mouseDown))
+        #expect(input(.key(isEscape: false)))
+        #expect(!input(.key(isEscape: true)))
+        // The pointer: free inside the window, and over the strip; not elsewhere.
+        #expect(!input(.pointerMoved, at: inside))
+        #expect(input(.pointerMoved, at: outside))
+        #expect(!input(.pointerMoved, at: outside, overUI: true))
+        // The edge of the window is in it.
+        #expect(!input(.pointerMoved, at: CGPoint(x: 100, y: 100)))
+    }
+
+    /// The capture's wheel event is built whole and marked, so what the guard
+    /// recognises is what is sent: forward is negative, back positive, on the
+    /// axis asked for, at the point asked for.
+    @Test func theCapturesOwnScrollEventCarriesTheMarkAndTheDirection() throws {
+        let point = CGPoint(x: 321, y: 123)
+        let down = try #require(ScrollDriver.scrollEvent(axis: .vertical, lines: 3, at: point))
+        #expect(down.getIntegerValueField(.eventSourceUserData) == ScrollInputGuard.syntheticMarker)
+        #expect(down.location == point)
+        #expect(down.getIntegerValueField(.scrollWheelEventDeltaAxis1) == -3)
+        #expect(down.getIntegerValueField(.scrollWheelEventDeltaAxis2) == 0)
+        let back = try #require(ScrollDriver.scrollEvent(axis: .vertical, lines: 1, backwards: true, at: point))
+        #expect(back.getIntegerValueField(.scrollWheelEventDeltaAxis1) == 1)
+        let right = try #require(ScrollDriver.scrollEvent(axis: .horizontal, lines: 2, at: point))
+        #expect(right.getIntegerValueField(.scrollWheelEventDeltaAxis2) == -2)
+        #expect(right.getIntegerValueField(.scrollWheelEventDeltaAxis1) == 0)
+        #expect(ScrollDriver.scrollEvent(axis: .vertical, lines: 0, at: point) == nil)
+        // A hand that scrolls carries no such mark.
+        let plain = try #require(CGEvent(scrollWheelEvent2Source: nil, units: .line, wheelCount: 1,
+                                         wheel1: -3, wheel2: 0, wheel3: 0))
+        #expect(plain.getIntegerValueField(.eventSourceUserData) != ScrollInputGuard.syntheticMarker)
+    }
+
+    @Test func theMonitorsPointerIsInTheWindowListsSpace() {
+        // The top of the primary display is y 0 in the window list, its bottom y = height.
+        #expect(ScrollInputGuard.quartzPoint(fromAppKit: NSPoint(x: 5, y: 832), primaryHeight: 832) == CGPoint(x: 5, y: 0))
+        #expect(ScrollInputGuard.quartzPoint(fromAppKit: NSPoint(x: 5, y: 0), primaryHeight: 832) == CGPoint(x: 5, y: 832))
     }
 
     @Test func theStripShowsARingWhileWorkingAndSavingAndAWarningWhenPaused() {
