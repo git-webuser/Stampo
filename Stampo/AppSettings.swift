@@ -54,6 +54,11 @@ enum AppSettings {
         /// Which way the Scrolling mode goes — shared by the picker's ⇥ and
         /// the panel, so there is one answer to "which way?".
         static let scrollDirection = "scrollDirection"
+        /// How long a scrolling capture may grow, in pixels — one of
+        /// `ScrollLengthLimit.options` — and whether it drops to 1x at the
+        /// limit and carries on instead of stopping there.
+        static let scrollLengthLimit = "scrollLengthLimit"
+        static let scrollShrinkToFit = "scrollShrinkToFit"
         static let defaultCaptureMode    = "defaultCaptureMode"
         static let defaultTimerDelay     = "defaultTimerDelay"
         // Permissions
@@ -336,6 +341,14 @@ enum AppSettings {
                 .flatMap(ScrollDirection.init(rawValue:)) ?? .down
         }
         set { store.set(newValue.rawValue, forKey: Keys.scrollDirection) }
+    }
+    static var scrollLengthLimit: Int {
+        get { ScrollLengthLimit.validated(store.object(forKey: Keys.scrollLengthLimit) as? Int) }
+        set { store.set(ScrollLengthLimit.validated(newValue), forKey: Keys.scrollLengthLimit) }
+    }
+    static var scrollShrinkToFit: Bool {
+        get { store.object(forKey: Keys.scrollShrinkToFit) as? Bool ?? false }
+        set { store.set(newValue, forKey: Keys.scrollShrinkToFit) }
     }
     static var scrollAccessibilityPrompted: Bool {
         get { store.bool(forKey: Keys.scrollAccessibilityPrompted) }

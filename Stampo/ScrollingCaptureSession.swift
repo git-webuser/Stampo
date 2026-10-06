@@ -33,6 +33,10 @@ final class ScrollingCaptureSession {
     /// may scroll the other.
     private var axis: ScrollAxis
     private let excludeScrollbars: Bool
+    /// Where the capture stops and saves, in pixels along the scroll, and
+    /// whether it drops to 1x there and goes on instead (see `makeRoom`).
+    private let lengthLimit: Int
+    private let shrinkToFit: Bool
     private let activateSelectedWindow: @MainActor (WindowPickerSelection) throws -> Void
     /// Whether Stampo's own visible UI (the notch panel) is over a Quartz
     /// point. Own windows are not in the frontmost-window check.
@@ -56,18 +60,22 @@ final class ScrollingCaptureSession {
 
     init(selection: WindowPickerSelection, axis: ScrollAxis,
          excludeScrollbars: Bool = true,
+         lengthLimit: Int = ScrollLengthLimit.default,
+         shrinkToFit: Bool = false,
          activateSelectedWindow: (@MainActor (WindowPickerSelection) throws -> Void)? = nil,
          ownUICovers: @escaping @MainActor (CGPoint) -> Bool = { _ in false },
          ignoredWindows: @escaping @MainActor () -> Set<CGWindowID> = { [] }) {
         self.selection = selection
         self.axis = axis
         self.excludeScrollbars = excludeScrollbars
+        self.lengthLimit = lengthLimit
+        self.shrinkToFit = shrinkToFit
         self.activateSelectedWindow = activateSelectedWindow ?? { selected in
             try ScrollDriver.raiseSelectedWindow(selected, ignoring: ignoredWindows())
         }
         self.ownUICovers = ownUICovers
         self.ignoredWindows = ignoredWindows
-        self.assembler = ImageAssembler(axis: axis)
+        self.assembler = ImageAssembler(axis: axis, maxLength: lengthLimit)
     }
 
     func start() {
@@ -240,7 +248,7 @@ final class ScrollingCaptureSession {
             }
             guard let settled else { throw ScrollDriverError.noMovingContent }
             axis = settled.axis
-            assembler = ImageAssembler(axis: axis)
+            assembler = ImageAssembler(axis: axis, maxLength: lengthLimit)
             let (first, probe) = (settled.outcome.first, settled.outcome.probe)
             let probeStep = settled.step
             let probeLines = settled.lines
@@ -290,8 +298,7 @@ final class ScrollingCaptureSession {
                     finish()
                     return
                 }
-                guard assembler.totalLength < ImageAssembler.maxOutputLength,
-                      (axis == .vertical ? first.width : first.height) * assembler.totalLength < ImageAssembler.maxOutputPixels else {
+                guard makeRoom(for: 1) else {
                     finish()
                     return
                 }
@@ -329,10 +336,7 @@ final class ScrollingCaptureSession {
                         }.value
                     }
                     try ensureActive()
-                    let combinedLength = assembler.totalLength + match.offset
-                    let crossLength = axis == .vertical ? next.width : next.height
-                    guard combinedLength <= ImageAssembler.maxOutputLength,
-                          crossLength * combinedLength <= ImageAssembler.maxOutputPixels else {
+                    guard makeRoom(for: match.offset) else {
                         finish()
                         return
                     }
@@ -398,10 +402,7 @@ final class ScrollingCaptureSession {
                         if let verdict,
                            verdict.consistent >= ScrollStepPlanner.tilesRequiredToAgree(
                                linearityConfirmed: linearityConfirmed) {
-                            let combinedLength = assembler.totalLength + predicted
-                            let crossLength = axis == .vertical ? next.width : next.height
-                            guard combinedLength <= ImageAssembler.maxOutputLength,
-                                  crossLength * combinedLength <= ImageAssembler.maxOutputPixels else {
+                            guard makeRoom(for: predicted) else {
                                 finish()
                                 return
                             }
@@ -440,6 +441,24 @@ final class ScrollingCaptureSession {
                 }
                 pause(reason: localizedMessage(for: error))
             }
+        }
+    }
+
+    /// Whether `movement` more pixels fit under the limit. At the limit, with
+    /// shrink-to-fit on and the frames at more than 1x, the image drops to half
+    /// resolution — once — and has room for as much again; otherwise there is
+    /// none, and the capture saves what it has.
+    private func makeRoom(for movement: Int) -> Bool {
+        switch ScrollLengthLimit.action(lengthAfterAdding: assembler.lengthAfterAdding(movement),
+                                        limit: lengthLimit, shrinkToFit: shrinkToFit,
+                                        frameScale: scale, alreadyShrunk: assembler.isShrunk) {
+        case .fits: return true
+        case .stop: return false
+        case .shrink:
+            let at = assembler.totalLength
+            assembler.shrinkToHalf()
+            Log.capture.info("scroll shrink to 1x at \(at, privacy: .public) px")
+            return assembler.lengthAfterAdding(movement) <= lengthLimit
         }
     }
 

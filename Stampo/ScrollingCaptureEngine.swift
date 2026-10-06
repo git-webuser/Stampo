@@ -421,23 +421,45 @@ nonisolated enum FrameMatcher {
 }
 
 nonisolated struct CaptureStrip: Sendable {
+    /// The band, at the resolution of the image being assembled.
     let frame: CaptureFrame
+    /// Where it begins along the image, in that resolution's pixels.
     let start: Int
 }
 
 /// Keeps independent bands until the one final allocation, avoiding repeated
 /// reallocation and copy of an ever-growing bitmap at every scroll step.
+///
+/// It can drop the whole image to half resolution once (`shrinkToHalf`), which
+/// is how a capture that has reached its limit can go on: the bands collected
+/// are halved and every later one is halved before it is added. Movements are
+/// kept in the pixels of the frames (`fullLength`) and a band is laid at half
+/// of where it began, rounded down, so the halves tile exactly — rounding each
+/// band's own length instead would add its error up over fifty of them.
 nonisolated struct ImageAssembler: Sendable {
-    /// The stitched image stops growing at either limit (60 M pixels is
-    /// about 240 MB of RGBA).
-    static let maxOutputPixels = 60_000_000
-    static let maxOutputLength = 20_000
-
     let axis: ScrollAxis
+    /// The longest the image may be along the scroll, in its own pixels. The
+    /// most it may hold follows: this many by the frame's other side.
+    let maxLength: Int
     private(set) var strips: [CaptureStrip] = []
+    /// Length of the image so far, in its own pixels — half of `fullLength`
+    /// once shrunk. This is what the limit is compared with.
     private(set) var totalLength = 0
+    /// What the movements add up to, in the pixels of the frames.
+    private(set) var fullLength = 0
+    private(set) var isShrunk = false
     private(set) var viewportWidth = 0
     private(set) var viewportHeight = 0
+
+    init(axis: ScrollAxis, maxLength: Int = ScrollLengthLimit.default) {
+        self.axis = axis
+        self.maxLength = maxLength
+    }
+
+    /// How long the image would be after `movement` more pixels of the frames.
+    func lengthAfterAdding(_ movement: Int) -> Int {
+        isShrunk ? (fullLength + movement) / 2 : fullLength + movement
+    }
 
     mutating func begin(with frame: CaptureFrame) {
         guard strips.isEmpty else { return }
@@ -446,6 +468,7 @@ nonisolated struct ImageAssembler: Sendable {
         let length = axis == .vertical ? frame.height : frame.width
         strips.append(CaptureStrip(frame: frame, start: 0))
         totalLength = length
+        fullLength = length
     }
 
     mutating func append(_ frame: CaptureFrame, movement: Int) throws {
@@ -458,23 +481,80 @@ nonisolated struct ImageAssembler: Sendable {
             ? frame.cropped(to: CGRect(x: 0, y: frame.height - movement, width: frame.width, height: movement))
             : frame.cropped(to: CGRect(x: frame.width - movement, y: 0, width: movement, height: frame.height))
         guard let band else { throw FrameMatchError.noReliableMotion }
-        strips.append(CaptureStrip(frame: band, start: totalLength))
-        totalLength += movement
+        if isShrunk {
+            let start = fullLength / 2, end = (fullLength + movement) / 2
+            // A band under two pixels long can round away to nothing; the one
+            // after it begins where this one would have.
+            if end > start, let halved = Self.halved(band, axis: axis, length: end - start) {
+                strips.append(CaptureStrip(frame: halved, start: start))
+            }
+            fullLength += movement
+            totalLength = fullLength / 2
+        } else {
+            strips.append(CaptureStrip(frame: band, start: totalLength))
+            totalLength += movement
+            fullLength += movement
+        }
+    }
+
+    /// Halves what is collected, once. Every band goes to half its size on
+    /// both sides; those added from now on are halved as they come. No-op when
+    /// already halved.
+    mutating func shrinkToHalf() {
+        guard !isShrunk, !strips.isEmpty else { return }
+        var halved: [CaptureStrip] = []
+        for strip in strips {
+            let size = axis == .vertical ? strip.frame.height : strip.frame.width
+            let start = strip.start / 2, end = (strip.start + size) / 2
+            guard end > start, let frame = Self.halved(strip.frame, axis: axis, length: end - start) else { continue }
+            halved.append(CaptureStrip(frame: frame, start: start))
+        }
+        strips = halved
+        isShrunk = true
+        totalLength = fullLength / 2
+    }
+
+    /// `frame` at half its size across the scroll and `length` pixels along it.
+    private static func halved(_ frame: CaptureFrame, axis: ScrollAxis, length: Int) -> CaptureFrame? {
+        let width = axis == .vertical ? (frame.width + 1) / 2 : length
+        let height = axis == .vertical ? length : (frame.height + 1) / 2
+        guard width > 0, height > 0,
+              let provider = CGDataProvider(data: Data(frame.pixels) as CFData),
+              let source = CGImage(width: frame.width, height: frame.height, bitsPerComponent: 8,
+                                   bitsPerPixel: 32, bytesPerRow: frame.width * 4, space: frame.colorSpace,
+                                   bitmapInfo: CGBitmapInfo(rawValue: CaptureFrame.bitmapInfo),
+                                   provider: provider, decode: nil, shouldInterpolate: true,
+                                   intent: .defaultIntent),
+              let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
+                                      bytesPerRow: width * 4, space: frame.colorSpace,
+                                      bitmapInfo: CaptureFrame.bitmapInfo),
+              let data = context.data
+        else { return nil }
+        context.interpolationQuality = .high
+        context.draw(source, in: CGRect(x: 0, y: 0, width: width, height: height))
+        let bytes = [UInt8](UnsafeBufferPointer(start: data.assumingMemoryBound(to: UInt8.self),
+                                                count: context.bytesPerRow * height))
+        return CaptureFrame(width: width, height: height, pixels: bytes, colorSpace: frame.colorSpace)
     }
 
     mutating func reset() {
         strips.removeAll(keepingCapacity: false)
         totalLength = 0
+        fullLength = 0
+        isShrunk = false
         viewportWidth = 0
         viewportHeight = 0
     }
 
-    func makeImage(maxPixels: Int = ImageAssembler.maxOutputPixels) throws -> CGImage {
+    func makeImage(maxPixels: Int? = nil) throws -> CGImage {
         guard let first = strips.first else { throw FrameMatchError.noReliableMotion }
         let width = axis == .vertical ? first.frame.width : totalLength
         let height = axis == .vertical ? totalLength : first.frame.height
-        guard width > 0, height > 0, width <= Self.maxOutputLength, height <= Self.maxOutputLength,
-              width * height <= maxPixels else { throw FrameMatchError.outputLimitExceeded }
+        let along = axis == .vertical ? height : width
+        let crossSize = axis == .vertical ? width : height
+        let pixelLimit = maxPixels ?? maxLength * crossSize
+        guard width > 0, height > 0, along <= maxLength,
+              width * height <= pixelLimit else { throw FrameMatchError.outputLimitExceeded }
         // Bands go straight into the one output buffer: no intermediate copy.
         guard let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
                                       bytesPerRow: width * 4, space: first.frame.colorSpace,

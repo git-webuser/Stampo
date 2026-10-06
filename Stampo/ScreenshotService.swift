@@ -78,6 +78,8 @@ final class ScreenshotService {
         captureInProgress = true
         let session = ScrollingCaptureSession(selection: selection, axis: axis,
                                               excludeScrollbars: AppSettings.excludeScrollbars,
+                                              lengthLimit: AppSettings.scrollLengthLimit,
+                                              shrinkToFit: AppSettings.scrollShrinkToFit,
                                               ownUICovers: { [weak self] point in
                                                   self?.scrollingOwnUICovers?(point) ?? false
                                               },

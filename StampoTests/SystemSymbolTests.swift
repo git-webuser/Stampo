@@ -24,6 +24,11 @@ import Testing
         assertSymbols(ScrollDirection.allCases.map(\.icon) + [HotkeyAction.scroll.icon])
     }
 
+    /// The Scrolling Screenshot settings rows: the length limit and the shrink.
+    @Test func scrollingSettingsSymbolsExist() {
+        assertSymbols(["scroll", "ruler", "arrow.down.right.and.arrow.up.left"])
+    }
+
     @Test func waitStripSymbolsExist() {
         assertSymbols([PanelWait.translating, .saving, .saved].map(\.systemImage))
     }

@@ -412,6 +412,58 @@
         }
       }
     },
+    "About %lld screens · %@ about %@" : {
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "About %lld screen · %@ about %@"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "About %lld screens · %@ about %@"
+                }
+              }
+            }
+          }
+        },
+        "ru" : {
+          "variations" : {
+            "plural" : {
+              "few" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "≈ %lld экрана · %@ ≈ %@"
+                }
+              },
+              "many" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "≈ %lld экранов · %@ ≈ %@"
+                }
+              },
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "≈ %lld экран · %@ ≈ %@"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "≈ %lld экрана · %@ ≈ %@"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "Add ⌘, ⌃ or ⌥ to the shortcut" : {
       "comment" : "Rejection: needs a strong modifier",
       "extractionState" : "stale",
@@ -870,6 +922,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Запрос к GitHub раз в день. Никакие другие данные не отправляются"
+          }
+        }
+      }
+    },
+    "At the limit the image drops to standard resolution (1x) and the capture continues — twice as much of the page fits." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "At the limit the image drops to standard resolution (1x) and the capture continues — twice as much of the page fits."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Дойдя до предела, снимок уменьшается до обычного разрешения (1x), и захват продолжается — помещается вдвое больше страницы."
           }
         }
       }
@@ -4437,6 +4505,22 @@
         }
       }
     },
+    "Length limit" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Length limit"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Предел длины"
+          }
+        }
+      }
+    },
     "Lens" : {
       "comment" : "Decor inspector — effect that bulges or pinches the middle of the background",
       "extractionState" : "stale",
@@ -4809,6 +4893,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Максимум элементов"
+          }
+        }
+      }
+    },
+    "MB" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "MB"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "МБ"
           }
         }
       }
@@ -7851,6 +7951,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Показать…"
+          }
+        }
+      }
+    },
+    "Shrink to fit" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Shrink to fit"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Уменьшать, если не помещается"
           }
         }
       }

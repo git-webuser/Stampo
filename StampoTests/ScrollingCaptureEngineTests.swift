@@ -889,6 +889,199 @@ import Testing
         #expect(ScrollDriver.maximumLikelyMovement(pixelStep: 540, backingScale: 1, viewportLength: 3000) == 6 * 90)
     }
 
+    // MARK: Length limit and shrink to fit
+
+    /// Smooth content, so that halving it band by band can be compared with
+    /// halving it whole.
+    private func smoothFrame(width: Int, height: Int, yOffset: Int) -> CaptureFrame {
+        var bytes = [UInt8](repeating: 255, count: width * height * 4)
+        for y in 0..<height {
+            for x in 0..<width {
+                let v = 128 + 100 * sin(Double(x) / 21) * cos(Double(y + yOffset) / 29)
+                let i = (y * width + x) * 4
+                bytes[i] = UInt8(v); bytes[i + 1] = UInt8(255 - v / 2); bytes[i + 2] = UInt8(v / 2 + 40); bytes[i + 3] = 255
+            }
+        }
+        return CaptureFrame(width: width, height: height, pixels: bytes)
+    }
+
+    /// A tall page assembled from frames of `height` rows, each `movements[k]`
+    /// further down than the one before.
+    private func assemble(movements: [Int], width: Int = 240, height: Int = 200,
+                          shrinkAfter: Int? = nil, content: (Int, Int, Int) -> CaptureFrame)
+        throws -> ImageAssembler {
+        var assembler = ImageAssembler(axis: .vertical, maxLength: 100_000)
+        assembler.begin(with: content(width, height, 0))
+        var offset = 0
+        for (index, movement) in movements.enumerated() {
+            if index == shrinkAfter { assembler.shrinkToHalf() }
+            offset += movement
+            try assembler.append(content(width, height, offset), movement: movement)
+        }
+        return assembler
+    }
+
+    @Test func shrinkingHalvesTheImageAndKeepsItWhole() throws {
+        let movements = [37, 11, 29, 17, 23, 13, 31, 19]
+        let whole = try assemble(movements: movements) { smoothFrame(width: $0, height: $1, yOffset: $2) }
+        let shrunkMidway = try assemble(movements: movements, shrinkAfter: 4) {
+            smoothFrame(width: $0, height: $1, yOffset: $2)
+        }
+        let full = 200 + movements.reduce(0, +)
+        #expect(whole.totalLength == full)
+        #expect(!whole.isShrunk)
+        #expect(shrunkMidway.isShrunk)
+        // Half the length, half the width — rounded down along, up across.
+        #expect(shrunkMidway.totalLength == full / 2)
+        let image = try shrunkMidway.makeImage()
+        #expect(image.width == 120)
+        #expect(image.height == full / 2)
+    }
+
+    /// Fifty bands of unequal, mostly odd heights. Rounding each band's own
+    /// length to half would leave a pixel here and gain one there and the error
+    /// would add up; laying each at half of where it began cannot.
+    @Test func shrinkingFiftyBandsLeavesNoGapAndNoDrift() throws {
+        let movements = (0..<50).map { 11 + ($0 * 7) % 27 }
+        let assembler = try assemble(movements: movements, shrinkAfter: 12) {
+            smoothFrame(width: 240, height: $1, yOffset: $2)
+        }
+        let full = 200 + movements.reduce(0, +)
+        #expect(assembler.fullLength == full)
+        #expect(assembler.totalLength == full / 2)
+        var expectedStart = 0
+        for strip in assembler.strips {
+            #expect(strip.start == expectedStart, "a gap or an overlap before the band at \(strip.start)")
+            expectedStart += strip.frame.height
+        }
+        #expect(expectedStart == assembler.totalLength)
+        #expect(try assembler.makeImage().height == full / 2)
+    }
+
+    @Test func theShrunkImageIsTheOriginalAtHalfSize() throws {
+        let movements = [37, 11, 29, 17, 23, 13, 31, 19, 27, 21]
+        let whole = try assemble(movements: movements) { smoothFrame(width: $0, height: $1, yOffset: $2) }
+        let shrunk = try assemble(movements: movements, shrinkAfter: 5) {
+            smoothFrame(width: $0, height: $1, yOffset: $2)
+        }
+        let original = try whole.makeImage()
+        let halved = try shrunk.makeImage()
+
+        // The original, halved in one go, to compare the band-by-band one with.
+        let space = try #require(original.colorSpace)
+        let context = try #require(CGContext(data: nil, width: halved.width, height: halved.height,
+                                             bitsPerComponent: 8, bytesPerRow: halved.width * 4,
+                                             space: space, bitmapInfo: CaptureFrame.bitmapInfo))
+        context.interpolationQuality = .high
+        context.draw(original, in: CGRect(x: 0, y: 0, width: halved.width, height: halved.height))
+        let referenceImage = try #require(context.makeImage())
+        let reference = try #require(CaptureFrame(image: referenceImage))
+        let result = try #require(CaptureFrame(image: halved))
+        #expect(reference.width == result.width && reference.height == result.height)
+
+        var difference = 0, samples = 0
+        for y in 0..<result.height {
+            for x in 0..<result.width {
+                for c in 0..<3 {
+                    difference += abs(Int(result[x, y, c]) - Int(reference[x, y, c])); samples += 1
+                }
+            }
+        }
+        // Not the same pixels — a band is filtered on its own — but the same picture.
+        #expect(Double(difference) / Double(samples) < 2.0)
+    }
+
+    @Test func shrinkingTwiceOrBeforeThereIsAnythingChangesNothing() throws {
+        var empty = ImageAssembler(axis: .vertical)
+        empty.shrinkToHalf()
+        #expect(!empty.isShrunk)
+
+        var assembler = try assemble(movements: [20, 20]) { smoothFrame(width: $0, height: $1, yOffset: $2) }
+        assembler.shrinkToHalf()
+        let once = assembler.totalLength
+        assembler.shrinkToHalf()
+        #expect(assembler.totalLength == once)
+        #expect(assembler.lengthAfterAdding(30) == (assembler.fullLength + 30) / 2)
+    }
+
+    @Test func atTheLimitTheImageShrinksOnceAndOnlyAboveOneX() {
+        func action(_ length: Int, shrink: Bool = true, scale: CGFloat = 2, shrunk: Bool = false) -> ScrollLengthLimit.Action {
+            ScrollLengthLimit.action(lengthAfterAdding: length, limit: 20_000, shrinkToFit: shrink,
+                                     frameScale: scale, alreadyShrunk: shrunk)
+        }
+        #expect(action(20_000) == .fits)
+        #expect(action(20_001) == .shrink)
+        // Off: stop and save, as before.
+        #expect(action(20_001, shrink: false) == .stop)
+        // At 1x there is nothing to drop to.
+        #expect(action(20_001, scale: 1) == .stop)
+        // Once is enough: the second time at the limit it saves.
+        #expect(action(20_001, shrunk: true) == .stop)
+    }
+
+    @MainActor @Test func theLimitAndTheShrinkSettingStartAtTwentyThousandAndOff() {
+        let store = AppSettings.store
+        store.removeObject(forKey: AppSettings.Keys.scrollLengthLimit)
+        store.removeObject(forKey: AppSettings.Keys.scrollShrinkToFit)
+        #expect(AppSettings.scrollLengthLimit == 20_000)
+        #expect(!AppSettings.scrollShrinkToFit)
+        defer {
+            store.removeObject(forKey: AppSettings.Keys.scrollLengthLimit)
+            store.removeObject(forKey: AppSettings.Keys.scrollShrinkToFit)
+        }
+        AppSettings.scrollLengthLimit = 40_000
+        AppSettings.scrollShrinkToFit = true
+        #expect(AppSettings.scrollLengthLimit == 40_000)
+        #expect(AppSettings.scrollShrinkToFit)
+        // Only the three lengths on offer are believed.
+        for stray in [0, 5_000, 15_000, 1_000_000] {
+            store.set(stray, forKey: AppSettings.Keys.scrollLengthLimit)
+            #expect(AppSettings.scrollLengthLimit == 20_000, "\(stray)")
+        }
+        #expect(ScrollLengthLimit.options == [10_000, 20_000, 40_000])
+    }
+
+    /// The row says how much page and how big a file the limit comes to: a 14"
+    /// MacBook Pro screen, at 2x. A step is 0.8 of the screen's height, and the
+    /// image is as wide as the screen.
+    @Test func theEstimateCountsScreensAndBytesFromTheScreenAndTheFormat() {
+        let screen = CGSize(width: 1512, height: 982)
+        let png = ScrollLengthLimit.estimate(limit: 20_000, format: "png", screenPoints: screen, backingScale: 2)
+        // 20 000 / (982 × 2 × 0.8) = 12.7
+        #expect(png.screens == 13)
+        // 20 000 × 3024 = 60 480 000 pixels, at 0.15–0.6 bytes each.
+        #expect(png.bytes == 9_072_000...36_288_000)
+        let jpeg = ScrollLengthLimit.estimate(limit: 20_000, format: "jpg", screenPoints: screen, backingScale: 2)
+        #expect(jpeg.bytes == 6_048_000...18_144_000)
+        // TIFF is not compressed: one value, four bytes a pixel.
+        let tiff = ScrollLengthLimit.estimate(limit: 20_000, format: "tiff", screenPoints: screen, backingScale: 2)
+        #expect(tiff.bytes == 241_920_000...241_920_000)
+
+        // Twice the limit, twice the screens and twice the bytes. At 1x the
+        // same number of pixels along the scroll is twice the screens, and the
+        // image half as wide — half the bytes.
+        let double = ScrollLengthLimit.estimate(limit: 40_000, format: "png", screenPoints: screen, backingScale: 2)
+        #expect(double.screens == 25)
+        #expect(double.bytes.upperBound == png.bytes.upperBound * 2)
+        let standard = ScrollLengthLimit.estimate(limit: 20_000, format: "png", screenPoints: screen, backingScale: 1)
+        #expect(standard.screens == 25)
+        #expect(standard.bytes.upperBound == png.bytes.upperBound / 2)
+        // An unknown format is read as PNG, the default.
+        #expect(ScrollLengthLimit.estimate(limit: 20_000, format: "heic", screenPoints: screen,
+                                           backingScale: 2).bytes == png.bytes)
+    }
+
+    /// In the app's language, not the system's: the sentence around it is.
+    @Test func theSizeInTheRowIsOneNumberOrARangeInMegabytesInTheAppsLanguage() {
+        let en = Locale(identifier: "en"), ru = Locale(identifier: "ru")
+        #expect(CaptureSettingsView.sizeText(241_920_000...241_920_000, locale: en) == "242 MB")
+        #expect(CaptureSettingsView.sizeText(9_072_000...36_288_000, locale: en) == "9.1–36 MB")
+        // Below ten a decimal is worth showing; the separator and the unit are the language's.
+        #expect(CaptureSettingsView.sizeText(4_320_000...17_280_000, locale: en) == "4.3–17 MB")
+        #expect(CaptureSettingsView.sizeText(4_320_000...17_280_000, locale: ru) == "4,3–17 МБ")
+        #expect(CaptureSettingsView.sizeText(241_920_000...241_920_000, locale: ru) == "242 МБ")
+    }
+
     // MARK: Video, fixed bars, and the predicted step
 
     private let videoFrameHeight = 260, videoStep = 156
