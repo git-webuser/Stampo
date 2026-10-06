@@ -342,6 +342,17 @@ final class ScrollingCaptureSession {
                        ScrollStepPlanner.confirmsLinearity(offset: match.offset, lines: Int(plan.lines),
                                                            pixelsPerLine: pixelsPerLine) {
                         linearityConfirmed = true
+                    } else if cleanStep, pixelsPerLine == nil,
+                              let late = ScrollStepPlanner.pixelsPerLine(offset: match.offset,
+                                                                         lines: Int(plan.lines)) {
+                        // The probe could not be matched — the first screen is
+                        // mostly a video, say — so the first step that does match
+                        // is what calibrates. Not one that follows a failed
+                        // attempt: that distance includes the attempt's.
+                        pixelsPerLine = late
+                        let latePlan = ScrollStepPlanner.plan(target: requestedStep, pixelsPerLine: late,
+                                                              axisLength: axisLength(of: next), backingScale: scale)
+                        Log.capture.info("scroll calibrated late · \(Int(late.rounded()), privacy: .public) px per line · \(latePlan.lines, privacy: .public) lines per step")
                     }
                     previous = next
                     zeroMotionCount = 0
@@ -373,7 +384,6 @@ final class ScrollingCaptureSession {
                         || (error as? FrameMatchError == .noReliableMotion)
                     if undecided, !looksStationary, let pixelsPerLine,
                        ScrollStepPlanner.mayPredict(pixelsPerLine: pixelsPerLine,
-                                                    linearityConfirmed: linearityConfirmed,
                                                     predictedInARow: predictedInARow,
                                                     unaccountedScroll: unmatchedScroll) {
                         let predicted = ScrollStepPlanner.predictedOffset(lines: Int(plan.lines),
@@ -385,7 +395,9 @@ final class ScrollingCaptureSession {
                                                          offset: predicted, searchLimit: searchLimit)
                         }.value
                         try ensureActive()
-                        if let verdict, verdict.consistent >= 1 {
+                        if let verdict,
+                           verdict.consistent >= ScrollStepPlanner.tilesRequiredToAgree(
+                               linearityConfirmed: linearityConfirmed) {
                             let combinedLength = assembler.totalLength + predicted
                             let crossLength = axis == .vertical ? next.width : next.height
                             guard combinedLength <= ImageAssembler.maxOutputLength,

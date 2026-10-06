@@ -493,14 +493,20 @@ nonisolated enum ScrollStepPlanner {
 
     /// Whether a step the matcher could not decide may be placed at the
     /// distance the calibration predicts — which is then still to be checked
-    /// against the frames. All of: there is a calibration, a full step has
-    /// already matched it, fewer than `maxPredictedInARow` steps in a row were
-    /// predicted, and no earlier attempt has already moved the page (its
-    /// distance would be missing from the prediction).
-    static func mayPredict(pixelsPerLine: Double?, linearityConfirmed: Bool,
-                           predictedInARow: Int, unaccountedScroll: Int) -> Bool {
-        pixelsPerLine != nil && linearityConfirmed
-            && predictedInARow < maxPredictedInARow && unaccountedScroll == 0
+    /// against the frames. All of: there is a calibration, fewer than
+    /// `maxPredictedInARow` steps in a row were predicted, and no earlier
+    /// attempt has already moved the page (its distance would be missing from
+    /// the prediction).
+    static func mayPredict(pixelsPerLine: Double?, predictedInARow: Int, unaccountedScroll: Int) -> Bool {
+        pixelsPerLine != nil && predictedInARow < maxPredictedInARow && unaccountedScroll == 0
+    }
+
+    /// How many tiles of the frames must agree with a predicted distance. One
+    /// is enough once a full step has shown that lines move the page in
+    /// proportion; before that the calibration is one probe, possibly of a
+    /// single line, and the frames have to bear it out twice over.
+    static func tilesRequiredToAgree(linearityConfirmed: Bool) -> Int {
+        linearityConfirmed ? 1 : 2
     }
 
     /// The step to take. Without a calibration — the probe could not be

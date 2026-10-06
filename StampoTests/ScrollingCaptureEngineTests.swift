@@ -106,18 +106,34 @@ import Testing
     /// tall, and its content depends on `videoSeed`, so two frames taken at
     /// different moments disagree there whatever the scroll. A header or a
     /// banner is a fixed band over the page, the same in every frame.
+    ///
+    /// `panels` makes the block a UI-demo scene instead of noise: a dim flat
+    /// backdrop with a few bright panels that move with the seed. Flat areas
+    /// match each other at many offsets, so it is the harder case for a matcher.
     private func videoPage(width: Int = 320, height: Int, offset: Int, videoSeed: Int,
                            videoColumns: Range<Int> = 16..<304, videoRows: Range<Int> = 0..<0,
-                           header: Int = 0, banner: Int = 0) -> CaptureFrame {
+                           header: Int = 0, banner: Int = 0, panels: Bool = false) -> CaptureFrame {
         var bytes = [UInt8](repeating: 255, count: width * height * 4)
+        // The same hash for a panel cell however many pixels ask for it.
+        var cells: [Int: UInt64] = [:]
         for y in 0..<height {
             let pageRow = y + offset
+            let inVideoRows = videoRows.contains(pageRow)
+            let isTextRow = pageRow % 18 < 8
             for x in 0..<width {
                 var value: UInt8 = 24
-                if videoRows.contains(pageRow), videoColumns.contains(x) {
-                    value = UInt8(truncatingIfNeeded: 40 + noise(x &+ videoSeed &* 7919,
-                                                                 pageRow &+ videoSeed &* 104729) % 180)
-                } else if pageRow % 18 < 8, x > 30, x < width - 30 {
+                if inVideoRows, videoColumns.contains(x) {
+                    if panels {
+                        let cx = x / 40, cy = (pageRow - videoRows.lowerBound) / 40
+                        let cell = cells[cx * 1_000 + cy]
+                            ?? noise(cx &+ videoSeed &* 7919, cy &+ videoSeed &* 104729)
+                        cells[cx * 1_000 + cy] = cell
+                        value = cell % 5 == 0 ? UInt8(truncatingIfNeeded: 120 + (cell >> 40) % 120) : 30
+                    } else {
+                        value = UInt8(truncatingIfNeeded: 40 + noise(x &+ videoSeed &* 7919,
+                                                                     pageRow &+ videoSeed &* 104729) % 180)
+                    }
+                } else if isTextRow, x > 30, x < width - 30 {
                     value = UInt8(truncatingIfNeeded: 70 + noise(x, pageRow) % 150)
                 }
                 if y < header { value = UInt8(truncatingIfNeeded: 200 + (x / 9) % 40) }
@@ -904,6 +920,67 @@ import Testing
         }
     }
 
+    /// Whatever a video does to the tiles, a match that is wrong is worse than
+    /// none: it is a seam in the image, where a refusal is a retry. A hundred
+    /// and fifty pages with a scene of panels over part or all of what two
+    /// frames share, taken at different moments of the video — each answer is
+    /// the true offset or a refusal, and some of them must be the true offset,
+    /// or refusing everything would pass.
+    @Test func noVideoMakesTheMatcherAnswerWithAWrongOffset() {
+        struct SplitMix {
+            var state: UInt64
+            mutating func next() -> Int {
+                state &+= 0x9E37_79B9_7F4A_7C15
+                var z = state
+                z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE4_E5B9
+                z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
+                return Int((z ^ (z >> 31)) >> 1)
+            }
+        }
+        struct Trial {
+            let rows: Range<Int>, margin: Int, step: Int, offset: Int, seeds: (Int, Int)
+        }
+        var random = SplitMix(state: 12345)
+        let trials = (0..<150).map { _ -> Trial in
+            let height = 100 + random.next() % 500
+            let top = random.next() % 300
+            let margin = [0, 8, 16, 32][random.next() % 4]
+            let step = 100 + random.next() % 90
+            let offset = random.next() % 400
+            let seeds = (1 + random.next() % 50, 60 + random.next() % 50)
+            return Trial(rows: top..<(top + height), margin: margin, step: step, offset: offset, seeds: seeds)
+        }
+        // The matcher is pure and the trials independent, so they run side by
+        // side — a hundred and fifty matches are slow in a build without
+        // optimization. The answer of each: -1 refused, otherwise its offset.
+        var answers = [Int](repeating: -1, count: trials.count)
+        let height = videoFrameHeight
+        answers.withUnsafeMutableBufferPointer { out in
+            let results = out
+            DispatchQueue.concurrentPerform(iterations: trials.count) { index in
+                let trial = trials[index]
+                let columns = trial.margin..<(320 - trial.margin)
+                let before = videoPage(height: height, offset: trial.offset, videoSeed: trial.seeds.0,
+                                       videoColumns: columns, videoRows: trial.rows, panels: true)
+                let after = videoPage(height: height, offset: trial.offset + trial.step,
+                                      videoSeed: trial.seeds.1, videoColumns: columns,
+                                      videoRows: trial.rows, panels: true)
+                let match = try? FrameMatcher.match(previous: before, current: after, axis: .vertical,
+                                                    maximumOffset: height * 3 / 4)
+                results[index] = match?.offset ?? -1
+            }
+        }
+        var right = 0, refused = 0
+        for (trial, answer) in zip(trials, answers) {
+            if answer == -1 { refused += 1 }
+            else if answer == trial.step { right += 1 }
+            else {
+                Issue.record("offset \(answer) for a step of \(trial.step), video rows \(trial.rows), margin \(trial.margin)")
+            }
+        }
+        #expect(right >= 20, "right \(right), refused \(refused)")
+    }
+
     /// With the video over everything the two frames share, the frames cannot
     /// say how far they moved, only whether a given distance is consistent
     /// with them: the tiles beside the video fit the right offset and refuse
@@ -958,22 +1035,32 @@ import Testing
         }
     }
 
-    @Test func aStepIsPredictedOnlyWhenTheCalibrationIsBackedByAFullStep() {
+    @Test func aStepIsPredictedOnlyWithACalibrationAndWithinTheRun() {
         // Nothing to go by: no calibration.
-        #expect(!ScrollStepPlanner.mayPredict(pixelsPerLine: nil, linearityConfirmed: true,
-                                              predictedInARow: 0, unaccountedScroll: 0))
-        // A probe of one line says nothing about ten until a full step agrees.
-        #expect(!ScrollStepPlanner.mayPredict(pixelsPerLine: 80, linearityConfirmed: false,
-                                              predictedInARow: 0, unaccountedScroll: 0))
+        #expect(!ScrollStepPlanner.mayPredict(pixelsPerLine: nil, predictedInARow: 0, unaccountedScroll: 0))
         // Three in a row is enough blind-ish steps.
-        #expect(!ScrollStepPlanner.mayPredict(pixelsPerLine: 80, linearityConfirmed: true,
+        #expect(!ScrollStepPlanner.mayPredict(pixelsPerLine: 80,
                                               predictedInARow: ScrollStepPlanner.maxPredictedInARow,
                                               unaccountedScroll: 0))
         // An earlier attempt at this step moved the page by a distance the prediction would miss.
-        #expect(!ScrollStepPlanner.mayPredict(pixelsPerLine: 80, linearityConfirmed: true,
-                                              predictedInARow: 0, unaccountedScroll: 120))
-        #expect(ScrollStepPlanner.mayPredict(pixelsPerLine: 80, linearityConfirmed: true,
-                                             predictedInARow: 2, unaccountedScroll: 0))
+        #expect(!ScrollStepPlanner.mayPredict(pixelsPerLine: 80, predictedInARow: 0, unaccountedScroll: 120))
+        // Right after the calibration, before any full step: allowed — and then held to a higher bar.
+        #expect(ScrollStepPlanner.mayPredict(pixelsPerLine: 80, predictedInARow: 0, unaccountedScroll: 0))
+        #expect(ScrollStepPlanner.mayPredict(pixelsPerLine: 80, predictedInARow: 2, unaccountedScroll: 0))
+    }
+
+    /// A probe of one line says nothing about ten until a full step agrees; up
+    /// to then the frames must bear the prediction out in two tiles, after it in one.
+    @Test func anUnconfirmedCalibrationNeedsTwoTilesToAgreeAndAConfirmedOneNeedsOne() {
+        #expect(ScrollStepPlanner.tilesRequiredToAgree(linearityConfirmed: false) == 2)
+        #expect(ScrollStepPlanner.tilesRequiredToAgree(linearityConfirmed: true) == 1)
+    }
+
+    /// A late calibration is the same division as the probe's, over the lines
+    /// of the step that matched.
+    @Test func aStepThatMatchesLateCalibratesLikeTheProbe() {
+        #expect(ScrollStepPlanner.pixelsPerLine(offset: 400, lines: 5) == 80)
+        #expect(ScrollStepPlanner.plan(target: 820, pixelsPerLine: 80, axisLength: 1366, backingScale: 2).lines == 10)
     }
 
     @Test func linearityIsAFullStepWithinTwoPixelsOrTwoPercentOfTheCalibration() {

@@ -200,6 +200,19 @@ nonisolated enum FrameMatcher {
         }
         let alternative = agg.enumerated().filter { abs($0.offset - best) > 2 }.map(\.element).filter(\.isFinite).min() ?? 1
         let frameMargin = (alternative - agg[best]) / max(alternative, 0.015)
+        // Coverage: of the tiles that have something to compare at this offset,
+        // at least half must line up. Where the rest is a video that changed,
+        // a lone tile lining up by chance is not a match; blank areas have
+        // nothing to compare and do not count, so a column at the edge of an
+        // otherwise empty page still passes.
+        var comparable = 0, lined = 0
+        for t in 0..<tileCount where tileCost[t][best].isFinite && tiles.hasContent[t][best] {
+            comparable += 1
+            if tileCost[t][best] <= fitThreshold { lined += 1 }
+        }
+        guard comparable > 0, Double(lined) >= coverageRequired * Double(comparable) else {
+            throw FrameMatchError.ambiguousMotion
+        }
         guard decisive >= 1 || frameMargin >= 0.5, against <= max(1, moving.count / 5) else { throw FrameMatchError.ambiguousMotion }
         let margin = max(0, min(1, max(frameMargin, tileMargin)))
         let confidence = min(1, (1 - agg[best]) * 0.55 + margin * 0.45)
@@ -212,6 +225,42 @@ nonisolated enum FrameMatcher {
     /// How far a tile's cost may sit above its own best and still be said to
     /// agree with an offset, and the cost under which a tile fits at all.
     private static let tolerance = 0.005, fitThreshold = 0.03
+    /// The spread of brightness (standard deviation, 0…1) from which a tile's
+    /// samples have something in them to compare, and the share of such tiles
+    /// that must line up with an offset for it to be believed.
+    private static let contentSpread = 0.015, coverageRequired = 0.5
+
+    /// The inner loop of `tileCurves`: about a million samples a match.
+    private static func accumulate(before: UnsafeBufferPointer<UInt8>, after: UnsafeBufferPointer<UInt8>,
+                                   width w: Int, axis: ScrollAxis, limit: Int,
+                                   alongPos: [Int], crossPos: [Int],
+                                   tileRowOfAlong: [Int], tileOfCross: [Int],
+                                   into accumulators: UnsafeMutablePointer<Double>) {
+        let fields = 6, stride = limit + 1
+        let axisLength = axis == .vertical ? before.count / (w * 4) : w
+        for delta in 0...limit {
+            for ai in 0..<alongPos.count {
+                let cAxis = alongPos[ai]
+                guard cAxis + delta < axisLength else { continue }
+                let rowTile = tileRowOfAlong[ai] * tileColumns
+                for ci in 0..<crossPos.count {
+                    let cross = crossPos[ci]
+                    let i: Int, j: Int
+                    if axis == .vertical { i = ((cAxis + delta) * w + cross) * 4; j = (cAxis * w + cross) * 4 }
+                    else { i = (cross * w + cAxis + delta) * 4; j = (cross * w + cAxis) * 4 }
+                    let p0 = Int(before[i]), p1 = Int(before[i + 1]), p2 = Int(before[i + 2])
+                    let c0 = Int(after[j]), c1 = Int(after[j + 1]), c2 = Int(after[j + 2])
+                    let error = Double(abs(p0 - c0) + abs(p1 - c1) + abs(p2 - c2)) / 765.0
+                    let was = Double(p0 + p1 + p2) / 765.0
+                    let now = Double(c0 + c1 + c2) / 765.0
+                    let slot = accumulators + ((rowTile + tileOfCross[ci]) * stride + delta) * fields
+                    slot[0] += error; slot[1] += 1
+                    slot[2] += was; slot[3] += was * was
+                    slot[4] += now; slot[5] += now * now
+                }
+            }
+        }
+    }
 
     /// Cost of every offset from 0 to `limit`, tile by tile.
     ///
@@ -219,9 +268,13 @@ nonisolated enum FrameMatcher {
     /// the samples whose source row still lies in the previous frame, so a
     /// large offset is judged on fewer of them — and an offset where a tile has
     /// fewer than a quarter of its samples is not scored at all (infinite).
+    ///
+    /// Besides the cost, each tile at each offset reports whether it has
+    /// content: whether the brightness of the samples compared, on either side,
+    /// varies at all. A blank area lines up with anything and says nothing.
     private static func tileCurves(previous: CaptureFrame, current: CaptureFrame,
                                    axis: ScrollAxis, limit: Int)
-        -> (sum: [[Double]], count: [[Int]], cost: [[Double]], minimumSamples: Int) {
+        -> (sum: [[Double]], count: [[Int]], cost: [[Double]], minimumSamples: Int, hasContent: [[Bool]]) {
         let w = previous.width, h = previous.height
         let axisLength = axis == .vertical ? h : w
         let crossLength = axis == .vertical ? w : h
@@ -229,29 +282,48 @@ nonisolated enum FrameMatcher {
         let tileCount = tileRows * tileColumns
         let alongPos = (0..<alongCount).map { min(axisLength - 1, Int((Double($0) + 0.5) / Double(alongCount) * Double(axisLength))) }
         let crossPos = (0..<acrossCount).map { min(crossLength - 1, Int((Double($0) + 0.5) / Double(acrossCount) * Double(crossLength))) }
-        var tileSum = Array(repeating: [Double](repeating: 0, count: limit + 1), count: tileCount)
-        var tileCnt = Array(repeating: [Int](repeating: 0, count: limit + 1), count: tileCount)
-        for delta in 0...limit {
-            for (ai, cAxis) in alongPos.enumerated() where cAxis + delta < axisLength {
-                let row = ai * tileRows / alongCount
-                for (ci, cross) in crossPos.enumerated() {
-                    let i: Int, j: Int
-                    if axis == .vertical { i = ((cAxis + delta) * w + cross) * 4; j = (cAxis * w + cross) * 4 }
-                    else { i = (cross * w + cAxis + delta) * 4; j = (cross * w + cAxis) * 4 }
-                    let e = Double(abs(Int(previous.pixels[i]) - Int(current.pixels[j]))
-                                 + abs(Int(previous.pixels[i + 1]) - Int(current.pixels[j + 1]))
-                                 + abs(Int(previous.pixels[i + 2]) - Int(current.pixels[j + 2]))) / 765.0
-                    let t = row * tileColumns + ci * tileColumns / acrossCount
-                    tileSum[t][delta] += e; tileCnt[t][delta] += 1
-                }
+        let tileOfCross = (0..<acrossCount).map { $0 * tileColumns / acrossCount }
+        let tileRowOfAlong = (0..<alongCount).map { $0 * tileRows / alongCount }
+
+        // Per tile and offset, in one flat buffer so the inner loop touches
+        // memory in one place: the summed error and the sample count, then the
+        // sum and sum of squares of the brightness on each side.
+        let fields = 6
+        let stride = limit + 1
+        let accumulators = UnsafeMutablePointer<Double>.allocate(capacity: tileCount * stride * fields)
+        accumulators.initialize(repeating: 0, count: tileCount * stride * fields)
+        defer { accumulators.deallocate() }
+
+        previous.pixels.withUnsafeBufferPointer { before in
+            current.pixels.withUnsafeBufferPointer { after in
+                accumulate(before: before, after: after, width: w, axis: axis, limit: limit,
+                           alongPos: alongPos, crossPos: crossPos,
+                           tileRowOfAlong: tileRowOfAlong, tileOfCross: tileOfCross,
+                           into: accumulators)
             }
+        }
+
+        func spread(_ sum: Double, _ squares: Double, _ n: Double) -> Double {
+            guard n > 0 else { return 0 }
+            let mean = sum / n
+            return max(0, squares / n - mean * mean).squareRoot()
         }
         let perTile = max(1, (alongCount / tileRows) * (acrossCount / tileColumns))
         let minSamples = max(4, perTile / 4)
-        let cost: [[Double]] = (0..<tileCount).map { t in
-            (0...limit).map { d in tileCnt[t][d] >= minSamples ? tileSum[t][d] / Double(tileCnt[t][d]) : .infinity }
+        var sums = [[Double]](), counts = [[Int]](), costs = [[Double]](), contents = [[Bool]]()
+        for t in 0..<tileCount {
+            var tileSum = [Double](), tileCount_ = [Int](), tileCost = [Double](), tileContent = [Bool]()
+            for d in 0...limit {
+                let slot = accumulators + (t * stride + d) * fields
+                let n = Int(slot[1])
+                tileSum.append(slot[0]); tileCount_.append(n)
+                tileCost.append(n >= minSamples ? slot[0] / Double(n) : .infinity)
+                tileContent.append(max(spread(slot[2], slot[3], slot[1]),
+                                       spread(slot[4], slot[5], slot[1])) >= contentSpread)
+            }
+            sums.append(tileSum); counts.append(tileCount_); costs.append(tileCost); contents.append(tileContent)
         }
-        return (tileSum, tileCnt, cost, minSamples)
+        return (sums, counts, costs, minSamples, contents)
     }
 
     /// Whether `offset` is consistent with the frames when they cannot pin it
