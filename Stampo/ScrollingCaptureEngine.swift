@@ -497,29 +497,58 @@ nonisolated struct ImageAssembler: Sendable {
         fullLength = length
     }
 
+    /// Adds a frame that is `movement` pixels further along than the last one,
+    /// whole, over the part of the image it overlaps — where it and the frame
+    /// before it show the same page, the newer one wins. What a page does as it
+    /// scrolls into view (a heading sliding in, an image fading up) is finished
+    /// in the later frame and half-way in the earlier. The collected image is
+    /// cut back to where the overlap begins and the frame laid from there, so
+    /// at any time the image costs about its own size and one frame.
+    ///
+    /// Direction is normalized so the assembled document reads top-to-bottom /
+    /// left-to-right.
     mutating func append(_ frame: CaptureFrame, movement: Int) throws {
+        let frameLength = axis == .vertical ? frame.height : frame.width
         guard !strips.isEmpty, frame.width == viewportWidth, frame.height == viewportHeight,
-              movement > 0, movement < (axis == .vertical ? frame.height : frame.width)
+              movement > 0, movement < frameLength
         else { throw FrameMatchError.noReliableMotion }
-        // Add only the newly exposed band. Direction is normalized so the
-        // assembled document reads top-to-bottom / left-to-right.
-        let band = axis == .vertical
-            ? frame.cropped(to: CGRect(x: 0, y: frame.height - movement, width: frame.width, height: movement))
-            : frame.cropped(to: CGRect(x: frame.width - movement, y: 0, width: movement, height: frame.height))
-        guard let band else { throw FrameMatchError.noReliableMotion }
+        let overlap = frameLength - movement
+        guard fullLength >= overlap else { throw FrameMatchError.noReliableMotion }
         if isShrunk {
-            let start = fullLength / 2, end = (fullLength + movement) / 2
-            // A band under two pixels long can round away to nothing; the one
-            // after it begins where this one would have.
-            if end > start, let halved = Self.halved(band, axis: axis, length: end - start) {
+            // In the output's pixels, from the same floor as ever: the frame
+            // begins at half of where it begins in its own, and ends at half of
+            // where it ends, so what is cut and what is laid tile exactly.
+            let start = (fullLength - overlap) / 2, end = (fullLength + movement) / 2
+            trim(to: start)
+            // A frame can round to nothing only in a degenerate case; the image
+            // then simply ends where the cut left it, and the next begins there.
+            if end > start, let halved = Self.halved(frame, axis: axis, length: end - start) {
                 strips.append(CaptureStrip(frame: halved, start: start))
             }
             fullLength += movement
             totalLength = fullLength / 2
         } else {
-            strips.append(CaptureStrip(frame: band, start: totalLength))
+            let start = totalLength - overlap
+            trim(to: start)
+            strips.append(CaptureStrip(frame: frame, start: start))
             totalLength += movement
             fullLength += movement
+        }
+    }
+
+    /// Cuts the image back to `length` of its own pixels along the scroll: the
+    /// bands beyond go, and the one the cut falls in loses its end.
+    private mutating func trim(to length: Int) {
+        while let last = strips.last, last.start >= length { strips.removeLast() }
+        guard let last = strips.last else { return }
+        let size = axis == .vertical ? last.frame.height : last.frame.width
+        let keep = length - last.start
+        guard keep < size else { return }
+        let rect = axis == .vertical
+            ? CGRect(x: 0, y: 0, width: last.frame.width, height: keep)
+            : CGRect(x: 0, y: 0, width: keep, height: last.frame.height)
+        if let cropped = last.frame.cropped(to: rect) {
+            strips[strips.count - 1] = CaptureStrip(frame: cropped, start: last.start)
         }
     }
 

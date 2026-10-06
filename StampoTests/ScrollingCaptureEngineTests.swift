@@ -996,6 +996,79 @@ import Testing
         #expect(Double(difference) / Double(samples) < 2.0)
     }
 
+    /// A frame of the page with a rectangle laid over it, standing in for an
+    /// element that is part-way through appearing.
+    private func withElement(_ frame: CaptureFrame, rows: Range<Int>, columns: Range<Int>, value: UInt8) -> CaptureFrame {
+        var pixels = frame.pixels
+        for y in rows { for x in columns {
+            let i = (y * frame.width + x) * 4
+            pixels[i] = value; pixels[i + 1] = value; pixels[i + 2] = value
+        } }
+        return CaptureFrame(width: frame.width, height: frame.height, pixels: pixels)
+    }
+
+    /// Where two frames overlap the later one is the one kept: an element that
+    /// is half-way up in the first and finished in the second ends up finished.
+    /// (Keeping the first frame's overlap cut a heading off at the top on a page
+    /// whose headings slide in as it scrolls.)
+    @Test func theLaterFrameWinsWhereTwoOverlap() throws {
+        let height = 200, movement = 60, element = 100..<130, columns = 40..<120
+        // Page rows 100–130 are inside the overlap (rows 60 to 200): the first
+        // frame has the element dim there, the second at full brightness.
+        let first = withElement(texture(width: 240, height: height), rows: element, columns: columns, value: 90)
+        let later = texture(width: 240, height: height, yOffset: movement)
+        let second = withElement(later, rows: (element.lowerBound - movement)..<(element.upperBound - movement),
+                                 columns: columns, value: 255)
+        var assembler = ImageAssembler(axis: .vertical, maxLength: 10_000)
+        assembler.begin(with: first)
+        try assembler.append(second, movement: movement)
+        #expect(assembler.totalLength == height + movement)
+        // Contiguous, whole frame last, and the first cut back to what the
+        // second does not cover.
+        #expect(assembler.strips.count == 2)
+        #expect(assembler.strips[0].frame.height == movement)
+        #expect(assembler.strips[1].start == movement && assembler.strips[1].frame.height == height)
+
+        let image = try #require(CaptureFrame(image: try assembler.makeImage()))
+        #expect(image[60, 115, 0] == 255, "the element is as the later frame has it")
+        // Beyond the element the page is the page, wherever it came from.
+        let expected = texture(width: 240, height: height + movement)
+        for (x, y) in [(10, 5), (200, 59), (200, 61), (10, 180), (230, 259)] {
+            #expect(image[x, y, 0] == expected[x, y, 0], "at \(x),\(y)")
+        }
+    }
+
+    /// The same once the image has dropped to half size: the cut and the frame
+    /// both land on the halved floor, so the element is there and nothing is
+    /// left of the frame that it replaced.
+    @Test func theLaterFrameWinsAfterTheImageHasShrunk() throws {
+        // Page rows 150–180: inside what the second and third frames share (120 to 260).
+        let height = 200, movement = 60, element = 150..<180, columns = 40..<120
+        let first = texture(width: 240, height: height)
+        let second = texture(width: 240, height: height, yOffset: movement)
+        let third = withElement(texture(width: 240, height: height, yOffset: 2 * movement),
+                                rows: (element.lowerBound - 2 * movement)..<(element.upperBound - 2 * movement),
+                                columns: columns, value: 255)
+        var assembler = ImageAssembler(axis: .vertical, maxLength: 10_000)
+        assembler.begin(with: first)
+        try assembler.append(second, movement: movement)
+        assembler.shrinkToHalf()
+        // The element is in the overlap of the second and third frames — and, as
+        // the second frame has it as texture, only the third frame has it bright.
+        try assembler.append(third, movement: movement)
+        let full = height + 2 * movement
+        #expect(assembler.fullLength == full)
+        #expect(assembler.totalLength == full / 2)
+        var expectedStart = 0
+        for strip in assembler.strips {
+            #expect(strip.start == expectedStart)
+            expectedStart += strip.frame.height
+        }
+        #expect(expectedStart == assembler.totalLength)
+        let image = try #require(CaptureFrame(image: try assembler.makeImage()))
+        #expect(image[40, 82, 0] > 230, "the element, halved, is bright: \(image[40, 82, 0])")
+    }
+
     @Test func shrinkingTwiceOrBeforeThereIsAnythingChangesNothing() throws {
         var empty = ImageAssembler(axis: .vertical)
         empty.shrinkToHalf()
