@@ -144,7 +144,7 @@ struct CaptureSettingsView: View {
                 SettingRow(
                     icon: "scroll",
                     title: "Exclude scrollbars",
-                    description: "Scrolling capture only. Excludes a narrow viewport edge where scrollbars appear; content near that edge may also be cropped."
+                    description: "Excludes a narrow viewport edge where scrollbars appear; content near that edge may also be cropped."
                 ) {
                     Toggle("", isOn: $excludeScrollbars).labelsHidden()
                 }

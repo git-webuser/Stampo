@@ -3092,6 +3092,23 @@
         }
       }
     },
+    "Excludes a narrow viewport edge where scrollbars appear; content near that edge may also be cropped." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Excludes a narrow viewport edge where scrollbars appear; content near that edge may also be cropped."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Исключает узкую краевую полосу, где появляются полосы прокрутки; содержимое у края тоже может быть обрезано."
+          }
+        }
+      }
+    },
     "File" : {
       "comment" : "Settings section header for file output options",
       "localizations" : {
@@ -8105,23 +8122,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Развести поля"
-          }
-        }
-      }
-    },
-    "Scrolling capture only. Excludes a narrow viewport edge where scrollbars appear; content near that edge may also be cropped." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Scrolling capture only. Excludes a narrow viewport edge where scrollbars appear; content near that edge may also be cropped."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Только для прокрутки. Исключает узкую краевую полосу, где появляются полосы прокрутки; содержимое у края тоже может быть обрезано."
           }
         }
       }
