@@ -100,6 +100,35 @@ import Testing
         return CaptureFrame(width: width, height: height, pixels: bytes)
     }
 
+    /// A dark page of dim lines of text with a block that changes between
+    /// frames — a video — in it. Frames are `height` rows of the page from
+    /// `offset`; the block is `videoColumns` wide, `videoRows` of the page
+    /// tall, and its content depends on `videoSeed`, so two frames taken at
+    /// different moments disagree there whatever the scroll. A header or a
+    /// banner is a fixed band over the page, the same in every frame.
+    private func videoPage(width: Int = 320, height: Int, offset: Int, videoSeed: Int,
+                           videoColumns: Range<Int> = 16..<304, videoRows: Range<Int> = 0..<0,
+                           header: Int = 0, banner: Int = 0) -> CaptureFrame {
+        var bytes = [UInt8](repeating: 255, count: width * height * 4)
+        for y in 0..<height {
+            let pageRow = y + offset
+            for x in 0..<width {
+                var value: UInt8 = 24
+                if videoRows.contains(pageRow), videoColumns.contains(x) {
+                    value = UInt8(truncatingIfNeeded: 40 + noise(x &+ videoSeed &* 7919,
+                                                                 pageRow &+ videoSeed &* 104729) % 180)
+                } else if pageRow % 18 < 8, x > 30, x < width - 30 {
+                    value = UInt8(truncatingIfNeeded: 70 + noise(x, pageRow) % 150)
+                }
+                if y < header { value = UInt8(truncatingIfNeeded: 200 + (x / 9) % 40) }
+                if y >= height - banner { value = UInt8(truncatingIfNeeded: 160 + (x / 7) % 60) }
+                let i = (y * width + x) * 4
+                bytes[i] = value; bytes[i + 1] = value; bytes[i + 2] = value; bytes[i + 3] = 255
+            }
+        }
+        return CaptureFrame(width: width, height: height, pixels: bytes)
+    }
+
     /// Full-width horizontal bands of random grey: no vertical detail at all.
     private func bandTexture(width: Int, height: Int, yOffset: Int, band: Int) -> CaptureFrame {
         var bytes = [UInt8](repeating: 255, count: width * height * 4)
@@ -352,7 +381,11 @@ import Testing
     @Test func rejectsRepeatedRowsThatHaveSeveralPlausibleOffsets() {
         let previous = texture(width: 140, height: 160, repeatedRows: 8)
         let current = texture(width: 140, height: 160, yOffset: 18, repeatedRows: 8)
-        #expect(throws: FrameMatchError.ambiguousMotion) {
+        // Either refusal will do: an offset of 18 in rows that repeat every 8
+        // looks, to the tiles, like standing still plus a few pixels — "fixed
+        // or blank", so none is left to vote — rather than like several
+        // equally good offsets. What matters is that nothing is stitched.
+        #expect(throws: FrameMatchError.self) {
             try FrameMatcher.match(previous: previous, current: current, axis: .vertical, maximumOffset: 60)
         }
     }
@@ -838,6 +871,122 @@ import Testing
         // The search bound is in pixels again: lines × 90 points × scale.
         #expect(ScrollDriver.maximumLikelyMovement(pixelStep: 1080, backingScale: 2, viewportLength: 3000) == 6 * 90 * 2)
         #expect(ScrollDriver.maximumLikelyMovement(pixelStep: 540, backingScale: 1, viewportLength: 3000) == 6 * 90)
+    }
+
+    // MARK: Video, fixed bars, and the predicted step
+
+    private let videoFrameHeight = 260, videoStep = 156
+    private let videoOffsets = [0, 97, 233, 420]
+
+    /// A video that changes between the frames and covers most of what they
+    /// share used to outvote the page: every full-height strip contained it,
+    /// so the strips voted against the true offset and the capture stopped
+    /// with "Frames couldn't be aligned". The tiles it covers say nothing now.
+    /// Whatever the matcher answers it must not answer wrongly — a wrong
+    /// offset is a seam in the image, an error is a retry.
+    @Test func aVideoCoveringMostOfTheOverlapDoesNotOutvoteThePage() {
+        let cases: [(rows: Range<Int>, mustMatch: Bool)] = [
+            (10..<200, true),    // most of the overlap, the page below still in view
+            (30..<235, false),   // nearly all of it: either answer is fine, a wrong one is not
+        ]
+        for (rows, mustMatch) in cases {
+            for offset in videoOffsets {
+                let before = videoPage(height: videoFrameHeight, offset: offset, videoSeed: 1, videoRows: rows)
+                let after = videoPage(height: videoFrameHeight, offset: offset + videoStep, videoSeed: 2, videoRows: rows)
+                do {
+                    let match = try FrameMatcher.match(previous: before, current: after, axis: .vertical,
+                                                       maximumOffset: videoFrameHeight * 3 / 4)
+                    #expect(match.offset == videoStep, "video \(rows) at \(offset): offset \(match.offset)")
+                } catch {
+                    #expect(!mustMatch, "video \(rows) at \(offset): \(error)")
+                }
+            }
+        }
+    }
+
+    /// With the video over everything the two frames share, the frames cannot
+    /// say how far they moved, only whether a given distance is consistent
+    /// with them: the tiles beside the video fit the right offset and refuse
+    /// another one.
+    @Test func aPredictedOffsetIsCheckedAgainstTheFramesAroundTheVideo() throws {
+        let rows = 0..<520, columns = 64..<256
+        for offset in [0, 97, 150] {
+            let before = videoPage(height: videoFrameHeight, offset: offset, videoSeed: 1,
+                                   videoColumns: columns, videoRows: rows)
+            let after = videoPage(height: videoFrameHeight, offset: offset + videoStep, videoSeed: 2,
+                                  videoColumns: columns, videoRows: rows)
+            let verdict = try #require(FrameMatcher.verifyPredicted(
+                previous: before, current: after, axis: .vertical, offset: videoStep,
+                searchLimit: videoFrameHeight * 3 / 4))
+            #expect(verdict.consistent >= 1, "at \(offset)")
+            #expect(verdict.against == 0)
+            // 20% short is the wrong distance: the tiles beside the video know it.
+            #expect(FrameMatcher.verifyPredicted(previous: before, current: after, axis: .vertical,
+                                                 offset: videoStep * 4 / 5,
+                                                 searchLimit: videoFrameHeight * 3 / 4) == nil,
+                    "a wrong prediction was accepted at \(offset)")
+        }
+    }
+
+    /// Frames in which nothing but the video changes can still be placed — and
+    /// a prediction on them that agrees with nothing is no prediction.
+    @Test func aPredictionNobodyAgreesWithCountsForNothing() throws {
+        // The video over every column: no tile is left to agree or disagree.
+        let before = videoPage(height: videoFrameHeight, offset: 97, videoSeed: 1,
+                               videoColumns: 0..<320, videoRows: 0..<520)
+        let after = videoPage(height: videoFrameHeight, offset: 97 + videoStep, videoSeed: 2,
+                              videoColumns: 0..<320, videoRows: 0..<520)
+        let verdict = FrameMatcher.verifyPredicted(previous: before, current: after, axis: .vertical,
+                                                   offset: videoStep, searchLimit: videoFrameHeight * 3 / 4)
+        #expect(verdict?.consistent ?? 0 == 0)
+    }
+
+    /// A header that stays put and a banner that stays put are fixed on the
+    /// screen while the page moves under them. Held against the scroll they
+    /// made each strip vote for "no movement"; as tiles they abstain.
+    @Test func aFixedHeaderOrBannerDoesNotHideTheScroll() throws {
+        for (header, banner) in [(24, 0), (0, 30)] {
+            for offset in videoOffsets {
+                let before = videoPage(height: videoFrameHeight, offset: offset, videoSeed: 1,
+                                       header: header, banner: banner)
+                let after = videoPage(height: videoFrameHeight, offset: offset + videoStep, videoSeed: 1,
+                                      header: header, banner: banner)
+                let match = try FrameMatcher.match(previous: before, current: after, axis: .vertical,
+                                                   maximumOffset: videoFrameHeight * 3 / 4)
+                #expect(match.offset == videoStep, "header \(header) banner \(banner) at \(offset)")
+            }
+        }
+    }
+
+    @Test func aStepIsPredictedOnlyWhenTheCalibrationIsBackedByAFullStep() {
+        // Nothing to go by: no calibration.
+        #expect(!ScrollStepPlanner.mayPredict(pixelsPerLine: nil, linearityConfirmed: true,
+                                              predictedInARow: 0, unaccountedScroll: 0))
+        // A probe of one line says nothing about ten until a full step agrees.
+        #expect(!ScrollStepPlanner.mayPredict(pixelsPerLine: 80, linearityConfirmed: false,
+                                              predictedInARow: 0, unaccountedScroll: 0))
+        // Three in a row is enough blind-ish steps.
+        #expect(!ScrollStepPlanner.mayPredict(pixelsPerLine: 80, linearityConfirmed: true,
+                                              predictedInARow: ScrollStepPlanner.maxPredictedInARow,
+                                              unaccountedScroll: 0))
+        // An earlier attempt at this step moved the page by a distance the prediction would miss.
+        #expect(!ScrollStepPlanner.mayPredict(pixelsPerLine: 80, linearityConfirmed: true,
+                                              predictedInARow: 0, unaccountedScroll: 120))
+        #expect(ScrollStepPlanner.mayPredict(pixelsPerLine: 80, linearityConfirmed: true,
+                                             predictedInARow: 2, unaccountedScroll: 0))
+    }
+
+    @Test func linearityIsAFullStepWithinTwoPixelsOrTwoPercentOfTheCalibration() {
+        #expect(ScrollStepPlanner.predictedOffset(lines: 10, pixelsPerLine: 80.4) == 804)
+        // 800 expected: 2% is 16 px.
+        #expect(ScrollStepPlanner.confirmsLinearity(offset: 800, lines: 10, pixelsPerLine: 80))
+        #expect(ScrollStepPlanner.confirmsLinearity(offset: 815, lines: 10, pixelsPerLine: 80))
+        #expect(!ScrollStepPlanner.confirmsLinearity(offset: 820, lines: 10, pixelsPerLine: 80))
+        // Small steps get the two pixels instead.
+        #expect(ScrollStepPlanner.confirmsLinearity(offset: 42, lines: 1, pixelsPerLine: 40))
+        #expect(!ScrollStepPlanner.confirmsLinearity(offset: 43, lines: 1, pixelsPerLine: 40))
+        // A page that scrolled twice as far for ten lines as for one is not linear.
+        #expect(!ScrollStepPlanner.confirmsLinearity(offset: 800, lines: 10, pixelsPerLine: 40))
     }
 
     @Test func calibrationIsTheProbesMovementOverTheLinesItSent() {

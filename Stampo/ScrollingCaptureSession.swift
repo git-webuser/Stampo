@@ -258,6 +258,11 @@ final class ScrollingCaptureSession {
             /// Nil until a probe has been matched, and then the estimate from
             /// points is what steps are planned from.
             var pixelsPerLine: Double?
+            /// Whether a full step has matched what the calibration says, so
+            /// that lines are known to move the page in proportion — and how
+            /// many steps in a row have been placed by the calibration alone.
+            var linearityConfirmed = false
+            var predictedInARow = 0
 
             do {
                 diagnosticStage = .match
@@ -309,6 +314,10 @@ final class ScrollingCaptureSession {
                 try checkWindowAndFocus()
 
                 let looksStationary = meanDifference(oldFrame, next) < 0.006
+                /// Whether this is the first attempt at this step: an earlier
+                /// failed one has moved the page by a distance nothing here
+                /// accounts for.
+                let cleanStep = unmatchedScroll == 0
                 do {
                     diagnosticStage = .match
                     let axis = self.axis
@@ -329,9 +338,15 @@ final class ScrollingCaptureSession {
                     }
                     try ensureActive()
                     try assembler.append(next, movement: match.offset)
+                    if cleanStep, let pixelsPerLine,
+                       ScrollStepPlanner.confirmsLinearity(offset: match.offset, lines: Int(plan.lines),
+                                                           pixelsPerLine: pixelsPerLine) {
+                        linearityConfirmed = true
+                    }
                     previous = next
                     zeroMotionCount = 0
                     unmatchedScroll = 0
+                    predictedInARow = 0
                     requestedStep = max(24, Int(Double(axisLength(of: next)) * 0.60))
                     consecutiveFailures = 0
                 } catch is CancellationError {
@@ -349,6 +364,46 @@ final class ScrollingCaptureSession {
                         return
                     }
                 } catch {
+                    // Something in the frame changes by itself — a video, an
+                    // animation — and the matcher cannot place the step. The
+                    // calibration says how far it moved; it is taken at its
+                    // word only when the frames do not contradict it and at
+                    // least one tile of them agrees, never blind.
+                    let undecided = (error as? FrameMatchError == .ambiguousMotion)
+                        || (error as? FrameMatchError == .noReliableMotion)
+                    if undecided, !looksStationary, let pixelsPerLine,
+                       ScrollStepPlanner.mayPredict(pixelsPerLine: pixelsPerLine,
+                                                    linearityConfirmed: linearityConfirmed,
+                                                    predictedInARow: predictedInARow,
+                                                    unaccountedScroll: unmatchedScroll) {
+                        let predicted = ScrollStepPlanner.predictedOffset(lines: Int(plan.lines),
+                                                                          pixelsPerLine: pixelsPerLine)
+                        let axis = self.axis
+                        let searchLimit = motionLimit + 32
+                        let verdict = await Task.detached(priority: .userInitiated) {
+                            FrameMatcher.verifyPredicted(previous: oldFrame, current: next, axis: axis,
+                                                         offset: predicted, searchLimit: searchLimit)
+                        }.value
+                        try ensureActive()
+                        if let verdict, verdict.consistent >= 1 {
+                            let combinedLength = assembler.totalLength + predicted
+                            let crossLength = axis == .vertical ? next.width : next.height
+                            guard combinedLength <= ImageAssembler.maxOutputLength,
+                                  crossLength * combinedLength <= ImageAssembler.maxOutputPixels else {
+                                finish()
+                                return
+                            }
+                            try assembler.append(next, movement: predicted)
+                            Log.capture.info("scroll step predicted · \(predicted, privacy: .public) px · \(verdict.consistent, privacy: .public) tiles agree")
+                            previous = next
+                            zeroMotionCount = 0
+                            unmatchedScroll = 0
+                            predictedInARow += 1
+                            requestedStep = max(24, Int(Double(axisLength(of: next)) * 0.60))
+                            consecutiveFailures = 0
+                            continue
+                        }
+                    }
                     consecutiveFailures += 1
                     if consecutiveFailures <= 2 {
                         // Retry from the same stable frame with a smaller probe;

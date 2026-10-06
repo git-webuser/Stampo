@@ -103,6 +103,11 @@ nonisolated enum FrameMatchError: Error, Equatable, LocalizedError {
 
 /// Matches several spatially separated patches so a repeated line of text or
 /// a small animation cannot independently decide the whole-frame offset.
+///
+/// The frame is cut into a grid of tiles on both axes. A video, an animation, a
+/// sticky header or a banner shows up as tiles that say nothing about the
+/// scroll — they change by themselves, or do not move at all — and those are
+/// left out; the rest each vote on the offset the whole of them found.
 nonisolated enum FrameMatcher {
     static func match(previous: CaptureFrame, current: CaptureFrame, axis: ScrollAxis,
                       maximumOffset: Int, minimumConfidence: Double = 0.72) throws -> FrameMatch {
@@ -115,63 +120,43 @@ nonisolated enum FrameMatcher {
         let limit = min(maximumOffset, max(0, axisLength * 3 / 4))
         guard limit >= 2 else { throw FrameMatchError.noReliableMotion }
 
-        // A very small coarse grid is cheap at Retina sizes and samples both
-        // text/edges and smooth image regions. Candidate offsets are one pixel
-        // apart; the result is the measured movement, not the event delta.
-        let alongCount = min(96, axisLength)
-        let acrossCount = min(48, crossLength)
-        let along = stride(from: 0, to: alongCount, by: 1).map { (Double($0) + 0.5) / Double(alongCount) }
-        let across = stride(from: 0, to: acrossCount, by: 1).map { (Double($0) + 0.5) / Double(acrossCount) }
-        let regionCount = 5
-        var costs = [Double](repeating: .infinity, count: limit + 1)
-        var regionCosts = Array(repeating: [Double](repeating: .infinity, count: limit + 1), count: regionCount)
+        let tiles = tileCurves(previous: previous, current: current, axis: axis, limit: limit)
+        let (tileSum, tileCnt, minSamples) = (tiles.sum, tiles.count, tiles.minimumSamples)
+        let tileRows = Self.tileRows, tileCols = Self.tileColumns, tileCount = Self.tileRows * Self.tileColumns
+        let tileCost = tiles.cost
 
-        for delta in 0...limit {
-            let usable = axisLength - delta
-            guard usable > 0 else { continue }
-            var allCost = 0.0, allSamples = 0
-            var sums = [Double](repeating: 0, count: regionCount)
-            var counts = [Int](repeating: 0, count: regionCount)
-            for a in along {
-                let pAxis = min(axisLength - 1, Int(a * Double(usable)))
-                let cAxis = pAxis
-                // Region scores are split on the cross axis and vote separately.
-                for (crossIndex, c) in across.enumerated() {
-                    let cross = min(crossLength - 1, Int(c * Double(crossLength)))
-                    let px: Int, py: Int, cx: Int, cy: Int
-                    if axis == .vertical {
-                        px = cross; py = pAxis + delta; cx = cross; cy = cAxis
-                    } else {
-                        px = pAxis + delta; py = cross; cx = cAxis; cy = cross
-                    }
-                    let i = (py * w + px) * 4, j = (cy * w + cx) * 4
-                    let d0 = abs(Int(previous.pixels[i]) - Int(current.pixels[j]))
-                    let d1 = abs(Int(previous.pixels[i + 1]) - Int(current.pixels[j + 1]))
-                    let d2 = abs(Int(previous.pixels[i + 2]) - Int(current.pixels[j + 2]))
-                    let error = Double(d0 + d1 + d2) / 765.0
-                    allCost += error; allSamples += 1
-                    let region = min(regionCount - 1, crossIndex * regionCount / max(1, across.count))
-                    sums[region] += error; counts[region] += 1
-                }
-            }
-            costs[delta] = allCost / Double(max(1, allSamples))
-            for r in 0..<regionCount where counts[r] > 0 { regionCosts[r][delta] = sums[r] / Double(counts[r]) }
+        // A tile that fits no offset is changing by itself (a video, an
+        // animation); a tile that fits standing still as well as anywhere is
+        // fixed on screen or blank. Neither says anything about the scroll.
+        var moving: [Int] = []
+        for t in 0..<tileCount {
+            let curve = tileCost[t]
+            guard let lowest = curve.filter(\.isFinite).min(), lowest <= fitThreshold else { continue }
+            let still = curve[0...min(2, limit)].filter(\.isFinite).min() ?? .infinity
+            if still - lowest <= tolerance { continue }
+            moving.append(t)
         }
+        guard !moving.isEmpty else { throw FrameMatchError.noReliableMotion }
 
-        // A constant offset across independent patches is stronger than a
-        // single low color error. We down-rank candidates that only fit one
-        // part of the window (e.g. a blinking caret).
-        let coarseBest = costs.indices.min { costs[$0] < costs[$1] } ?? 0
-        guard coarseBest > 0, costs[coarseBest] < 0.20 else { throw FrameMatchError.noReliableMotion }
+        var agg = [Double](repeating: .infinity, count: limit + 1)
+        for d in 1...limit {
+            var s = 0.0, n = 0
+            for t in moving where tileCnt[t][d] >= minSamples { s += tileSum[t][d]; n += tileCnt[t][d] }
+            if n > 0 { agg[d] = s / Double(n) }
+        }
+        let coarseBest = agg.indices.min { agg[$0] < agg[$1] } ?? 0
+        guard coarseBest > 0, agg[coarseBest] < 0.20 else { throw FrameMatchError.noReliableMotion }
 
-        // The coarse grid skips rows, so neighbouring offsets can tie when
-        // the only detail is a few band edges. Settle the final pixel on
-        // every row of the overlap.
-        let crossSamples = across.map { min(crossLength - 1, Int($0 * Double(crossLength))) }
+        // Settle the last pixel on every row, within the moving tiles only.
+        let movingSet = Set(moving)
+        let acrossCount = min(48, crossLength)
+        let crossPos = (0..<acrossCount).map { min(crossLength - 1, Int((Double($0) + 0.5) / Double(acrossCount) * Double(crossLength))) }
+        let crossCols = crossPos.enumerated().map { ($0.element, $0.offset * tileCols / acrossCount) }
         func denseCost(_ delta: Int) -> Double {
             var sum = 0, samples = 0
             for along in 0..<(axisLength - delta) {
-                for cross in crossSamples {
+                let row = min(tileRows - 1, along * tileRows / axisLength)
+                for (cross, col) in crossCols where movingSet.contains(row * tileCols + col) {
                     let i = axis == .vertical ? ((along + delta) * w + cross) * 4 : (cross * w + along + delta) * 4
                     let j = axis == .vertical ? (along * w + cross) * 4 : (cross * w + along) * 4
                     sum += abs(Int(previous.pixels[i]) - Int(current.pixels[j]))
@@ -180,7 +165,7 @@ nonisolated enum FrameMatcher {
                     samples += 1
                 }
             }
-            return Double(sum) / Double(max(1, samples))
+            return samples == 0 ? .infinity : Double(sum) / Double(samples)
         }
         var best = coarseBest, bestDense = denseCost(coarseBest)
         for delta in max(1, coarseBest - 2)...min(limit, coarseBest + 2) where delta != coarseBest {
@@ -188,9 +173,6 @@ nonisolated enum FrameMatcher {
             if cost < bestDense { best = delta; bestDense = cost }
         }
 
-        // Measure perpendicular movement only after aligning the primary
-        // displacement. Checking raw frame pairs confounds diagonal movement
-        // with the much larger intended shift.
         let orthogonal = axis == .vertical ? ScrollAxis.horizontal : .vertical
         let crossLimit = min(20, (orthogonal == .vertical ? h : w) / 10)
         let residual = bestOrthogonalResidual(previous: previous, current: current,
@@ -200,34 +182,110 @@ nonisolated enum FrameMatcher {
             throw FrameMatchError.crossAxisMotion
         }
 
-        // Each band judges the whole-frame offset instead of electing its own.
-        // A blank margin or zebra stripes fit many offsets equally well, so
-        // they agree without deciding; a band that fits clearly better
-        // elsewhere votes against. One dissenter (a caret, an animation) is
-        // tolerated, and at least one band must pin the offset down.
-        let tolerance = 0.005
-        var agreeing = 0, decisive = 0, against = 0, bandMargin = 0.0
-        for region in regionCosts {
-            let atBest = region[best]
-            guard atBest.isFinite, let lowest = region.min() else { continue }
-            guard atBest - lowest <= tolerance else { against += 1; continue }
+        var agreeing = 0, decisive = 0, against = 0, tileMargin = 0.0
+        for t in moving {
+            let curve = tileCost[t]
+            let atBest = curve[best]
+            guard atBest.isFinite, let lowest = curve.filter(\.isFinite).min() else { continue }
+            guard atBest - lowest <= tolerance else {
+                if uniqueBest(curve, tolerance: tolerance) != nil { against += 1 }
+                continue
+            }
             agreeing += 1
-            let alternative = region.indices.lazy.filter { abs($0 - best) > 2 }.map { region[$0] }.min() ?? .infinity
+            let alternative = curve.indices.lazy.filter { abs($0 - best) > 2 }.map { curve[$0] }.filter(\.isFinite).min() ?? .infinity
             if alternative - atBest > tolerance {
                 decisive += 1
-                bandMargin = max(bandMargin, (alternative - atBest) / max(alternative, 0.015))
+                tileMargin = max(tileMargin, (alternative - atBest) / max(alternative, 0.015))
             }
         }
-        guard against <= 1, decisive >= 1 else { throw FrameMatchError.ambiguousMotion }
-        // Blank or striped bands fit far offsets too and would dilute a
-        // whole-frame margin, so the strongest deciding band also counts.
-        let alternative = costs.enumerated().filter { abs($0.offset - best) > 2 }.map(\.element).min() ?? 1
-        let frameMargin = (alternative - costs[best]) / max(alternative, 0.015)
-        let margin = max(0, min(1, max(frameMargin, bandMargin)))
-        let confidence = min(1, (1 - costs[best]) * 0.55 + margin * 0.45)
+        let alternative = agg.enumerated().filter { abs($0.offset - best) > 2 }.map(\.element).filter(\.isFinite).min() ?? 1
+        let frameMargin = (alternative - agg[best]) / max(alternative, 0.015)
+        guard decisive >= 1 || frameMargin >= 0.5, against <= max(1, moving.count / 5) else { throw FrameMatchError.ambiguousMotion }
+        let margin = max(0, min(1, max(frameMargin, tileMargin)))
+        let confidence = min(1, (1 - agg[best]) * 0.55 + margin * 0.45)
         guard confidence >= minimumConfidence else { throw FrameMatchError.ambiguousMotion }
-
         return FrameMatch(offset: best, confidence: confidence, independentRegions: agreeing)
+    }
+
+    /// Tiles the sample grid is cut into, along each axis of the frame.
+    private static let tileRows = 4, tileColumns = 5
+    /// How far a tile's cost may sit above its own best and still be said to
+    /// agree with an offset, and the cost under which a tile fits at all.
+    private static let tolerance = 0.005, fitThreshold = 0.03
+
+    /// Cost of every offset from 0 to `limit`, tile by tile.
+    ///
+    /// Samples sit at fixed places in the CURRENT frame; an offset is scored on
+    /// the samples whose source row still lies in the previous frame, so a
+    /// large offset is judged on fewer of them — and an offset where a tile has
+    /// fewer than a quarter of its samples is not scored at all (infinite).
+    private static func tileCurves(previous: CaptureFrame, current: CaptureFrame,
+                                   axis: ScrollAxis, limit: Int)
+        -> (sum: [[Double]], count: [[Int]], cost: [[Double]], minimumSamples: Int) {
+        let w = previous.width, h = previous.height
+        let axisLength = axis == .vertical ? h : w
+        let crossLength = axis == .vertical ? w : h
+        let alongCount = min(96, axisLength), acrossCount = min(48, crossLength)
+        let tileCount = tileRows * tileColumns
+        let alongPos = (0..<alongCount).map { min(axisLength - 1, Int((Double($0) + 0.5) / Double(alongCount) * Double(axisLength))) }
+        let crossPos = (0..<acrossCount).map { min(crossLength - 1, Int((Double($0) + 0.5) / Double(acrossCount) * Double(crossLength))) }
+        var tileSum = Array(repeating: [Double](repeating: 0, count: limit + 1), count: tileCount)
+        var tileCnt = Array(repeating: [Int](repeating: 0, count: limit + 1), count: tileCount)
+        for delta in 0...limit {
+            for (ai, cAxis) in alongPos.enumerated() where cAxis + delta < axisLength {
+                let row = ai * tileRows / alongCount
+                for (ci, cross) in crossPos.enumerated() {
+                    let i: Int, j: Int
+                    if axis == .vertical { i = ((cAxis + delta) * w + cross) * 4; j = (cAxis * w + cross) * 4 }
+                    else { i = (cross * w + cAxis + delta) * 4; j = (cross * w + cAxis) * 4 }
+                    let e = Double(abs(Int(previous.pixels[i]) - Int(current.pixels[j]))
+                                 + abs(Int(previous.pixels[i + 1]) - Int(current.pixels[j + 1]))
+                                 + abs(Int(previous.pixels[i + 2]) - Int(current.pixels[j + 2]))) / 765.0
+                    let t = row * tileColumns + ci * tileColumns / acrossCount
+                    tileSum[t][delta] += e; tileCnt[t][delta] += 1
+                }
+            }
+        }
+        let perTile = max(1, (alongCount / tileRows) * (acrossCount / tileColumns))
+        let minSamples = max(4, perTile / 4)
+        let cost: [[Double]] = (0..<tileCount).map { t in
+            (0...limit).map { d in tileCnt[t][d] >= minSamples ? tileSum[t][d] / Double(tileCnt[t][d]) : .infinity }
+        }
+        return (tileSum, tileCnt, cost, minSamples)
+    }
+
+    /// Whether `offset` is consistent with the frames when they cannot pin it
+    /// down themselves: every tile that fits some offset well must fit this
+    /// one about as well. Tiles that change by themselves, stand still or are
+    /// blank have no say. Nil when the frames contradict the prediction.
+    static func verifyPredicted(previous: CaptureFrame, current: CaptureFrame, axis: ScrollAxis,
+                                offset: Int, searchLimit: Int) -> (consistent: Int, against: Int)? {
+        let axisLength = axis == .vertical ? previous.height : previous.width
+        let limit = min(max(offset + 2, searchLimit), axisLength * 3 / 4)
+        guard offset > 0, offset <= limit else { return nil }
+        let tiles = tileCurves(previous: previous, current: current, axis: axis, limit: limit)
+        var consistent = 0, against = 0, moving = 0
+        for t in 0..<tiles.cost.count {
+            let curve = tiles.cost[t]
+            guard let lowest = curve.filter(\.isFinite).min(), lowest <= fitThreshold else { continue }
+            let still = curve[0...2].filter(\.isFinite).min() ?? .infinity
+            if still - lowest <= tolerance { continue }
+            moving += 1
+            guard curve[offset].isFinite else { continue }
+            if curve[offset] - lowest <= tolerance { consistent += 1 }
+            else if uniqueBest(curve, tolerance: tolerance) != nil { against += 1 }
+        }
+        guard against <= max(0, moving / 5) else { return nil }
+        return (consistent, against)
+    }
+
+    /// A tile votes against an offset only when it knows better: its own best
+    /// fit is unique. A mostly blank tile, or one whose content changes, can
+    /// fit some far offset by chance; that is no evidence.
+    static func uniqueBest(_ curve: [Double], tolerance: Double) -> Int? {
+        guard let arg = curve.indices.filter({ curve[$0].isFinite }).min(by: { curve[$0] < curve[$1] }) else { return nil }
+        let rival = curve.indices.lazy.filter { abs($0 - arg) > 2 }.map { curve[$0] }.filter(\.isFinite).min() ?? .infinity
+        return rival - curve[arg] > tolerance ? arg : nil
     }
 
     static func bestOrthogonalResidual(previous: CaptureFrame, current: CaptureFrame,

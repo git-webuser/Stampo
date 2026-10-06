@@ -469,6 +469,40 @@ nonisolated enum ScrollStepPlanner {
         min(axisLength * 3 / 4, Int((Double(lines) * pixelsPerLine * 1.5 + 32).rounded()))
     }
 
+    // MARK: Predicting a step the frames cannot place
+
+    /// How many steps in a row may be placed by the calibration rather than by
+    /// the frames. Each one is a step the frames could not confirm, so the run
+    /// is short: past it the capture goes back to retrying until a step matches.
+    static let maxPredictedInARow = 3
+
+    /// How far a step of `lines` lines should have moved the page, by the
+    /// calibration.
+    static func predictedOffset(lines: Int, pixelsPerLine: Double) -> Int {
+        Int((Double(lines) * pixelsPerLine).rounded())
+    }
+
+    /// Whether a step that matched agrees with the calibration: within two
+    /// pixels or two percent, whichever is more. One such step is the evidence
+    /// that lines move the page linearly, which is what a prediction rests on —
+    /// a probe of one line says nothing about ten.
+    static func confirmsLinearity(offset: Int, lines: Int, pixelsPerLine: Double) -> Bool {
+        let expected = Double(predictedOffset(lines: lines, pixelsPerLine: pixelsPerLine))
+        return abs(Double(offset) - expected) <= max(2, expected * 0.02)
+    }
+
+    /// Whether a step the matcher could not decide may be placed at the
+    /// distance the calibration predicts — which is then still to be checked
+    /// against the frames. All of: there is a calibration, a full step has
+    /// already matched it, fewer than `maxPredictedInARow` steps in a row were
+    /// predicted, and no earlier attempt has already moved the page (its
+    /// distance would be missing from the prediction).
+    static func mayPredict(pixelsPerLine: Double?, linearityConfirmed: Bool,
+                           predictedInARow: Int, unaccountedScroll: Int) -> Bool {
+        pixelsPerLine != nil && linearityConfirmed
+            && predictedInARow < maxPredictedInARow && unaccountedScroll == 0
+    }
+
     /// The step to take. Without a calibration — the probe could not be
     /// matched — it is the estimate from points that has always been used.
     static func plan(target: Int, pixelsPerLine: Double?, axisLength: Int,
