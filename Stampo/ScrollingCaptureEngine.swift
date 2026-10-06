@@ -205,12 +205,21 @@ nonisolated enum FrameMatcher {
         // a lone tile lining up by chance is not a match; blank areas have
         // nothing to compare and do not count, so a column at the edge of an
         // otherwise empty page still passes.
-        var comparable = 0, lined = 0
+        //
+        // Unless several of them line up exactly. A page that holds still
+        // matches pixel for pixel, where the chance matches inside a changing
+        // video are nearly always approximate — and a heading with a video
+        // under it, the heading alone surrounded by dark nothing, is a page
+        // whose few tiles with content are the ones that matter.
+        var comparable = 0, lined = 0, exact = 0
         for t in 0..<tileCount where tileCost[t][best].isFinite && tiles.hasContent[t][best] {
             comparable += 1
             if tileCost[t][best] <= fitThreshold { lined += 1 }
+            if tileCost[t][best] <= exactFit { exact += 1 }
         }
-        guard comparable > 0, Double(lined) >= coverageRequired * Double(comparable) else {
+        guard comparable > 0,
+              exact >= exactTilesToSkipCoverage
+                  || Double(lined) >= coverageRequired * Double(comparable) else {
             throw FrameMatchError.ambiguousMotion
         }
         guard decisive >= 1 || frameMargin >= 0.5, against <= max(1, moving.count / 5) else { throw FrameMatchError.ambiguousMotion }
@@ -229,6 +238,10 @@ nonisolated enum FrameMatcher {
     /// samples have something in them to compare, and the share of such tiles
     /// that must line up with an offset for it to be believed.
     private static let contentSpread = 0.015, coverageRequired = 0.5
+    /// A tile lines up exactly under this cost, and this many such tiles are
+    /// enough to believe an offset whatever the rest of the frame is doing.
+    /// Two let a wrong offset through the fuzz; three do not.
+    private static let exactFit = 0.002, exactTilesToSkipCoverage = 3
 
     /// The inner loop of `tileCurves`: about a million samples a match.
     private static func accumulate(before: UnsafeBufferPointer<UInt8>, after: UnsafeBufferPointer<UInt8>,

@@ -1,5 +1,6 @@
 import AppKit
 import CoreGraphics
+import CoreText
 import Foundation
 import Testing
 @testable import Stampo
@@ -1206,6 +1207,89 @@ import Testing
             }
         }
         #expect(right >= 20, "right \(right), refused \(refused)")
+    }
+
+    /// A dark page like claude.com/product/design at half the size: a large
+    /// heading and a line or two under a wide autoplaying video — 44% of the
+    /// page's height, three quarters of its width — with sparse text below. The
+    /// scene in the video depends on `videoSeed`; the rest is the same in every
+    /// capture. The first screen is the heading with the video under it, the
+    /// heading surrounded by dark nothing.
+    private func heroPage(videoSeed: Int) throws -> CaptureFrame {
+        let width = 1258, pageHeight = 4500
+        let space = CGColorSpaceCreateDeviceRGB()
+        let context = try #require(CGContext(data: nil, width: width, height: pageHeight, bitsPerComponent: 8,
+                                             bytesPerRow: width * 4, space: space,
+                                             bitmapInfo: CaptureFrame.bitmapInfo))
+        let font = CTFontCreateWithName("Helvetica" as CFString, 15, nil)
+        let big = CTFontCreateWithName("Helvetica-Bold" as CFString, 36, nil)
+        func text(_ string: String, _ font: CTFont, _ x: Int, _ top: Int, gray: CGFloat) {
+            let attributed = NSAttributedString(string: string, attributes: [
+                .font: font, .foregroundColor: NSColor(white: gray, alpha: 1)])
+            context.textPosition = CGPoint(x: x, y: pageHeight - top)
+            CTLineDraw(CTLineCreateWithAttributedString(attributed), context)
+        }
+        context.setFillColor(CGColor(gray: 0.08, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: width, height: pageHeight))
+        text("Design your idea with Claude", big, 165, 130, gray: 0.92)
+        text("Describe a visual and Claude builds a first version, on brand. Refine, share, or", font, 240, 200, gray: 0.6)
+        text("hand off to the tools you use. You're the designer, start to finish.", font, 300, 230, gray: 0.6)
+        context.setFillColor(CGColor(gray: 0.95, alpha: 1))
+        context.fill(CGRect(x: 540, y: pageHeight - 300, width: 180, height: 45))
+
+        let videoX = 151, videoTop = 381, videoWidth = 956, videoHeight = 620
+        let video = CGRect(x: videoX, y: pageHeight - videoTop - videoHeight, width: videoWidth, height: videoHeight)
+        context.setFillColor(CGColor(gray: 0.12, alpha: 1)); context.fill(video)
+        context.setStrokeColor(CGColor(gray: 0.3, alpha: 1)); context.setLineWidth(1)
+        context.stroke(video.insetBy(dx: 0.5, dy: 0.5))
+        srand48(videoSeed)
+        for panel in 0..<14 {
+            let x = videoX + 20 + Int(drand48() * Double(videoWidth - 250))
+            let top = videoTop + 20 + Int(drand48() * Double(videoHeight - 150))
+            context.setFillColor(CGColor(gray: 0.2 + drand48() * 0.6, alpha: 1))
+            context.fill(CGRect(x: x, y: pageHeight - top - 100,
+                                width: 100 + Int(drand48() * 150), height: 30 + Int(drand48() * 80)))
+            text("Panel \(videoSeed * 31 + panel) · \(100 + Int(drand48() * 900))", font, x + 5, top + 20, gray: 0.95)
+        }
+        // Sparse paragraphs below the video — the same whatever the seed.
+        let words = "describe refine together export hand off prototype slides layout colour brand system component review share iterate canvas comment version".split(separator: " ")
+        func word() -> String { String(words[Int(drand48() * Double(words.count))]) }
+        var y = videoTop + videoHeight + 150, section = 0
+        srand48(4242)
+        while y < pageHeight - 100 {
+            text("Section \(section) " + (0..<Int(2 + drand48() * 4)).map { _ in word() }.joined(separator: " "),
+                 big, 150 + Int(drand48() * 100), y, gray: 0.9)
+            y += 75 + Int(drand48() * 20)
+            for _ in 0..<Int(2 + drand48() * 5) {
+                text((0..<Int(6 + drand48() * 10)).map { _ in word() }.joined(separator: " "), font, 150, y, gray: 0.6)
+                y += 28
+            }
+            y += 90 + Int(drand48() * 120); section += 1
+        }
+        let image = try #require(context.makeImage())
+        return try #require(CaptureFrame(image: image))
+    }
+
+    /// The probe on claude.com was refused: the video held more than half of
+    /// the tiles with anything in them, and the heading it sat under is a few
+    /// bright tiles in the dark. Those few lined up exactly — the page holds
+    /// still, the video does not — and that is evidence enough. Twelve captures
+    /// of the scene, the video different each time, a probe of 40 px.
+    @Test func aProbeBelowAHeadingAndAboveAVideoFindsItsOffset() throws {
+        let height = 683
+        var found = 0
+        for seed in 0..<12 {
+            let before = try #require(try heroPage(videoSeed: seed * 2).cropped(to: CGRect(x: 0, y: 0, width: 1258, height: height)))
+            let after = try #require(try heroPage(videoSeed: seed * 2 + 1).cropped(to: CGRect(x: 0, y: 40, width: 1258, height: height)))
+            do {
+                let match = try FrameMatcher.match(previous: before, current: after, axis: .vertical, maximumOffset: 102)
+                #expect(match.offset == 40, "seed \(seed): offset \(match.offset)")
+                found += 1
+            } catch {
+                Issue.record("seed \(seed): \(error)")
+            }
+        }
+        #expect(found == 12)
     }
 
     /// With the video over everything the two frames share, the frames cannot
