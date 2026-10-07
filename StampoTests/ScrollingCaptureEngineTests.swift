@@ -794,13 +794,9 @@ import Testing
             "Grant Accessibility access to Stampo to scroll windows.",
             "Stampo couldn't complete scrolling capture. Try again.",
             "Stampo couldn't encode the scrolling image.",
-            "The window is covered at the scroll point.",
-            "The window size changed.",
-            "The display scale changed.",
-            "The window moved to the background.",
-            "The area doesn't scroll. Click inside the page or table and start again.",
-            "There's no scrollable area at that point. Click inside the page or table and try again.",
-            "macOS couldn't scroll the window.",
+            "The scrolling image reached the configured size limit.",
+            "Grant Screen Recording access to Stampo, then try again.",
+            "The selected window is no longer available.",
         ]
         for key in keys {
             let translated = LocaleManager.string(key, locale: ru)
@@ -1532,20 +1528,32 @@ import Testing
             ScrollInputGuard.response(to: kind, userData: data, pointer: pointer, window: window, overOwnUI: overUI)
         }
         // A wheel event: the capture's own is marked, the user's is not.
-        #expect(response(.scrollWheel, data: marker) == .none)
+        #expect(response(.scrollWheel, data: marker) == .nothing)
         #expect(response(.scrollWheel, data: 0) == .pauseAnnounced)
         #expect(response(.scrollWheel, data: marker + 1) == .pauseAnnounced)
         // Buttons and keys; Esc cancels on its own account.
         #expect(response(.mouseDown) == .pauseAnnounced)
         #expect(response(.key(isEscape: false)) == .pauseAnnounced)
-        #expect(response(.key(isEscape: true)) == .none)
+        #expect(response(.key(isEscape: true)) == .nothing)
         // The pointer: free inside the window, and over the strip; off the page
         // it pauses, without a toast — it is most likely on its way to Save.
-        #expect(response(.pointerMoved, at: inside) == .none)
+        #expect(response(.pointerMoved, at: inside) == .nothing)
         #expect(response(.pointerMoved, at: outside) == .pauseQuietly)
-        #expect(response(.pointerMoved, at: outside, overUI: true) == .none)
+        #expect(response(.pointerMoved, at: outside, overUI: true) == .nothing)
         // The edge of the window is in it.
-        #expect(response(.pointerMoved, at: CGPoint(x: 100, y: 100)) == .none)
+        #expect(response(.pointerMoved, at: CGPoint(x: 100, y: 100)) == .nothing)
+    }
+
+    /// With nothing collected yet there is nothing for Save to keep: a hand on
+    /// the page gives the window's screenshot, the pointer leaving is let go.
+    @Test func whatTheInputDoesDependsOnWhetherAFrameIsIn() {
+        typealias Guard = ScrollInputGuard
+        #expect(Guard.outcome(of: .nothing, hasCollected: true) == .ignore)
+        #expect(Guard.outcome(of: .nothing, hasCollected: false) == .ignore)
+        #expect(Guard.outcome(of: .pauseAnnounced, hasCollected: true) == .pause(announce: true))
+        #expect(Guard.outcome(of: .pauseQuietly, hasCollected: true) == .pause(announce: false))
+        #expect(Guard.outcome(of: .pauseAnnounced, hasCollected: false) == .windowScreenshot)
+        #expect(Guard.outcome(of: .pauseQuietly, hasCollected: false) == .ignore)
     }
 
     /// The capture's wheel event is built whole and marked, so what the guard
@@ -1636,6 +1644,60 @@ import Testing
         session.cancel()
         #expect(didCancel)
         #expect(!didFinish)
+    }
+
+    /// Before the first frame, only what the user can do something about gets an
+    /// alert; everything else — nothing scrolled, no scroll area, the scroll
+    /// point covered, the window not brought forward, a wheel event that would
+    /// not send — ends in the plain screenshot of the window.
+    @Test func aFailureBeforeTheFirstFrameIsAnAlertOnlyWhenTheUserCanActOnIt() {
+        let alerts: [Error] = [WindowFrameSourceError.permissionDenied,
+                               ScrollDriverError.accessibilityDenied,
+                               WindowFrameSourceError.windowUnavailable]
+        for error in alerts { #expect(ScrollStartFailure.response(to: error) == .alert, "\(error)") }
+        let screenshots: [Error] = [ScrollDriverError.noMovingContent,
+                                    ScrollDriverError.scrollAreaUnavailable,
+                                    ScrollDriverError.eventUnavailable,
+                                    ScrollDriver.selectedWindowNotFrontmost(),
+                                    WindowFrameSourceError.captureFailed("The window moved to the background."),
+                                    WindowFrameSourceError.invalidFrame,
+                                    FrameMatchError.noReliableMotion,
+                                    CocoaError(.fileReadUnknown)]
+        for error in screenshots { #expect(ScrollStartFailure.response(to: error) == .windowScreenshot, "\(error)") }
+    }
+
+    /// The session says it is giving way to a window screenshot — and only that:
+    /// it is not a cancellation, which would send the strip away with nothing.
+    @Test @MainActor func aSessionThatCannotScrollAsksForTheWindowScreenshotInstead() async {
+        let selection = WindowPickerSelection(windowID: 17, processID: 42,
+                                              clickPoint: CGPoint(x: 15, y: 15),
+                                              bounds: CGRect(x: 0, y: 0, width: 120, height: 90))
+        let session = ScrollingCaptureSession(selection: selection, axis: .vertical,
+                                              activateSelectedWindow: { _ in throw ScrollDriverError.scrollAreaUnavailable })
+        var instead = 0, cancelled = 0, finished = 0
+        session.onWindowScreenshotInstead = { instead += 1 }
+        session.onCancelled = { cancelled += 1 }
+        session.onFinished = { _ in finished += 1 }
+        await session.scheduleRun().value
+        #expect(instead == 1)
+        #expect(cancelled == 0 && finished == 0)
+        // A second ending is no ending: the session is over.
+        session.cancel()
+        session.finish()
+        #expect(instead == 1 && cancelled == 0 && finished == 0)
+    }
+
+    /// Without anyone to take the window's screenshot, giving way is a cancellation.
+    @Test @MainActor func aSessionWithNobodyToTakeTheWindowScreenshotCancels() async {
+        let selection = WindowPickerSelection(windowID: 17, processID: 42,
+                                              clickPoint: CGPoint(x: 15, y: 15),
+                                              bounds: CGRect(x: 0, y: 0, width: 120, height: 90))
+        let session = ScrollingCaptureSession(selection: selection, axis: .vertical,
+                                              activateSelectedWindow: { _ in throw ScrollDriverError.eventUnavailable })
+        var cancelled = 0
+        session.onCancelled = { cancelled += 1 }
+        await session.scheduleRun().value
+        #expect(cancelled == 1)
     }
 
     @Test @MainActor func cancellationBeforeScheduledRunDoesNotActivateAnyWindow() async {

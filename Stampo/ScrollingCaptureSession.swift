@@ -28,6 +28,10 @@ final class ScrollingCaptureSession {
     var onFinished: ((CGImage) -> Void)?
     var onCancelled: (() -> Void)?
     var onStatus: ((ScrollCaptureStatus) -> Void)?
+    /// Nothing could be collected, and the reason is none of the user's
+    /// business: the window is to be captured as it stands instead, the way
+    /// the Window mode does it.
+    var onWindowScreenshotInstead: (() -> Void)?
 
     private let selection: WindowPickerSelection
     /// The direction asked for until the probe has settled, the direction the
@@ -60,8 +64,7 @@ final class ScrollingCaptureSession {
     private var assembler: ImageAssembler
     private var previous: CaptureFrame?
     private var zeroMotionCount = 0
-    /// Whether, in the run of failed steps now going, there were tiles changing
-    /// by themselves: what the pause then says is the reason.
+    /// Steps in a row that would not match.
     private var consecutiveFailures = 0
     private let startedAt = Date()
 
@@ -159,7 +162,7 @@ final class ScrollingCaptureSession {
                 return ScrollDriver.currentWindowBounds(self.selection.windowID) ?? self.selection.bounds
             },
             overOwnUI: { [weak self] point in self?.ownUICovers(point) ?? false },
-            onUserInput: { [weak self] announce in self?.userInterrupted(announce: announce) })
+            onUserInput: { [weak self] response in self?.userInterrupted(response) })
         monitor.start()
         inputMonitor = monitor
     }
@@ -172,10 +175,18 @@ final class ScrollingCaptureSession {
     /// The user touched something while the capture scrolled. Stop at once — the
     /// step in flight is not to be trusted — and wait: Save keeps what is
     /// collected, ✕ drops it.
-    private func userInterrupted(announce: Bool) {
+    private func userInterrupted(_ response: ScrollInputGuard.Response) {
         guard !stopped, inputMonitor != nil else { return }
-        task?.cancel()
-        pause(announce: announce)
+        switch ScrollInputGuard.outcome(of: response, hasCollected: !assembler.strips.isEmpty) {
+        case .ignore:
+            return
+        case .windowScreenshot:
+            Log.capture.info("scroll capture interrupted before the first frame")
+            windowScreenshotInstead()
+        case .pause(let announce):
+            task?.cancel()
+            pause(announce: announce)
+        }
     }
 
     private func cleanup() {
@@ -479,8 +490,7 @@ final class ScrollingCaptureSession {
             if !stopped {
                 logFailure(error)
                 guard !assembler.strips.isEmpty else {
-                    presentFailure(error)
-                    cancel()
+                    failBeforeTheFirstFrame(error)
                     return
                 }
                 // Whatever it was — the window covered, resized or sent to the
@@ -521,6 +531,34 @@ final class ScrollingCaptureSession {
         }
         try ScrollDriver.validateScrollTarget(selection: selection, point: point, container: scrollContainer!,
                                               ignoring: ignoredWindows())
+    }
+
+    /// A failure with nothing collected yet. The user asked for a screenshot,
+    /// so unless the way to one is closed — see `ScrollStartFailure` — they get
+    /// the window as it stands.
+    private func failBeforeTheFirstFrame(_ error: Error) {
+        switch ScrollStartFailure.response(to: error) {
+        case .alert:
+            presentFailure(error)
+            cancel()
+        case .windowScreenshot:
+            windowScreenshotInstead()
+        }
+    }
+
+    /// The scrolling capture ends here and the service takes the window's
+    /// screenshot in its place. Without one to ask, it is a cancellation.
+    private func windowScreenshotInstead() {
+        guard !stopped else { return }
+        guard let onWindowScreenshotInstead else {
+            cancel()
+            return
+        }
+        stopped = true
+        task?.cancel()
+        cleanup()
+        releaseCaptureBuffers()
+        onWindowScreenshotInstead()
     }
 
     private func presentFailure(_ error: Error) {
@@ -630,13 +668,13 @@ final class ScrollingCaptureSession {
         }
         guard abs(now.width - selection.bounds.width) < 1,
               abs(now.height - selection.bounds.height) < 1 else {
-            throw WindowFrameSourceError.captureFailed(LocaleManager.shared.string("The window size changed."))
+            throw WindowFrameSourceError.captureFailed("The window size changed.")
         }
         guard abs(Self.backingScale(for: now) - scale) < 0.01 else {
-            throw WindowFrameSourceError.captureFailed(LocaleManager.shared.string("The display scale changed."))
+            throw WindowFrameSourceError.captureFailed("The display scale changed.")
         }
         guard NSWorkspace.shared.frontmostApplication?.processIdentifier == selection.processID else {
-            throw WindowFrameSourceError.captureFailed(LocaleManager.shared.string("The window moved to the background."))
+            throw WindowFrameSourceError.captureFailed("The window moved to the background.")
         }
     }
 
@@ -655,7 +693,7 @@ final class ScrollingCaptureSession {
             }
             try await Task.sleep(for: .milliseconds(80))
         }
-        throw WindowFrameSourceError.captureFailed(LocaleManager.shared.string("The window moved to the background."))
+        throw WindowFrameSourceError.captureFailed("The window moved to the background.")
     }
 
     private func currentScrollPoint() -> CGPoint {
@@ -815,5 +853,31 @@ final class ScrollingCaptureSession {
     nonisolated static func backingScale(pixelWidth: Int, pointWidth: Int) -> CGFloat? {
         guard pixelWidth > 0, pointWidth > 0 else { return nil }
         return max(1, CGFloat(pixelWidth) / CGFloat(pointWidth))
+    }
+}
+
+/// What a scrolling capture does when it fails before it has collected a frame.
+nonisolated enum ScrollStartFailure: Equatable {
+    /// An alert: the user has something to do about it, or nothing can be
+    /// captured at all.
+    case alert
+    /// The window as it stands, by the ordinary path of the Window mode.
+    case windowScreenshot
+
+    /// Screen recording or Accessibility not granted, and the window closed:
+    /// nothing a plain screenshot would not run into too, or no way to tell the
+    /// user what to grant but to say so. Anything else — nothing scrolled, no
+    /// scroll area, the scroll point covered, the window not brought forward, an
+    /// event that would not send — is no reason to send the user away empty
+    /// handed.
+    static func response(to error: Error) -> ScrollStartFailure {
+        switch error {
+        case WindowFrameSourceError.permissionDenied,
+             ScrollDriverError.accessibilityDenied,
+             WindowFrameSourceError.windowUnavailable:
+            return .alert
+        default:
+            return .windowScreenshot
+        }
     }
 }

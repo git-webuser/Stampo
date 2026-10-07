@@ -23,7 +23,7 @@ nonisolated enum ScrollInputGuard {
     /// What the capture does about an event.
     enum Response: Equatable {
         /// Nothing: the event is the capture's own, or harmless.
-        case none
+        case nothing
         /// Pause, and say so in a toast: the user's hands are on the page.
         case pauseAnnounced
         /// Pause without a word: the pointer left the page, most likely for Save.
@@ -44,10 +44,31 @@ nonisolated enum ScrollInputGuard {
     static func response(to kind: Kind, userData: Int64, pointer: CGPoint, window: CGRect,
                          overOwnUI: Bool) -> Response {
         switch kind {
-        case .scrollWheel:       return userData != syntheticMarker ? .pauseAnnounced : .none
+        case .scrollWheel:       return userData != syntheticMarker ? .pauseAnnounced : .nothing
         case .mouseDown:         return .pauseAnnounced
-        case .key(let isEscape): return isEscape ? .none : .pauseAnnounced
-        case .pointerMoved:      return !window.contains(pointer) && !overOwnUI ? .pauseQuietly : .none
+        case .key(let isEscape): return isEscape ? .nothing : .pauseAnnounced
+        case .pointerMoved:      return !window.contains(pointer) && !overOwnUI ? .pauseQuietly : .nothing
+        }
+    }
+
+    /// What the session does with a response, given whether a first strip is in.
+    enum Outcome: Equatable {
+        case ignore
+        /// The window as it stands, instead of a capture that has nothing yet.
+        case windowScreenshot
+        case pause(announce: Bool)
+    }
+
+    /// With something collected, a response pauses the capture as it says.
+    /// With nothing — the first step still in flight — there is nothing for
+    /// Save to keep: a hand on the page gives the user the window as it stands,
+    /// and a pointer that only left it is let go, since its next move, once a
+    /// step is in, pauses the capture as it would anyway.
+    static func outcome(of response: Response, hasCollected: Bool) -> Outcome {
+        switch response {
+        case .nothing:        return .ignore
+        case .pauseAnnounced: return hasCollected ? .pause(announce: true) : .windowScreenshot
+        case .pauseQuietly:   return hasCollected ? .pause(announce: false) : .ignore
         }
     }
 
@@ -64,13 +85,13 @@ final class ScrollInputMonitor {
     private var monitor: Any?
     private let windowBounds: () -> CGRect
     private let overOwnUI: (CGPoint) -> Bool
-    private let onUserInput: (_ announce: Bool) -> Void
+    private let onUserInput: (ScrollInputGuard.Response) -> Void
     /// The window's bounds, asked of the window list at most a few times a
     /// second: the pointer moves far more often than a window does.
     private var cachedBounds: (rect: CGRect, at: Date)?
 
     init(windowBounds: @escaping () -> CGRect, overOwnUI: @escaping (CGPoint) -> Bool,
-         onUserInput: @escaping (_ announce: Bool) -> Void) {
+         onUserInput: @escaping (ScrollInputGuard.Response) -> Void) {
         self.windowBounds = windowBounds
         self.overOwnUI = overOwnUI
         self.onUserInput = onUserInput
@@ -111,13 +132,10 @@ final class ScrollInputMonitor {
         let userData = event.cgEvent?.getIntegerValueField(.eventSourceUserData) ?? 0
         // Only the pointer needs to know where the window and the strip are.
         let isPointer = kind == .pointerMoved
-        switch ScrollInputGuard.response(to: kind, userData: userData, pointer: pointer,
-                                         window: isPointer ? currentWindowBounds() : .zero,
-                                         overOwnUI: isPointer && overOwnUI(pointer)) {
-        case .none:           break
-        case .pauseAnnounced: onUserInput(true)
-        case .pauseQuietly:   onUserInput(false)
-        }
+        let response = ScrollInputGuard.response(to: kind, userData: userData, pointer: pointer,
+                                                 window: isPointer ? currentWindowBounds() : .zero,
+                                                 overOwnUI: isPointer && overOwnUI(pointer))
+        if response != .nothing { onUserInput(response) }
     }
 
     private func currentWindowBounds() -> CGRect {

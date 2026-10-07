@@ -11,7 +11,8 @@ enum WindowFrameSourceError: Error, LocalizedError {
         switch self {
         case .permissionDenied: return LocaleManager.shared.string("Grant Screen Recording access to Stampo, then try again.")
         case .windowUnavailable: return LocaleManager.shared.string("The selected window is no longer available.")
-        case .invalidFrame: return LocaleManager.shared.string("The selected window has no capturable image.")
+        // Not shown: a scrolling capture that meets it takes the window as it is.
+        case .invalidFrame: return "The selected window has no capturable image."
         case .captureFailed(let reason): return reason
         }
     }

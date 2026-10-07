@@ -4781,22 +4781,6 @@
         }
       }
     },
-    "macOS couldn't scroll the window." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "macOS couldn't scroll the window."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "macOS не дала прокрутить окно."
-          }
-        }
-      }
-    },
     "Manage files" : {
       "comment" : "Onboarding feature row",
       "localizations" : {
@@ -8715,22 +8699,6 @@
         }
       }
     },
-    "The area doesn't scroll. Click inside the page or table and start again." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The area doesn't scroll. Click inside the page or table and start again."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Область не прокручивается. Щёлкните внутри страницы или таблицы и начните заново."
-          }
-        }
-      }
-    },
     "The canvas around the image stays transparent" : {
       "comment" : "Explains what the No Background option does",
       "localizations" : {
@@ -8765,70 +8733,6 @@
         }
       }
     },
-    "The display scale changed." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The display scale changed."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Масштаб экрана изменился."
-          }
-        }
-      }
-    },
-    "The window is covered at the scroll point." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The window is covered at the scroll point."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Окно перекрыто в точке прокрутки."
-          }
-        }
-      }
-    },
-    "The window moved to the background." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The window moved to the background."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Окно ушло на задний план."
-          }
-        }
-      }
-    },
-    "The window size changed." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The window size changed."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Размер окна изменился."
-          }
-        }
-      }
-    },
     "Theme" : {
       "comment" : "Title for the appearance theme picker row in General settings",
       "localizations" : {
@@ -8842,22 +8746,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Тема"
-          }
-        }
-      }
-    },
-    "There's no scrollable area at that point. Click inside the page or table and try again." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "There's no scrollable area at that point. Click inside the page or table and try again."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "В этой точке нет области прокрутки. Щёлкните внутри страницы или таблицы и попробуйте снова."
           }
         }
       }
@@ -9761,12 +9649,6 @@
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Grant Screen Recording access to Stampo, then try again." } },
         "ru" : { "stringUnit" : { "state" : "translated", "value" : "Разрешите Stampo запись экрана и повторите попытку." } }
-      }
-    },
-    "The selected window has no capturable image." : {
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "The selected window has no capturable image." } },
-        "ru" : { "stringUnit" : { "state" : "translated", "value" : "В выбранном окне нет изображения для захвата." } }
       }
     },
     "The selected window is no longer available." : {

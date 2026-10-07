@@ -98,6 +98,16 @@ final class ScreenshotService {
             self?.captureInProgress = false
             self?.onScrollingEnded?()
         }
+        // Nothing to scroll through: the strip leaves and the window is
+        // captured as the Window mode captures it — same settings, same
+        // thumbnail, and an alert only if that fails too.
+        session.onWindowScreenshotInstead = { [weak self] in
+            guard let self else { return }
+            self.scrollingSession = nil
+            self.captureInProgress = false
+            self.onScrollingEnded?()
+            self.captureWindowID(selection.windowID, preferredScreen: preferredScreen)
+        }
         session.start()
         return true
     }

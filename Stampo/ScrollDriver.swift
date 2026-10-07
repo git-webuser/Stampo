@@ -101,6 +101,10 @@ struct ScrollViewport: Equatable, Sendable {
     }
 }
 
+/// Why scrolling a window failed. Nothing here is shown to the user: before the
+/// first frame the capture falls back to a plain screenshot of the window
+/// (Accessibility refused has an alert of its own), and after it a toast says
+/// only that it stopped. The text is for the log, in English.
 enum ScrollDriverError: Error, LocalizedError {
     case accessibilityDenied
     case scrollAreaUnavailable
@@ -109,10 +113,10 @@ enum ScrollDriverError: Error, LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .accessibilityDenied: return LocaleManager.shared.string("Grant Accessibility access to Stampo to scroll windows.")
-        case .scrollAreaUnavailable: return LocaleManager.shared.string("There's no scrollable area at that point. Click inside the page or table and try again.")
-        case .noMovingContent: return LocaleManager.shared.string("The area doesn't scroll. Click inside the page or table and start again.")
-        case .eventUnavailable: return LocaleManager.shared.string("macOS couldn't scroll the window.")
+        case .accessibilityDenied: return "Accessibility access is not granted."
+        case .scrollAreaUnavailable: return "There's no scrollable area at that point."
+        case .noMovingContent: return "The area doesn't scroll."
+        case .eventUnavailable: return "macOS couldn't scroll the window."
         }
     }
 }
@@ -408,7 +412,7 @@ enum ScrollDriver {
     }
 
     static func selectedWindowNotFrontmost() -> WindowFrameSourceError {
-        .captureFailed(LocaleManager.shared.string("The window is covered at the scroll point."))
+        .captureFailed("The window is covered at the scroll point.")
     }
 
     private static func systemWideElement() -> AXUIElement {
