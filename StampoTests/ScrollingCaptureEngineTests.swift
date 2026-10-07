@@ -2,6 +2,7 @@ import AppKit
 import CoreGraphics
 import CoreText
 import Foundation
+import ImageIO
 import Testing
 @testable import Stampo
 
@@ -803,6 +804,44 @@ import Testing
             #expect(translated != key, "no Russian for \(key)")
         }
     }
+
+#if DEBUG
+    /// The dump of a capture's frames: a folder named by the time, a PNG for
+    /// every frame, the lines of steps.txt in the order they came — and nothing
+    /// at all unless the flag is on.
+    @Test @MainActor func aFrameDumpWritesFramesAndStepsInOrder() throws {
+        #expect(AppSettings.store.bool(forKey: ScrollFrameDump.defaultsKey) == false)
+        #expect(ScrollFrameDump.begin() == nil)
+
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try #require(TimeZone(secondsFromGMT: 0))
+        let moment = try #require(calendar.date(from: DateComponents(year: 2026, month: 10, day: 8,
+                                                                     hour: 14, minute: 30, second: 5)))
+        #expect(ScrollFrameDump.directoryName(for: moment, calendar: calendar) == "2026-10-08-143005")
+
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ScrollFrameDumpTest-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+
+        let dump = ScrollFrameDump(directory: folder)
+        let frame = texture(width: 64, height: 48)
+        dump.save(frame, as: "00-before")
+        dump.step("01 lines=3 · match 120 px → added")
+        dump.save(frame, as: "01-step")
+        dump.step("02 lines=3 · ambiguousMotion → retry 1 of 2")
+        dump.flush()
+
+        let names = try FileManager.default.contentsOfDirectory(atPath: folder.path).sorted()
+        #expect(names == ["00-before.png", "01-step.png", "steps.txt"])
+        let steps = try String(contentsOf: folder.appendingPathComponent("steps.txt"), encoding: .utf8)
+        #expect(steps == "01 lines=3 · match 120 px → added\n02 lines=3 · ambiguousMotion → retry 1 of 2\n")
+        // The PNG is the frame.
+        let source = try #require(CGImageSourceCreateWithURL(folder.appendingPathComponent("00-before.png") as CFURL, nil))
+        let image = try #require(CGImageSourceCreateImageAtIndex(source, 0, nil))
+        #expect(CaptureFrame(image: image)?.pixels == frame.pixels)
+    }
+#endif
 
     @Test func theAskedDirectionIsProbedFirstAndTheOtherSecond() {
         #expect(ScrollingCaptureSession.probeOrder(preferred: .vertical) == [.vertical, .horizontal])

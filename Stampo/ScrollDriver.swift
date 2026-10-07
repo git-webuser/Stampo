@@ -263,7 +263,7 @@ enum ScrollDriver {
         let result = AXUIElementCopyElementAtPosition(system, Float(selection.clickPoint.x), Float(selection.clickPoint.y), &hit)
         let windowViewport = windowFallbackViewport(for: selection)
         guard result == .success, let hit else {
-            Log.capture.info("scroll viewport fallback · AXError \(result.rawValue, privacy: .public) · hit element unavailable")
+            Log.capture.notice("scroll viewport fallback · AXError \(result.rawValue, privacy: .public) · hit element unavailable")
             return .window(viewport: windowViewport)
         }
 
@@ -292,10 +292,10 @@ enum ScrollDriver {
         }
         guard let rect = scrollRect, rect.width >= 80, rect.height >= 80,
               let resolvedContainer = scrollContainer else {
-            Log.capture.info("scroll viewport fallback · AXError \(result.rawValue, privacy: .public) · chain \(chain.joined(separator: " > "), privacy: .public)")
+            Log.capture.notice("scroll viewport fallback · AXError \(result.rawValue, privacy: .public) · chain \(chain.joined(separator: " > "), privacy: .public)")
             return .window(viewport: windowViewport)
         }
-        Log.capture.info("scroll viewport resolved · AXError \(result.rawValue, privacy: .public) · chain \(chain.joined(separator: " > "), privacy: .public) · viewport \(rect.debugDescription, privacy: .public)")
+        Log.capture.notice("scroll viewport resolved · AXError \(result.rawValue, privacy: .public) · chain \(chain.joined(separator: " > "), privacy: .public) · viewport \(rect.debugDescription, privacy: .public)")
         return .accessibility(viewport: ScrollViewport(windowRect: rect,
                                                         relativeScrollPoint: CGPoint(x: selection.clickPoint.x - selection.bounds.minX,
                                                                                      y: selection.clickPoint.y - selection.bounds.minY),
