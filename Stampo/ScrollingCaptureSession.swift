@@ -464,7 +464,7 @@ final class ScrollingCaptureSession {
                             predictedInARow += 1
                             requestedStep = max(24, Int(Double(axisLength(of: next)) * 0.60))
                             consecutiveFailures = 0
-                                    continue
+                            continue
                         }
                     }
                     consecutiveFailures += 1
