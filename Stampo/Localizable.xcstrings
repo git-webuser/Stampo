@@ -8926,22 +8926,6 @@
         }
       }
     },
-    "This part of the page doesn't scroll" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "This part of the page doesn't scroll"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Эта часть страницы не прокручивается"
-          }
-        }
-      }
-    },
     "This shortcut is already in use" : {
       "comment" : "Rejection: registration failed (taken by another app)",
       "extractionState" : "stale",

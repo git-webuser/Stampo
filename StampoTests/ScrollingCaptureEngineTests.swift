@@ -785,7 +785,7 @@ import Testing
             HotkeyAction.scroll.labelKey, HotkeyAction.scroll.hintKey ?? "",
             "Scrolling", "Down", "Right",
             "Excludes a narrow viewport edge where scrollbars appear; content near that edge may also be cropped.",
-            "A video or animation is in the way", "This part of the page doesn't scroll",
+            "A video or animation is in the way",
             "Length limit", "Shrink to fit",
             "At the limit the image drops to standard resolution (1x) and the capture continues — twice as much of the page fits.",
             "MB", "Scrolling Screenshot",
@@ -1521,47 +1521,6 @@ import Testing
         #expect(ScrollDriver.topmostWindow(at: point, in: [gone, page], ignoring: [])?.windowID == 7)
     }
 
-    /// A page that has run out moves when sent a line back; a part that is
-    /// fixed and changes in place does not — the one thing that tells the end of
-    /// the page from a stop that is not.
-    @Test func aLineBackTellsTheEndOfThePageFromAFixedPart() {
-        // The frames matched at about a line: the page moved.
-        #expect(ScrollEndCheck.verdict(matchedOffset: 80, pixelsPerLine: 80, contentMoved: false) == .endOfPage)
-        #expect(ScrollEndCheck.verdict(matchedOffset: 90, pixelsPerLine: 80, contentMoved: false) == .endOfPage)
-        // They did not match, and nothing moved: fixed.
-        #expect(ScrollEndCheck.verdict(matchedOffset: nil, pixelsPerLine: 80, contentMoved: false) == .pinned)
-        // A match that is nothing like a line is not the page moving a line; the
-        // content having moved is then all there is to go by.
-        #expect(ScrollEndCheck.verdict(matchedOffset: 400, pixelsPerLine: 80, contentMoved: false) == .pinned)
-        #expect(ScrollEndCheck.verdict(matchedOffset: 400, pixelsPerLine: 80, contentMoved: true) == .endOfPage)
-        // No match but a block of the viewport changed: moved.
-        #expect(ScrollEndCheck.verdict(matchedOffset: nil, pixelsPerLine: 80, contentMoved: true) == .endOfPage)
-        // Without a calibration any movement found counts.
-        #expect(ScrollEndCheck.verdict(matchedOffset: 37, pixelsPerLine: nil, contentMoved: false) == .endOfPage)
-        // A zero match is no movement.
-        #expect(ScrollEndCheck.verdict(matchedOffset: 0, pixelsPerLine: 80, contentMoved: false) == .pinned)
-    }
-
-    /// The decision on real frames: a page that is sent a line back, and a part
-    /// that stays where it is.
-    @Test func theEndOfPageCheckReadsRealFrames() throws {
-        let height = 260, line = 40
-        let end = videoPage(height: height, offset: 300, videoSeed: 1)
-        let movedBack = videoPage(height: height, offset: 300 - line, videoSeed: 1)
-        let offset = try? FrameMatcher.match(previous: movedBack, current: end, axis: .vertical,
-                                             maximumOffset: line * 3 / 2 + 32).offset
-        #expect(offset == line)
-        #expect(ScrollEndCheck.verdict(matchedOffset: offset, pixelsPerLine: Double(line),
-                                       contentMoved: ScrollingCaptureSession.movingContentRect(
-                                        before: end, after: movedBack, axis: .vertical) != nil) == .endOfPage)
-        // Nothing changed at all: the same frame twice.
-        let same = try? FrameMatcher.match(previous: end, current: end, axis: .vertical,
-                                           maximumOffset: line * 3 / 2 + 32).offset
-        #expect(same == nil)
-        #expect(ScrollingCaptureSession.movingContentRect(before: end, after: end, axis: .vertical) == nil)
-        #expect(ScrollEndCheck.verdict(matchedOffset: same, pixelsPerLine: Double(line), contentMoved: false) == .pinned)
-    }
-
     /// A step that cannot be placed because something on the page changes by
     /// itself says so, and the pause then names it; a page that is merely hard
     /// to align does not.
@@ -1621,8 +1580,8 @@ import Testing
     }
 
     /// The capture's wheel event is built whole and marked, so what the guard
-    /// recognises is what is sent: forward is negative, back positive, on the
-    /// axis asked for, at the point asked for.
+    /// recognises is what is sent: forward is negative, on the axis asked for,
+    /// at the point asked for.
     @Test func theCapturesOwnScrollEventCarriesTheMarkAndTheDirection() throws {
         let point = CGPoint(x: 321, y: 123)
         let down = try #require(ScrollDriver.scrollEvent(axis: .vertical, lines: 3, at: point))
@@ -1630,8 +1589,6 @@ import Testing
         #expect(down.location == point)
         #expect(down.getIntegerValueField(.scrollWheelEventDeltaAxis1) == -3)
         #expect(down.getIntegerValueField(.scrollWheelEventDeltaAxis2) == 0)
-        let back = try #require(ScrollDriver.scrollEvent(axis: .vertical, lines: 1, backwards: true, at: point))
-        #expect(back.getIntegerValueField(.scrollWheelEventDeltaAxis1) == 1)
         let right = try #require(ScrollDriver.scrollEvent(axis: .horizontal, lines: 2, at: point))
         #expect(right.getIntegerValueField(.scrollWheelEventDeltaAxis2) == -2)
         #expect(right.getIntegerValueField(.scrollWheelEventDeltaAxis1) == 0)

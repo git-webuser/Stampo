@@ -8,9 +8,6 @@ nonisolated enum ScrollPauseReason: Equatable, Sendable {
     case framesNotAligned
     /// Where the frames would not line up there was something changing by itself.
     case videoInTheWay
-    /// Scrolling stopped moving the page, and sending one line back shows why:
-    /// this part of the page is fixed and changes in place.
-    case partDoesNotScroll
     /// What is under the pointer is no longer the area the capture began on —
     /// the scroll container the click found was replaced as the page changed.
     case scrollAreaChanged
@@ -23,7 +20,6 @@ nonisolated enum ScrollPauseReason: Equatable, Sendable {
         switch self {
         case .framesNotAligned: return "Frames couldn't be aligned."
         case .videoInTheWay:    return "A video or animation is in the way"
-        case .partDoesNotScroll: return "This part of the page doesn't scroll"
         case .scrollAreaChanged: return "The scroll area under the pointer changed"
         case .userInput:         return "Stopped: you scrolled or pressed something"
         }
