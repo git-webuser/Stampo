@@ -229,29 +229,6 @@ nonisolated enum FrameMatcher {
         return FrameMatch(offset: best, confidence: confidence, independentRegions: agreeing)
     }
 
-    /// How many tiles fit no offset at all: they change by themselves, a video
-    /// or an animation, whatever the scroll did. Two or more mean the frames
-    /// are not lining up because something on the page is moving of its own
-    /// accord — worth telling the user, who can pause it. Run when a step has
-    /// already failed, not for every one.
-    ///
-    /// Only tiles that can be scored at every offset up to the limit are looked
-    /// at. A tile lower in the frame has nothing to compare at a large offset —
-    /// the page it would be compared with has scrolled out — and what is left to
-    /// it is the small offsets, where it does not line up because the page
-    /// moved, not because it changes.
-    static func changingTileCount(previous: CaptureFrame, current: CaptureFrame, axis: ScrollAxis,
-                                  maximumOffset: Int) -> Int {
-        guard previous.width == current.width, previous.height == current.height else { return 0 }
-        let axisLength = axis == .vertical ? previous.height : previous.width
-        let limit = min(maximumOffset, max(0, axisLength * 3 / 4))
-        guard limit >= 2 else { return 0 }
-        return tileCurves(previous: previous, current: current, axis: axis, limit: limit).cost.filter { curve in
-            guard curve[limit].isFinite, let lowest = curve.min() else { return false }
-            return lowest > fitThreshold
-        }.count
-    }
-
     /// Tiles the sample grid is cut into, along each axis of the frame.
     private static let tileRows = 4, tileColumns = 5
     /// How far a tile's cost may sit above its own best and still be said to

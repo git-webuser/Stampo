@@ -20,23 +20,34 @@ nonisolated enum ScrollInputGuard {
         case pointerMoved
     }
 
-    /// Whether an event is the user taking over.
+    /// What the capture does about an event.
+    enum Response: Equatable {
+        /// Nothing: the event is the capture's own, or harmless.
+        case none
+        /// Pause, and say so in a toast: the user's hands are on the page.
+        case pauseAnnounced
+        /// Pause without a word: the pointer left the page, most likely for Save.
+        case pauseQuietly
+    }
+
+    /// What an event, if it is the user taking over, makes the capture do.
     ///
     /// - A wheel event is the user's unless it carries the marker.
     /// - A button press is always the user's.
     /// - A key is, except Esc, which cancels the capture on its own account.
     /// - The pointer is only the user's when it has left the selected window —
-    ///   and is not over Stampo's own strip, where the buttons are.
+    ///   and is not over Stampo's own strip, where the buttons are. That one is
+    ///   no news to the user, who is probably on the way to Save.
     ///
     /// Events delivered to Stampo's own windows, the strip and its buttons,
     /// never reach a global monitor, which is what makes clicking Save safe.
-    static func isUserInput(_ kind: Kind, userData: Int64, pointer: CGPoint, window: CGRect,
-                            overOwnUI: Bool) -> Bool {
+    static func response(to kind: Kind, userData: Int64, pointer: CGPoint, window: CGRect,
+                         overOwnUI: Bool) -> Response {
         switch kind {
-        case .scrollWheel:       return userData != syntheticMarker
-        case .mouseDown:         return true
-        case .key(let isEscape): return !isEscape
-        case .pointerMoved:      return !window.contains(pointer) && !overOwnUI
+        case .scrollWheel:       return userData != syntheticMarker ? .pauseAnnounced : .none
+        case .mouseDown:         return .pauseAnnounced
+        case .key(let isEscape): return isEscape ? .none : .pauseAnnounced
+        case .pointerMoved:      return !window.contains(pointer) && !overOwnUI ? .pauseQuietly : .none
         }
     }
 
@@ -47,19 +58,19 @@ nonisolated enum ScrollInputGuard {
     }
 }
 
-/// Watches for the user's input while the capture scrolls, and says so once.
+/// Watches for the user's input while the capture scrolls, and says so.
 @MainActor
 final class ScrollInputMonitor {
     private var monitor: Any?
     private let windowBounds: () -> CGRect
     private let overOwnUI: (CGPoint) -> Bool
-    private let onUserInput: () -> Void
+    private let onUserInput: (_ announce: Bool) -> Void
     /// The window's bounds, asked of the window list at most a few times a
     /// second: the pointer moves far more often than a window does.
     private var cachedBounds: (rect: CGRect, at: Date)?
 
     init(windowBounds: @escaping () -> CGRect, overOwnUI: @escaping (CGPoint) -> Bool,
-         onUserInput: @escaping () -> Void) {
+         onUserInput: @escaping (_ announce: Bool) -> Void) {
         self.windowBounds = windowBounds
         self.overOwnUI = overOwnUI
         self.onUserInput = onUserInput
@@ -100,10 +111,12 @@ final class ScrollInputMonitor {
         let userData = event.cgEvent?.getIntegerValueField(.eventSourceUserData) ?? 0
         // Only the pointer needs to know where the window and the strip are.
         let isPointer = kind == .pointerMoved
-        if ScrollInputGuard.isUserInput(kind, userData: userData, pointer: pointer,
-                                        window: isPointer ? currentWindowBounds() : .zero,
-                                        overOwnUI: isPointer && overOwnUI(pointer)) {
-            onUserInput()
+        switch ScrollInputGuard.response(to: kind, userData: userData, pointer: pointer,
+                                         window: isPointer ? currentWindowBounds() : .zero,
+                                         overOwnUI: isPointer && overOwnUI(pointer)) {
+        case .none:           break
+        case .pauseAnnounced: onUserInput(true)
+        case .pauseQuietly:   onUserInput(false)
         }
     }
 

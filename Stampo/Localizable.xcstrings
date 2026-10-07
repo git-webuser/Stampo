@@ -376,22 +376,6 @@
         }
       }
     },
-    "A video or animation is in the way" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "A video or animation is in the way"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Видео или анимация мешают склейке"
-          }
-        }
-      }
-    },
     "Aberration" : {
       "comment" : "Decor inspector — how far the lens spreads the colour channels",
       "extractionState" : "stale",
@@ -3379,22 +3363,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Формат"
-          }
-        }
-      }
-    },
-    "Frames couldn't be aligned." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Frames couldn't be aligned."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Кадры не совместились."
           }
         }
       }
@@ -7186,6 +7154,23 @@
         }
       }
     },
+    "Screenshot capture stopped" : {
+      "comment" : "Toast: a scrolling capture stopped with part of the image collected",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Screenshot capture stopped"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Создание скриншота остановлено"
+          }
+        }
+      }
+    },
     "Screenshot failed" : {
       "comment" : "Title for the NSAlert shown when screencapture fails",
       "extractionState" : "stale",
@@ -8350,22 +8335,6 @@
         }
       }
     },
-    "Stopped: you scrolled or pressed something" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Stopped: you scrolled or pressed something"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Остановлено: вы прокрутили или нажали"
-          }
-        }
-      }
-    },
     "Strength" : {
       "comment" : "Decor inspector — how strongly an effect is felt",
       "extractionState" : "stale",
@@ -8808,22 +8777,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Масштаб экрана изменился."
-          }
-        }
-      }
-    },
-    "The scroll area under the pointer changed" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The scroll area under the pointer changed"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Под курсором сменилась область прокрутки"
           }
         }
       }

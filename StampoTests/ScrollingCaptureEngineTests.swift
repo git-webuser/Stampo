@@ -785,7 +785,7 @@ import Testing
             HotkeyAction.scroll.labelKey, HotkeyAction.scroll.hintKey ?? "",
             "Scrolling", "Down", "Right",
             "Excludes a narrow viewport edge where scrollbars appear; content near that edge may also be cropped.",
-            "A video or animation is in the way",
+            "Screenshot capture stopped",
             "Length limit", "Shrink to fit",
             "At the limit the image drops to standard resolution (1x) and the capture continues — twice as much of the page fits.",
             "MB", "Scrolling Screenshot",
@@ -798,11 +798,8 @@ import Testing
             "The window size changed.",
             "The display scale changed.",
             "The window moved to the background.",
-            "Frames couldn't be aligned.",
             "The area doesn't scroll. Click inside the page or table and start again.",
             "There's no scrollable area at that point. Click inside the page or table and try again.",
-            "The scroll area under the pointer changed",
-            "Stopped: you scrolled or pressed something",
             "macOS couldn't scroll the window.",
         ]
         for key in keys {
@@ -1198,8 +1195,8 @@ import Testing
 
     /// A video that changes between the frames and covers most of what they
     /// share used to outvote the page: every full-height strip contained it,
-    /// so the strips voted against the true offset and the capture stopped
-    /// with "Frames couldn't be aligned". The tiles it covers say nothing now.
+    /// so the strips voted against the true offset and the steps would not
+    /// match. The tiles it covers say nothing now.
     /// Whatever the matcher answers it must not answer wrongly — a wrong
     /// offset is a seam in the image, an error is a retry.
     @Test func aVideoCoveringMostOfTheOverlapDoesNotOutvoteThePage() {
@@ -1521,62 +1518,34 @@ import Testing
         #expect(ScrollDriver.topmostWindow(at: point, in: [gone, page], ignoring: [])?.windowID == 7)
     }
 
-    /// A step that cannot be placed because something on the page changes by
-    /// itself says so, and the pause then names it; a page that is merely hard
-    /// to align does not.
-    @Test func changingTilesAreCountedWhereAVideoPlaysAndNotOnAPlainPage() {
-        let height = videoFrameHeight, step = videoStep
-        // A video over the middle of both frames, different in each.
-        let rows = 0..<520, columns = 64..<256
-        let before = videoPage(height: height, offset: 97, videoSeed: 1, videoColumns: columns, videoRows: rows)
-        let after = videoPage(height: height, offset: 97 + step, videoSeed: 2, videoColumns: columns, videoRows: rows)
-        #expect(FrameMatcher.changingTileCount(previous: before, current: after, axis: .vertical,
-                                               maximumOffset: height * 3 / 4) >= 2)
-        // The same page with the video frozen: nothing changes by itself.
-        let frozen = videoPage(height: height, offset: 97 + step, videoSeed: 1, videoColumns: columns, videoRows: rows)
-        #expect(FrameMatcher.changingTileCount(previous: before, current: frozen, axis: .vertical,
-                                               maximumOffset: height * 3 / 4) == 0)
-        // Text alone, scrolled.
-        let plainBefore = videoPage(height: height, offset: 97, videoSeed: 1)
-        let plainAfter = videoPage(height: height, offset: 97 + step, videoSeed: 1)
-        #expect(FrameMatcher.changingTileCount(previous: plainBefore, current: plainAfter, axis: .vertical,
-                                               maximumOffset: height * 3 / 4) == 0)
-    }
-
-    @Test func aPauseNamesWhatGotInTheWayOnlyWhenSomethingWasChanging() {
-        #expect(ScrollPauseReason.forFailedMatches(changingTilesSeen: true) == .videoInTheWay)
-        #expect(ScrollPauseReason.forFailedMatches(changingTilesSeen: false) == .framesNotAligned)
-        // The two refusals that used to carry a text of their own — never shown,
-        // since every match is inside a catch — say what a pause says.
-        #expect(FrameMatchError.ambiguousMotion.errorDescription == ScrollPauseReason.framesNotAligned.key)
-        #expect(FrameMatchError.crossAxisMotion.errorDescription == ScrollPauseReason.framesNotAligned.key)
-    }
-
-    /// Who touched the page. The capture's own wheel events reach a global
-    /// monitor like any other and are told by the mark they carry; everything
-    /// else that moves the page, or could, is the user taking over.
-    @Test func inputThatIsNotTheCapturesOwnStopsIt() {
+    /// Who touched the page, and what the capture does about it. The capture's
+    /// own wheel events reach a global monitor like any other and are told by
+    /// the mark they carry; everything else that moves the page, or could, is
+    /// the user taking over and stops it with a toast — except the pointer
+    /// leaving the page, which stops it quietly.
+    @Test func inputThatIsNotTheCapturesOwnStopsItAndOnlyTheHandsOnThePageSayWhy() {
         let window = CGRect(x: 100, y: 100, width: 800, height: 600)
         let inside = CGPoint(x: 400, y: 300), outside = CGPoint(x: 1200, y: 300)
         let marker = ScrollInputGuard.syntheticMarker
-        func input(_ kind: ScrollInputGuard.Kind, data: Int64 = 0, at pointer: CGPoint = CGPoint(x: 400, y: 300),
-                   overUI: Bool = false) -> Bool {
-            ScrollInputGuard.isUserInput(kind, userData: data, pointer: pointer, window: window, overOwnUI: overUI)
+        func response(_ kind: ScrollInputGuard.Kind, data: Int64 = 0, at pointer: CGPoint = CGPoint(x: 400, y: 300),
+                      overUI: Bool = false) -> ScrollInputGuard.Response {
+            ScrollInputGuard.response(to: kind, userData: data, pointer: pointer, window: window, overOwnUI: overUI)
         }
         // A wheel event: the capture's own is marked, the user's is not.
-        #expect(!input(.scrollWheel, data: marker))
-        #expect(input(.scrollWheel, data: 0))
-        #expect(input(.scrollWheel, data: marker + 1))
-        // Buttons and keys.
-        #expect(input(.mouseDown))
-        #expect(input(.key(isEscape: false)))
-        #expect(!input(.key(isEscape: true)))
-        // The pointer: free inside the window, and over the strip; not elsewhere.
-        #expect(!input(.pointerMoved, at: inside))
-        #expect(input(.pointerMoved, at: outside))
-        #expect(!input(.pointerMoved, at: outside, overUI: true))
+        #expect(response(.scrollWheel, data: marker) == .none)
+        #expect(response(.scrollWheel, data: 0) == .pauseAnnounced)
+        #expect(response(.scrollWheel, data: marker + 1) == .pauseAnnounced)
+        // Buttons and keys; Esc cancels on its own account.
+        #expect(response(.mouseDown) == .pauseAnnounced)
+        #expect(response(.key(isEscape: false)) == .pauseAnnounced)
+        #expect(response(.key(isEscape: true)) == .none)
+        // The pointer: free inside the window, and over the strip; off the page
+        // it pauses, without a toast — it is most likely on its way to Save.
+        #expect(response(.pointerMoved, at: inside) == .none)
+        #expect(response(.pointerMoved, at: outside) == .pauseQuietly)
+        #expect(response(.pointerMoved, at: outside, overUI: true) == .none)
         // The edge of the window is in it.
-        #expect(!input(.pointerMoved, at: CGPoint(x: 100, y: 100)))
+        #expect(response(.pointerMoved, at: CGPoint(x: 100, y: 100)) == .none)
     }
 
     /// The capture's wheel event is built whole and marked, so what the guard
@@ -1608,7 +1577,8 @@ import Testing
     @Test func theStripShowsARingWhileWorkingAndSavingAndAWarningWhenPaused() {
         #expect(ScrollStripPhase(.capturing) == .running)
         #expect(ScrollStripPhase(.saving) == .running)
-        #expect(ScrollStripPhase(.paused(reason: "The window size changed.")) == .paused)
+        #expect(ScrollStripPhase(.paused(announce: true)) == .paused)
+        #expect(ScrollStripPhase(.paused(announce: false)) == .paused)
     }
 
     @Test func macOSAsksForAccessibilityOnceAndOurAlertIsTheOnlyThingAfter() {

@@ -6,10 +6,12 @@ import os
 /// What the notch strip shows while a scrolling capture runs.
 enum ScrollCaptureStatus: Equatable {
     case capturing
-    /// Part of the image is collected but the capture cannot go on. The
-    /// reason is already localized; the strip waits for Done or ✕.
-    case paused(reason: String)
-    /// Done was pressed, or a limit was reached: the file is being written.
+    /// Part of the image is collected but the capture cannot go on, and the
+    /// strip waits for Save or ✕. `announce` says whether a toast tells the
+    /// user it stopped: it does not when they walked the pointer off the page,
+    /// which is most likely on the way to Save.
+    case paused(announce: Bool)
+    /// Save was pressed, or a limit was reached: the file is being written.
     case saving
 }
 
@@ -60,7 +62,6 @@ final class ScrollingCaptureSession {
     private var zeroMotionCount = 0
     /// Whether, in the run of failed steps now going, there were tiles changing
     /// by themselves: what the pause then says is the reason.
-    private var changingTilesSeen = false
     private var consecutiveFailures = 0
     private let startedAt = Date()
 
@@ -158,7 +159,7 @@ final class ScrollingCaptureSession {
                 return ScrollDriver.currentWindowBounds(self.selection.windowID) ?? self.selection.bounds
             },
             overOwnUI: { [weak self] point in self?.ownUICovers(point) ?? false },
-            onUserInput: { [weak self] in self?.userInterrupted() })
+            onUserInput: { [weak self] announce in self?.userInterrupted(announce: announce) })
         monitor.start()
         inputMonitor = monitor
     }
@@ -171,10 +172,10 @@ final class ScrollingCaptureSession {
     /// The user touched something while the capture scrolled. Stop at once — the
     /// step in flight is not to be trusted — and wait: Save keeps what is
     /// collected, ✕ drops it.
-    private func userInterrupted() {
+    private func userInterrupted(announce: Bool) {
         guard !stopped, inputMonitor != nil else { return }
         task?.cancel()
-        pause(reason: .userInput)
+        pause(announce: announce)
     }
 
     private func cleanup() {
@@ -402,7 +403,6 @@ final class ScrollingCaptureSession {
                     predictedInARow = 0
                     requestedStep = max(24, Int(Double(axisLength(of: next)) * 0.60))
                     consecutiveFailures = 0
-                    changingTilesSeen = false
                 } catch is CancellationError {
                     throw CancellationError()
                 } catch FrameMatchError.noReliableMotion where looksStationary {
@@ -453,20 +453,8 @@ final class ScrollingCaptureSession {
                             predictedInARow += 1
                             requestedStep = max(24, Int(Double(axisLength(of: next)) * 0.60))
                             consecutiveFailures = 0
-                            changingTilesSeen = false
-                            continue
+                                    continue
                         }
-                    }
-                    if undecided, !looksStationary {
-                        // Was it something changing on its own? Looked at once,
-                        // and only now that the step has failed.
-                        let axis = self.axis
-                        let limit = motionLimit + unmatchedScroll + 32
-                        let changing = await Task.detached(priority: .userInitiated) {
-                            FrameMatcher.changingTileCount(previous: oldFrame, current: next, axis: axis,
-                                                           maximumOffset: limit)
-                        }.value
-                        if changing >= 2 { changingTilesSeen = true }
                     }
                     consecutiveFailures += 1
                     if consecutiveFailures <= 2 {
@@ -475,7 +463,12 @@ final class ScrollingCaptureSession {
                         requestedStep = max(12, currentStep / 2)
                         unmatchedScroll += motionLimit
                     } else {
-                        pause(reason: .forFailedMatches(changingTilesSeen: changingTilesSeen))
+                        // A video, an animation, a section that stays where it
+                        // is: whatever it is, the steps will not line up, and
+                        // what is collected is what there is. The user wanted a
+                        // screenshot, not an explanation.
+                        Log.capture.info("scroll steps would not match · saved what was collected")
+                        finish()
                         return
                     }
                 }
@@ -490,14 +483,10 @@ final class ScrollingCaptureSession {
                     cancel()
                     return
                 }
-                // The scroll container the capture began on is no longer the one
-                // under the pointer. Mid-capture that is a short line; before
-                // the first frame, the alert has the longer advice.
-                if case ScrollDriverError.scrollAreaUnavailable = error {
-                    pause(reason: .scrollAreaChanged)
-                } else {
-                    pause(reason: localizedMessage(for: error))
-                }
+                // Whatever it was — the window covered, resized or sent to the
+                // back, the scroll area replaced — the log has it; the toast
+                // only says the capture stopped.
+                pause(announce: true)
             }
         }
     }
@@ -549,17 +538,13 @@ final class ScrollingCaptureSession {
         Log.capture.error("scroll capture failed at stage \(self.diagnosticStage.rawValue, privacy: .public): \(error.localizedDescription, privacy: .public)")
     }
 
-    /// A failure with part of the image already collected: the capture stops
-    /// and waits for the user — Done saves what there is, ✕ drops it.
-    private func pause(reason: String) {
+    /// A stop with part of the image already collected: the capture waits for
+    /// the user — Save keeps what there is, ✕ drops it.
+    private func pause(announce: Bool) {
         // Paused is not scrolling: nothing here is to be taken for the user's.
         stopInputGuard()
         previous = nil
-        onStatus?(.paused(reason: reason))
-    }
-
-    private func pause(reason: ScrollPauseReason) {
-        pause(reason: LocaleManager.shared.string(reason.key))
+        onStatus?(.paused(announce: announce))
     }
 
     /// The whole selected window, as one frame.
@@ -685,15 +670,14 @@ final class ScrollingCaptureSession {
         (axis ?? self.axis) == .vertical ? frame.height : frame.width
     }
 
+    /// The text of an alert. Of the matcher's refusals only the size limit gets
+    /// this far, in the alert for an image that could not be made; the others
+    /// end in a retry or a save, and their English is for the log.
     private func localizedMessage(for error: Error) -> String {
-        guard let matchError = error as? FrameMatchError else { return error.localizedDescription }
-        let key: String
-        switch matchError {
-        case .noReliableMotion: key = "The area doesn't scroll. Click inside the page or table and start again."
-        case .ambiguousMotion, .crossAxisMotion: key = ScrollPauseReason.framesNotAligned.key
-        case .outputLimitExceeded: key = "The scrolling image reached the configured size limit."
+        if let matchError = error as? FrameMatchError, matchError == .outputLimitExceeded {
+            return LocaleManager.shared.string("The scrolling image reached the configured size limit.")
         }
-        return LocaleManager.shared.string(key)
+        return error.localizedDescription
     }
 
     private func meanDifference(_ a: CaptureFrame, _ b: CaptureFrame) -> Double {

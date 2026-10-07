@@ -903,15 +903,15 @@ final class NotchPanelController: NSObject {
 
     /// What the scrolling capture reports, on the strip: the ring while it
     /// works and while it saves, a warning once it has stopped with part of the
-    /// image collected — and then the reason, in a toast, since the strip has
-    /// no room for words.
+    /// image collected — and, unless the user stopped it by walking the pointer
+    /// off the page, a toast saying so, since the strip has no room for words.
     private func applyScrollingStatus(_ status: ScrollCaptureStatus) {
         guard case .scrollCapture = state else { return }
         withAnimation(.easeInOut(duration: 0.18)) {
             rootState.scrollStrip = ScrollStripPhase(status)
         }
-        if case .paused(let reason) = status {
-            feedbackHUD.show(.scrollingPaused(reason: reason), on: currentScreen, autoHideAfter: 3.5)
+        if case .paused(let announce) = status, announce {
+            feedbackHUD.show(.scrollingStopped, on: currentScreen, autoHideAfter: 3.5)
         }
     }
 
