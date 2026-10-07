@@ -1530,18 +1530,198 @@ import Testing
         }
     }
 
-    @Test func aStepIsPredictedOnlyWithACalibrationAndWithinTheRun() {
-        // Nothing to go by: no calibration.
-        #expect(!ScrollStepPlanner.mayPredict(pixelsPerLine: nil, predictedInARow: 0, unaccountedScroll: 0))
-        // Three in a row is enough blind-ish steps.
-        #expect(!ScrollStepPlanner.mayPredict(pixelsPerLine: 80,
-                                              predictedInARow: ScrollStepPlanner.maxPredictedInARow,
-                                              unaccountedScroll: 0))
-        // An earlier attempt at this step moved the page by a distance the prediction would miss.
-        #expect(!ScrollStepPlanner.mayPredict(pixelsPerLine: 80, predictedInARow: 0, unaccountedScroll: 120))
-        // Right after the calibration, before any full step: allowed — and then held to a higher bar.
-        #expect(ScrollStepPlanner.mayPredict(pixelsPerLine: 80, predictedInARow: 0, unaccountedScroll: 0))
-        #expect(ScrollStepPlanner.mayPredict(pixelsPerLine: 80, predictedInARow: 2, unaccountedScroll: 0))
+    // MARK: Steps the matcher cannot place
+
+    private typealias Evidence = ScrollStepDecision.Evidence
+
+    /// A step with a calibration to go by, clean of earlier attempts, that the
+    /// matcher could not decide — the case every row below changes one thing in.
+    private func evidence(consistent: Int = 0, against: Int = 0, contradicted: Bool = false,
+                          required: Int = 2, unpinnedStanding: Int = 0, queued: Int = 0,
+                          undecided: Bool = true, canExpect: Bool = true) -> Evidence {
+        Evidence(undecided: undecided, canExpect: canExpect, consistent: consistent, against: against,
+                 contradicted: contradicted, required: required, unpinnedStanding: unpinnedStanding,
+                 queued: queued)
+    }
+
+    /// What is done with a step the frames cannot place, row by row: claude.com
+    /// (a video all over the overlap), apple.com's empty gap between sections,
+    /// the end of a page, and the ways a step goes wrong.
+    @Test func aStepTheMatcherCannotPlaceIsStoppedPlacedProvisionallyOrRetried() {
+        typealias Decision = ScrollStepDecision
+        // claude.com: 18 of 20 tiles change by themselves, none agrees, none
+        // disagrees, none stands. Nothing speaks against the calibration.
+        #expect(Decision.decide(evidence()) == .temporary(confirmed: false))
+        // apple.com, step 14: an empty frame, only the site's bar standing —
+        // and the bar is pinned, so nothing unpinned stands.
+        #expect(Decision.decide(evidence(unpinnedStanding: 0)) == .temporary(confirmed: false))
+        // The end of a page: a tile with content stands that is not pinned and
+        // nothing bears out that the page moved.
+        #expect(Decision.decide(evidence(unpinnedStanding: 3)) == .stationary)
+        #expect(Decision.decide(evidence(unpinnedStanding: 1, canExpect: false)) == .stationary)
+        // The same frames, but one tile fits the distance the calibration expects:
+        // the page moved, however much of it also stands.
+        #expect(Decision.decide(evidence(consistent: 1, required: 1, unpinnedStanding: 3))
+                == .temporary(confirmed: true))
+        // Enough tiles agree: confirmed — two before a full step has shown the
+        // calibration to hold, one after.
+        #expect(Decision.decide(evidence(consistent: 2, required: 2)) == .temporary(confirmed: true))
+        #expect(Decision.decide(evidence(consistent: 1, required: 2)) == .temporary(confirmed: false))
+        #expect(Decision.decide(evidence(consistent: 1, required: 1)) == .temporary(confirmed: true))
+        // Tiles that know better, though not enough to contradict outright: try again.
+        #expect(Decision.decide(evidence(consistent: 1, against: 1, required: 2)) == .retry)
+        #expect(Decision.decide(evidence(consistent: 3, against: 1, contradicted: true, required: 1)) == .retry)
+        // Nothing to expect — no calibration, or an earlier attempt moved the
+        // page — and no proof of a stop: try again.
+        #expect(Decision.decide(evidence(canExpect: false)) == .retry)
+        // Not an undecided matcher but, say, the page moving across: never a stop.
+        #expect(Decision.decide(evidence(unpinnedStanding: 4, undecided: false)) == .retry)
+        #expect(Decision.decide(evidence(consistent: 5, undecided: false)) == .retry)
+        // Eight steps waiting is the most there is room for.
+        #expect(Decision.decide(evidence(queued: TemporarySteps.limit - 1)) == .temporary(confirmed: false))
+        #expect(Decision.decide(evidence(queued: TemporarySteps.limit)) == .finish)
+        // A stop is a stop at any length of queue: the queue goes with the capture.
+        #expect(Decision.decide(evidence(unpinnedStanding: 2, queued: TemporarySteps.limit)) == .stationary)
+        #expect(TemporarySteps.limit == 8)
+    }
+
+    /// Steps wait in order with the distance each moved the page, are laid into
+    /// the image in that order by the step that carries them, and are dropped —
+    /// and counted — when the capture ends before one does.
+    @Test func temporaryStepsWaitAreLaidInOrderAndAreDroppedWithTheCapture() throws {
+        let movements = [60, 45, 70, 50]
+        func frames() -> [CaptureFrame] {
+            var offset = 0
+            return movements.map { movement in
+                offset += movement
+                return texture(width: 120, height: 200, yOffset: offset)
+            }
+        }
+        // As if each were laid as it came.
+        var direct = ImageAssembler(axis: .vertical, maxLength: 10_000)
+        direct.begin(with: texture(width: 120, height: 200))
+        for (frame, movement) in zip(frames(), movements) { try direct.append(frame, movement: movement) }
+
+        // Kept apart, then laid.
+        var kept = ImageAssembler(axis: .vertical, maxLength: 10_000)
+        kept.begin(with: texture(width: 120, height: 200))
+        var waiting = TemporarySteps()
+        #expect(waiting.isEmpty)
+        for (index, (frame, movement)) in zip(frames(), movements).enumerated() {
+            waiting.add(frame, movement: movement, confirmed: index % 2 == 0)
+            #expect(waiting.count == index + 1)
+        }
+        // Waiting, they are not in the image.
+        #expect(kept.totalLength == 200)
+        let taken = waiting.take()
+        #expect(waiting.isEmpty && taken.map(\.movement) == movements)
+        #expect(taken.map(\.confirmed) == [true, false, true, false])
+        for step in taken { try kept.append(step.frame, movement: step.movement) }
+        #expect(kept.totalLength == direct.totalLength)
+        #expect(try kept.makeImage().height == direct.makeImage().height)
+        #expect(CaptureFrame(image: try kept.makeImage())?.pixels == CaptureFrame(image: try direct.makeImage())?.pixels)
+
+        // The capture ended first: they are dropped, and the image is as it was.
+        var dropped = TemporarySteps()
+        for (frame, movement) in zip(frames(), movements) { dropped.add(frame, movement: movement, confirmed: false) }
+        #expect(dropped.discard() == movements.count)
+        #expect(dropped.isEmpty && dropped.discard() == 0)
+    }
+
+    /// A tile that stands still while the page moves is the site's bar, and it
+    /// is found in the step that moved the page — which is what lets a frame
+    /// with nothing but the bar in it be told from a page that stopped.
+    @Test func aBarThatStandsWhileThePageMovesIsPinnedAndProvesNothingAfterwards() throws {
+        // The bar is the first row of tiles, 65 of 260 rows, so that no tile is part bar and part page.
+        let header = 65, height = 260, step = 100
+        // A bar with something in it along the scroll as well as across — text,
+        // a logo — set over the page; flat down its height it would fit any
+        // distance, and say nothing.
+        func withBar(_ frame: CaptureFrame) -> CaptureFrame {
+            var pixels = frame.pixels
+            for y in 0..<header { for x in 0..<frame.width {
+                let i = (y * frame.width + x) * 4
+                let value = UInt8(truncatingIfNeeded: 70 + noise(x, y &+ 5000) % 150)
+                pixels[i] = value; pixels[i + 1] = value; pixels[i + 2] = value
+            } }
+            return CaptureFrame(width: frame.width, height: frame.height, pixels: pixels)
+        }
+        func page(_ offset: Int) -> CaptureFrame {
+            withBar(videoPage(height: height, offset: offset, videoSeed: 1))
+        }
+        // A step the matcher places: the bar's tiles stand.
+        let match = try FrameMatcher.match(previous: page(0), current: page(step), axis: .vertical,
+                                           maximumOffset: height * 3 / 4)
+        #expect(match.offset == step)
+        let topRow: Set<Int> = [0, 1, 2, 3, 4]
+        #expect(match.standing.isSuperset(of: topRow), "standing: \(match.standing.sorted())")
+        // The tiles below the bar moved.
+        #expect(match.standing.intersection(Set(5..<20)).isEmpty, "standing: \(match.standing.sorted())")
+
+        // Later a frame that is the bar and nothing else, twice: the page is
+        // blank there, or has run out. The bar stands in it all the same.
+        func empty() -> CaptureFrame {
+            let frame = withBar(videoPage(height: height, offset: 0, videoSeed: 1))
+            var pixels = frame.pixels
+            for y in header..<height { for x in 0..<frame.width {
+                let i = (y * frame.width + x) * 4
+                pixels[i] = 24; pixels[i + 1] = 24; pixels[i + 2] = 24
+            } }
+            return CaptureFrame(width: frame.width, height: frame.height, pixels: pixels)
+        }
+        let found = FrameMatcher.evidence(previous: empty(), current: empty(), axis: .vertical,
+                                          offset: step, searchLimit: height * 3 / 4)
+        #expect(found.standing.isSuperset(of: topRow))
+        #expect(found.consistent == 0)
+        func decision(pinned: Set<Int>) -> ScrollStepDecision {
+            ScrollStepDecision.decide(evidence(consistent: found.consistent, against: found.against,
+                                               contradicted: found.contradicted,
+                                               unpinnedStanding: found.standing.subtracting(pinned).count))
+        }
+        // Knowing the bar is pinned: an empty gap, which the calibration carries.
+        #expect(decision(pinned: match.standing) == .temporary(confirmed: false))
+        // Not knowing: the bar standing looks like a page that stopped.
+        #expect(decision(pinned: []) == .stationary)
+    }
+
+    /// The frames of the cases above, as the matcher meets them.
+    @Test func theEvidenceOfAStepReadsStandingTilesAndTheExpectedDistance() throws {
+        let height = videoFrameHeight, step = videoStep, limit = height * 3 / 4
+        // A page that has not moved at all: every tile with content stands, and
+        // nothing bears out a distance.
+        let still = videoPage(height: height, offset: 97, videoSeed: 1, videoRows: 0..<520)
+        let same = FrameMatcher.evidence(previous: still, current: still, axis: .vertical,
+                                         offset: step, searchLimit: limit)
+        #expect(same.standing.count >= 8, "standing: \(same.standing.sorted())")
+        #expect(same.consistent == 0 && !same.contradicted)
+
+        // A video over everything that is shared, different each time: no tile
+        // stands, none agrees, none disagrees.
+        let rows = 0..<520, columns = 0..<320
+        let before = videoPage(height: height, offset: 97, videoSeed: 1, videoColumns: columns, videoRows: rows)
+        let after = videoPage(height: height, offset: 97 + step, videoSeed: 2, videoColumns: columns, videoRows: rows)
+        let video = FrameMatcher.evidence(previous: before, current: after, axis: .vertical,
+                                          offset: step, searchLimit: limit)
+        #expect(video.standing.isEmpty)
+        #expect(video.consistent == 0 && video.against == 0 && !video.contradicted)
+
+        // The page moved and a video is beside the text: the tiles beside it
+        // bear the distance out, and a wrong one is contradicted.
+        let partBefore = videoPage(height: height, offset: 97, videoSeed: 1, videoColumns: 64..<256, videoRows: 0..<520)
+        let partAfter = videoPage(height: height, offset: 97 + step, videoSeed: 2, videoColumns: 64..<256, videoRows: 0..<520)
+        let right = FrameMatcher.evidence(previous: partBefore, current: partAfter, axis: .vertical,
+                                          offset: step, searchLimit: limit)
+        #expect(right.consistent >= 1 && !right.contradicted)
+        let wrong = FrameMatcher.evidence(previous: partBefore, current: partAfter, axis: .vertical,
+                                          offset: step * 4 / 5, searchLimit: limit)
+        #expect(wrong.contradicted)
+        // Nothing asked about: standing tiles only, and nothing contradicted.
+        let none = FrameMatcher.evidence(previous: partBefore, current: partAfter, axis: .vertical,
+                                         offset: nil, searchLimit: limit)
+        #expect(none.consistent == 0 && !none.contradicted)
+        // A distance that cannot be looked at is contradicted.
+        #expect(FrameMatcher.evidence(previous: partBefore, current: partAfter, axis: .vertical,
+                                      offset: limit * 2, searchLimit: limit).contradicted)
     }
 
     /// A probe of one line says nothing about ten until a full step agrees; up
@@ -1674,8 +1854,8 @@ import Testing
     }
 
     /// The capture's wheel event is built whole and marked, so what the guard
-    /// recognises is what is sent: forward is negative, on the axis asked for,
-    /// at the point asked for.
+    /// recognises is what is sent: forward is negative and back positive, on the
+    /// axis asked for, at the point asked for.
     @Test func theCapturesOwnScrollEventCarriesTheMarkAndTheDirection() throws {
         let point = CGPoint(x: 321, y: 123)
         let down = try #require(ScrollDriver.scrollEvent(axis: .vertical, lines: 3, at: point))
@@ -1683,6 +1863,9 @@ import Testing
         #expect(down.location == point)
         #expect(down.getIntegerValueField(.scrollWheelEventDeltaAxis1) == -3)
         #expect(down.getIntegerValueField(.scrollWheelEventDeltaAxis2) == 0)
+        let back = try #require(ScrollDriver.scrollEvent(axis: .vertical, lines: 3, backwards: true, at: point))
+        #expect(back.getIntegerValueField(.eventSourceUserData) == ScrollInputGuard.syntheticMarker)
+        #expect(back.getIntegerValueField(.scrollWheelEventDeltaAxis1) == 3)
         let right = try #require(ScrollDriver.scrollEvent(axis: .horizontal, lines: 2, at: point))
         #expect(right.getIntegerValueField(.scrollWheelEventDeltaAxis2) == -2)
         #expect(right.getIntegerValueField(.scrollWheelEventDeltaAxis1) == 0)

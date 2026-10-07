@@ -83,6 +83,10 @@ nonisolated struct FrameMatch: Equatable, Sendable {
     let offset: Int
     let confidence: Double
     let independentRegions: Int
+    /// The tiles of the grid (row × columns + column) that stood still while
+    /// the rest moved: a bar fixed to the viewport, or a part of the page that
+    /// does not scroll with the rest.
+    var standing: Set<Int> = []
 }
 
 nonisolated enum FrameMatchError: Error, Equatable, LocalizedError {
@@ -226,7 +230,22 @@ nonisolated enum FrameMatcher {
         let margin = max(0, min(1, max(frameMargin, tileMargin)))
         let confidence = min(1, (1 - agg[best]) * 0.55 + margin * 0.45)
         guard confidence >= minimumConfidence else { throw FrameMatchError.ambiguousMotion }
-        return FrameMatch(offset: best, confidence: confidence, independentRegions: agreeing)
+        return FrameMatch(offset: best, confidence: confidence, independentRegions: agreeing,
+                          standing: standingTiles(tiles))
+    }
+
+    /// The tiles that stand still: they have something in them, and their one
+    /// best fit is at no offset to speak of. A blank tile fits any offset and a
+    /// tile that changes by itself fits none, so neither is said to stand.
+    private static func standingTiles(_ tiles: TileCurves) -> Set<Int> {
+        var standing = Set<Int>()
+        for t in 0..<tiles.cost.count where tiles.hasContent[t][0] {
+            let curve = tiles.cost[t]
+            if let best = uniqueBest(curve, tolerance: tolerance), best <= 2, curve[best] <= fitThreshold {
+                standing.insert(t)
+            }
+        }
+        return standing
     }
 
     /// Tiles the sample grid is cut into, along each axis of the frame.
@@ -285,9 +304,11 @@ nonisolated enum FrameMatcher {
     /// Besides the cost, each tile at each offset reports whether it has
     /// content: whether the brightness of the samples compared, on either side,
     /// varies at all. A blank area lines up with anything and says nothing.
+    private typealias TileCurves = (sum: [[Double]], count: [[Int]], cost: [[Double]],
+                                    minimumSamples: Int, hasContent: [[Bool]])
+
     private static func tileCurves(previous: CaptureFrame, current: CaptureFrame,
-                                   axis: ScrollAxis, limit: Int)
-        -> (sum: [[Double]], count: [[Int]], cost: [[Double]], minimumSamples: Int, hasContent: [[Bool]]) {
+                                   axis: ScrollAxis, limit: Int) -> TileCurves {
         let w = previous.width, h = previous.height
         let axisLength = axis == .vertical ? h : w
         let crossLength = axis == .vertical ? w : h
@@ -339,16 +360,34 @@ nonisolated enum FrameMatcher {
         return (sums, counts, costs, minSamples, contents)
     }
 
-    /// Whether `offset` is consistent with the frames when they cannot pin it
-    /// down themselves: every tile that fits some offset well must fit this
-    /// one about as well. Tiles that change by themselves, stand still or are
-    /// blank have no say. Nil when the frames contradict the prediction.
-    static func verifyPredicted(previous: CaptureFrame, current: CaptureFrame, axis: ScrollAxis,
-                                offset: Int, searchLimit: Int) -> (consistent: Int, against: Int)? {
+    /// What the frames of a step the matcher could not place still say.
+    struct StepEvidence: Equatable {
+        /// Tiles standing still (see `FrameMatch.standing`).
+        let standing: Set<Int>
+        /// Of the tiles that move at all, how many fit the distance asked
+        /// about and how many know better. Zero when none was asked about.
+        let consistent: Int
+        let against: Int
+        /// More tiles know better than a fifth of those that move, or the
+        /// distance cannot be looked at: the frames contradict it.
+        let contradicted: Bool
+    }
+
+    /// One pass over the tiles of two frames the matcher could not place: which
+    /// stand still, and — if `offset` is the distance the page is expected to
+    /// have moved — whether the tiles that move are consistent with it. Every
+    /// tile that fits some offset well must fit this one about as well; tiles
+    /// that change by themselves, stand still or are blank have no say.
+    static func evidence(previous: CaptureFrame, current: CaptureFrame, axis: ScrollAxis,
+                         offset: Int?, searchLimit: Int) -> StepEvidence {
         let axisLength = axis == .vertical ? previous.height : previous.width
-        let limit = min(max(offset + 2, searchLimit), axisLength * 3 / 4)
-        guard offset > 0, offset <= limit else { return nil }
+        let limit = min(max((offset ?? 0) + 2, searchLimit), axisLength * 3 / 4)
+        guard previous.width == current.width, previous.height == current.height, limit >= 2,
+              offset.map({ $0 > 0 && $0 <= limit }) ?? true
+        else { return StepEvidence(standing: [], consistent: 0, against: 0, contradicted: offset != nil) }
         let tiles = tileCurves(previous: previous, current: current, axis: axis, limit: limit)
+        let standing = standingTiles(tiles)
+        guard let offset else { return StepEvidence(standing: standing, consistent: 0, against: 0, contradicted: false) }
         var consistent = 0, against = 0, moving = 0
         for t in 0..<tiles.cost.count {
             let curve = tiles.cost[t]
@@ -360,8 +399,18 @@ nonisolated enum FrameMatcher {
             if curve[offset] - lowest <= tolerance { consistent += 1 }
             else if uniqueBest(curve, tolerance: tolerance) != nil { against += 1 }
         }
-        guard against <= max(0, moving / 5) else { return nil }
-        return (consistent, against)
+        return StepEvidence(standing: standing, consistent: consistent, against: against,
+                            contradicted: against > max(0, moving / 5))
+    }
+
+    /// Whether `offset` is consistent with the frames when they cannot pin it
+    /// down themselves (see `evidence`). Nil when the frames contradict the
+    /// prediction.
+    static func verifyPredicted(previous: CaptureFrame, current: CaptureFrame, axis: ScrollAxis,
+                                offset: Int, searchLimit: Int) -> (consistent: Int, against: Int)? {
+        let found = evidence(previous: previous, current: current, axis: axis, offset: offset,
+                             searchLimit: searchLimit)
+        return found.contradicted ? nil : (found.consistent, found.against)
     }
 
     /// A tile votes against an offset only when it knows better: its own best

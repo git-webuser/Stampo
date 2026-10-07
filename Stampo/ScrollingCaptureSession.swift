@@ -68,6 +68,11 @@ final class ScrollingCaptureSession {
     /// to keep them (`ScrollFrameDump`), and which attempt at a step is being made.
     private var dump: ScrollFrameDump?
     private var stepNumber = 0
+    /// Steps placed by the calibration alone, waiting for one the matcher places.
+    private var temporary = TemporarySteps()
+    /// Tiles seen standing still while the page moved: fixed to the viewport,
+    /// and no proof, by standing, that the page has stopped.
+    private var pinnedTiles = Set<Int>()
     /// Steps in a row that would not match.
     private var consecutiveFailures = 0
     private let startedAt = Date()
@@ -136,6 +141,13 @@ final class ScrollingCaptureSession {
         task?.cancel()
         cleanup()
         onStatus?(.saving)
+        // The capture is over before a step the matcher places has come to
+        // carry the waiting ones into the image: what they stood for is not in it.
+        let dropped = temporary.discard()
+        if dropped > 0 {
+            Log.capture.notice("scroll queue dropped \(dropped, privacy: .public)")
+            dump?.step("   queue dropped \(dropped)")
+        }
         Log.capture.notice("scroll capture saving · \(self.assembler.totalLength, privacy: .public) px · \(self.assembler.strips.count, privacy: .public) strips · \(self.stepNumber, privacy: .public) steps")
         do {
             let image = try assembler.makeImage()
@@ -206,6 +218,7 @@ final class ScrollingCaptureSession {
 
     private func releaseCaptureBuffers() {
         previous = nil
+        temporary.discard()
         assembler.reset()
     }
 
@@ -328,10 +341,8 @@ final class ScrollingCaptureSession {
             /// points is what steps are planned from.
             var pixelsPerLine: Double?
             /// Whether a full step has matched what the calibration says, so
-            /// that lines are known to move the page in proportion — and how
-            /// many steps in a row have been placed by the calibration alone.
+            /// that lines are known to move the page in proportion.
             var linearityConfirmed = false
-            var predictedInARow = 0
 
             do {
                 diagnosticStage = .match
@@ -339,6 +350,7 @@ final class ScrollingCaptureSession {
                                                    maximumOffset: probeMotionLimit + 24)
                 try ensureActive()
                 try assembler.append(probe, movement: match.offset)
+                notePinned(match.standing)
                 pixelsPerLine = ScrollStepPlanner.pixelsPerLine(offset: match.offset, lines: Int(probeLines))
                 if let pixelsPerLine {
                     let plan = ScrollStepPlanner.plan(target: requestedStep, pixelsPerLine: pixelsPerLine,
@@ -385,14 +397,13 @@ final class ScrollingCaptureSession {
                 stepNumber += 1
                 dump?.save(next, as: String(format: "%02ld-step", stepNumber))
 
-                let looksStationary = meanDifference(oldFrame, next) < 0.006
                 /// Whether this is the first attempt at this step: an earlier
                 /// failed one has moved the page by a distance nothing here
                 /// accounts for.
                 let cleanStep = unmatchedScroll == 0
                 let maximumOffset = motionLimit + unmatchedScroll + 32
                 let head = "lines=\(plan.lines) motionLimit=\(motionLimit) maximumOffset=\(maximumOffset)"
-                    + (looksStationary ? " stationary" : "")
+                    + " difference=\(String(format: "%.4f", meanDifference(oldFrame, next)))"
                 do {
                     diagnosticStage = .match
                     let axis = self.axis
@@ -403,12 +414,23 @@ final class ScrollingCaptureSession {
                         }.value
                     }
                     try ensureActive()
+                    // The steps that waited for this one go into the image first.
+                    let waiting = temporary.take()
+                    for step in waiting {
+                        guard makeRoom(for: step.movement) else {
+                            Log.capture.notice("scroll queue only partly laid · the image is full")
+                            finish()
+                            return
+                        }
+                        try assembler.append(step.frame, movement: step.movement)
+                    }
                     guard makeRoom(for: match.offset) else {
                         finish()
                         return
                     }
                     try ensureActive()
                     try assembler.append(next, movement: match.offset)
+                    notePinned(match.standing)
                     if cleanStep, let pixelsPerLine,
                        ScrollStepPlanner.confirmsLinearity(offset: match.offset, lines: Int(plan.lines),
                                                            pixelsPerLine: pixelsPerLine) {
@@ -425,90 +447,92 @@ final class ScrollingCaptureSession {
                                                               axisLength: axisLength(of: next), backingScale: scale)
                         Log.capture.notice("scroll calibrated late · \(Int(late.rounded()), privacy: .public) px per line · \(latePlan.lines, privacy: .public) lines per step")
                     }
-                    recordStep("\(head) · match \(match.offset) px · confidence \(Self.percent(match.confidence)) · regions \(match.independentRegions) → added")
+                    let queue = waiting.isEmpty ? "" : " · queue appended \(waiting.count)"
+                    recordStep("\(head) · match \(match.offset) px · confidence \(Self.percent(match.confidence)) · regions \(match.independentRegions)\(queue) → added")
                     previous = next
                     zeroMotionCount = 0
                     unmatchedScroll = 0
-                    predictedInARow = 0
                     requestedStep = max(24, Int(Double(axisLength(of: next)) * 0.60))
                     consecutiveFailures = 0
                 } catch is CancellationError {
                     throw CancellationError()
-                } catch FrameMatchError.noReliableMotion where looksStationary {
-                    // Ask the matcher before declaring the end. A small final
-                    // partial step may have a low whole-frame difference but
-                    // still contain a reliable overlap to append.
-                    zeroMotionCount += 1
-                    consecutiveFailures = 0
-                    recordStep("\(head) · noReliableMotion → page not moving, \(zeroMotionCount) of 3")
-                    if zeroMotionCount >= 3 {
-                        // Three frames in a row without movement: the end of
-                        // the content.
-                        finish()
-                        return
-                    }
                 } catch {
-                    // Something in the frame changes by itself — a video, an
-                    // animation — and the matcher cannot place the step. The
-                    // calibration says how far it moved; it is taken at its
-                    // word only when the frames do not contradict it and at
-                    // least one tile of them agrees, never blind.
+                    // The matcher cannot place the step. Why is a question for
+                    // the frames, asked once: which tiles stand still, and, when
+                    // the calibration says how far the page should have moved,
+                    // which tiles bear that out.
                     let undecided = (error as? FrameMatchError == .ambiguousMotion)
                         || (error as? FrameMatchError == .noReliableMotion)
-                    var prediction = !undecided ? "not to be predicted"
-                        : looksStationary ? "frames look stationary"
-                        : pixelsPerLine == nil ? "no calibration"
-                        : "prediction not allowed (\(predictedInARow) in a row, \(unmatchedScroll) px unaccounted)"
-                    if undecided, !looksStationary, let pixelsPerLine,
-                       ScrollStepPlanner.mayPredict(pixelsPerLine: pixelsPerLine,
-                                                    predictedInARow: predictedInARow,
-                                                    unaccountedScroll: unmatchedScroll) {
-                        let predicted = ScrollStepPlanner.predictedOffset(lines: Int(plan.lines),
-                                                                          pixelsPerLine: pixelsPerLine)
+                    let expected: Int? = undecided && cleanStep
+                        ? pixelsPerLine.map { ScrollStepPlanner.predictedOffset(lines: Int(plan.lines), pixelsPerLine: $0) }
+                        : nil
+                    var evidence: FrameMatcher.StepEvidence?
+                    if undecided {
                         let axis = self.axis
                         let searchLimit = motionLimit + 32
-                        let verdict = await Task.detached(priority: .userInitiated) {
-                            FrameMatcher.verifyPredicted(previous: oldFrame, current: next, axis: axis,
-                                                         offset: predicted, searchLimit: searchLimit)
+                        evidence = await Task.detached(priority: .userInitiated) {
+                            FrameMatcher.evidence(previous: oldFrame, current: next, axis: axis,
+                                                  offset: expected, searchLimit: searchLimit)
                         }.value
                         try ensureActive()
-                        let required = ScrollStepPlanner.tilesRequiredToAgree(linearityConfirmed: linearityConfirmed)
-                        prediction = verdict.map {
-                            "predicted \(predicted) px · \($0.consistent) tiles agree, \($0.against) against, \(required) needed"
-                        } ?? "predicted \(predicted) px · contradicted by the frames"
-                        if let verdict, verdict.consistent >= required {
-                            guard makeRoom(for: predicted) else {
-                                finish()
-                                return
-                            }
-                            try assembler.append(next, movement: predicted)
-                            Log.capture.notice("scroll step predicted · \(predicted, privacy: .public) px · \(verdict.consistent, privacy: .public) tiles agree")
-                            recordStep("\(head) · \(error) · \(prediction) → added (predicted)")
-                            previous = next
-                            zeroMotionCount = 0
-                            unmatchedScroll = 0
-                            predictedInARow += 1
-                            requestedStep = max(24, Int(Double(axisLength(of: next)) * 0.60))
-                            consecutiveFailures = 0
-                            continue
-                        }
                     }
-                    consecutiveFailures += 1
-                    if consecutiveFailures <= 2 {
-                        // Retry from the same stable frame with a smaller probe;
-                        // do not append a questionable match.
-                        recordStep("\(head) · \(error) · \(prediction) → retry \(consecutiveFailures) of 2")
-                        requestedStep = max(12, currentStep / 2)
-                        unmatchedScroll += motionLimit
-                    } else {
-                        // A video, an animation, a section that stays where it
-                        // is: whatever it is, the steps will not line up, and
-                        // what is collected is what there is. The user wanted a
-                        // screenshot, not an explanation.
-                        recordStep("\(head) · \(error) · \(prediction) → saved: steps would not match")
-                        Log.capture.notice("scroll steps would not match · saved what was collected")
+                    let unpinned = (evidence?.standing ?? []).subtracting(pinnedTiles).count
+                    let required = ScrollStepPlanner.tilesRequiredToAgree(linearityConfirmed: linearityConfirmed)
+                    let decision = ScrollStepDecision.decide(.init(
+                        undecided: undecided, canExpect: expected != nil,
+                        consistent: evidence?.consistent ?? 0, against: evidence?.against ?? 0,
+                        contradicted: evidence?.contradicted ?? false, required: required,
+                        unpinnedStanding: unpinned, queued: temporary.count))
+                    let said = expected.map {
+                        "expected \($0) px · \(evidence?.consistent ?? 0) tiles agree, \(evidence?.against ?? 0) against, \(required) needed"
+                            + (evidence?.contradicted == true ? ", contradicted" : "")
+                    } ?? (!undecided ? "not to be predicted"
+                          : pixelsPerLine == nil ? "no calibration"
+                          : "step not clean (\(unmatchedScroll) px unaccounted)")
+                    let standing = "\(unpinned) unpinned tiles stand"
+                    switch decision {
+                    case .stationary:
+                        zeroMotionCount += 1
+                        consecutiveFailures = 0
+                        recordStep("\(head) · \(error) · \(said) → stop: \(standing), page not moving \(zeroMotionCount) of 3")
+                        if zeroMotionCount >= 3 {
+                            // Three steps in a row proved without movement: the
+                            // end of the content.
+                            finish()
+                            return
+                        }
+                    case .temporary(let confirmed):
+                        // Not placed by the frames: placed where the calibration
+                        // says, and kept apart until a step the matcher does
+                        // place carries it into the image.
+                        temporary.add(next, movement: expected ?? 0, confirmed: confirmed)
+                        recordStep("\(head) · \(error) · \(said) · \(standing) → temporary (\(confirmed ? "confirmed" : "unconfirmed")), queue \(temporary.count)")
+                        previous = next
+                        zeroMotionCount = 0
+                        unmatchedScroll = 0
+                        requestedStep = max(24, Int(Double(axisLength(of: next)) * 0.60))
+                        consecutiveFailures = 0
+                    case .finish:
+                        recordStep("\(head) · \(error) · \(said) → saved: \(temporary.count) steps wait for a confirmation")
                         finish()
                         return
+                    case .retry:
+                        consecutiveFailures += 1
+                        guard consecutiveFailures <= 2 else {
+                            // A video, an animation, a section that stays where
+                            // it is: whatever it is, the steps will not line up,
+                            // and what is collected is what there is. The user
+                            // wanted a screenshot, not an explanation.
+                            recordStep("\(head) · \(error) · \(said) → saved: steps would not match")
+                            Log.capture.notice("scroll steps would not match · saved what was collected")
+                            finish()
+                            return
+                        }
+                        // Back to where the step began, then half of it from there.
+                        recordStep("\(head) · \(error) · \(said) · \(standing) → retry \(consecutiveFailures) of 2, back \(plan.lines) lines")
+                        requestedStep = max(12, currentStep / 2)
+                        try await returnPage(by: plan.lines, at: point)
+                        unmatchedScroll = 0
                     }
                 }
             }
@@ -559,6 +583,34 @@ final class ScrollingCaptureSession {
         }
         try ScrollDriver.validateScrollTarget(selection: selection, point: point, container: scrollContainer!,
                                               ignoring: ignoredWindows())
+    }
+
+    /// The page back where a step that would not match began: the same lines,
+    /// the other way, and a look at it once it has settled — so that the
+    /// retry's half step starts from a place the frames know, and the distance
+    /// the failed step moved is not left for the matcher to search through.
+    private func returnPage(by lines: Int32, at point: CGPoint) async throws {
+        try ensureActive()
+        diagnosticStage = .validateTarget
+        try validateCurrentScrollTarget(at: point)
+        try ScrollDriver.sendScroll(axis: axis, lines: lines, backwards: true, at: point)
+        diagnosticStage = .capture
+        let back = try await ScrollCaptureCancellationBoundary.awaitActive {
+            try await self.captureViewport()
+        }
+        try ensureActive()
+        try checkWindowAndFocus()
+        dump?.save(back, as: String(format: "%02ld-back", stepNumber))
+    }
+
+    /// Remembers the tiles that stood still in a step that moved the page.
+    private func notePinned(_ standing: Set<Int>) {
+        let added = standing.subtracting(pinnedTiles)
+        guard !added.isEmpty else { return }
+        pinnedTiles.formUnion(added)
+        let tiles = added.sorted().map(String.init).joined(separator: ",")
+        Log.capture.notice("scroll pinned tiles \(tiles, privacy: .public)")
+        dump?.step("   pinned tiles \(tiles)")
     }
 
     /// One line about an attempt at a step, for the log — `.notice`, which

@@ -303,22 +303,24 @@ enum ScrollDriver {
                               container: resolvedContainer)
     }
 
-    /// One wheel event of `lines` lines. How far that moves the page is the
-    /// app's own business — `ScrollStepPlanner` works it out from a probe.
-    static func sendScroll(axis: ScrollAxis, lines: Int32, at point: CGPoint) throws {
-        guard let event = scrollEvent(axis: axis, lines: lines, at: point)
+    /// One wheel event of `lines` lines, forward or `backwards` — up, or left.
+    /// How far that moves the page is the app's own business —
+    /// `ScrollStepPlanner` works it out from a probe.
+    static func sendScroll(axis: ScrollAxis, lines: Int32, backwards: Bool = false, at point: CGPoint) throws {
+        guard let event = scrollEvent(axis: axis, lines: lines, backwards: backwards, at: point)
         else { throw ScrollDriverError.eventUnavailable }
         event.post(tap: .cghidEventTap)
     }
 
     /// The wheel event for `sendScroll`, marked as the capture's own so that
     /// the guard against the user's input can tell it from theirs.
-    static func scrollEvent(axis: ScrollAxis, lines: Int32, at point: CGPoint) -> CGEvent? {
+    static func scrollEvent(axis: ScrollAxis, lines: Int32, backwards: Bool = false, at point: CGPoint) -> CGEvent? {
         // Positive wheel counts scroll up and left, so forward is negative.
+        let signed = backwards ? lines : -lines
         guard lines > 0,
               let event = CGEvent(scrollWheelEvent2Source: nil, units: .line, wheelCount: 2,
-                                  wheel1: axis == .vertical ? -lines : 0,
-                                  wheel2: axis == .horizontal ? -lines : 0, wheel3: 0)
+                                  wheel1: axis == .vertical ? signed : 0,
+                                  wheel2: axis == .horizontal ? signed : 0, wheel3: 0)
         else { return nil }
         event.location = point
         event.setIntegerValueField(.eventSourceUserData, value: ScrollInputGuard.syntheticMarker)
@@ -485,11 +487,6 @@ nonisolated enum ScrollStepPlanner {
 
     // MARK: Predicting a step the frames cannot place
 
-    /// How many steps in a row may be placed by the calibration rather than by
-    /// the frames. Each one is a step the frames could not confirm, so the run
-    /// is short: past it the capture goes back to retrying until a step matches.
-    static let maxPredictedInARow = 3
-
     /// How far a step of `lines` lines should have moved the page, by the
     /// calibration.
     static func predictedOffset(lines: Int, pixelsPerLine: Double) -> Int {
@@ -503,16 +500,6 @@ nonisolated enum ScrollStepPlanner {
     static func confirmsLinearity(offset: Int, lines: Int, pixelsPerLine: Double) -> Bool {
         let expected = Double(predictedOffset(lines: lines, pixelsPerLine: pixelsPerLine))
         return abs(Double(offset) - expected) <= max(2, expected * 0.02)
-    }
-
-    /// Whether a step the matcher could not decide may be placed at the
-    /// distance the calibration predicts — which is then still to be checked
-    /// against the frames. All of: there is a calibration, fewer than
-    /// `maxPredictedInARow` steps in a row were predicted, and no earlier
-    /// attempt has already moved the page (its distance would be missing from
-    /// the prediction).
-    static func mayPredict(pixelsPerLine: Double?, predictedInARow: Int, unaccountedScroll: Int) -> Bool {
-        pixelsPerLine != nil && predictedInARow < maxPredictedInARow && unaccountedScroll == 0
     }
 
     /// How many tiles of the frames must agree with a predicted distance. One
