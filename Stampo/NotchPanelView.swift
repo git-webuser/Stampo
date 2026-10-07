@@ -986,7 +986,7 @@ enum CountdownPhase: Equatable {
     case countdown(seconds: Int, total: Int)
     /// A scrolling capture is running: the ring turns where the arc was, ✕
     /// drops the capture and the capture button saves it. `paused` swaps the
-    /// ring for a warning — part of the image is collected and the capture
+    /// ring for a pause sign — part of the image is collected and the capture
     /// waits for one of the two.
     case scrolling(paused: Bool)
 }
@@ -1088,7 +1088,8 @@ struct CountdownView: View {
             case .scrolling(let paused):
                 Group {
                     if paused {
-                        Image(systemName: "exclamationmark.triangle")
+                        // Paused, not failed: the strip waits for Save or ✕.
+                        Image(systemName: "pause.fill")
                             .font(.system(size: 14, weight: .semibold))
                             .foregroundStyle(PanelChrome.foreground(0.9, contrast))
                     } else {

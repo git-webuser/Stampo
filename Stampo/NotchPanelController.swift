@@ -902,7 +902,7 @@ final class NotchPanelController: NSObject {
     }
 
     /// What the scrolling capture reports, on the strip: the ring while it
-    /// works and while it saves, a warning once it has stopped with part of the
+    /// works and while it saves, a pause sign once it has stopped with part of the
     /// image collected — and, unless the user stopped it by walking the pointer
     /// off the page, a toast saying so, since the strip has no room for words.
     private func applyScrollingStatus(_ status: ScrollCaptureStatus) {

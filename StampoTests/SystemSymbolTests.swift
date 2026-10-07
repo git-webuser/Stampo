@@ -29,6 +29,11 @@ import Testing
         assertSymbols(["scroll", "ruler", "arrow.down.right.and.arrow.up.left"])
     }
 
+    /// The strip of a paused scrolling capture.
+    @Test func scrollStripPausedSymbolExists() {
+        assertSymbols(["pause.fill"])
+    }
+
     @Test func waitStripSymbolsExist() {
         assertSymbols([PanelWait.translating, .saving, .saved].map(\.systemImage))
     }
