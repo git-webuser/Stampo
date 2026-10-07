@@ -1001,43 +1001,121 @@ import Testing
         return CaptureFrame(width: frame.width, height: frame.height, pixels: pixels)
     }
 
-    /// Where two frames overlap the later one is the one kept: an element that
-    /// is half-way up in the first and finished in the second ends up finished.
-    /// (Keeping the first frame's overlap cut a heading off at the top on a page
-    /// whose headings slide in as it scrolls.)
-    @Test func theLaterFrameWinsWhereTwoOverlap() throws {
-        let height = 200, movement = 60, element = 100..<130, columns = 40..<120
-        // Page rows 100–130 are inside the overlap (rows 60 to 200): the first
-        // frame has the element dim there, the second at full brightness.
-        let first = withElement(texture(width: 240, height: height), rows: element, columns: columns, value: 90)
-        let later = texture(width: 240, height: height, yOffset: movement)
-        let second = withElement(later, rows: (element.lowerBound - movement)..<(element.upperBound - movement),
-                                 columns: columns, value: 255)
+    /// The seam lies in the middle of the overlap: the earlier frame keeps the
+    /// first half, the later one gives the second. An element that is half-way
+    /// up in the first frame and finished in the second ends up finished when
+    /// it lies in the second half of the overlap. (Keeping the first frame's
+    /// overlap cut a heading off at the top on a page whose headings slide in
+    /// as it scrolls.)
+    @Test func theLaterFrameWinsInTheSecondHalfOfTheOverlap() throws {
+        let height = 200, movement = 60, columns = 40..<120
+        // The overlap is page rows 60 to 200; the seam falls at row 130.
+        let upper = 100..<130, lower = 150..<180
+        func dim(_ frame: CaptureFrame) -> CaptureFrame {
+            withElement(withElement(frame, rows: upper, columns: columns, value: 90),
+                        rows: lower, columns: columns, value: 90)
+        }
+        func finished(_ frame: CaptureFrame) -> CaptureFrame {
+            let moved = { (rows: Range<Int>) in (rows.lowerBound - movement)..<(rows.upperBound - movement) }
+            return withElement(withElement(frame, rows: moved(upper), columns: columns, value: 255),
+                               rows: moved(lower), columns: columns, value: 255)
+        }
+        let first = dim(texture(width: 240, height: height))
+        let second = finished(texture(width: 240, height: height, yOffset: movement))
         var assembler = ImageAssembler(axis: .vertical, maxLength: 10_000)
         assembler.begin(with: first)
         try assembler.append(second, movement: movement)
         #expect(assembler.totalLength == height + movement)
-        // Contiguous, whole frame last, and the first cut back to what the
-        // second does not cover.
+        // Contiguous: the first cut back to the seam, the second from there.
         #expect(assembler.strips.count == 2)
-        #expect(assembler.strips[0].frame.height == movement)
-        #expect(assembler.strips[1].start == movement && assembler.strips[1].frame.height == height)
+        #expect(assembler.strips[0].frame.height == 130)
+        #expect(assembler.strips[1].start == 130 && assembler.strips[1].frame.height == height - 70)
 
         let image = try #require(CaptureFrame(image: try assembler.makeImage()))
-        #expect(image[60, 115, 0] == 255, "the element is as the later frame has it")
-        // Beyond the element the page is the page, wherever it came from.
+        #expect(image[60, 165, 0] == 255, "below the seam the element is as the later frame has it")
+        #expect(image[60, 115, 0] == 90, "above the seam it is as the earlier frame has it")
+        // Beyond the elements the page is the page, wherever it came from.
         let expected = texture(width: 240, height: height + movement)
-        for (x, y) in [(10, 5), (200, 59), (200, 61), (10, 180), (230, 259)] {
+        for (x, y) in [(10, 5), (200, 59), (200, 61), (10, 129), (10, 131), (10, 180), (230, 259)] {
             #expect(image[x, y, 0] == expected[x, y, 0], "at \(x),\(y)")
         }
     }
 
-    /// The same once the image has dropped to half size: the cut and the frame
-    /// both land on the halved floor, so the element is there and nothing is
-    /// left of the frame that it replaced.
+    /// A bar fixed to the top of the viewport is in every frame; the seams fall
+    /// below it, so it is in the image once, at the top.
+    @Test func aBarFixedAtTheTopOfEveryFrameIsInTheImageOnceAtTheTop() throws {
+        let width = 240, height = 200, bar = 40, movements = [60, 60, 60, 60]
+        var assembler = ImageAssembler(axis: .vertical, maxLength: 10_000)
+        assembler.begin(with: texture(width: width, height: height, stickyHeader: bar))
+        var offset = 0
+        for movement in movements {
+            offset += movement
+            try assembler.append(texture(width: width, height: height, yOffset: offset, stickyHeader: bar),
+                                 movement: movement)
+        }
+        let total = height + offset
+        #expect(assembler.totalLength == total)
+        let image = try #require(CaptureFrame(image: try assembler.makeImage()))
+        let expected = texture(width: width, height: total, stickyHeader: bar)
+        #expect(image.pixels == expected.pixels)
+    }
+
+    /// The same at the bottom: only the last frame's bar is left, at the end.
+    @Test func aBarFixedAtTheBottomOfEveryFrameIsInTheImageOnceAtTheEnd() throws {
+        let width = 240, height = 200, bar = 40, movements = [60, 60, 60, 60]
+        var assembler = ImageAssembler(axis: .vertical, maxLength: 10_000)
+        assembler.begin(with: texture(width: width, height: height, stickyFooter: bar))
+        var offset = 0
+        for movement in movements {
+            offset += movement
+            try assembler.append(texture(width: width, height: height, yOffset: offset, stickyFooter: bar),
+                                 movement: movement)
+        }
+        let total = height + offset
+        let image = try #require(CaptureFrame(image: try assembler.makeImage()))
+        let expected = texture(width: width, height: total, stickyFooter: bar)
+        #expect(image.pixels == expected.pixels)
+    }
+
+    /// Bars at both edges, and a step so small that the overlap is nearly the
+    /// frame: still once each — and the same after the image has been halved.
+    @Test func barsAtBothEdgesAreOnceEachBeforeAndAfterTheImageIsHalved() throws {
+        let width = 240, height = 200, bar = 30, movements = [40, 25, 40, 40, 25, 40]
+        for shrinkAfter in [nil, 2] as [Int?] {
+            let assembler = try assemble(movements: movements, width: width, height: height, shrinkAfter: shrinkAfter) {
+                texture(width: $0, height: $1, yOffset: $2, stickyHeader: bar, stickyFooter: bar)
+            }
+            let total = height + movements.reduce(0, +)
+            #expect(assembler.fullLength == total)
+            let image = try #require(CaptureFrame(image: try assembler.makeImage()))
+            if shrinkAfter == nil {
+                let expected = texture(width: width, height: total, stickyHeader: bar, stickyFooter: bar)
+                #expect(image.pixels == expected.pixels)
+            } else {
+                // Halved, a row of the bar is one that looks like a row inside
+                // the top bar: they are at the top and at the end, and nowhere
+                // between.
+                func differs(_ y: Int, from reference: Int) -> Double {
+                    var sum = 0
+                    for x in 0..<image.width { sum += abs(Int(image[x, y, 0]) - Int(image[x, reference, 0])) }
+                    return Double(sum) / Double(image.width)
+                }
+                let barRows = (0..<image.height).filter { differs($0, from: 3) < 4 }
+                #expect(barRows.contains(3) && barRows.contains(image.height - 4))
+                for y in barRows {
+                    #expect(y <= bar / 2 || y >= image.height - bar / 2 - 1, "a bar row in the page at \(y)")
+                }
+            }
+        }
+    }
+
+    /// The same once the image has dropped to half size: the seam and the rest
+    /// of the frame both land on the halved floor, so the element is there and
+    /// nothing is left of the frame that it replaced.
     @Test func theLaterFrameWinsAfterTheImageHasShrunk() throws {
-        // Page rows 150–180: inside what the second and third frames share (120 to 260).
-        let height = 200, movement = 60, element = 150..<180, columns = 40..<120
+        // The second and third frames share page rows 120 to 260, the seam at
+        // 190; the element at 200–230 is in the second half.
+        let height = 200, movement = 60, element = 200..<230, columns = 40..<120
         let first = texture(width: 240, height: height)
         let second = texture(width: 240, height: height, yOffset: movement)
         let third = withElement(texture(width: 240, height: height, yOffset: 2 * movement),
@@ -1060,7 +1138,7 @@ import Testing
         }
         #expect(expectedStart == assembler.totalLength)
         let image = try #require(CaptureFrame(image: try assembler.makeImage()))
-        #expect(image[40, 82, 0] > 230, "the element, halved, is bright: \(image[40, 82, 0])")
+        #expect(image[40, 107, 0] > 230, "the element, halved, is bright: \(image[40, 107, 0])")
     }
 
     @Test func shrinkingTwiceOrBeforeThereIsAnythingChangesNothing() throws {

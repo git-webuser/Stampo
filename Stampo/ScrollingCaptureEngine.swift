@@ -497,13 +497,19 @@ nonisolated struct ImageAssembler: Sendable {
         fullLength = length
     }
 
-    /// Adds a frame that is `movement` pixels further along than the last one,
-    /// whole, over the part of the image it overlaps — where it and the frame
-    /// before it show the same page, the newer one wins. What a page does as it
-    /// scrolls into view (a heading sliding in, an image fading up) is finished
-    /// in the later frame and half-way in the earlier. The collected image is
-    /// cut back to where the overlap begins and the frame laid from there, so
-    /// at any time the image costs about its own size and one frame.
+    /// Adds a frame that is `movement` pixels further along than the last one.
+    /// The two overlap by `frameLength − movement` pixels and the seam is laid
+    /// in the middle of that: the earlier frame keeps the first half, the later
+    /// one gives the rest. What a page does as it scrolls into view (a heading
+    /// sliding in, an image fading up) is finished in the later frame and
+    /// half-way in the earlier, so the later frame's half is the newer; and
+    /// what is fixed to an edge of the viewport — a site's bar at the top, a
+    /// banner at the bottom — and so repeats in every frame, is cut off the new
+    /// frame's top and off the collected image's end, as long as it is no
+    /// deeper than half the overlap, instead of reappearing at every seam.
+    /// The collected image is cut back to the seam and the rest of the frame
+    /// laid from there, so at any time the image costs about its own size and
+    /// one frame.
     ///
     /// Direction is normalized so the assembled document reads top-to-bottom /
     /// left-to-right.
@@ -514,26 +520,41 @@ nonisolated struct ImageAssembler: Sendable {
         else { throw FrameMatchError.noReliableMotion }
         let overlap = frameLength - movement
         guard fullLength >= overlap else { throw FrameMatchError.noReliableMotion }
+        // The rows of the new frame that the earlier one keeps, and where the
+        // seam falls in the image, in the frames' pixels.
+        let skip = overlap / 2
+        let seam = fullLength - overlap + skip
+        guard let rest = Self.dropping(skip, from: frame, axis: axis) else { throw FrameMatchError.noReliableMotion }
         if isShrunk {
-            // In the output's pixels, from the same floor as ever: the frame
-            // begins at half of where it begins in its own, and ends at half of
-            // where it ends, so what is cut and what is laid tile exactly.
-            let start = (fullLength - overlap) / 2, end = (fullLength + movement) / 2
+            // In the output's pixels, from the same floor as ever: the rest of
+            // the frame begins at half of where it begins in its own, and ends
+            // at half of where it ends, so what is cut and what is laid tile
+            // exactly.
+            let start = seam / 2, end = (fullLength + movement) / 2
             trim(to: start)
             // A frame can round to nothing only in a degenerate case; the image
             // then simply ends where the cut left it, and the next begins there.
-            if end > start, let halved = Self.halved(frame, axis: axis, length: end - start) {
+            if end > start, let halved = Self.halved(rest, axis: axis, length: end - start) {
                 strips.append(CaptureStrip(frame: halved, start: start))
             }
             fullLength += movement
             totalLength = fullLength / 2
         } else {
-            let start = totalLength - overlap
-            trim(to: start)
-            strips.append(CaptureStrip(frame: frame, start: start))
+            trim(to: seam)
+            strips.append(CaptureStrip(frame: rest, start: seam))
             totalLength += movement
             fullLength += movement
         }
+    }
+
+    /// `frame` without its first `count` rows (columns, along a horizontal
+    /// scroll). Whole when there is nothing to drop.
+    private static func dropping(_ count: Int, from frame: CaptureFrame, axis: ScrollAxis) -> CaptureFrame? {
+        guard count > 0 else { return frame }
+        let rect = axis == .vertical
+            ? CGRect(x: 0, y: count, width: frame.width, height: frame.height - count)
+            : CGRect(x: count, y: 0, width: frame.width - count, height: frame.height)
+        return frame.cropped(to: rect)
     }
 
     /// Cuts the image back to `length` of its own pixels along the scroll: the
