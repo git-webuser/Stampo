@@ -531,8 +531,9 @@ final class ScrollingCaptureSession {
                         // Back to where the step began, then half of it from there.
                         recordStep("\(head) · \(error) · \(said) · \(standing) → retry \(consecutiveFailures) of 2, back \(plan.lines) lines")
                         requestedStep = max(12, currentStep / 2)
-                        try await returnPage(by: plan.lines, at: point)
-                        unmatchedScroll = 0
+                        // Only this step's lines are undone: a probe that moved
+                        // the page unmatched still has to be allowed for.
+                        try await returnPage(by: plan.lines, at: point, reference: oldFrame)
                     }
                 }
             }
@@ -589,14 +590,16 @@ final class ScrollingCaptureSession {
     /// the other way, and a look at it once it has settled — so that the
     /// retry's half step starts from a place the frames know, and the distance
     /// the failed step moved is not left for the matcher to search through.
-    private func returnPage(by lines: Int32, at point: CGPoint) async throws {
+    private func returnPage(by lines: Int32, at point: CGPoint, reference: CaptureFrame) async throws {
         try ensureActive()
         diagnosticStage = .validateTarget
         try validateCurrentScrollTarget(at: point)
         try ScrollDriver.sendScroll(axis: axis, lines: lines, backwards: true, at: point)
         diagnosticStage = .capture
+        // Settled before the next step is sent, so that the two do not run
+        // into each other while the page still glides back.
         let back = try await ScrollCaptureCancellationBoundary.awaitActive {
-            try await self.captureViewport()
+            try await self.captureStableViewport(reference: reference)
         }
         try ensureActive()
         try checkWindowAndFocus()
