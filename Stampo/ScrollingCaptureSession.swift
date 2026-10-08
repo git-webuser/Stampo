@@ -710,8 +710,7 @@ final class ScrollingCaptureSession {
                 // the frames, asked once: which tiles stand still, and, when
                 // the calibration says how far the page should have moved,
                 // which tiles bear that out.
-                let undecided = (error as? FrameMatchError == .ambiguousMotion)
-                    || (error as? FrameMatchError == .noReliableMotion)
+                let undecided = ScrollStepDecision.isUndecided(error)
                 let expected: Int? = undecided && cleanStep
                     ? pixelsPerLine.map { ScrollStepPlanner.predictedOffset(lines: Int(plan.lines), pixelsPerLine: $0) }
                     : nil
@@ -725,7 +724,8 @@ final class ScrollingCaptureSession {
                     }.value
                     try ensureActive()
                 }
-                let unpinned = (evidence?.standing ?? []).subtracting(pinnedTiles).count
+                let unpinned = ScrollStepDecision.provingStop(standing: evidence?.standing ?? [],
+                                                              pinned: pinnedTiles)
                 let required = ScrollStepPlanner.tilesRequiredToAgree(linearityConfirmed: linearityConfirmed)
                 let decision = ScrollStepDecision.decide(.init(
                     undecided: undecided, canExpect: expected != nil,
@@ -738,7 +738,7 @@ final class ScrollingCaptureSession {
                 } ?? (!undecided ? "not to be predicted"
                       : pixelsPerLine == nil ? "no calibration"
                       : "step not clean (\(unmatchedScroll) px unaccounted)")
-                let standing = "\(unpinned) unpinned tiles stand"
+                let standing = "\(unpinned) unpinned middle tiles stand"
                 switch decision {
                 case .stationary:
                     zeroMotionCount += 1

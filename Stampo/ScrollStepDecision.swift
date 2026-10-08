@@ -23,8 +23,8 @@ nonisolated enum ScrollStepDecision: Equatable {
     case finish
 
     struct Evidence: Equatable {
-        /// The matcher gave up with "no reliable motion" or "ambiguous" — as
-        /// opposed to finding the page moving across, say.
+        /// The matcher gave up on the step with one of the refusals that say it
+        /// could not tell (`isUndecided`) — and not with some other failure.
         var undecided: Bool
         /// A calibration, and a step clean of earlier failed attempts, so that
         /// there is a distance to expect.
@@ -36,18 +36,45 @@ nonisolated enum ScrollStepDecision: Equatable {
         var contradicted: Bool
         /// Tiles needed to call the distance confirmed.
         var required: Int
-        /// Tiles standing still with something in them that are not known to
-        /// be fixed to the viewport.
+        /// Tiles that prove the page stopped: standing still with something in
+        /// them, not known to be fixed to the viewport, and in the middle of the
+        /// frame (`provingStop`).
         var unpinnedStanding: Int
         /// Steps already waiting.
         var queued: Int
     }
 
-    /// The stop is proved by a tile with content that stands still and is not
-    /// one of those fixed to the viewport, while none of the tiles bears out
-    /// that the page moved. A blank frame, a frame that is one video, a frame
-    /// whose only standing tiles are the site's bar are no proof: the bar stands
-    /// at every step.
+    /// Whether the matcher's refusal is "cannot tell". All three are: the frames
+    /// have nothing to place them by (`noReliableMotion`), place them two ways
+    /// (`ambiguousMotion`), or find across the scroll the little that is left to
+    /// find (`crossAxisMotion`) — which is what an empty frame with only a
+    /// site's bar in it does: noise across the axis, nothing along it. Each is
+    /// then asked of the tiles.
+    static func isUndecided(_ error: Error) -> Bool {
+        switch error as? FrameMatchError {
+        case .noReliableMotion, .ambiguousMotion, .crossAxisMotion: return true
+        case .outputLimitExceeded, nil: return false
+        }
+    }
+
+    /// The standing tiles that can prove the page stopped: not pinned, and in
+    /// the middle rows — 1 and 2 of 0 to 3, along the scroll. The first and
+    /// last rows are where the site's bars and banners live, and a tile that
+    /// stands there says nothing: an empty gap between two sections leaves
+    /// only the bar in the frame, and the bar stands at every step whether
+    /// pinned yet or not.
+    static func provingStop(standing: Set<Int>, pinned: Set<Int>) -> Int {
+        standing.subtracting(pinned).filter { tile in
+            let row = tile / FrameMatcher.tileColumns
+            return row >= 1 && row < FrameMatcher.tileRows - 1
+        }.count
+    }
+
+    /// The stop is proved by a tile of the middle rows with content that stands
+    /// still and is not one of those fixed to the viewport, while none of the
+    /// tiles bears out that the page moved (`provingStop`). A blank frame, a
+    /// frame that is one video, a frame whose only standing tiles are the bar
+    /// are no proof.
     static func decide(_ evidence: Evidence) -> ScrollStepDecision {
         guard evidence.undecided else { return .retry }
         if evidence.unpinnedStanding >= 1, evidence.consistent == 0 { return .stationary }

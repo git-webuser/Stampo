@@ -1575,7 +1575,7 @@ import Testing
         // Nothing to expect — no calibration, or an earlier attempt moved the
         // page — and no proof of a stop: try again.
         #expect(Decision.decide(evidence(canExpect: false)) == .retry)
-        // Not an undecided matcher but, say, the page moving across: never a stop.
+        // Some other failure than a refusal to tell: never a stop.
         #expect(Decision.decide(evidence(unpinnedStanding: 4, undecided: false)) == .retry)
         #expect(Decision.decide(evidence(consistent: 5, undecided: false)) == .retry)
         // Eight steps waiting is the most there is room for.
@@ -1629,42 +1629,109 @@ import Testing
         #expect(dropped.isEmpty && dropped.discard() == 0)
     }
 
-    /// A tile that stands still while the page moves is the site's bar, and it
-    /// is found in the step that moved the page — which is what lets a frame
-    /// with nothing but the bar in it be told from a page that stopped.
-    @Test func aBarThatStandsWhileThePageMovesIsPinnedAndProvesNothingAfterwards() throws {
-        // The bar is the first row of tiles, 65 of 260 rows, so that no tile is part bar and part page.
-        let header = 65, height = 260, step = 100
-        // A bar with something in it along the scroll as well as across — text,
-        // a logo — set over the page; flat down its height it would fit any
-        // distance, and say nothing.
-        func withBar(_ frame: CaptureFrame) -> CaptureFrame {
+    /// What a standing tile can prove. Only the middle rows — 1 and 2 of 0 to 3,
+    /// along the scroll — and only when the tile is not pinned: the first and
+    /// last rows are where the site's bars and banners live.
+    @Test func onlyUnpinnedStandingTilesOfTheMiddleRowsProveThatThePageStopped() {
+        typealias Decision = ScrollStepDecision
+        func proof(_ standing: Set<Int>, pinned: Set<Int> = []) -> Int {
+            Decision.provingStop(standing: standing, pinned: pinned)
+        }
+        // Tiles are numbered row by row, five to a row.
+        #expect(proof([0, 1, 2, 3, 4]) == 0, "the first row")
+        #expect(proof([15, 16, 17, 18, 19]) == 0, "the last row")
+        #expect(proof([7]) == 1, "row 1")
+        #expect(proof([12]) == 1, "row 2")
+        #expect(proof([0, 4, 7, 12, 17]) == 2)
+        // Pinned tiles of the middle are no proof either.
+        #expect(proof([7, 12], pinned: [7]) == 1)
+        #expect(proof([7, 12], pinned: [7, 12]) == 0)
+        #expect(proof([], pinned: [7]) == 0)
+    }
+
+    /// Every refusal of the matcher that says "cannot tell" is asked of the
+    /// tiles, and nothing else is.
+    @Test func everyRefusalThatSaysTheMatcherCouldNotTellIsAskedOfTheTiles() {
+        #expect(ScrollStepDecision.isUndecided(FrameMatchError.noReliableMotion))
+        #expect(ScrollStepDecision.isUndecided(FrameMatchError.ambiguousMotion))
+        // An empty frame with a bar in it: noise across the axis, nothing along it.
+        #expect(ScrollStepDecision.isUndecided(FrameMatchError.crossAxisMotion))
+        #expect(!ScrollStepDecision.isUndecided(FrameMatchError.outputLimitExceeded))
+        #expect(!ScrollStepDecision.isUndecided(CocoaError(.fileReadUnknown)))
+        #expect(!ScrollStepDecision.isUndecided(CancellationError()))
+    }
+
+    /// The gaps without content, as the matcher met them on apple.com: a frame
+    /// of black and the site's bar, which the matcher answers with
+    /// `crossAxisMotion`. Nothing on the page agrees, none disagrees; what
+    /// stands is the bar in the first row — and that proves nothing.
+    @Test func anEmptyGapIsPlacedByTheCalibrationAndOnlyAMiddleTileStopsTheCapture() {
+        typealias Decision = ScrollStepDecision
+        func decision(error: Error, standing: Set<Int>, pinned: Set<Int> = []) -> Decision {
+            Decision.decide(evidence(unpinnedStanding: Decision.provingStop(standing: standing, pinned: pinned),
+                                     undecided: Decision.isUndecided(error)))
+        }
+        let cross = FrameMatchError.crossAxisMotion
+        // 0/0, and only the first row stands: provisional, unconfirmed.
+        #expect(decision(error: cross, standing: [0, 1, 2, 3, 4]) == .temporary(confirmed: false))
+        // A tile of row 1 stands: the page has stopped.
+        #expect(decision(error: cross, standing: [0, 1, 7]) == .stationary)
+        // A tile of row 3 stands: it is the banner, not a stop.
+        #expect(decision(error: cross, standing: [17]) == .temporary(confirmed: false))
+        // The same tile of the middle, pinned by a step that moved the page: no stop.
+        #expect(decision(error: cross, standing: [7], pinned: [7]) == .temporary(confirmed: false))
+        // The other refusals go the same way.
+        for error in [FrameMatchError.noReliableMotion, .ambiguousMotion] {
+            #expect(decision(error: error, standing: [0, 4]) == .temporary(confirmed: false))
+            #expect(decision(error: error, standing: [12]) == .stationary)
+        }
+        // A failure of another kind is a retry whatever stands.
+        #expect(decision(error: CocoaError(.fileReadUnknown), standing: [7, 12]) == .retry)
+    }
+
+    /// A tile that stands still while the page moves is fixed to the viewport,
+    /// and it is found in the step that moved the page. The site's bar is that
+    /// tile in the first row; a side panel is one in the middle, and for the
+    /// side panel the pin is what stops it from proving a stop.
+    @Test func aTileThatStandsWhileThePageMovesIsPinnedAndAPinnedPanelProvesNothingAfterwards() throws {
+        // Tiles are 65 rows and 64 columns of the 260 × 320 frame; the bar is
+        // the first row of tiles, the panel one tile — row 1, column 0 — so
+        // that no tile is part fixed and part page.
+        let height = 260, step = 100
+        let barRows = 0..<65, panelRows = 65..<130, panelColumns = 0..<64
+        // Something in it along the scroll as well as across: text, a logo.
+        // Flat down its height it would fit any distance and say nothing.
+        func fixed(_ frame: CaptureFrame) -> CaptureFrame {
             var pixels = frame.pixels
-            for y in 0..<header { for x in 0..<frame.width {
-                let i = (y * frame.width + x) * 4
-                let value = UInt8(truncatingIfNeeded: 70 + noise(x, y &+ 5000) % 150)
-                pixels[i] = value; pixels[i + 1] = value; pixels[i + 2] = value
-            } }
+            func paint(rows: Range<Int>, columns: Range<Int>, salt: Int) {
+                for y in rows { for x in columns {
+                    let i = (y * frame.width + x) * 4
+                    let value = UInt8(truncatingIfNeeded: 70 + noise(x, y &+ salt) % 150)
+                    pixels[i] = value; pixels[i + 1] = value; pixels[i + 2] = value
+                } }
+            }
+            paint(rows: barRows, columns: 0..<frame.width, salt: 5000)
+            paint(rows: panelRows, columns: panelColumns, salt: 9000)
             return CaptureFrame(width: frame.width, height: frame.height, pixels: pixels)
         }
         func page(_ offset: Int) -> CaptureFrame {
-            withBar(videoPage(height: height, offset: offset, videoSeed: 1))
+            fixed(videoPage(height: height, offset: offset, videoSeed: 1))
         }
-        // A step the matcher places: the bar's tiles stand.
+        // A step the matcher places: the bar's tiles and the panel's stand.
         let match = try FrameMatcher.match(previous: page(0), current: page(step), axis: .vertical,
                                            maximumOffset: height * 3 / 4)
         #expect(match.offset == step)
-        let topRow: Set<Int> = [0, 1, 2, 3, 4]
-        #expect(match.standing.isSuperset(of: topRow), "standing: \(match.standing.sorted())")
-        // The tiles below the bar moved.
-        #expect(match.standing.intersection(Set(5..<20)).isEmpty, "standing: \(match.standing.sorted())")
+        let bar: Set<Int> = [0, 1, 2, 3, 4], panel = 5
+        #expect(match.standing.isSuperset(of: bar), "standing: \(match.standing.sorted())")
+        #expect(match.standing.contains(panel), "standing: \(match.standing.sorted())")
+        // The tiles of the page moved.
+        #expect(!match.standing.contains(12) && !match.standing.contains(17))
 
-        // Later a frame that is the bar and nothing else, twice: the page is
-        // blank there, or has run out. The bar stands in it all the same.
+        // Later a frame that is the bar and the panel and nothing else, twice.
         func empty() -> CaptureFrame {
-            let frame = withBar(videoPage(height: height, offset: 0, videoSeed: 1))
+            let frame = fixed(videoPage(height: height, offset: 0, videoSeed: 1))
             var pixels = frame.pixels
-            for y in header..<height { for x in 0..<frame.width {
+            for y in 0..<height { for x in 0..<frame.width where !(barRows ~= y) && !(panelRows ~= y && panelColumns ~= x) {
                 let i = (y * frame.width + x) * 4
                 pixels[i] = 24; pixels[i + 1] = 24; pixels[i + 2] = 24
             } }
@@ -1672,17 +1739,19 @@ import Testing
         }
         let found = FrameMatcher.evidence(previous: empty(), current: empty(), axis: .vertical,
                                           offset: step, searchLimit: height * 3 / 4)
-        #expect(found.standing.isSuperset(of: topRow))
+        #expect(found.standing.isSuperset(of: bar) && found.standing.contains(panel))
         #expect(found.consistent == 0)
         func decision(pinned: Set<Int>) -> ScrollStepDecision {
-            ScrollStepDecision.decide(evidence(consistent: found.consistent, against: found.against,
-                                               contradicted: found.contradicted,
-                                               unpinnedStanding: found.standing.subtracting(pinned).count))
+            ScrollStepDecision.decide(evidence(
+                consistent: found.consistent, against: found.against, contradicted: found.contradicted,
+                unpinnedStanding: ScrollStepDecision.provingStop(standing: found.standing, pinned: pinned)))
         }
-        // Knowing the bar is pinned: an empty gap, which the calibration carries.
+        // Knowing the panel is pinned: an empty gap, which the calibration carries.
         #expect(decision(pinned: match.standing) == .temporary(confirmed: false))
-        // Not knowing: the bar standing looks like a page that stopped.
+        // Not knowing: the panel standing looks like a page that stopped. The bar
+        // does not, pinned or not.
         #expect(decision(pinned: []) == .stationary)
+        #expect(decision(pinned: [panel]) == .temporary(confirmed: false))
     }
 
     /// The frames of the cases above, as the matcher meets them.

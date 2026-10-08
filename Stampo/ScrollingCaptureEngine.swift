@@ -248,8 +248,9 @@ nonisolated enum FrameMatcher {
         return standing
     }
 
-    /// Tiles the sample grid is cut into, along each axis of the frame.
-    private static let tileRows = 4, tileColumns = 5
+    /// Tiles the sample grid is cut into: `tileRows` along the scroll, `tileColumns`
+    /// across it, a tile's number being its row times `tileColumns` plus its column.
+    static let tileRows = 4, tileColumns = 5
     /// How far a tile's cost may sit above its own best and still be said to
     /// agree with an offset, and the cost under which a tile fits at all.
     private static let tolerance = 0.005, fitThreshold = 0.03
