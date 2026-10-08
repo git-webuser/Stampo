@@ -8,7 +8,10 @@ nonisolated enum ScrollLengthLimit {
     /// choice: the image is this long by as wide as the window, at four bytes a
     /// pixel while it is assembled.
     static let options = [10_000, 20_000, 40_000]
-    static let `default` = 20_000
+    /// The longest on offer: a long page — a product page, say — reaches its
+    /// footer without a trip to Settings. The shorter two are there for a
+    /// smaller file.
+    static let `default` = 40_000
 
     /// The most pixels the assembled image may hold, whatever the length chosen:
     /// 120 M is about half a gigabyte of RGBA, and the image is held whole while

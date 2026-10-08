@@ -1239,24 +1239,24 @@ import Testing
         #expect(assembler.effectiveLimit == 40_000)
     }
 
-    @MainActor @Test func theLimitAndTheShrinkSettingStartAtTwentyThousandAndOff() {
+    @MainActor @Test func theLimitAndTheShrinkSettingStartAtFortyThousandAndOff() {
         let store = AppSettings.store
         store.removeObject(forKey: AppSettings.Keys.scrollLengthLimit)
         store.removeObject(forKey: AppSettings.Keys.scrollShrinkToFit)
-        #expect(AppSettings.scrollLengthLimit == 20_000)
+        #expect(AppSettings.scrollLengthLimit == 40_000)
         #expect(!AppSettings.scrollShrinkToFit)
         defer {
             store.removeObject(forKey: AppSettings.Keys.scrollLengthLimit)
             store.removeObject(forKey: AppSettings.Keys.scrollShrinkToFit)
         }
-        AppSettings.scrollLengthLimit = 40_000
+        AppSettings.scrollLengthLimit = 10_000
         AppSettings.scrollShrinkToFit = true
-        #expect(AppSettings.scrollLengthLimit == 40_000)
+        #expect(AppSettings.scrollLengthLimit == 10_000)
         #expect(AppSettings.scrollShrinkToFit)
         // Only the three lengths on offer are believed.
         for stray in [0, 5_000, 15_000, 1_000_000] {
             store.set(stray, forKey: AppSettings.Keys.scrollLengthLimit)
-            #expect(AppSettings.scrollLengthLimit == 20_000, "\(stray)")
+            #expect(AppSettings.scrollLengthLimit == 40_000, "\(stray)")
         }
         #expect(ScrollLengthLimit.options == [10_000, 20_000, 40_000])
     }
