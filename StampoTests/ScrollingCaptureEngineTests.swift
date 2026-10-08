@@ -2083,6 +2083,26 @@ import Testing
         #expect(!over(after: 5, idle: 50))
     }
 
+    /// The button that saves is as wide as its title needs — with ten points to
+    /// spare on either side — and never narrower than the button the panel's
+    /// layout has counted. «Сохранить» did not fit in 71.
+    @Test func theSaveButtonGrowsToHoldItsTitleAndNeverShrinks() {
+        let minimum: CGFloat = 71
+        let ru = LocaleManager.string("Save", locale: Locale(identifier: "ru"))
+        let en = LocaleManager.string("Save", locale: Locale(identifier: "en"))
+        #expect(ru == "Сохранить" && en == "Save")
+        #expect(PanelCaptureButton.width(minimum: minimum, fitting: ru) == 86)
+        #expect(PanelCaptureButton.width(minimum: minimum, fitting: en) == minimum)
+        // A longer title, a wider button; the inset is ten points a side.
+        let font = NSFont.systemFont(ofSize: 12, weight: .semibold)
+        let long = "Сохранить и закрыть"
+        let natural = ceil((long as NSString).size(withAttributes: [.font: font]).width)
+        #expect(PanelCaptureButton.width(minimum: minimum, fitting: long) == natural + 20)
+        // A smaller minimum than the title needs changes nothing; a larger one wins.
+        #expect(PanelCaptureButton.width(minimum: 120, fitting: ru) == 120)
+        #expect(PanelCaptureButton.titleInset == 10)
+    }
+
     /// Pause and resume before the first strip is in: the capture starts over
     /// from the window, and what ends it is told as any ending before a frame.
     @Test @MainActor func pausingBeforeTheFirstFrameAndResumingStartsTheCaptureOver() async {

@@ -944,14 +944,23 @@ private struct PanelTimerMenuButton: View {
 
 // MARK: - PanelCaptureButton
 
-private struct PanelCaptureButton: View {
+struct PanelCaptureButton: View {
     let metrics: NotchMetrics
     /// "Capture" everywhere but on a running scrolling capture, where the same
     /// button saves what is collected and says so.
     var title: LocalizedStringKey = "Capture"
+    /// The key of a title that is to be given room: the button is as wide as
+    /// the title and `titleInset` on each side, if that is more than the
+    /// button's own width. Nil keeps the button's width, which the panel's
+    /// layout has counted.
+    var fitting: String? = nil
     let action: () -> Void
 
+    /// What is left on either side of a title the button grew to hold.
+    static let titleInset: CGFloat = 10
+
     @Environment(\.colorSchemeContrast) private var contrast
+    @Environment(\.locale) private var locale
 
     @State private var isHovered = false
     @State private var isPressed = false
@@ -961,7 +970,7 @@ private struct PanelCaptureButton: View {
             Text(title)
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(isPressed || isHovered ? .white : PanelChrome.foreground(0.8, contrast))
-                .frame(width: metrics.captureButtonWidth, height: metrics.buttonHeight)
+                .frame(width: width, height: metrics.buttonHeight)
                 .background(
                     RoundedRectangle(cornerRadius: metrics.buttonRadius, style: .continuous)
                         .fill(captureBackground)
@@ -970,6 +979,21 @@ private struct PanelCaptureButton: View {
         .buttonStyle(PanelButtonStyle(isHovered: $isHovered, isPressed: $isPressed))
         .contentShape(Rectangle())
         .animation(.easeInOut(duration: 0.12), value: isHovered)
+    }
+
+    private var width: CGFloat {
+        guard let fitting else { return metrics.captureButtonWidth }
+        return Self.width(minimum: metrics.captureButtonWidth,
+                          fitting: LocaleManager.string(fitting, locale: locale))
+    }
+
+    /// The button's width for a title: its own, or — when the title and its
+    /// insets need more — what they need. Measured as the button sets it, in
+    /// 12 pt semibold.
+    static func width(minimum: CGFloat, fitting title: String) -> CGFloat {
+        let font = NSFont.systemFont(ofSize: 12, weight: .semibold)
+        let natural = ceil((title as NSString).size(withAttributes: [.font: font]).width)
+        return max(minimum, natural + 2 * titleInset)
     }
 
     private var captureBackground: Color {
@@ -1136,7 +1160,8 @@ struct CountdownView: View {
     }
 
     private var captureNowCell: some View {
-        PanelCaptureButton(metrics: metrics, title: captureTitle, action: onCaptureNow)
+        PanelCaptureButton(metrics: metrics, title: captureTitle,
+                           fitting: isScrolling ? "Save" : nil, action: onCaptureNow)
     }
 
     // MARK: - Helpers
@@ -1151,8 +1176,14 @@ struct CountdownView: View {
     /// picture: it ends the capture and saves what is collected, and it says
     /// so — "Done" left it unclear that nothing had been saved yet.
     private var captureTitle: LocalizedStringKey {
-        if case .scrolling = phase { return "Save" }
-        return "Capture"
+        isScrolling ? "Save" : "Capture"
+    }
+
+    /// Whether a scrolling capture has the strip. Its button is the one that
+    /// grows to hold its title.
+    private var isScrolling: Bool {
+        if case .scrolling = phase { return true }
+        return false
     }
 
     private var secondsRemaining: Int {
