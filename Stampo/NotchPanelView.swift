@@ -984,11 +984,11 @@ private struct PanelCaptureButton: View {
 /// What the countdown's strip shows in the arc's place.
 enum CountdownPhase: Equatable {
     case countdown(seconds: Int, total: Int)
-    /// A scrolling capture is running: the ring turns where the arc was, ✕
-    /// drops the capture and the capture button saves it. `paused` swaps the
-    /// ring for a pause sign — part of the image is collected and the capture
-    /// waits for one of the two.
-    case scrolling(paused: Bool)
+    /// A scrolling capture has the strip: where the arc was, the ring turns
+    /// with the pause sign in it — a button that pauses — or, when the capture
+    /// waits, the play sign — a button that resumes. ✕ drops the capture and
+    /// the capture button saves it.
+    case scrolling(ScrollStripPhase)
 }
 
 struct CountdownView: View {
@@ -999,8 +999,8 @@ struct CountdownView: View {
     let phase: CountdownPhase
     let onStop: () -> Void
     let onCaptureNow: () -> Void
-
-    @State private var isTurning = false
+    /// The ring or play sign of a scrolling capture, clicked.
+    var onTogglePause: () -> Void = {}
 
     var body: some View {
         Group {
@@ -1085,21 +1085,9 @@ struct CountdownView: View {
             switch phase {
             case .countdown:
                 arcIndicator.transition(.opacity)
-            case .scrolling(let paused):
-                Group {
-                    if paused {
-                        // Paused, not failed: the strip waits for Save or ✕.
-                        Image(systemName: "pause.fill")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(PanelChrome.foreground(0.9, contrast))
-                    } else {
-                        PanelSpinnerRing(isTurning: isTurning)
-                            .onAppear { isTurning = true }
-                            .onDisappear { isTurning = false }
-                    }
-                }
-                .frame(width: 24, height: 24)
-                .transition(.opacity)
+            case .scrolling(let strip):
+                PanelPauseButton(kind: strip.pauseButtonKind, action: onTogglePause)
+                    .transition(.opacity)
             }
         }
         .animation(.easeInOut(duration: 0.18), value: indicatorKind)
@@ -1111,7 +1099,7 @@ struct CountdownView: View {
     private var indicatorKind: Int {
         switch phase {
         case .countdown: return 0
-        case .scrolling(let paused): return paused ? 2 : 1
+        case .scrolling(let strip): return strip == .paused ? 2 : 1
         }
     }
 

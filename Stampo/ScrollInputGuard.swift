@@ -5,8 +5,13 @@ import AppKit
 /// The capture sends wheel events and reads what the page does; anything else
 /// that moves the page — a scroll of the user's, a click, a key — spoils the
 /// step in flight and leaves the frames unable to line up, or worse, lining up
-/// wrongly. So during the automatic scroll any such input stops it, and what is
-/// collected can be saved.
+/// wrongly. So during the automatic scroll any such input pauses it. While it
+/// is paused the same input is only written down (`UserScrollLedger`), so that
+/// the capture can find its place again.
+///
+/// The pointer is not input. It leaving the window, or resting on Stampo's own
+/// strip, makes the capture wait for it (`shouldWait`), since it is most likely
+/// on its way to a button.
 nonisolated enum ScrollInputGuard {
     /// Written into `eventSourceUserData` of every wheel event the capture
     /// posts, so that its own events, which reach a global monitor like any
@@ -17,7 +22,20 @@ nonisolated enum ScrollInputGuard {
         case scrollWheel
         case mouseDown
         case key(isEscape: Bool)
-        case pointerMoved
+    }
+
+    /// An event the monitor saw, with what the capture needs of it.
+    struct Event: Equatable {
+        var kind: Kind
+        /// `eventSourceUserData`: the capture's own wheel events carry the mark.
+        var userData: Int64 = 0
+        /// The wheel's delta in points where the device is precise (a
+        /// trackpad), in lines where it is not (a mouse wheel). Positive
+        /// scrolls toward the start of the page — up, or left.
+        var preciseX = 0.0, preciseY = 0.0
+        var lineX = 0.0, lineY = 0.0
+        /// The tail of a gesture that has ended: inertia, not a hand.
+        var isMomentum = false
     }
 
     /// What the capture does about an event.
@@ -26,8 +44,6 @@ nonisolated enum ScrollInputGuard {
         case nothing
         /// Pause, and say so in a toast: the user's hands are on the page.
         case pauseAnnounced
-        /// Pause without a word: the pointer left the page, most likely for Save.
-        case pauseQuietly
     }
 
     /// What an event, if it is the user taking over, makes the capture do.
@@ -35,19 +51,14 @@ nonisolated enum ScrollInputGuard {
     /// - A wheel event is the user's unless it carries the marker.
     /// - A button press is always the user's.
     /// - A key is, except Esc, which cancels the capture on its own account.
-    /// - The pointer is only the user's when it has left the selected window —
-    ///   and is not over Stampo's own strip, where the buttons are. That one is
-    ///   no news to the user, who is probably on the way to Save.
     ///
     /// Events delivered to Stampo's own windows, the strip and its buttons,
-    /// never reach a global monitor, which is what makes clicking Save safe.
-    static func response(to kind: Kind, userData: Int64, pointer: CGPoint, window: CGRect,
-                         overOwnUI: Bool) -> Response {
+    /// never reach a global monitor, which is what makes clicking them safe.
+    static func response(to kind: Kind, userData: Int64) -> Response {
         switch kind {
         case .scrollWheel:       return userData != syntheticMarker ? .pauseAnnounced : .nothing
         case .mouseDown:         return .pauseAnnounced
         case .key(let isEscape): return isEscape ? .nothing : .pauseAnnounced
-        case .pointerMoved:      return !window.contains(pointer) && !overOwnUI ? .pauseQuietly : .nothing
         }
     }
 
@@ -56,20 +67,26 @@ nonisolated enum ScrollInputGuard {
         case ignore
         /// The window as it stands, instead of a capture that has nothing yet.
         case windowScreenshot
-        case pause(announce: Bool)
+        case pause
     }
 
-    /// With something collected, a response pauses the capture as it says.
-    /// With nothing — the first step still in flight — there is nothing for
-    /// Save to keep: a hand on the page gives the user the window as it stands,
-    /// and a pointer that only left it is let go, since its next move, once a
-    /// step is in, pauses the capture as it would anyway.
+    /// With something collected, a response pauses the capture. With nothing —
+    /// the first step still in flight — there is nothing for Save to keep: a
+    /// hand on the page gives the user the window as it stands.
     static func outcome(of response: Response, hasCollected: Bool) -> Outcome {
         switch response {
         case .nothing:        return .ignore
-        case .pauseAnnounced: return hasCollected ? .pause(announce: true) : .windowScreenshot
-        case .pauseQuietly:   return hasCollected ? .pause(announce: false) : .ignore
+        case .pauseAnnounced: return hasCollected ? .pause : .windowScreenshot
         }
+    }
+
+    /// Whether the capture holds back its next step for the pointer: it is off
+    /// the page, or on Stampo's own strip. Either way the user is probably
+    /// reaching for a button, and a step sent under their hand is wasted. Not
+    /// input, so nothing is stopped; the capture goes on when the pointer is
+    /// back in the window.
+    static func shouldWait(pointer: CGPoint, window: CGRect, overOwnUI: Bool) -> Bool {
+        !window.contains(pointer) || overOwnUI
     }
 
     /// A point in AppKit's screen space (origin bottom left, y up) as the window
@@ -79,30 +96,58 @@ nonisolated enum ScrollInputGuard {
     }
 }
 
-/// Watches for the user's input while the capture scrolls, and says so.
+/// What the user did to the page while the capture was paused: the wheel,
+/// inertia included, summed; and whether keys or clicks that may have moved the
+/// page were pressed. From it the capture works out how far to scroll back.
+nonisolated struct UserScrollLedger: Equatable {
+    /// Along the capture's axis; positive toward the start of the page.
+    private(set) var precise = 0.0
+    private(set) var lines = 0.0
+    /// A key or a click: something that may have moved the page, by how much
+    /// nobody knows.
+    private(set) var touched = false
+
+    /// Whether anything was done that could have moved the page.
+    var mayHaveMovedPage: Bool { touched || precise != 0 || lines != 0 }
+
+    mutating func record(_ event: ScrollInputGuard.Event, axis: ScrollAxis) {
+        switch event.kind {
+        case .scrollWheel:
+            guard event.userData != ScrollInputGuard.syntheticMarker else { return }
+            precise += axis == .vertical ? event.preciseY : event.preciseX
+            lines += axis == .vertical ? event.lineY : event.lineX
+        case .mouseDown:
+            touched = true
+        case .key(let isEscape):
+            if !isEscape { touched = true }
+        }
+    }
+
+    /// How far the page moved toward its end, in the captured pixels: the
+    /// wheel's points at the display's scale, its lines at what a line was
+    /// measured to be (or a plain 80 points a line without a measure). Zero
+    /// when only keys and clicks were pressed — those move it by an unknown amount.
+    func pageMovement(scale: CGFloat, pixelsPerLine: Double?) -> Int {
+        let towardStart = precise * Double(scale) + lines * (pixelsPerLine ?? 80 * Double(scale))
+        return Int((-towardStart).rounded())
+    }
+}
+
+/// Watches the user's input while the capture runs or is paused, and reports it.
 @MainActor
 final class ScrollInputMonitor {
     private var monitor: Any?
-    private let windowBounds: () -> CGRect
-    private let overOwnUI: (CGPoint) -> Bool
-    private let onUserInput: (ScrollInputGuard.Response) -> Void
-    /// The window's bounds, asked of the window list at most a few times a
-    /// second: the pointer moves far more often than a window does.
-    private var cachedBounds: (rect: CGRect, at: Date)?
+    private let onEvent: (ScrollInputGuard.Event) -> Void
 
-    init(windowBounds: @escaping () -> CGRect, overOwnUI: @escaping (CGPoint) -> Bool,
-         onUserInput: @escaping (ScrollInputGuard.Response) -> Void) {
-        self.windowBounds = windowBounds
-        self.overOwnUI = overOwnUI
-        self.onUserInput = onUserInput
+    init(onEvent: @escaping (ScrollInputGuard.Event) -> Void) {
+        self.onEvent = onEvent
     }
 
     isolated deinit { stop() }
 
     func start() {
         guard monitor == nil else { return }
-        let types: NSEvent.EventTypeMask = [.scrollWheel, .leftMouseDown, .rightMouseDown, .otherMouseDown,
-                                            .keyDown, .mouseMoved]
+        let types: NSEvent.EventTypeMask = [.scrollWheel, .leftMouseDown, .rightMouseDown, .otherMouseDown, .keyDown]
         monitor = NSEvent.addGlobalMonitorForEvents(matching: types) { [weak self] event in
             self?.handle(event)
         }
@@ -114,34 +159,26 @@ final class ScrollInputMonitor {
     }
 
     private func handle(_ event: NSEvent) {
-        let kind: ScrollInputGuard.Kind
+        var seen: ScrollInputGuard.Event
         switch event.type {
         case .scrollWheel:
-            // The tail of a gesture that began before the capture did is
-            // momentum, not a hand on the trackpad.
-            guard event.momentumPhase.isEmpty else { return }
-            kind = .scrollWheel
-        case .leftMouseDown, .rightMouseDown, .otherMouseDown: kind = .mouseDown
-        case .keyDown: kind = .key(isEscape: event.keyCode == KeyCode.escape)
-        case .mouseMoved: kind = .pointerMoved
-        default: return
+            seen = ScrollInputGuard.Event(kind: .scrollWheel)
+            seen.userData = event.cgEvent?.getIntegerValueField(.eventSourceUserData) ?? 0
+            if event.hasPreciseScrollingDeltas {
+                seen.preciseX = Double(event.scrollingDeltaX)
+                seen.preciseY = Double(event.scrollingDeltaY)
+            } else {
+                seen.lineX = Double(event.deltaX)
+                seen.lineY = Double(event.deltaY)
+            }
+            seen.isMomentum = !event.momentumPhase.isEmpty
+        case .leftMouseDown, .rightMouseDown, .otherMouseDown:
+            seen = ScrollInputGuard.Event(kind: .mouseDown)
+        case .keyDown:
+            seen = ScrollInputGuard.Event(kind: .key(isEscape: event.keyCode == KeyCode.escape))
+        default:
+            return
         }
-        let primaryHeight = NSScreen.screens.first(where: { $0.frame.origin == .zero })?.frame.height
-            ?? NSScreen.screens.first?.frame.height ?? 0
-        let pointer = ScrollInputGuard.quartzPoint(fromAppKit: NSEvent.mouseLocation, primaryHeight: primaryHeight)
-        let userData = event.cgEvent?.getIntegerValueField(.eventSourceUserData) ?? 0
-        // Only the pointer needs to know where the window and the strip are.
-        let isPointer = kind == .pointerMoved
-        let response = ScrollInputGuard.response(to: kind, userData: userData, pointer: pointer,
-                                                 window: isPointer ? currentWindowBounds() : .zero,
-                                                 overOwnUI: isPointer && overOwnUI(pointer))
-        if response != .nothing { onUserInput(response) }
-    }
-
-    private func currentWindowBounds() -> CGRect {
-        if let cachedBounds, Date().timeIntervalSince(cachedBounds.at) < 0.3 { return cachedBounds.rect }
-        let rect = windowBounds()
-        cachedBounds = (rect, Date())
-        return rect
+        onEvent(seen)
     }
 }

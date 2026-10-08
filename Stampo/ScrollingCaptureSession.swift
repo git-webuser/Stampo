@@ -6,10 +6,10 @@ import os
 /// What the notch strip shows while a scrolling capture runs.
 enum ScrollCaptureStatus: Equatable {
     case capturing
-    /// Part of the image is collected but the capture cannot go on, and the
-    /// strip waits for Save or ✕. `announce` says whether a toast tells the
-    /// user it stopped: it does not when they walked the pointer off the page,
-    /// which is most likely on the way to Save.
+    /// The capture waits — the user paused it, or something stopped it — and the
+    /// strip offers to resume it, to save what is collected, or to drop it.
+    /// `announce` says whether a toast tells the user it stopped: it does not
+    /// when they paused it themselves.
     case paused(announce: Bool)
     /// Save was pressed, or a limit was reached: the file is being written.
     case saving
@@ -52,9 +52,21 @@ final class ScrollingCaptureSession {
     private let ignoredWindows: @MainActor () -> Set<CGWindowID>
     private let source = WindowFrameSource()
     private var escapeToken: UUID?
-    /// Watches for the user's own input while the capture scrolls by itself —
-    /// not during a countdown, and not once it has paused.
+    /// Watches for the user's own input once the capture scrolls by itself:
+    /// while it runs, any of it pauses the capture; while it is paused, it is
+    /// written down in `pauseLedger`, to find the place again.
     private var inputMonitor: ScrollInputMonitor?
+    /// Paused — by the user, by their input, or by a failure — and waiting for
+    /// them: Save, ✕, or resume.
+    private var paused = false
+    private var pausedAt = Date()
+    private var pauseLedger = UserScrollLedger()
+    /// A wheel event has been sent and what came of it not yet dealt with: if a
+    /// pause cuts in here, the page is somewhere between the places the frames know.
+    private var stepInFlight = false
+    /// Time that does not count against the 90 s: waiting for the pointer, and
+    /// the capture paused.
+    private var idleSeconds: TimeInterval = 0
     private var task: Task<Void, Never>?
     private var stopped = false
     private var diagnosticStage: DiagnosticStage = .raiseWindow
@@ -76,6 +88,21 @@ final class ScrollingCaptureSession {
     /// Steps in a row that would not match.
     private var consecutiveFailures = 0
     private let startedAt = Date()
+
+    // What the steps carry from one to the next. Instance state rather than the
+    // locals of one long function, so that a pause can end the task and a resume
+    // start a new one that goes on from here.
+    private var requestedStep = 24
+    /// How much the page has moved that no step accounts for: the probe that
+    /// could not be matched. Zero otherwise — a retry goes back what it moved.
+    private var unmatchedScroll = 0
+    /// How far one wheel line moved the page, measured on the probe. Nil until
+    /// a probe has been matched, and then the estimate from points is what
+    /// steps are planned from.
+    private var pixelsPerLine: Double?
+    /// Whether a full step has matched what the calibration says, so that lines
+    /// are known to move the page in proportion.
+    private var linearityConfirmed = false
 
     init(selection: WindowPickerSelection, axis: ScrollAxis,
          excludeScrollbars: Bool = true,
@@ -175,13 +202,7 @@ final class ScrollingCaptureSession {
 
     private func startInputGuard() {
         guard inputMonitor == nil else { return }
-        let monitor = ScrollInputMonitor(
-            windowBounds: { [weak self] in
-                guard let self else { return .zero }
-                return ScrollDriver.currentWindowBounds(self.selection.windowID) ?? self.selection.bounds
-            },
-            overOwnUI: { [weak self] point in self?.ownUICovers(point) ?? false },
-            onUserInput: { [weak self] response in self?.userInterrupted(response) })
+        let monitor = ScrollInputMonitor(onEvent: { [weak self] event in self?.handleUserInput(event) })
         monitor.start()
         inputMonitor = monitor
     }
@@ -191,21 +212,203 @@ final class ScrollingCaptureSession {
         inputMonitor = nil
     }
 
-    /// The user touched something while the capture scrolled. Stop at once — the
-    /// step in flight is not to be trusted — and wait: Save keeps what is
-    /// collected, ✕ drops it.
-    private func userInterrupted(_ response: ScrollInputGuard.Response) {
+    /// The user did something while the capture scrolled by itself. Running, any
+    /// hand on the page pauses it at once — the step in flight is not to be
+    /// trusted — and waits: resume, Save keeps what is collected, ✕ drops it.
+    /// Paused, it is only written down: the page may have moved.
+    private func handleUserInput(_ event: ScrollInputGuard.Event) {
         guard !stopped, inputMonitor != nil else { return }
-        switch ScrollInputGuard.outcome(of: response, hasCollected: !assembler.strips.isEmpty) {
+        if paused {
+            pauseLedger.record(event, axis: axis)
+            return
+        }
+        // The tail of a gesture that began before the capture did is inertia,
+        // not a hand on the page.
+        guard !event.isMomentum else { return }
+        switch ScrollInputGuard.outcome(of: ScrollInputGuard.response(to: event.kind, userData: event.userData),
+                                        hasCollected: !assembler.strips.isEmpty) {
         case .ignore:
             return
         case .windowScreenshot:
             Log.capture.notice("scroll capture interrupted before the first frame")
             windowScreenshotInstead()
-        case .pause(let announce):
-            task?.cancel()
-            pause(announce: announce)
+        case .pause:
+            pause(announce: true)
+            pauseLedger.record(event, axis: axis)
         }
+    }
+
+    // MARK: Pause and resume
+
+    /// The ring on the strip, clicked: pauses a capture that runs, resumes one
+    /// that waits.
+    func togglePause() {
+        guard !stopped else { return }
+        if paused { resume() } else { pause(announce: false) }
+    }
+
+    /// Waiting for the user: Save keeps what there is, ✕ drops it, and the play
+    /// sign goes on. Nothing is forgotten — the last frame, the calibration, the
+    /// pinned tiles, the steps waiting — except the step in flight, which is cut
+    /// short.
+    private func pause(announce: Bool) {
+        guard !paused, !stopped else { return }
+        paused = true
+        pausedAt = Date()
+        pauseLedger = UserScrollLedger()
+        task?.cancel()
+        task = nil
+        Log.capture.notice("scroll capture paused · \(announce ? "with a toast" : "by the user", privacy: .public) · \(self.assembler.totalLength, privacy: .public) px collected")
+        dump?.step("paused \(announce ? "with a toast" : "by the user")")
+        onStatus?(.paused(announce: announce))
+    }
+
+    private func resume() {
+        guard paused, !stopped else { return }
+        paused = false
+        idleSeconds += Date().timeIntervalSince(pausedAt)
+        Log.capture.notice("scroll capture resumes")
+        dump?.step("resumed")
+        onStatus?(.capturing)
+        task = Task<Void, Never> { [weak self] in
+            guard let self else { return }
+            await self.resumeRun()
+        }
+    }
+
+    /// The capture after a pause: the window forward, the page found, the steps
+    /// on from there. Before the first strip there is nothing to find, and the
+    /// capture starts over.
+    private func resumeRun() async {
+        guard !assembler.strips.isEmpty else {
+            await run()
+            return
+        }
+        await guarded {
+            try self.ensureActive()
+            self.diagnosticStage = .raiseWindow
+            try self.activateSelectedWindow(self.selection)
+            try await self.waitForTargetFocus()
+            try self.ensureActive()
+            try self.checkWindowAndFocus()
+            guard try await self.findThePlace() else {
+                Log.capture.notice("scroll place not found after the pause · saved what was collected")
+                self.dump?.step("place not found → saved")
+                self.finish()
+                return
+            }
+            try await self.stepLoop()
+        }
+    }
+
+    /// Where the page is, compared with the last frame; the page moved back to
+    /// it, or the frame it stands at laid on. False when it cannot be found.
+    private func findThePlace() async throws -> Bool {
+        guard let last = previous else { return true }
+        let ledger = pauseLedger
+        guard ScrollResume.needsLooking(ledger: ledger, stepWasInFlight: stepInFlight) else {
+            return true
+        }
+        let userMovement = ledger.pageMovement(scale: scale, pixelsPerLine: pixelsPerLine)
+        var undone = false
+        for _ in 0..<4 {
+            let now = try await ScrollCaptureCancellationBoundary.awaitActive {
+                try await self.captureStableViewport(reference: last)
+            }
+            try ensureActive()
+            try checkWindowAndFocus()
+            let axis = self.axis
+            let finding = await Task.detached(priority: .userInitiated) {
+                ScrollPlaceFinding.find(last: last, now: now, axis: axis)
+            }.value
+            try ensureActive()
+            let action = ScrollResume.action(finding: finding, userMovement: userMovement, undone: undone)
+            Log.capture.notice("scroll place after the pause · \(String(describing: finding), privacy: .public) → \(String(describing: action), privacy: .public)")
+            dump?.step("place \(finding) → \(action)")
+            switch action {
+            case .goOn:
+                stepInFlight = false
+                return true
+            case .lay(let movement):
+                guard try lay(now, movement: movement) != nil else {
+                    finish()
+                    return true
+                }
+                previous = now
+                stepInFlight = false
+                zeroMotionCount = 0
+                consecutiveFailures = 0
+                unmatchedScroll = 0
+                return true
+            case .scrollForward(let pixels):
+                try await scroll(pixels: pixels, forward: true)
+            case .undoUser(let pixels):
+                undone = true
+                // They scrolled toward the end by `pixels`: it goes back by as much.
+                try await scroll(pixels: abs(pixels), forward: pixels < 0)
+            case .giveUp:
+                return false
+            }
+        }
+        return false
+    }
+
+    /// The page moved by about `pixels`, by wheel lines in events of no more
+    /// than ten, and a look once it has settled.
+    private func scroll(pixels: Int, forward: Bool) async throws {
+        var remaining = ScrollResume.lines(forPixels: pixels, pixelsPerLine: pixelsPerLine, scale: scale)
+        let point = currentScrollPoint()
+        stepInFlight = true
+        while remaining > 0 {
+            try ensureActive()
+            diagnosticStage = .validateTarget
+            try validateCurrentScrollTarget(at: point)
+            let lines = min(remaining, Int(ScrollResume.linesPerEvent))
+            try ScrollDriver.sendScroll(axis: axis, lines: Int32(lines), backwards: !forward, at: point)
+            remaining -= lines
+            try await Task.sleep(for: .milliseconds(60))
+        }
+    }
+
+    /// Lays a frame that is `movement` pixels along from the last frame into the
+    /// image — first the steps that waited for one the matcher placed. Returns
+    /// how many of those there were, or nil when the image has no room for them.
+    private func lay(_ frame: CaptureFrame, movement: Int) throws -> Int? {
+        let waiting = temporary.take()
+        for step in waiting {
+            guard makeRoom(for: step.movement) else {
+                Log.capture.notice("scroll queue only partly laid · the image is full")
+                return nil
+            }
+            try assembler.append(step.frame, movement: step.movement)
+        }
+        guard makeRoom(for: movement) else { return nil }
+        try ensureActive()
+        try assembler.append(frame, movement: movement)
+        return waiting.count
+    }
+
+    /// The pointer is off the page or on the strip: hold the next step.
+    private func pointerIsAway() -> Bool {
+        let primaryHeight = NSScreen.screens.first(where: { $0.frame.origin == .zero })?.frame.height
+            ?? NSScreen.screens.first?.frame.height ?? 0
+        let pointer = ScrollInputGuard.quartzPoint(fromAppKit: NSEvent.mouseLocation, primaryHeight: primaryHeight)
+        let window = ScrollDriver.currentWindowBounds(selection.windowID) ?? selection.bounds
+        return ScrollInputGuard.shouldWait(pointer: pointer, window: window, overOwnUI: ownUICovers(pointer))
+    }
+
+    /// Holds still while the pointer is away. The time does not count against
+    /// the 90 s.
+    private func waitForPointer() async throws {
+        guard pointerIsAway() else { return }
+        let began = Date()
+        Log.capture.notice("scroll waits for the pointer")
+        while pointerIsAway() {
+            try ensureActive()
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        idleSeconds += Date().timeIntervalSince(began)
+        Log.capture.notice("scroll goes on, the pointer is back")
     }
 
     private func cleanup() {
@@ -227,316 +430,19 @@ final class ScrollingCaptureSession {
     }
 
     func run() async {
+        await guarded {
+            try await self.prepare()
+            try await self.stepLoop()
+        }
+    }
+
+    /// One stretch of the capture, with what goes wrong in it dealt with: a
+    /// cancellation ends it quietly; any other failure with nothing collected
+    /// ends in an alert or the window's screenshot, and with something
+    /// collected in a pause.
+    private func guarded(_ body: () async throws -> Void) async {
         do {
-            try ensureActive()
-            diagnosticStage = .raiseWindow
-            try activateSelectedWindow(selection)
-            try await waitForTargetFocus()
-            try ensureActive()
-            scale = Self.backingScale(for: selection.bounds)
-            try checkWindowAndFocus()
-            diagnosticStage = .resolveViewport
-            switch try ScrollDriver.viewport(selection: selection) {
-            case .accessibility(let resolved, let container):
-                viewport = resolved
-                scrollContainer = container
-                diagnosticStage = .validateTarget
-                do {
-                    try ScrollDriver.validateScrollTarget(selection: selection, point: selection.clickPoint,
-                                                          container: container, ignoring: ignoredWindows())
-                } catch ScrollDriverError.scrollAreaUnavailable {
-                    // AX may expose a partial Chromium tree: keep the selected
-                    // CG window and let the pixel probe establish the viewport.
-                    Log.capture.notice("scroll capture viewport fallback: AX target identity was incomplete")
-                    viewport = ScrollDriver.windowFallbackViewport(for: selection)
-                    scrollContainer = nil
-                    try ScrollDriver.validateSelectedWindow(selection: selection, point: selection.clickPoint,
-                                                        ignoring: ignoredWindows())
-                }
-            case .window(let resolved):
-                // Chromium and other complex apps may provide a window capture
-                // before exposing a complete AXWebArea chain. Pixel probing
-                // will reduce this to the region that actually moves.
-                viewport = resolved
-                scrollContainer = nil
-                Log.capture.notice("scroll capture viewport fallback: AX hit did not resolve a suitable scroll container")
-                diagnosticStage = .validateTarget
-                try ScrollDriver.validateSelectedWindow(selection: selection, point: selection.clickPoint,
-                                                        ignoring: ignoredWindows())
-            }
-            guard let baseViewport = viewport?.insetWindowEdges(points: Geometry.roundedWindowEdgeInsetPoints) else {
-                throw ScrollDriverError.scrollAreaUnavailable
-            }
-            viewport = baseViewport
-            diagnosticStage = .capture
-            // One look at the whole window before anything moves. It is the
-            // start of the capture whichever way the capture ends up going, so
-            // the beginning is never lost to a probe in the wrong direction —
-            // and being the whole window, it can be cropped for either axis
-            // without scrolling back.
-            var before = try await ScrollCaptureCancellationBoundary.awaitActive {
-                try await self.captureWindow()
-            }
-            try ensureActive()
-            try checkWindowAndFocus()
-            dump = ScrollFrameDump.begin()
-            dump?.save(before, as: "00-before")
-
-            // From here the capture scrolls on its own, and a hand on the page
-            // is the one thing that spoils it.
-            startInputGuard()
-
-            var settled: (axis: ScrollAxis, viewport: ScrollViewport, outcome: ProbeOutcome,
-                          step: Int, lines: Int32, motionLimit: Int)?
-            for candidate in Self.probeOrder(preferred: axis) {
-                let candidateViewport = try viewport(for: candidate, within: baseViewport)
-                let initial = try cropped(before, to: candidateViewport)
-                let probeStep = max(24, min(56, axisLength(of: initial, along: candidate) / 10))
-                try ensureActive()
-                let probePoint = currentScrollPoint()
-                diagnosticStage = .probeMotion
-                try validateCurrentScrollTarget(at: probePoint)
-                let probeLines = ScrollDriver.lineDelta(for: probeStep, backingScale: scale)
-                try ScrollDriver.sendScroll(axis: candidate, lines: probeLines, at: probePoint)
-                let after = try await ScrollCaptureCancellationBoundary.awaitActive {
-                    try await self.captureStableWindow(viewport: candidateViewport)
-                }
-                try ensureActive()
-                try checkWindowAndFocus()
-                if let outcome = Self.probeOutcome(before: before, after: after,
-                                                   viewportPixels: pixelRect(of: candidateViewport),
-                                                   axis: candidate,
-                                                   preserveCrossAxis: scrollContainer != nil) {
-                    let motionLimit = ScrollDriver.maximumLikelyMovement(
-                        pixelStep: probeStep, backingScale: scale,
-                        viewportLength: axisLength(of: initial, along: candidate))
-                    settled = (candidate, candidateViewport, outcome, probeStep, probeLines, motionLimit)
-                    break
-                }
-                // Nothing moved that way. The next axis starts from what the
-                // window shows now; when the probe moved nothing at all that is
-                // the very frame taken before it.
-                before = after
-            }
-            guard let settled else { throw ScrollDriverError.noMovingContent }
-            axis = settled.axis
-            assembler = ImageAssembler(axis: axis, maxLength: lengthLimit)
-            let (first, probe) = (settled.outcome.first, settled.outcome.probe)
-            let probeStep = settled.step
-            let probeLines = settled.lines
-            let probeMotionLimit = settled.motionLimit
-            guard let croppedViewport = settled.viewport.cropped(to: settled.outcome.movingRect,
-                                                                 backingScale: scale) else {
-                throw ScrollDriverError.scrollAreaUnavailable
-            }
-            self.viewport = croppedViewport
-            assembler.begin(with: first)
-            previous = probe
-            dump?.save(probe, as: "00-probe")
-            Log.capture.notice("scroll probe settled · \(self.axis == .vertical ? "vertical" : "horizontal", privacy: .public) · \(probeLines, privacy: .public) lines · limit \(probeMotionLimit, privacy: .public) px · scale \(self.scale, privacy: .public)")
-            var requestedStep = max(24, Int(Double(axisLength(of: first)) * 0.60))
-            var unmatchedScroll = 0
-            /// How far one wheel line moved the page, measured on the probe.
-            /// Nil until a probe has been matched, and then the estimate from
-            /// points is what steps are planned from.
-            var pixelsPerLine: Double?
-            /// Whether a full step has matched what the calibration says, so
-            /// that lines are known to move the page in proportion.
-            var linearityConfirmed = false
-
-            do {
-                diagnosticStage = .match
-                let match = try FrameMatcher.match(previous: first, current: probe, axis: axis,
-                                                   maximumOffset: probeMotionLimit + 24)
-                try ensureActive()
-                try assembler.append(probe, movement: match.offset)
-                notePinned(match.standing)
-                pixelsPerLine = ScrollStepPlanner.pixelsPerLine(offset: match.offset, lines: Int(probeLines))
-                if let pixelsPerLine {
-                    let plan = ScrollStepPlanner.plan(target: requestedStep, pixelsPerLine: pixelsPerLine,
-                                                      axisLength: axisLength(of: first), backingScale: scale)
-                    Log.capture.notice("scroll calibrated · \(Int(pixelsPerLine.rounded()), privacy: .public) px per line · \(plan.lines, privacy: .public) lines per step")
-                }
-                recordStep(0, "lines=\(probeLines) maximumOffset=\(probeMotionLimit + 24) · match \(match.offset) px · confidence \(Self.percent(match.confidence)) · regions \(match.independentRegions) → calibrated")
-            } catch {
-                recordStep(0, "lines=\(probeLines) maximumOffset=\(probeMotionLimit + 24) · \(error) → probe not matched")
-                // The selected scroll view did not yield stable moving content
-                // across the probe; keep the initial image for a partial save.
-                previous = first
-                unmatchedScroll = probeStep
-                consecutiveFailures = 1
-            }
-
-            while !Task.isCancelled && !stopped {
-                // The end of the road is not a failure: what is collected is saved.
-                guard Date().timeIntervalSince(startedAt) < 90 else {
-                    finish()
-                    return
-                }
-                guard makeRoom(for: 1) else {
-                    finish()
-                    return
-                }
-                guard let oldFrame = previous else { return }
-                try checkWindowAndFocus()
-                let currentStep = min(requestedStep, max(24, axisLength(of: oldFrame) * 3 / 4))
-                let plan = ScrollStepPlanner.plan(target: currentStep, pixelsPerLine: pixelsPerLine,
-                                                  axisLength: axisLength(of: oldFrame), backingScale: scale)
-                let motionLimit = plan.motionLimit
-                let point = currentScrollPoint()
-                try ensureActive()
-                diagnosticStage = .validateTarget
-                try validateCurrentScrollTarget(at: point)
-                try ScrollDriver.sendScroll(axis: axis, lines: plan.lines, at: point)
-                diagnosticStage = .capture
-                let next = try await ScrollCaptureCancellationBoundary.awaitActive {
-                    try await self.captureStableViewport(reference: oldFrame)
-                }
-                try ensureActive()
-                try checkWindowAndFocus()
-                stepNumber += 1
-                dump?.save(next, as: String(format: "%02ld-step", stepNumber))
-
-                /// Whether this is the first attempt at this step: an earlier
-                /// failed one has moved the page by a distance nothing here
-                /// accounts for.
-                let cleanStep = unmatchedScroll == 0
-                let maximumOffset = motionLimit + unmatchedScroll + 32
-                let head = "lines=\(plan.lines) motionLimit=\(motionLimit) maximumOffset=\(maximumOffset)"
-                    + " difference=\(String(format: "%.4f", meanDifference(oldFrame, next)))"
-                do {
-                    diagnosticStage = .match
-                    let axis = self.axis
-                    let match = try await ScrollCaptureCancellationBoundary.awaitActive {
-                        try await Task.detached(priority: .userInitiated) {
-                            try FrameMatcher.match(previous: oldFrame, current: next, axis: axis,
-                                                   maximumOffset: maximumOffset)
-                        }.value
-                    }
-                    try ensureActive()
-                    // The steps that waited for this one go into the image first.
-                    let waiting = temporary.take()
-                    for step in waiting {
-                        guard makeRoom(for: step.movement) else {
-                            Log.capture.notice("scroll queue only partly laid · the image is full")
-                            finish()
-                            return
-                        }
-                        try assembler.append(step.frame, movement: step.movement)
-                    }
-                    guard makeRoom(for: match.offset) else {
-                        finish()
-                        return
-                    }
-                    try ensureActive()
-                    try assembler.append(next, movement: match.offset)
-                    notePinned(match.standing)
-                    if cleanStep, let pixelsPerLine,
-                       ScrollStepPlanner.confirmsLinearity(offset: match.offset, lines: Int(plan.lines),
-                                                           pixelsPerLine: pixelsPerLine) {
-                        linearityConfirmed = true
-                    } else if cleanStep, pixelsPerLine == nil,
-                              let late = ScrollStepPlanner.pixelsPerLine(offset: match.offset,
-                                                                         lines: Int(plan.lines)) {
-                        // The probe could not be matched — the first screen is
-                        // mostly a video, say — so the first step that does match
-                        // is what calibrates. Not one that follows a failed
-                        // attempt: that distance includes the attempt's.
-                        pixelsPerLine = late
-                        let latePlan = ScrollStepPlanner.plan(target: requestedStep, pixelsPerLine: late,
-                                                              axisLength: axisLength(of: next), backingScale: scale)
-                        Log.capture.notice("scroll calibrated late · \(Int(late.rounded()), privacy: .public) px per line · \(latePlan.lines, privacy: .public) lines per step")
-                    }
-                    let queue = waiting.isEmpty ? "" : " · queue appended \(waiting.count)"
-                    recordStep("\(head) · match \(match.offset) px · confidence \(Self.percent(match.confidence)) · regions \(match.independentRegions)\(queue) → added")
-                    previous = next
-                    zeroMotionCount = 0
-                    unmatchedScroll = 0
-                    requestedStep = max(24, Int(Double(axisLength(of: next)) * 0.60))
-                    consecutiveFailures = 0
-                } catch is CancellationError {
-                    throw CancellationError()
-                } catch {
-                    // The matcher cannot place the step. Why is a question for
-                    // the frames, asked once: which tiles stand still, and, when
-                    // the calibration says how far the page should have moved,
-                    // which tiles bear that out.
-                    let undecided = (error as? FrameMatchError == .ambiguousMotion)
-                        || (error as? FrameMatchError == .noReliableMotion)
-                    let expected: Int? = undecided && cleanStep
-                        ? pixelsPerLine.map { ScrollStepPlanner.predictedOffset(lines: Int(plan.lines), pixelsPerLine: $0) }
-                        : nil
-                    var evidence: FrameMatcher.StepEvidence?
-                    if undecided {
-                        let axis = self.axis
-                        let searchLimit = motionLimit + 32
-                        evidence = await Task.detached(priority: .userInitiated) {
-                            FrameMatcher.evidence(previous: oldFrame, current: next, axis: axis,
-                                                  offset: expected, searchLimit: searchLimit)
-                        }.value
-                        try ensureActive()
-                    }
-                    let unpinned = (evidence?.standing ?? []).subtracting(pinnedTiles).count
-                    let required = ScrollStepPlanner.tilesRequiredToAgree(linearityConfirmed: linearityConfirmed)
-                    let decision = ScrollStepDecision.decide(.init(
-                        undecided: undecided, canExpect: expected != nil,
-                        consistent: evidence?.consistent ?? 0, against: evidence?.against ?? 0,
-                        contradicted: evidence?.contradicted ?? false, required: required,
-                        unpinnedStanding: unpinned, queued: temporary.count))
-                    let said = expected.map {
-                        "expected \($0) px · \(evidence?.consistent ?? 0) tiles agree, \(evidence?.against ?? 0) against, \(required) needed"
-                            + (evidence?.contradicted == true ? ", contradicted" : "")
-                    } ?? (!undecided ? "not to be predicted"
-                          : pixelsPerLine == nil ? "no calibration"
-                          : "step not clean (\(unmatchedScroll) px unaccounted)")
-                    let standing = "\(unpinned) unpinned tiles stand"
-                    switch decision {
-                    case .stationary:
-                        zeroMotionCount += 1
-                        consecutiveFailures = 0
-                        recordStep("\(head) · \(error) · \(said) → stop: \(standing), page not moving \(zeroMotionCount) of 3")
-                        if zeroMotionCount >= 3 {
-                            // Three steps in a row proved without movement: the
-                            // end of the content.
-                            finish()
-                            return
-                        }
-                    case .temporary(let confirmed):
-                        // Not placed by the frames: placed where the calibration
-                        // says, and kept apart until a step the matcher does
-                        // place carries it into the image.
-                        temporary.add(next, movement: expected ?? 0, confirmed: confirmed)
-                        recordStep("\(head) · \(error) · \(said) · \(standing) → temporary (\(confirmed ? "confirmed" : "unconfirmed")), queue \(temporary.count)")
-                        previous = next
-                        zeroMotionCount = 0
-                        unmatchedScroll = 0
-                        requestedStep = max(24, Int(Double(axisLength(of: next)) * 0.60))
-                        consecutiveFailures = 0
-                    case .finish:
-                        recordStep("\(head) · \(error) · \(said) → saved: \(temporary.count) steps wait for a confirmation")
-                        finish()
-                        return
-                    case .retry:
-                        consecutiveFailures += 1
-                        guard consecutiveFailures <= 2 else {
-                            // A video, an animation, a section that stays where
-                            // it is: whatever it is, the steps will not line up,
-                            // and what is collected is what there is. The user
-                            // wanted a screenshot, not an explanation.
-                            recordStep("\(head) · \(error) · \(said) → saved: steps would not match")
-                            Log.capture.notice("scroll steps would not match · saved what was collected")
-                            finish()
-                            return
-                        }
-                        // Back to where the step began, then half of it from there.
-                        recordStep("\(head) · \(error) · \(said) · \(standing) → retry \(consecutiveFailures) of 2, back \(plan.lines) lines")
-                        requestedStep = max(12, currentStep / 2)
-                        // Only this step's lines are undone: a probe that moved
-                        // the page unmatched still has to be allowed for.
-                        try await returnPage(by: plan.lines, at: point, reference: oldFrame)
-                    }
-                }
-            }
+            try await body()
         } catch is CancellationError {
             return
         } catch {
@@ -551,6 +457,316 @@ final class ScrollingCaptureSession {
                 // only says the capture stopped.
                 pause(announce: true)
             }
+        }
+    }
+
+    /// From the window raised to the probe matched: the first strip is in, and
+    /// the step loop can start.
+    private func prepare() async throws {
+        try ensureActive()
+        diagnosticStage = .raiseWindow
+        try activateSelectedWindow(selection)
+        try await waitForTargetFocus()
+        try ensureActive()
+        scale = Self.backingScale(for: selection.bounds)
+        try checkWindowAndFocus()
+        diagnosticStage = .resolveViewport
+        switch try ScrollDriver.viewport(selection: selection) {
+        case .accessibility(let resolved, let container):
+            viewport = resolved
+            scrollContainer = container
+            diagnosticStage = .validateTarget
+            do {
+                try ScrollDriver.validateScrollTarget(selection: selection, point: selection.clickPoint,
+                                                      container: container, ignoring: ignoredWindows())
+            } catch ScrollDriverError.scrollAreaUnavailable {
+                // AX may expose a partial Chromium tree: keep the selected
+                // CG window and let the pixel probe establish the viewport.
+                Log.capture.notice("scroll capture viewport fallback: AX target identity was incomplete")
+                viewport = ScrollDriver.windowFallbackViewport(for: selection)
+                scrollContainer = nil
+                try ScrollDriver.validateSelectedWindow(selection: selection, point: selection.clickPoint,
+                                                    ignoring: ignoredWindows())
+            }
+        case .window(let resolved):
+            // Chromium and other complex apps may provide a window capture
+            // before exposing a complete AXWebArea chain. Pixel probing
+            // will reduce this to the region that actually moves.
+            viewport = resolved
+            scrollContainer = nil
+            Log.capture.notice("scroll capture viewport fallback: AX hit did not resolve a suitable scroll container")
+            diagnosticStage = .validateTarget
+            try ScrollDriver.validateSelectedWindow(selection: selection, point: selection.clickPoint,
+                                                    ignoring: ignoredWindows())
+        }
+        guard let baseViewport = viewport?.insetWindowEdges(points: Geometry.roundedWindowEdgeInsetPoints) else {
+            throw ScrollDriverError.scrollAreaUnavailable
+        }
+        viewport = baseViewport
+        diagnosticStage = .capture
+        // One look at the whole window before anything moves. It is the
+        // start of the capture whichever way the capture ends up going, so
+        // the beginning is never lost to a probe in the wrong direction —
+        // and being the whole window, it can be cropped for either axis
+        // without scrolling back.
+        var before = try await ScrollCaptureCancellationBoundary.awaitActive {
+            try await self.captureWindow()
+        }
+        try ensureActive()
+        try checkWindowAndFocus()
+        dump = ScrollFrameDump.begin()
+        dump?.save(before, as: "00-before")
+
+        // From here the capture scrolls on its own, and a hand on the page
+        // is the one thing that spoils it.
+        startInputGuard()
+
+        var settled: (axis: ScrollAxis, viewport: ScrollViewport, outcome: ProbeOutcome,
+                      step: Int, lines: Int32, motionLimit: Int)?
+        for candidate in Self.probeOrder(preferred: axis) {
+            let candidateViewport = try viewport(for: candidate, within: baseViewport)
+            let initial = try cropped(before, to: candidateViewport)
+            let probeStep = max(24, min(56, axisLength(of: initial, along: candidate) / 10))
+            try ensureActive()
+            let probePoint = currentScrollPoint()
+            diagnosticStage = .probeMotion
+            try validateCurrentScrollTarget(at: probePoint)
+            let probeLines = ScrollDriver.lineDelta(for: probeStep, backingScale: scale)
+            try ScrollDriver.sendScroll(axis: candidate, lines: probeLines, at: probePoint)
+            let after = try await ScrollCaptureCancellationBoundary.awaitActive {
+                try await self.captureStableWindow(viewport: candidateViewport)
+            }
+            try ensureActive()
+            try checkWindowAndFocus()
+            if let outcome = Self.probeOutcome(before: before, after: after,
+                                               viewportPixels: pixelRect(of: candidateViewport),
+                                               axis: candidate,
+                                               preserveCrossAxis: scrollContainer != nil) {
+                let motionLimit = ScrollDriver.maximumLikelyMovement(
+                    pixelStep: probeStep, backingScale: scale,
+                    viewportLength: axisLength(of: initial, along: candidate))
+                settled = (candidate, candidateViewport, outcome, probeStep, probeLines, motionLimit)
+                break
+            }
+            // Nothing moved that way. The next axis starts from what the
+            // window shows now; when the probe moved nothing at all that is
+            // the very frame taken before it.
+            before = after
+        }
+        guard let settled else { throw ScrollDriverError.noMovingContent }
+        axis = settled.axis
+        assembler = ImageAssembler(axis: axis, maxLength: lengthLimit)
+        let (first, probe) = (settled.outcome.first, settled.outcome.probe)
+        let probeStep = settled.step
+        let probeLines = settled.lines
+        let probeMotionLimit = settled.motionLimit
+        guard let croppedViewport = settled.viewport.cropped(to: settled.outcome.movingRect,
+                                                             backingScale: scale) else {
+            throw ScrollDriverError.scrollAreaUnavailable
+        }
+        self.viewport = croppedViewport
+        assembler.begin(with: first)
+        previous = probe
+        dump?.save(probe, as: "00-probe")
+        Log.capture.notice("scroll probe settled · \(self.axis == .vertical ? "vertical" : "horizontal", privacy: .public) · \(probeLines, privacy: .public) lines · limit \(probeMotionLimit, privacy: .public) px · scale \(self.scale, privacy: .public)")
+        requestedStep = max(24, Int(Double(axisLength(of: first)) * 0.60))
+        unmatchedScroll = 0
+        pixelsPerLine = nil
+        linearityConfirmed = false
+
+        do {
+            diagnosticStage = .match
+            let match = try FrameMatcher.match(previous: first, current: probe, axis: axis,
+                                               maximumOffset: probeMotionLimit + 24)
+            try ensureActive()
+            try assembler.append(probe, movement: match.offset)
+            notePinned(match.standing)
+            pixelsPerLine = ScrollStepPlanner.pixelsPerLine(offset: match.offset, lines: Int(probeLines))
+            if let pixelsPerLine {
+                let plan = ScrollStepPlanner.plan(target: requestedStep, pixelsPerLine: pixelsPerLine,
+                                                  axisLength: axisLength(of: first), backingScale: scale)
+                Log.capture.notice("scroll calibrated · \(Int(pixelsPerLine.rounded()), privacy: .public) px per line · \(plan.lines, privacy: .public) lines per step")
+            }
+            recordStep(0, "lines=\(probeLines) maximumOffset=\(probeMotionLimit + 24) · match \(match.offset) px · confidence \(Self.percent(match.confidence)) · regions \(match.independentRegions) → calibrated")
+        } catch {
+            recordStep(0, "lines=\(probeLines) maximumOffset=\(probeMotionLimit + 24) · \(error) → probe not matched")
+            // The selected scroll view did not yield stable moving content
+            // across the probe; keep the initial image for a partial save.
+            previous = first
+            unmatchedScroll = probeStep
+            consecutiveFailures = 1
+        }
+    }
+
+    /// The steps, one after the other, until the end of the page, a limit, or a
+    /// stop. Everything that goes from one step to the next is instance state,
+    /// so that a pause can end this and a resume start it again.
+    private func stepLoop() async throws {
+        while !Task.isCancelled && !stopped {
+            // The pointer on the strip or off the page: the user is reaching
+            // for a button, and a step sent now would be wasted. Wait.
+            try await waitForPointer()
+            // The end of the road is not a failure: what is collected is saved.
+            // Waiting and pauses are not time the capture took.
+            guard Date().timeIntervalSince(startedAt) - idleSeconds < 90 else {
+                finish()
+                return
+            }
+            guard makeRoom(for: 1) else {
+                finish()
+                return
+            }
+            guard let oldFrame = previous else { return }
+            try checkWindowAndFocus()
+            let currentStep = min(requestedStep, max(24, axisLength(of: oldFrame) * 3 / 4))
+            let plan = ScrollStepPlanner.plan(target: currentStep, pixelsPerLine: pixelsPerLine,
+                                              axisLength: axisLength(of: oldFrame), backingScale: scale)
+            let motionLimit = plan.motionLimit
+            let point = currentScrollPoint()
+            try ensureActive()
+            diagnosticStage = .validateTarget
+            try validateCurrentScrollTarget(at: point)
+            stepInFlight = true
+            try ScrollDriver.sendScroll(axis: axis, lines: plan.lines, at: point)
+            diagnosticStage = .capture
+            let next = try await ScrollCaptureCancellationBoundary.awaitActive {
+                try await self.captureStableViewport(reference: oldFrame)
+            }
+            try ensureActive()
+            try checkWindowAndFocus()
+            stepNumber += 1
+            dump?.save(next, as: String(format: "%02ld-step", stepNumber))
+
+            /// Whether this is the first attempt at this step: an earlier
+            /// failed one has moved the page by a distance nothing here
+            /// accounts for.
+            let cleanStep = unmatchedScroll == 0
+            let maximumOffset = motionLimit + unmatchedScroll + 32
+            let head = "lines=\(plan.lines) motionLimit=\(motionLimit) maximumOffset=\(maximumOffset)"
+                + " difference=\(String(format: "%.4f", meanDifference(oldFrame, next)))"
+            do {
+                diagnosticStage = .match
+                let axis = self.axis
+                let match = try await ScrollCaptureCancellationBoundary.awaitActive {
+                    try await Task.detached(priority: .userInitiated) {
+                        try FrameMatcher.match(previous: oldFrame, current: next, axis: axis,
+                                               maximumOffset: maximumOffset)
+                    }.value
+                }
+                try ensureActive()
+                // The steps that waited for this one go into the image first.
+                guard let waiting = try lay(next, movement: match.offset) else {
+                    finish()
+                    return
+                }
+                notePinned(match.standing)
+                if cleanStep, let pixelsPerLine,
+                   ScrollStepPlanner.confirmsLinearity(offset: match.offset, lines: Int(plan.lines),
+                                                       pixelsPerLine: pixelsPerLine) {
+                    linearityConfirmed = true
+                } else if cleanStep, pixelsPerLine == nil,
+                          let late = ScrollStepPlanner.pixelsPerLine(offset: match.offset,
+                                                                     lines: Int(plan.lines)) {
+                    // The probe could not be matched — the first screen is
+                    // mostly a video, say — so the first step that does match
+                    // is what calibrates. Not one that follows a failed
+                    // attempt: that distance includes the attempt's.
+                    pixelsPerLine = late
+                    let latePlan = ScrollStepPlanner.plan(target: requestedStep, pixelsPerLine: late,
+                                                          axisLength: axisLength(of: next), backingScale: scale)
+                    Log.capture.notice("scroll calibrated late · \(Int(late.rounded()), privacy: .public) px per line · \(latePlan.lines, privacy: .public) lines per step")
+                }
+                let queue = waiting == 0 ? "" : " · queue appended \(waiting)"
+                recordStep("\(head) · match \(match.offset) px · confidence \(Self.percent(match.confidence)) · regions \(match.independentRegions)\(queue) → added")
+                previous = next
+                zeroMotionCount = 0
+                unmatchedScroll = 0
+                requestedStep = max(24, Int(Double(axisLength(of: next)) * 0.60))
+                consecutiveFailures = 0
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                // The matcher cannot place the step. Why is a question for
+                // the frames, asked once: which tiles stand still, and, when
+                // the calibration says how far the page should have moved,
+                // which tiles bear that out.
+                let undecided = (error as? FrameMatchError == .ambiguousMotion)
+                    || (error as? FrameMatchError == .noReliableMotion)
+                let expected: Int? = undecided && cleanStep
+                    ? pixelsPerLine.map { ScrollStepPlanner.predictedOffset(lines: Int(plan.lines), pixelsPerLine: $0) }
+                    : nil
+                var evidence: FrameMatcher.StepEvidence?
+                if undecided {
+                    let axis = self.axis
+                    let searchLimit = motionLimit + 32
+                    evidence = await Task.detached(priority: .userInitiated) {
+                        FrameMatcher.evidence(previous: oldFrame, current: next, axis: axis,
+                                              offset: expected, searchLimit: searchLimit)
+                    }.value
+                    try ensureActive()
+                }
+                let unpinned = (evidence?.standing ?? []).subtracting(pinnedTiles).count
+                let required = ScrollStepPlanner.tilesRequiredToAgree(linearityConfirmed: linearityConfirmed)
+                let decision = ScrollStepDecision.decide(.init(
+                    undecided: undecided, canExpect: expected != nil,
+                    consistent: evidence?.consistent ?? 0, against: evidence?.against ?? 0,
+                    contradicted: evidence?.contradicted ?? false, required: required,
+                    unpinnedStanding: unpinned, queued: temporary.count))
+                let said = expected.map {
+                    "expected \($0) px · \(evidence?.consistent ?? 0) tiles agree, \(evidence?.against ?? 0) against, \(required) needed"
+                        + (evidence?.contradicted == true ? ", contradicted" : "")
+                } ?? (!undecided ? "not to be predicted"
+                      : pixelsPerLine == nil ? "no calibration"
+                      : "step not clean (\(unmatchedScroll) px unaccounted)")
+                let standing = "\(unpinned) unpinned tiles stand"
+                switch decision {
+                case .stationary:
+                    zeroMotionCount += 1
+                    consecutiveFailures = 0
+                    recordStep("\(head) · \(error) · \(said) → stop: \(standing), page not moving \(zeroMotionCount) of 3")
+                    if zeroMotionCount >= 3 {
+                        // Three steps in a row proved without movement: the
+                        // end of the content.
+                        finish()
+                        return
+                    }
+                case .temporary(let confirmed):
+                    // Not placed by the frames: placed where the calibration
+                    // says, and kept apart until a step the matcher does
+                    // place carries it into the image.
+                    temporary.add(next, movement: expected ?? 0, confirmed: confirmed)
+                    recordStep("\(head) · \(error) · \(said) · \(standing) → temporary (\(confirmed ? "confirmed" : "unconfirmed")), queue \(temporary.count)")
+                    previous = next
+                    zeroMotionCount = 0
+                    unmatchedScroll = 0
+                    requestedStep = max(24, Int(Double(axisLength(of: next)) * 0.60))
+                    consecutiveFailures = 0
+                case .finish:
+                    recordStep("\(head) · \(error) · \(said) → saved: \(temporary.count) steps wait for a confirmation")
+                    finish()
+                    return
+                case .retry:
+                    consecutiveFailures += 1
+                    guard consecutiveFailures <= 2 else {
+                        // A video, an animation, a section that stays where
+                        // it is: whatever it is, the steps will not line up,
+                        // and what is collected is what there is. The user
+                        // wanted a screenshot, not an explanation.
+                        recordStep("\(head) · \(error) · \(said) → saved: steps would not match")
+                        Log.capture.notice("scroll steps would not match · saved what was collected")
+                        finish()
+                        return
+                    }
+                    // Back to where the step began, then half of it from there.
+                    recordStep("\(head) · \(error) · \(said) · \(standing) → retry \(consecutiveFailures) of 2, back \(plan.lines) lines")
+                    requestedStep = max(12, currentStep / 2)
+                    // Only this step's lines are undone: a probe that moved
+                    // the page unmatched still has to be allowed for.
+                    try await returnPage(by: plan.lines, at: point, reference: oldFrame)
+                }
+            }
+            // The step is dealt with: a pause from here on cuts nothing short.
+            stepInFlight = false
         }
     }
 
@@ -675,17 +891,6 @@ final class ScrollingCaptureSession {
 
     private func logFailure(_ error: Error) {
         Log.capture.error("scroll capture failed at stage \(self.diagnosticStage.rawValue, privacy: .public): \(error.localizedDescription, privacy: .public)")
-    }
-
-    /// A stop with part of the image already collected: the capture waits for
-    /// the user — Save keeps what there is, ✕ drops it.
-    private func pause(announce: Bool) {
-        // Paused is not scrolling: nothing here is to be taken for the user's.
-        stopInputGuard()
-        previous = nil
-        Log.capture.notice("scroll capture paused · \(announce ? "with a toast" : "quietly", privacy: .public) · \(self.assembler.totalLength, privacy: .public) px collected")
-        dump?.step("paused \(announce ? "with a toast" : "quietly")")
-        onStatus?(.paused(announce: announce))
     }
 
     /// The whole selected window, as one frame.

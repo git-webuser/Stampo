@@ -787,6 +787,7 @@ import Testing
             "Scrolling", "Down", "Right",
             "Excludes a narrow viewport edge where scrollbars appear; content near that edge may also be cropped.",
             "Screenshot capture stopped",
+            "Pause capture", "Resume capture",
             "Length limit", "Shrink to fit",
             "At the limit the image drops to standard resolution (1x) and the capture continues — twice as much of the page fits.",
             "MB", "Scrolling Screenshot",
@@ -1814,15 +1815,11 @@ import Testing
     /// Who touched the page, and what the capture does about it. The capture's
     /// own wheel events reach a global monitor like any other and are told by
     /// the mark they carry; everything else that moves the page, or could, is
-    /// the user taking over and stops it with a toast — except the pointer
-    /// leaving the page, which stops it quietly.
-    @Test func inputThatIsNotTheCapturesOwnStopsItAndOnlyTheHandsOnThePageSayWhy() {
-        let window = CGRect(x: 100, y: 100, width: 800, height: 600)
-        let inside = CGPoint(x: 400, y: 300), outside = CGPoint(x: 1200, y: 300)
+    /// the user taking over and pauses it with a toast.
+    @Test func inputThatIsNotTheCapturesOwnPausesItWithAToast() {
         let marker = ScrollInputGuard.syntheticMarker
-        func response(_ kind: ScrollInputGuard.Kind, data: Int64 = 0, at pointer: CGPoint = CGPoint(x: 400, y: 300),
-                      overUI: Bool = false) -> ScrollInputGuard.Response {
-            ScrollInputGuard.response(to: kind, userData: data, pointer: pointer, window: window, overOwnUI: overUI)
+        func response(_ kind: ScrollInputGuard.Kind, data: Int64 = 0) -> ScrollInputGuard.Response {
+            ScrollInputGuard.response(to: kind, userData: data)
         }
         // A wheel event: the capture's own is marked, the user's is not.
         #expect(response(.scrollWheel, data: marker) == .nothing)
@@ -1832,25 +1829,119 @@ import Testing
         #expect(response(.mouseDown) == .pauseAnnounced)
         #expect(response(.key(isEscape: false)) == .pauseAnnounced)
         #expect(response(.key(isEscape: true)) == .nothing)
-        // The pointer: free inside the window, and over the strip; off the page
-        // it pauses, without a toast — it is most likely on its way to Save.
-        #expect(response(.pointerMoved, at: inside) == .nothing)
-        #expect(response(.pointerMoved, at: outside) == .pauseQuietly)
-        #expect(response(.pointerMoved, at: outside, overUI: true) == .nothing)
-        // The edge of the window is in it.
-        #expect(response(.pointerMoved, at: CGPoint(x: 100, y: 100)) == .nothing)
     }
 
     /// With nothing collected yet there is nothing for Save to keep: a hand on
-    /// the page gives the window's screenshot, the pointer leaving is let go.
+    /// the page gives the window's screenshot instead.
     @Test func whatTheInputDoesDependsOnWhetherAFrameIsIn() {
         typealias Guard = ScrollInputGuard
         #expect(Guard.outcome(of: .nothing, hasCollected: true) == .ignore)
         #expect(Guard.outcome(of: .nothing, hasCollected: false) == .ignore)
-        #expect(Guard.outcome(of: .pauseAnnounced, hasCollected: true) == .pause(announce: true))
-        #expect(Guard.outcome(of: .pauseQuietly, hasCollected: true) == .pause(announce: false))
+        #expect(Guard.outcome(of: .pauseAnnounced, hasCollected: true) == .pause)
         #expect(Guard.outcome(of: .pauseAnnounced, hasCollected: false) == .windowScreenshot)
-        #expect(Guard.outcome(of: .pauseQuietly, hasCollected: false) == .ignore)
+    }
+
+    /// The pointer is not input. Off the page, or on Stampo's strip, the user is
+    /// reaching for a button: the capture holds its next step until it is back.
+    @Test func theCaptureWaitsWhileThePointerIsOffThePageOrOnTheStrip() {
+        let window = CGRect(x: 100, y: 100, width: 800, height: 600)
+        func waits(_ pointer: CGPoint, overUI: Bool = false) -> Bool {
+            ScrollInputGuard.shouldWait(pointer: pointer, window: window, overOwnUI: overUI)
+        }
+        #expect(!waits(CGPoint(x: 400, y: 300)))
+        #expect(waits(CGPoint(x: 1200, y: 300)))
+        #expect(waits(CGPoint(x: 400, y: 40)))
+        // On the strip, which may well be over the page's top edge.
+        #expect(waits(CGPoint(x: 400, y: 110), overUI: true))
+        #expect(waits(CGPoint(x: 1200, y: 300), overUI: true))
+        // The edge of the window is in it.
+        #expect(!waits(CGPoint(x: 100, y: 100)))
+    }
+
+    /// While the capture is paused the user's input is written down: the wheel,
+    /// inertia included, and whether a key or a click may have moved the page.
+    /// The capture's own marked events are not the user's.
+    @Test func theLedgerSumsTheUsersWheelAndNotesKeysAndClicks() {
+        typealias Event = ScrollInputGuard.Event
+        var ledger = UserScrollLedger()
+        #expect(!ledger.mayHaveMovedPage)
+        #expect(ledger.pageMovement(scale: 2, pixelsPerLine: 80) == 0)
+        // A trackpad scrolled the page toward its end: negative deltas, in points.
+        ledger.record(Event(kind: .scrollWheel, preciseY: -30), axis: .vertical)
+        ledger.record(Event(kind: .scrollWheel, preciseY: -20, isMomentum: true), axis: .vertical)
+        // A mouse wheel toward the start by one line.
+        ledger.record(Event(kind: .scrollWheel, lineY: 1), axis: .vertical)
+        // Across the axis: not counted.
+        ledger.record(Event(kind: .scrollWheel, preciseX: 400), axis: .vertical)
+        // The capture's own event: not the user's.
+        ledger.record(Event(kind: .scrollWheel, userData: ScrollInputGuard.syntheticMarker, lineY: -9),
+                      axis: .vertical)
+        #expect(ledger.mayHaveMovedPage)
+        // 50 points at 2x toward the end, less one line of 80 pixels toward the start.
+        #expect(ledger.pageMovement(scale: 2, pixelsPerLine: 80) == 100 - 80)
+        // Along a horizontal capture it is the other delta.
+        var sideways = UserScrollLedger()
+        sideways.record(Event(kind: .scrollWheel, preciseX: -10, preciseY: 400), axis: .horizontal)
+        #expect(sideways.pageMovement(scale: 1, pixelsPerLine: nil) == 10)
+        // Without a measure a line is 80 points.
+        var lined = UserScrollLedger()
+        lined.record(Event(kind: .scrollWheel, lineY: -2), axis: .vertical)
+        #expect(lined.pageMovement(scale: 2, pixelsPerLine: nil) == 320)
+
+        // A key or a click may have moved it by an unknown amount; Esc is not one.
+        var keyed = UserScrollLedger()
+        keyed.record(Event(kind: .key(isEscape: true)), axis: .vertical)
+        #expect(!keyed.mayHaveMovedPage)
+        keyed.record(Event(kind: .key(isEscape: false)), axis: .vertical)
+        #expect(keyed.mayHaveMovedPage && keyed.pageMovement(scale: 2, pixelsPerLine: 80) == 0)
+        var clicked = UserScrollLedger()
+        clicked.record(Event(kind: .mouseDown), axis: .vertical)
+        #expect(clicked.mayHaveMovedPage)
+    }
+
+    /// After a pause the capture looks for its place only if the page may have
+    /// moved: something was done to it, or a step was cut short.
+    @Test func afterAPauseThePlaceIsLookedForOnlyIfThePageMayHaveMoved() {
+        let quiet = UserScrollLedger()
+        #expect(!ScrollResume.needsLooking(ledger: quiet, stepWasInFlight: false))
+        #expect(ScrollResume.needsLooking(ledger: quiet, stepWasInFlight: true))
+        var scrolled = UserScrollLedger()
+        scrolled.record(.init(kind: .scrollWheel, lineY: 1), axis: .vertical)
+        #expect(ScrollResume.needsLooking(ledger: scrolled, stepWasInFlight: false))
+    }
+
+    /// What is done with what the frames say about the place, row by row.
+    @Test func theCaptureFindsItsPlaceAgainByTheFramesAndThenByUndoingTheUser() {
+        typealias Resume = ScrollResume
+        #expect(Resume.action(finding: .same, userMovement: 500, undone: false) == .goOn)
+        #expect(Resume.action(finding: .ahead(300), userMovement: 500, undone: false) == .lay(movement: 300))
+        #expect(Resume.action(finding: .behind(120), userMovement: 0, undone: false) == .scrollForward(pixels: 120))
+        // The frames cannot tell: undo what the user did, once.
+        #expect(Resume.action(finding: .unknown, userMovement: 900, undone: false) == .undoUser(pixels: 900))
+        #expect(Resume.action(finding: .unknown, userMovement: -400, undone: false) == .undoUser(pixels: -400))
+        #expect(Resume.action(finding: .unknown, userMovement: 900, undone: true) == .giveUp)
+        // Nothing known of what the user did — a key, a click — and nothing from the frames.
+        #expect(Resume.action(finding: .unknown, userMovement: 0, undone: false) == .giveUp)
+        // A distance in lines: as measured, or 80 points to the line.
+        #expect(Resume.lines(forPixels: 800, pixelsPerLine: 80, scale: 2) == 10)
+        #expect(Resume.lines(forPixels: -800, pixelsPerLine: 80, scale: 2) == 10)
+        #expect(Resume.lines(forPixels: 320, pixelsPerLine: nil, scale: 2) == 2)
+        #expect(Resume.lines(forPixels: 30, pixelsPerLine: 80, scale: 2) == 0)
+    }
+
+    /// The place on real frames: further on, back, where it was, and lost.
+    @Test func thePlaceIsReadFromFramesFurtherOnBackWhereItWasAndLost() {
+        let height = 260
+        func page(_ offset: Int) -> CaptureFrame { texture(width: 240, height: height, yOffset: offset) }
+        let last = page(300)
+        #expect(ScrollPlaceFinding.find(last: last, now: page(380), axis: .vertical) == .ahead(80))
+        #expect(ScrollPlaceFinding.find(last: last, now: page(240), axis: .vertical) == .behind(60))
+        #expect(ScrollPlaceFinding.find(last: last, now: last, axis: .vertical) == .same)
+        // Further than the frames overlap — nothing of the one is in the other
+        // (the texture repeats every 256 rows, so it is another stretch of the
+        // page across as well): lost.
+        let elsewhere = texture(width: 240, height: height, xOffset: 977, yOffset: 1500)
+        #expect(ScrollPlaceFinding.find(last: last, now: elsewhere, axis: .vertical) == .unknown)
     }
 
     /// The capture's wheel event is built whole and marked, so what the guard
@@ -1882,11 +1973,46 @@ import Testing
         #expect(ScrollInputGuard.quartzPoint(fromAppKit: NSPoint(x: 5, y: 0), primaryHeight: 832) == CGPoint(x: 5, y: 832))
     }
 
-    @Test func theStripShowsARingWhileWorkingAndSavingAndAWarningWhenPaused() {
+    /// The button in the arc's place: a turning ring with the pause sign while
+    /// the capture works, the play sign while it waits, the ring alone — and
+    /// nothing to click — while the image is being written.
+    @Test func theStripButtonPausesResumesAndWhileSavingDoesNothing() {
         #expect(ScrollStripPhase(.capturing) == .running)
-        #expect(ScrollStripPhase(.saving) == .running)
+        #expect(ScrollStripPhase(.saving) == .saving)
         #expect(ScrollStripPhase(.paused(announce: true)) == .paused)
         #expect(ScrollStripPhase(.paused(announce: false)) == .paused)
+        #expect(ScrollStripPhase.running.pauseButtonKind == .pause)
+        #expect(ScrollStripPhase.paused.pauseButtonKind == .resume)
+        #expect(ScrollStripPhase.saving.pauseButtonKind == .busy)
+    }
+
+    /// Pause and resume before the first strip is in: the capture starts over
+    /// from the window, and what ends it is told as any ending before a frame.
+    @Test @MainActor func pausingBeforeTheFirstFrameAndResumingStartsTheCaptureOver() async {
+        let selection = WindowPickerSelection(windowID: 17, processID: 42,
+                                              clickPoint: CGPoint(x: 15, y: 15),
+                                              bounds: CGRect(x: 0, y: 0, width: 120, height: 90))
+        var activations = 0
+        let session = ScrollingCaptureSession(selection: selection, axis: .vertical,
+                                              activateSelectedWindow: { _ in
+                                                  activations += 1
+                                                  throw ScrollDriverError.scrollAreaUnavailable
+                                              })
+        var statuses: [ScrollCaptureStatus] = []
+        var instead = 0
+        session.onStatus = { statuses.append($0) }
+        session.onWindowScreenshotInstead = { instead += 1 }
+        session.togglePause()
+        #expect(statuses == [.paused(announce: false)])
+        // A second click on the pause sign is a click on the play sign.
+        session.togglePause()
+        #expect(statuses == [.paused(announce: false), .capturing])
+        // The resumed run is a task; wait for it by giving it the main actor.
+        for _ in 0..<50 where instead == 0 { try? await Task.sleep(for: .milliseconds(20)) }
+        #expect(activations == 1 && instead == 1)
+        // Over: a click now is nothing.
+        session.togglePause()
+        #expect(statuses == [.paused(announce: false), .capturing])
     }
 
     @Test func macOSAsksForAccessibilityOnceAndOurAlertIsTheOnlyThingAfter() {

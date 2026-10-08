@@ -5806,6 +5806,23 @@
         }
       }
     },
+    "Pause capture" : {
+      "comment" : "VoiceOver label of the strip's button while a scrolling capture runs",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pause capture"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Приостановить захват"
+          }
+        }
+      }
+    },
     "Peach" : {
       "comment" : "Decor inspector — the name of one background in the gallery",
       "extractionState" : "stale",
@@ -6686,6 +6703,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Восстанавливает все сочетания клавиш до исходных"
+          }
+        }
+      }
+    },
+    "Resume capture" : {
+      "comment" : "VoiceOver label of the strip's button while a scrolling capture is paused",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Resume capture"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Продолжить захват"
           }
         }
       }

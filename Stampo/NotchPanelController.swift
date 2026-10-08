@@ -241,13 +241,26 @@ extension NotchPanelRoute {
 /// What the scrolling capture's strip shows in the arc's place.
 enum ScrollStripPhase: Equatable {
     case running
-    /// Part of the image is collected and the capture waits for Done or ✕.
+    /// The capture waits — the user paused it, or it stopped — and the strip
+    /// offers to resume it, to save what is collected, or to drop it.
     case paused
+    /// The image is being written.
+    case saving
 
     init(_ status: ScrollCaptureStatus) {
         switch status {
-        case .capturing, .saving: self = .running
-        case .paused:             self = .paused
+        case .capturing: self = .running
+        case .paused:    self = .paused
+        case .saving:    self = .saving
+        }
+    }
+
+    /// What the button in the arc's place does in this phase.
+    var pauseButtonKind: PanelPauseButton.Kind {
+        switch self {
+        case .running: return .pause
+        case .paused:  return .resume
+        case .saving:  return .busy
         }
     }
 }
@@ -402,10 +415,11 @@ private struct NotchPanelRootView: View {
     let onTogglePin: () -> Void
     let onStopCountdown: () -> Void
     let onCaptureNow: () -> Void
+    let onTogglePause: () -> Void
     let onCycleHeader: (_ backwards: Bool) -> Void
 
     private var countdownPhase: CountdownPhase {
-        if let strip = rootState.scrollStrip { return .scrolling(paused: strip == .paused) }
+        if let strip = rootState.scrollStrip { return .scrolling(strip) }
         return .countdown(seconds: rootState.countdownSeconds, total: rootState.countdownTotal)
     }
 
@@ -602,7 +616,8 @@ private struct NotchPanelRootView: View {
                 interaction: interaction,
                 phase: countdownPhase,
                 onStop: onStopCountdown,
-                onCaptureNow: onCaptureNow
+                onCaptureNow: onCaptureNow,
+                onTogglePause: onTogglePause
             )
             .opacity(rootState.countdownVisible)
             .animation(.easeOut(duration: PanelTiming.crossfade), value: rootState.countdownVisible)
@@ -2382,6 +2397,7 @@ final class NotchPanelController: NSObject {
             onTogglePin: { [weak self] in self?.rootState.isArchivePinned.toggle() },
             onStopCountdown: { [weak self] in self?.stopFromStrip() },
             onCaptureNow: { [weak self] in self?.captureFromStrip() },
+            onTogglePause: { [weak self] in self?.screenshot.toggleScrollingPause() },
             onCycleHeader: { [weak self] backwards in
                 self?.cycleHeaderSelection(backwards: backwards)
             }

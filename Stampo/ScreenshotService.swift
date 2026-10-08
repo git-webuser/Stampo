@@ -56,6 +56,9 @@ final class ScreenshotService {
     /// ✕ on the strip: drop it.
     func cancelScrolling() { scrollingSession?.cancel() }
 
+    /// The ring or play sign on the strip: pause the capture, or resume it.
+    func toggleScrollingPause() { scrollingSession?.togglePause() }
+
     init() {
         thumbnailHUD.onTapped = { [weak self] in
             self?.onThumbnailTapped?()
