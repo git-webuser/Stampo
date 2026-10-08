@@ -1986,6 +1986,34 @@ import Testing
         #expect(ScrollStripPhase.saving.pauseButtonKind == .busy)
     }
 
+    /// A capture is saved when it has made no headway for twenty seconds, not
+    /// when it has run for a long time — and paused time, or time waiting for
+    /// the pointer, is not time without headway.
+    @Test func aCaptureIsSavedAfterTwentySecondsWithoutProgressNotAfterAnyTotal() {
+        let t0 = Date(timeIntervalSinceReferenceDate: 1_000_000)
+        func over(after seconds: TimeInterval, idle: TimeInterval = 0) -> Bool {
+            ScrollProgressTimeout.isOver(lastProgress: t0, now: t0.addingTimeInterval(seconds), idle: idle)
+        }
+        #expect(ScrollProgressTimeout.seconds == 20)
+        // Just made headway.
+        #expect(!over(after: 0))
+        #expect(!over(after: 19.9))
+        // Twenty seconds without.
+        #expect(over(after: 20))
+        #expect(over(after: 45))
+        // The time paused or waiting for the pointer does not count.
+        #expect(!over(after: 120, idle: 110))
+        #expect(!over(after: 30, idle: 15))
+        #expect(over(after: 30, idle: 10))
+        #expect(!over(after: 600, idle: 600))
+        // A page that has taken ten minutes and is still going is not stopped:
+        // headway keeps moving the last-progress time up.
+        let later = t0.addingTimeInterval(590)
+        #expect(!ScrollProgressTimeout.isOver(lastProgress: later, now: t0.addingTimeInterval(600), idle: 0))
+        // An idle sum larger than the time elapsed — a clock that stepped — is no reason to stop.
+        #expect(!over(after: 5, idle: 50))
+    }
+
     /// Pause and resume before the first strip is in: the capture starts over
     /// from the window, and what ends it is told as any ending before a frame.
     @Test @MainActor func pausingBeforeTheFirstFrameAndResumingStartsTheCaptureOver() async {

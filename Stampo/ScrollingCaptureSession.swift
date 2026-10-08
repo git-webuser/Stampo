@@ -64,9 +64,15 @@ final class ScrollingCaptureSession {
     /// A wheel event has been sent and what came of it not yet dealt with: if a
     /// pause cuts in here, the page is somewhere between the places the frames know.
     private var stepInFlight = false
-    /// Time that does not count against the 90 s: waiting for the pointer, and
-    /// the capture paused.
+    /// Time that does not count against the 20 s without progress: waiting for
+    /// the pointer, and the capture paused. Summed over the whole capture;
+    /// what has passed since the last headway is the difference with
+    /// `idleAtProgress`.
     private var idleSeconds: TimeInterval = 0
+    /// When the capture last made headway — a step into the image, the queue
+    /// laid, a step put in the queue — and how much idle time there was by then.
+    private var lastProgress = Date()
+    private var idleAtProgress: TimeInterval = 0
     private var task: Task<Void, Never>?
     private var stopped = false
     private var diagnosticStage: DiagnosticStage = .raiseWindow
@@ -87,7 +93,6 @@ final class ScrollingCaptureSession {
     private var pinnedTiles = Set<Int>()
     /// Steps in a row that would not match.
     private var consecutiveFailures = 0
-    private let startedAt = Date()
 
     // What the steps carry from one to the next. Instance state rather than the
     // locals of one long function, so that a pause can end the task and a resume
@@ -385,7 +390,14 @@ final class ScrollingCaptureSession {
         guard makeRoom(for: movement) else { return nil }
         try ensureActive()
         try assembler.append(frame, movement: movement)
+        noteProgress()
         return waiting.count
+    }
+
+    /// The capture has made headway: the seconds without it start again.
+    private func noteProgress() {
+        lastProgress = Date()
+        idleAtProgress = idleSeconds
     }
 
     /// The pointer is off the page or on the strip: hold the next step.
@@ -397,8 +409,8 @@ final class ScrollingCaptureSession {
         return ScrollInputGuard.shouldWait(pointer: pointer, window: window, overOwnUI: ownUICovers(pointer))
     }
 
-    /// Holds still while the pointer is away. The time does not count against
-    /// the 90 s.
+    /// Holds still while the pointer is away. The time does not count towards the
+    /// seconds without progress.
     private func waitForPointer() async throws {
         guard pointerIsAway() else { return }
         let began = Date()
@@ -566,6 +578,7 @@ final class ScrollingCaptureSession {
         }
         self.viewport = croppedViewport
         assembler.begin(with: first)
+        noteProgress()
         previous = probe
         dump?.save(probe, as: "00-probe")
         Log.capture.notice("scroll probe settled · \(self.axis == .vertical ? "vertical" : "horizontal", privacy: .public) · \(probeLines, privacy: .public) lines · limit \(probeMotionLimit, privacy: .public) px · scale \(self.scale, privacy: .public)")
@@ -607,8 +620,11 @@ final class ScrollingCaptureSession {
             // for a button, and a step sent now would be wasted. Wait.
             try await waitForPointer()
             // The end of the road is not a failure: what is collected is saved.
-            // Waiting and pauses are not time the capture took.
-            guard Date().timeIntervalSince(startedAt) - idleSeconds < 90 else {
+            // There is no limit on how long a capture takes, only on how long it
+            // goes without headway; waiting and pauses are not time without it.
+            guard !ScrollProgressTimeout.isOver(lastProgress: lastProgress, now: Date(),
+                                                idle: idleSeconds - idleAtProgress) else {
+                recordStep("saved: \(Int(ScrollProgressTimeout.seconds)) s without progress")
                 finish()
                 return
             }
@@ -735,6 +751,7 @@ final class ScrollingCaptureSession {
                     // says, and kept apart until a step the matcher does
                     // place carries it into the image.
                     temporary.add(next, movement: expected ?? 0, confirmed: confirmed)
+                    noteProgress()
                     recordStep("\(head) · \(error) · \(said) · \(standing) → temporary (\(confirmed ? "confirmed" : "unconfirmed")), queue \(temporary.count)")
                     previous = next
                     zeroMotionCount = 0

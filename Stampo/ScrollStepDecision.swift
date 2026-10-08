@@ -98,3 +98,22 @@ nonisolated struct TemporarySteps {
         return dropped
     }
 }
+
+/// When a capture that makes no headway is saved. There is no limit on how long
+/// a capture may take — a long page is a long capture, and the length the
+/// settings allow is the only cap — but a capture that adds nothing for this
+/// long is going round in circles, or the page has nothing more to give.
+///
+/// Headway is a step laid into the image, steps laid from the waiting queue,
+/// or a step put in the queue by the calibration: a long video section, eight
+/// steps of two or three seconds, is the capture working, not stuck. Time spent
+/// paused, or waiting for the pointer, is not time without progress.
+nonisolated enum ScrollProgressTimeout {
+    static let seconds: TimeInterval = 20
+
+    /// Whether it is time to save: the seconds since the last headway, less
+    /// those spent paused or waiting for the pointer in between (`idle`).
+    static func isOver(lastProgress: Date, now: Date, idle: TimeInterval) -> Bool {
+        now.timeIntervalSince(lastProgress) - max(0, idle) >= seconds
+    }
+}
