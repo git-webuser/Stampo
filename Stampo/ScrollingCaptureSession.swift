@@ -272,6 +272,10 @@ final class ScrollingCaptureSession {
         guard paused, !stopped else { return }
         paused = false
         idleSeconds += Date().timeIntervalSince(pausedAt)
+        // The window comes forward and the page is looked for: that takes
+        // its own seconds, which a pause near the end of the twenty must not
+        // leave too few of.
+        noteProgress()
         Log.capture.notice("scroll capture resumes")
         dump?.step("resumed")
         onStatus?(.capturing)
