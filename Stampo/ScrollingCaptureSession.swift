@@ -73,6 +73,11 @@ final class ScrollingCaptureSession {
     /// laid, a step put in the queue — and how much idle time there was by then.
     private var lastProgress = Date()
     private var idleAtProgress: TimeInterval = 0
+    /// Hiccups waited out since the last headway (`ScrollInterference`), and
+    /// whether the log has said that the scroll area is no longer found under
+    /// the point.
+    private var recoveriesWithoutProgress = 0
+    private var loggedAreaFallback = false
     private var task: Task<Void, Never>?
     private var stopped = false
     private var diagnosticStage: DiagnosticStage = .raiseWindow
@@ -300,13 +305,7 @@ final class ScrollingCaptureSession {
             try await self.waitForTargetFocus()
             try self.ensureActive()
             try self.checkWindowAndFocus()
-            guard try await self.findThePlace() else {
-                Log.capture.notice("scroll place not found after the pause · saved what was collected")
-                self.dump?.step("place not found → saved")
-                self.finish()
-                return
-            }
-            try await self.stepLoop()
+            try await self.continueFromHere()
         }
     }
 
@@ -402,6 +401,7 @@ final class ScrollingCaptureSession {
     private func noteProgress() {
         lastProgress = Date()
         idleAtProgress = idleSeconds
+        recoveriesWithoutProgress = 0
     }
 
     /// The pointer is off the page or on the strip: hold the next step.
@@ -468,12 +468,69 @@ final class ScrollingCaptureSession {
                     failBeforeTheFirstFrame(error)
                     return
                 }
-                // Whatever it was — the window covered, resized or sent to the
-                // back, the scroll area replaced — the log has it; the toast
-                // only says the capture stopped.
+                // A hiccup — a notification over the scroll point, the window
+                // list stumbling for an instant — is waited out, and the capture
+                // goes on from where the page is.
+                if let interference = ScrollInterference.classify(error),
+                   recoveriesWithoutProgress < ScrollInterference.maxWithoutProgress {
+                    recoveriesWithoutProgress += 1
+                    let cleared: Bool
+                    do { cleared = try await waitOut(interference) } catch { return }
+                    if cleared {
+                        pauseLedger = UserScrollLedger()
+                        await guarded { try await self.continueFromHere() }
+                        return
+                    }
+                }
+                // Whatever it was — the window sent to the back, the scroll area
+                // replaced, a hiccup that did not pass — the log has it; the
+                // toast only says the capture stopped.
                 pause(announce: true)
             }
         }
+    }
+
+    /// Waits for a hiccup to pass, looking again every quarter second, for as
+    /// long as it is worth waiting (`ScrollInterference.patience`). The time
+    /// does not count towards the seconds without progress. Whether it passed.
+    private func waitOut(_ interference: ScrollInterference) async throws -> Bool {
+        let began = Date()
+        Log.capture.notice("scroll waits: \(interference.logText, privacy: .public)")
+        dump?.step("   waits: \(interference.logText)")
+        while true {
+            try ensureActive()
+            let waited = Date().timeIntervalSince(began)
+            let clear: Bool
+            switch interference {
+            case .pointCovered: clear = (try? validateCurrentScrollTarget(at: currentScrollPoint())) != nil
+            case .windowGlitch: clear = (try? checkWindowAndFocus()) != nil
+            }
+            switch interference.verdict(clear: clear, waited: waited) {
+            case .goOn:
+                idleSeconds += waited
+                Log.capture.notice("scroll goes on after \(String(format: "%.1f", waited), privacy: .public) s")
+                dump?.step("   goes on after \(String(format: "%.1f", waited)) s")
+                return true
+            case .pause:
+                idleSeconds += waited
+                Log.capture.notice("scroll waited \(String(format: "%.1f", waited), privacy: .public) s: \(interference.logText, privacy: .public)")
+                return false
+            case .wait:
+                try await Task.sleep(for: .seconds(ScrollInterference.pollInterval))
+            }
+        }
+    }
+
+    /// Where the page is, and the steps on from there: after a resume, or after
+    /// a hiccup that has passed.
+    private func continueFromHere() async throws {
+        guard try await findThePlace() else {
+            Log.capture.notice("scroll place not found after the pause · saved what was collected")
+            dump?.step("place not found → saved")
+            finish()
+            return
+        }
+        try await stepLoop()
     }
 
     /// From the window raised to the probe matched: the first strip is in, and
@@ -814,13 +871,32 @@ final class ScrollingCaptureSession {
 
     private func validateCurrentScrollTarget(at point: CGPoint) throws {
         guard !ownUICovers(point) else { throw ScrollDriver.selectedWindowNotFrontmost() }
-        guard scrollContainer != nil else {
+        guard let container = scrollContainer else {
             try ScrollDriver.validateSelectedWindow(selection: selection, point: point,
                                                     ignoring: ignoredWindows())
             return
         }
-        try ScrollDriver.validateScrollTarget(selection: selection, point: point, container: scrollContainer!,
-                                              ignoring: ignoredWindows())
+        do {
+            try ScrollDriver.validateScrollTarget(selection: selection, point: point, container: container,
+                                                  ignoring: ignoredWindows())
+        } catch {
+            guard ScrollInterference.fallsBackToWindowCheck(error, hasCollected: !assembler.strips.isEmpty) else {
+                throw error
+            }
+            // The window is where it was and on top at the point — that is
+            // checked first — but Accessibility no longer finds the scroll area
+            // under it: an embedded demo, another column of a browser. A wheel
+            // event goes to whatever is there; if it does not scroll, the pixels
+            // say so. Before the first strip the area is what the capture rests
+            // on, and the capture stops as it did.
+            if !loggedAreaFallback {
+                loggedAreaFallback = true
+                Log.capture.notice("scroll AX area not under the point · window check")
+                dump?.step("   AX area not under the point · window check")
+            }
+            try ScrollDriver.validateSelectedWindow(selection: selection, point: point,
+                                                    ignoring: ignoredWindows())
+        }
     }
 
     /// The page back where a step that would not match began: the same lines,
@@ -997,10 +1073,10 @@ final class ScrollingCaptureSession {
         }
         guard abs(now.width - selection.bounds.width) < 1,
               abs(now.height - selection.bounds.height) < 1 else {
-            throw WindowFrameSourceError.captureFailed("The window size changed.")
+            throw ScrollDriverError.windowSizeChanged
         }
         guard abs(Self.backingScale(for: now) - scale) < 0.01 else {
-            throw WindowFrameSourceError.captureFailed("The display scale changed.")
+            throw ScrollDriverError.displayScaleChanged
         }
         guard NSWorkspace.shared.frontmostApplication?.processIdentifier == selection.processID else {
             throw WindowFrameSourceError.captureFailed("The window moved to the background.")

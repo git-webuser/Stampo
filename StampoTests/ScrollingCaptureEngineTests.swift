@@ -2083,6 +2083,64 @@ import Testing
         #expect(!over(after: 5, idle: 50))
     }
 
+    /// Which failures in the middle of a capture are hiccups to be waited out:
+    /// something over the scroll point, and the window list stumbling. The rest
+    /// pause as ever.
+    @Test func onlyHiccupsAreWaitedOutAndTheRestPause() {
+        typealias Interference = ScrollInterference
+        #expect(Interference.classify(ScrollDriver.selectedWindowNotFrontmost()) == .pointCovered)
+        #expect(Interference.classify(ScrollDriverError.pointCovered) == .pointCovered)
+        #expect(Interference.classify(ScrollDriverError.windowSizeChanged) == .windowGlitch)
+        #expect(Interference.classify(ScrollDriverError.displayScaleChanged) == .windowGlitch)
+        #expect(Interference.classify(WindowFrameSourceError.windowUnavailable) == .windowGlitch)
+        // The window sent to the back is the user's doing, not a hiccup; the
+        // scroll area and the event are other matters.
+        let others: [Error] = [WindowFrameSourceError.captureFailed("The window moved to the background."),
+                               WindowFrameSourceError.permissionDenied,
+                               ScrollDriverError.scrollAreaUnavailable, ScrollDriverError.noMovingContent,
+                               ScrollDriverError.eventUnavailable, ScrollDriverError.accessibilityDenied,
+                               CocoaError(.fileReadUnknown)]
+        for error in others { #expect(Interference.classify(error) == nil, "\(error)") }
+    }
+
+    /// How long a hiccup is waited for, looking every quarter of a second: ten
+    /// seconds for a thing over the point, two for a stumble of the window list;
+    /// it passing at any moment sends the step on.
+    @Test func aHiccupIsWaitedForTenSecondsOrTwoAndPassingSendsTheStepOn() {
+        typealias Interference = ScrollInterference
+        #expect(Interference.pollInterval == 0.25)
+        #expect(Interference.pointCovered.patience == 10)
+        #expect(Interference.windowGlitch.patience == 2)
+        for interference in [Interference.pointCovered, .windowGlitch] {
+            // Clear: on, whenever it is.
+            #expect(interference.verdict(clear: true, waited: 0) == .goOn)
+            #expect(interference.verdict(clear: true, waited: 9.9) == .goOn)
+            #expect(interference.verdict(clear: true, waited: 500) == .goOn)
+            // Not clear: wait until the time is up.
+            #expect(interference.verdict(clear: false, waited: 0) == .wait)
+        }
+        #expect(Interference.pointCovered.verdict(clear: false, waited: 9.75) == .wait)
+        #expect(Interference.pointCovered.verdict(clear: false, waited: 10) == .pause)
+        #expect(Interference.windowGlitch.verdict(clear: false, waited: 1.75) == .wait)
+        #expect(Interference.windowGlitch.verdict(clear: false, waited: 2) == .pause)
+        #expect(Interference.windowGlitch.verdict(clear: false, waited: 30) == .pause)
+        // A flicker that never settles ends in a pause after a few.
+        #expect(Interference.maxWithoutProgress == 5)
+    }
+
+    /// Mid-capture, no scroll area under the point is let through to the
+    /// window check — the window is on top there, which was looked at first —
+    /// and before the first strip it stops the capture. Other failures are
+    /// never let through.
+    @Test func noScrollAreaUnderThePointGoesOnToTheWindowCheckOnceAStripIsIn() {
+        typealias Interference = ScrollInterference
+        #expect(Interference.fallsBackToWindowCheck(ScrollDriverError.scrollAreaUnavailable, hasCollected: true))
+        #expect(!Interference.fallsBackToWindowCheck(ScrollDriverError.scrollAreaUnavailable, hasCollected: false))
+        #expect(!Interference.fallsBackToWindowCheck(ScrollDriverError.pointCovered, hasCollected: true))
+        #expect(!Interference.fallsBackToWindowCheck(WindowFrameSourceError.windowUnavailable, hasCollected: true))
+        #expect(!Interference.fallsBackToWindowCheck(CocoaError(.fileReadUnknown), hasCollected: true))
+    }
+
     /// The button that saves is as wide as its title needs — with ten points to
     /// spare on either side — and never narrower than the button the panel's
     /// layout has counted. «Сохранить» did not fit in 71.

@@ -110,6 +110,11 @@ enum ScrollDriverError: Error, LocalizedError {
     case scrollAreaUnavailable
     case noMovingContent
     case eventUnavailable
+    /// Something is over the point a wheel event would be sent to.
+    case pointCovered
+    /// Mid-capture the window list gave the window another size, or another scale.
+    case windowSizeChanged
+    case displayScaleChanged
 
     var errorDescription: String? {
         switch self {
@@ -117,6 +122,9 @@ enum ScrollDriverError: Error, LocalizedError {
         case .scrollAreaUnavailable: return "There's no scrollable area at that point."
         case .noMovingContent: return "The area doesn't scroll."
         case .eventUnavailable: return "macOS couldn't scroll the window."
+        case .pointCovered: return "The window is covered at the scroll point."
+        case .windowSizeChanged: return "The window size changed."
+        case .displayScaleChanged: return "The display scale changed."
         }
     }
 }
@@ -413,8 +421,8 @@ enum ScrollDriver {
             && abs(a.width - b.width) < 3 && abs(a.height - b.height) < 3
     }
 
-    static func selectedWindowNotFrontmost() -> WindowFrameSourceError {
-        .captureFailed("The window is covered at the scroll point.")
+    static func selectedWindowNotFrontmost() -> ScrollDriverError {
+        .pointCovered
     }
 
     private static func systemWideElement() -> AXUIElement {
