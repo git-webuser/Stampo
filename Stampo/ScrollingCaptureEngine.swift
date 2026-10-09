@@ -113,8 +113,74 @@ nonisolated enum FrameMatchError: Error, Equatable, LocalizedError {
 /// scroll — they change by themselves, or do not move at all — and those are
 /// left out; the rest each vote on the offset the whole of them found.
 nonisolated enum FrameMatcher {
+    /// The offset between two frames of a scroll. A frame whose content is a
+    /// thin band across the scroll — two lines of text in a white page — is
+    /// matched on that band alone (`contentBand`): the sample the matcher takes
+    /// across the frame would otherwise fall between the lines.
     static func match(previous: CaptureFrame, current: CaptureFrame, axis: ScrollAxis,
                       maximumOffset: Int, minimumConfidence: Double = 0.72) throws -> FrameMatch {
+        if let (_, narrowedPrevious, narrowedCurrent) = narrowed(previous, current, axis: axis) {
+            // Tile numbers of the band's grid are not those of the frame's: nothing
+            // is pinned from a match on a band.
+            var found = try matchWhole(previous: narrowedPrevious, current: narrowedCurrent, axis: axis,
+                                       maximumOffset: maximumOffset, minimumConfidence: minimumConfidence)
+            found.standing = []
+            return found
+        }
+        return try matchWhole(previous: previous, current: current, axis: axis,
+                              maximumOffset: maximumOffset, minimumConfidence: minimumConfidence)
+    }
+
+    /// The band across the scroll that holds all the content of a frame, when
+    /// that is thin — shorter than a third of the frame across. Lines across the
+    /// scroll (a column of a vertical scroll, a row of a horizontal one) whose
+    /// brightness varies along it by as much as a tile needs to be said to have
+    /// content are looked for, sparsely along the scroll, and the band runs from
+    /// the first to the last of them, with eight pixels to spare. Nil for a page
+    /// with content all across, which is matched as it always was.
+    static func contentBand(of frame: CaptureFrame, axis: ScrollAxis) -> Range<Int>? {
+        let along = axis == .vertical ? frame.height : frame.width
+        let cross = axis == .vertical ? frame.width : frame.height
+        guard along >= 40, cross >= 60 else { return nil }
+        let step = max(1, along / 300)
+        var first: Int?, last: Int?
+        for position in 0..<cross {
+            var sum = 0.0, squares = 0.0, count = 0.0
+            for index in stride(from: 0, to: along, by: step) {
+                let x = axis == .vertical ? position : index
+                let y = axis == .vertical ? index : position
+                let i = (y * frame.width + x) * 4
+                let value = Double(Int(frame.pixels[i]) + Int(frame.pixels[i + 1]) + Int(frame.pixels[i + 2])) / 765
+                sum += value; squares += value * value; count += 1
+            }
+            let mean = sum / count
+            if max(0, squares / count - mean * mean).squareRoot() >= contentSpread {
+                if first == nil { first = position }
+                last = position
+                // Already as wide as a third with its margins, and it can only
+                // grow: no band, and no need to look at the rest of the frame.
+                if (position - (first ?? position) + 1 + 16) * 3 >= cross { return nil }
+            }
+        }
+        guard let first, let last else { return nil }
+        let band = max(0, first - 8)..<min(cross, last + 1 + 8)
+        return band.count * 3 < cross ? band : nil
+    }
+
+    /// Both frames cut to the previous one's content band, if it has a thin one.
+    private static func narrowed(_ previous: CaptureFrame, _ current: CaptureFrame, axis: ScrollAxis)
+        -> (band: Range<Int>, previous: CaptureFrame, current: CaptureFrame)? {
+        guard previous.width == current.width, previous.height == current.height,
+              let band = contentBand(of: previous, axis: axis) else { return nil }
+        let rect = axis == .vertical
+            ? CGRect(x: band.lowerBound, y: 0, width: band.count, height: previous.height)
+            : CGRect(x: 0, y: band.lowerBound, width: previous.width, height: band.count)
+        guard let a = previous.cropped(to: rect), let b = current.cropped(to: rect) else { return nil }
+        return (band, a, b)
+    }
+
+    private static func matchWhole(previous: CaptureFrame, current: CaptureFrame, axis: ScrollAxis,
+                                   maximumOffset: Int, minimumConfidence: Double) throws -> FrameMatch {
         guard previous.width == current.width, previous.height == current.height else {
             throw FrameMatchError.noReliableMotion
         }
@@ -382,6 +448,17 @@ nonisolated enum FrameMatcher {
     /// that change by themselves, stand still or are blank have no say.
     static func evidence(previous: CaptureFrame, current: CaptureFrame, axis: ScrollAxis,
                          offset: Int?, searchLimit: Int) -> StepEvidence {
+        // On the band alone, as `match` is, when the content is a thin one.
+        if let (_, narrowedPrevious, narrowedCurrent) = narrowed(previous, current, axis: axis) {
+            return evidenceWhole(previous: narrowedPrevious, current: narrowedCurrent, axis: axis,
+                                 offset: offset, searchLimit: searchLimit)
+        }
+        return evidenceWhole(previous: previous, current: current, axis: axis,
+                             offset: offset, searchLimit: searchLimit)
+    }
+
+    private static func evidenceWhole(previous: CaptureFrame, current: CaptureFrame, axis: ScrollAxis,
+                                      offset: Int?, searchLimit: Int) -> StepEvidence {
         let axisLength = axis == .vertical ? previous.height : previous.width
         let limit = min(max((offset ?? 0) + 2, searchLimit), axisLength * 3 / 4)
         guard previous.width == current.width, previous.height == current.height, limit >= 2,

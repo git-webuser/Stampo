@@ -598,6 +598,88 @@ import Testing
         axis == .vertical ? Int(rect.minX)..<Int(rect.maxX) : Int(rect.minY)..<Int(rect.maxY)
     }
 
+    /// A white frame with two lines of text in it — runs of dark and light along
+    /// the scroll, in two thin bands across it — that scroll by `offset`: what
+    /// minified source looks like on a page of its own.
+    private func thinTextFrame(axis: ScrollAxis, offset: Int, along: Int = 1200, across: Int = 600,
+                               lines: [Range<Int>] = [20..<32, 44..<56]) -> CaptureFrame {
+        let width = axis == .vertical ? across : along
+        let height = axis == .vertical ? along : across
+        var bytes = [UInt8](repeating: 255, count: width * height * 4)
+        for (line, band) in lines.enumerated() {
+            // One run of glyphs along the scroll, the same across the line's height.
+            let run: [UInt8] = (0..<along).map { position in
+                let glyph = noise(position + offset, line) >> 40
+                return glyph % 3 == 0 ? 255 : UInt8(truncatingIfNeeded: 20 + glyph % 100)
+            }
+            for cross in band where cross < across {
+                for position in 0..<along {
+                    let x = axis == .vertical ? cross : position
+                    let y = axis == .vertical ? position : cross
+                    let i = (y * width + x) * 4
+                    bytes[i] = run[position]; bytes[i + 1] = run[position]; bytes[i + 2] = run[position]
+                }
+            }
+        }
+        return CaptureFrame(width: width, height: height, pixels: bytes)
+    }
+
+    /// Two lines of text in a white page are all the content there is, and the
+    /// matcher's sample across the frame falls between them. The content's band
+    /// is found, with a margin, and the frames are matched on it: the offsets
+    /// of one line and of 8, as on the page that came out as one frame.
+    @Test func aThinBandOfContentIsMatchedOnItsOwn() throws {
+        for axis in ScrollAxis.allCases {
+            let first = thinTextFrame(axis: axis, offset: 0)
+            // Lines 20 to 55, eight to spare.
+            #expect(FrameMatcher.contentBand(of: first, axis: axis) == 12..<64, "\(axis)")
+            for movement in [80, 640] {
+                let next = thinTextFrame(axis: axis, offset: movement)
+                let match = try FrameMatcher.match(previous: first, current: next, axis: axis,
+                                                   maximumOffset: movement + 64)
+                #expect(match.offset == movement, "\(axis) \(movement)")
+                #expect(match.confidence >= 0.9)
+                // Tile numbers on a band are not the frame's: nothing is pinned from it.
+                #expect(match.standing.isEmpty)
+                guard movement == 640 else { continue }
+                // The tiles of the band bear a predicted distance out, and a wrong one is contradicted.
+                let right = FrameMatcher.evidence(previous: first, current: next, axis: axis,
+                                                  offset: movement, searchLimit: movement + 64)
+                #expect(right.consistent >= 1 && !right.contradicted, "\(axis) \(movement)")
+                let wrong = FrameMatcher.evidence(previous: first, current: next, axis: axis,
+                                                  offset: movement * 4 / 5, searchLimit: movement + 64)
+                #expect(wrong.contradicted, "\(axis) \(movement)")
+            }
+        }
+    }
+
+    /// A page with content all across is matched as it always was: there is no
+    /// band, and nothing is cut. Nor is there when the content fills a third of
+    /// the frame or more, or when there is none.
+    @Test func aPageWithContentAllAcrossHasNoBandAndIsMatchedAsBefore() throws {
+        for axis in ScrollAxis.allCases {
+            let page = texture(width: 240, height: 200,
+                               xOffset: axis == .horizontal ? 0 : 0, yOffset: 0)
+            #expect(FrameMatcher.contentBand(of: page, axis: axis) == nil)
+            let blank = CaptureFrame(width: 240, height: 200,
+                                     pixels: [UInt8](repeating: 255, count: 240 * 200 * 4))
+            #expect(FrameMatcher.contentBand(of: blank, axis: axis) == nil)
+            // Content over half the frame across: wider than a third.
+            let wide = thinTextFrame(axis: axis, offset: 0, lines: [0..<150, 160..<300])
+            #expect(FrameMatcher.contentBand(of: wide, axis: axis) == nil)
+            // Lines of text in the frame's middle with margins to either side: a band.
+            let middle = thinTextFrame(axis: axis, offset: 0, lines: [250..<262, 274..<286])
+            #expect(FrameMatcher.contentBand(of: middle, axis: axis) == 242..<294)
+        }
+        // And what is matched on the whole frame still is, as the existing
+        // tests of the matcher hold; here, a frame with a header over a scroll.
+        let before = videoPage(height: videoFrameHeight, offset: 97, videoSeed: 1, header: 24)
+        let after = videoPage(height: videoFrameHeight, offset: 97 + videoStep, videoSeed: 1, header: 24)
+        #expect(FrameMatcher.contentBand(of: before, axis: .vertical) == nil)
+        #expect(try FrameMatcher.match(previous: before, current: after, axis: .vertical,
+                                       maximumOffset: videoFrameHeight * 3 / 4).offset == videoStep)
+    }
+
     /// What stays still across the scroll, with something in it, is left out of
     /// the box and so out of the image, and is not laid down again at every
     /// step: a picture above the strip in a gallery, a panel of links beside
