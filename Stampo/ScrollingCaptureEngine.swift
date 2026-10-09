@@ -257,7 +257,8 @@ nonisolated enum FrameMatcher {
     /// The spread of brightness (standard deviation, 0…1) from which a tile's
     /// samples have something in them to compare, and the share of such tiles
     /// that must line up with an offset for it to be believed.
-    private static let contentSpread = 0.015, coverageRequired = 0.5
+    static let contentSpread = 0.015
+    private static let coverageRequired = 0.5
     /// A tile lines up exactly under this cost, and this many such tiles are
     /// enough to believe an offset whatever the rest of the frame is doing.
     /// Two let a wrong offset through the fuzz; three do not.

@@ -549,7 +549,9 @@ import Testing
         }
     }
 
-    @Test func knownAccessibilityViewportKeepsItsFullCrossAxisWidth() throws {
+    /// In a viewport Accessibility found, what is fixed and has something in it
+    /// — the pane's sidebar and header — is not in the moving box.
+    @Test func knownAccessibilityViewportDropsFixedPanelsWithContent() throws {
         for axis in ScrollAxis.allCases {
             let before = paneTexture(width: 240, height: 200, axis: axis, offset: 0)
             let after = paneTexture(width: 240, height: 200, axis: axis, offset: 23)
@@ -558,14 +560,66 @@ import Testing
                                                                                   axis: axis,
                                                                                   preserveCrossAxis: true))
             if axis == .vertical {
-                #expect(moving.minX == 0)
-                #expect(moving.width == 240)
+                #expect(moving.minX >= 32 && moving.width <= 208)
                 #expect(moving.minY >= 20)
             } else {
-                #expect(moving.minY == 0)
-                #expect(moving.height == 200)
+                #expect(moving.minY >= 20 && moving.height <= 180)
                 #expect(moving.minX >= 32)
             }
+        }
+    }
+
+    /// A frame of a scroll area across which something stays and something
+    /// moves: noise in `fixed` and `moving` across the scroll, white elsewhere;
+    /// the moving noise is shifted along the scroll by `offset`.
+    private func crossBandFrame(axis: ScrollAxis, offset: Int, fixed: Range<Int>, moving: Range<Int>,
+                                along: Int = 300, across: Int = 160) -> CaptureFrame {
+        let width = axis == .vertical ? across : along
+        let height = axis == .vertical ? along : across
+        var bytes = [UInt8](repeating: 255, count: width * height * 4)
+        for y in 0..<height {
+            for x in 0..<width {
+                let cross = axis == .vertical ? x : y
+                let position = axis == .vertical ? y : x
+                var value: UInt8 = 255
+                if fixed.contains(cross) {
+                    value = UInt8(truncatingIfNeeded: noise(cross, position) >> 56)
+                } else if moving.contains(cross) {
+                    value = UInt8(truncatingIfNeeded: noise(cross, position + offset) >> 56)
+                }
+                let i = (y * width + x) * 4
+                bytes[i] = value; bytes[i + 1] = value; bytes[i + 2] = value; bytes[i + 3] = 255
+            }
+        }
+        return CaptureFrame(width: width, height: height, pixels: bytes)
+    }
+
+    private func crossExtent(of rect: CGRect, axis: ScrollAxis) -> Range<Int> {
+        axis == .vertical ? Int(rect.minX)..<Int(rect.maxX) : Int(rect.minY)..<Int(rect.maxY)
+    }
+
+    /// What stays still across the scroll, with something in it, is left out of
+    /// the box and so out of the image, and is not laid down again at every
+    /// step: a picture above the strip in a gallery, a panel of links beside
+    /// the text. The blank margins stay in, for what may appear in them.
+    @Test func aFixedPanelWithContentIsLeftOutAndBlankMarginsStayIn() throws {
+        for axis in ScrollAxis.allCases {
+            func box(fixed: Range<Int>, moving: Range<Int>) throws -> Range<Int> {
+                let before = crossBandFrame(axis: axis, offset: 0, fixed: fixed, moving: moving)
+                let after = crossBandFrame(axis: axis, offset: 37, fixed: fixed, moving: moving)
+                let rect = try #require(ScrollingCaptureSession.movingContentRect(
+                    before: before, after: after, axis: axis, preserveCrossAxis: true))
+                return crossExtent(of: rect, axis: axis)
+            }
+            // A picture over the first 90 of 160 lines that does not move, a blank
+            // gap, and the strip below it that does: the box is the gap and the strip.
+            #expect(try box(fixed: 0..<90, moving: 100..<160) == 90..<160, "\(axis)")
+            // A panel of text on one side that does not move: the box starts after it.
+            #expect(try box(fixed: 0..<50, moving: 50..<160) == 50..<160, "\(axis)")
+            // Blank margins and the text that moves between them: all of it, as before.
+            #expect(try box(fixed: 0..<0, moving: 40..<120) == 0..<160, "\(axis)")
+            // A panel on the far side as well.
+            #expect(try box(fixed: 120..<160, moving: 0..<110) == 0..<120, "\(axis)")
         }
     }
 

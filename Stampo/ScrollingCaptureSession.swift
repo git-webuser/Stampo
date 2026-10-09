@@ -1173,6 +1173,11 @@ final class ScrollingCaptureSession {
     /// Finds the 2D bounding box of pixels that changed between the probe pair.
     /// This works for an AX-resolved viewport and for a whole-window fallback,
     /// where fixed sidebars/headers must be excluded before stitching.
+    ///
+    /// With `preserveCrossAxis` — a viewport Accessibility found — the box keeps
+    /// the margins across the scroll, so that what appears in them later is not
+    /// cut off, but not what stays where it is and has something in it: that
+    /// would be laid down once for every step.
     nonisolated static func movingContentRect(before: CaptureFrame, after: CaptureFrame,
                                                axis: ScrollAxis, preserveCrossAxis: Bool = false) -> CGRect? {
         guard before.width == after.width, before.height == after.height else { return nil }
@@ -1218,10 +1223,43 @@ final class ScrollingCaptureSession {
                                  xFor: { _, across in across }, yFor: { position, _ in position })
         }
         guard let (p0, p1) = primary, p1 - p0 >= primaryLength / 3 else { return nil }
+        /// Whether a line across the scroll has anything in it — brightness that
+        /// varies along the line, in either frame. A margin is blank; a picture
+        /// or a panel of text that stays where it is is not.
+        func lineHasContent(_ position: Int) -> Bool {
+            let step = max(1, primaryLength / 700)
+            for frame in [before, after] {
+                var sum = 0.0, squares = 0.0, count = 0.0
+                for along in stride(from: 0, to: primaryLength, by: step) {
+                    let x = axis == .vertical ? position : along
+                    let y = axis == .vertical ? along : position
+                    let i = (y * frame.width + x) * 4
+                    let value = Double(Int(frame.pixels[i]) + Int(frame.pixels[i + 1]) + Int(frame.pixels[i + 2])) / 765
+                    sum += value; squares += value * value; count += 1
+                }
+                let mean = sum / count
+                if max(0, squares / count - mean * mean).squareRoot() >= FrameMatcher.contentSpread { return true }
+            }
+            return false
+        }
+
         let c0: Int, c1: Int
         if preserveCrossAxis {
-            c0 = 0
-            c1 = crossLength
+            if let (activeStart, activeEnd) = cross {
+                // What moved, and the empty lines around it — a web page's margins,
+                // where something may yet appear. The first line with something
+                // that stays where it is stops the widening: a picture in the
+                // gallery above its strip, a panel of links beside the text.
+                var low = activeStart
+                while low > 0, !lineHasContent(low - 1) { low -= 1 }
+                var high = activeEnd
+                while high < crossLength, !lineHasContent(high) { high += 1 }
+                c0 = low
+                c1 = high
+            } else {
+                c0 = 0
+                c1 = crossLength
+            }
         } else {
             guard let (activeStart, activeEnd) = cross,
                   activeEnd - activeStart >= max(80, crossLength / 3) else { return nil }
