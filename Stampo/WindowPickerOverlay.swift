@@ -26,6 +26,7 @@ final class WindowPickerOverlay {
     var scrollDirection: ScrollDirection?
 
     private var panel: NSPanel?
+    private var view: WindowPickerView?
     private var targetScreen: NSScreen?
     private var escObservation: EscObservation?
     private var cursorObservers: [NSObjectProtocol] = []
@@ -80,6 +81,7 @@ final class WindowPickerOverlay {
         }
         panel.contentView = view
         self.panel = panel
+        self.view = view
 
         escObservation = EscObservation { [weak self] in self?.cancel() }
 
@@ -182,6 +184,7 @@ final class WindowPickerOverlay {
         escObservation = nil
         panel?.orderOut(nil)
         panel = nil
+        view = nil
         NSCursor.arrow.set()
         Task { @MainActor in NSCursor.arrow.set() }
     }
@@ -234,10 +237,41 @@ final class WindowPickerOverlay {
             Task { @MainActor [weak self] in
                 guard let self, self.cursorPushed else { return }
                 self.wpcCursor?.set()
+                self.followPointer()
             }
         }
         RunLoop.main.add(t, forMode: .common)
         cursorTimer = t
+    }
+
+    /// The overlay is one window over one display, and the pointer may leave it
+    /// for another: there is then nothing to highlight, no hint, and a click
+    /// goes to whatever is under it. The same timer that holds the cursor looks
+    /// where the pointer is, thirty times a second — a global monitor of motion
+    /// would do the same, and needs more of the system to stay quiet — and when
+    /// it is on another display the overlay moves there, and is taken down with
+    /// the timer when the picker goes.
+    private func followPointer() {
+        guard let panel, let view, let current = targetScreen else { return }
+        let screens = NSScreen.screens
+        guard let index = ScreenUnderPointer.index(of: NSEvent.mouseLocation, in: screens.map(\.frame)),
+              screens[index].frame != current.frame else { return }
+        move(to: screens[index], panel: panel, view: view)
+    }
+
+    /// The window to the display, the view to the window, the highlight and the
+    /// hint to the pointer where it is: all in the new display's coordinates.
+    private func move(to screen: NSScreen, panel: NSPanel, view: WindowPickerView) {
+        targetScreen = screen
+        panel.setFrame(screen.frame, display: true)
+        view.frame = NSRect(origin: .zero, size: screen.frame.size)
+        view.targetScreen = screen
+        panel.orderFrontRegardless()
+        panel.makeKeyAndOrderFront(nil)
+        panel.makeFirstResponder(view)
+        panel.invalidateCursorRects(for: view)
+        wpcCursor?.set()
+        view.followPointerToNewScreen()
     }
 
     private func removeCursorObservers() {
@@ -301,6 +335,17 @@ private final class WindowPickerView: NSView {
         let pt = convert(event.locationInWindow, from: nil)
         hoverPoint = pt
         updateHover(at: pt)
+    }
+
+    /// The pointer has come to this view on another display: what was
+    /// highlighted belonged to the last one, and what is under the pointer is
+    /// found again, in this display's coordinates, without waiting for the next move.
+    func followPointerToNewScreen() {
+        hoveredSelection = nil
+        hoveredViewRect = nil
+        seedHover()
+        if let hoverPoint { updateHover(at: hoverPoint) }
+        needsDisplay = true
     }
 
     /// Takes the pointer's place as it is now, with no event to read it from.
