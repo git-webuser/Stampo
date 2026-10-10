@@ -236,6 +236,22 @@ extension NotchPanelRoute {
         case .cdwn:                return false
         }
     }
+
+    /// Whether ⇥ is held right now: there is something to step through, and the
+    /// pointer is on the panel. The archive and the translator take "on the panel"
+    /// from the view's hover (`pointerOverView`). Main is a strip of 34 pt in a
+    /// window as tall as the archive, and its window stops taking the pointer
+    /// where it draws nothing, so the view never hears the pointer leave: the
+    /// hover would go on being true, and ⇥ would be gone from every app on the
+    /// machine for as long as the panel was open or pinned. For Main the pointer
+    /// has to be over what is drawn (`pointerOnDrawnPanel`) as well.
+    func holdsCycleHotkey(scrollModeSelected: Bool, pointerOverView: Bool, pointerOnDrawnPanel: Bool) -> Bool {
+        switch self {
+        case .archive, .translate: return pointerOverView
+        case .main:                return scrollModeSelected && pointerOverView && pointerOnDrawnPanel
+        case .cdwn:                return false
+        }
+    }
 }
 
 /// What the scrolling capture's strip shows in the arc's place.
@@ -377,6 +393,11 @@ enum EscapeAction: Equatable {
     /// when the panel has gone, not when it starts to — the ring should not
     /// turn back into an arc on its way out.
     var scrollStrip: ScrollStripPhase?
+    /// Whether the pointer is over what the panel draws, as against the empty
+    /// part of its window. Kept by the controller, which sees the pointer where
+    /// the view does not: the window stops taking the pointer where it draws
+    /// nothing, and a hover that has ended there is never reported.
+    var pointerOnDrawnPanel: Bool = false
     var isArchivePinned: Bool = false
     /// 0 = Main visible, 1 = the wait strip's contents visible.
     /// Crossfaded over Main without a morph, exactly as the countdown is.
@@ -714,6 +735,7 @@ private struct NotchPanelRootView: View {
             updateCycleHotkeys()
         }
         .onChange(of: rootState.route) { _, _ in updateCycleHotkeys() }
+        .onChange(of: rootState.pointerOnDrawnPanel) { _, _ in updateCycleHotkeys() }
         .onChange(of: model.mode) { _, _ in updateCycleHotkeys() }
         .onChange(of: cycleEnabled) { _, _ in updateCycleHotkeys() }
         .onDisappear {
@@ -730,8 +752,10 @@ private struct NotchPanelRootView: View {
         tabToken = nil
         shiftTabToken = nil
 
-        guard cycleEnabled, isPointerInside,
-              rootState.route.cyclesSomething(scrollModeSelected: model.mode == .scroll)
+        guard cycleEnabled,
+              rootState.route.holdsCycleHotkey(scrollModeSelected: model.mode == .scroll,
+                                               pointerOverView: isPointerInside,
+                                               pointerOnDrawnPanel: rootState.pointerOnDrawnPanel)
         else { return }
 
         tabToken = TransientHotkeyCenter.tab.push { onCycleHeader(false) }
@@ -2182,6 +2206,9 @@ final class NotchPanelController: NSObject {
         let onContent = drawnContentRect.contains(NSEvent.mouseLocation)
         let buttonsDown = NSEvent.pressedMouseButtons != 0
         panel.ignoresMouseEvents = !(onContent || buttonsDown)
+        // The view hears the pointer leave only while the window takes it; this
+        // is where it is known that it has left the drawing.
+        if rootState.pointerOnDrawnPanel != onContent { rootState.pointerOnDrawnPanel = onContent }
     }
 
     private func installMouseRegionTracking() {
@@ -2211,6 +2238,7 @@ final class NotchPanelController: NSObject {
         mouseRegionMonitors.forEach { NSEvent.removeMonitor($0) }
         mouseRegionMonitors.removeAll()
         panel?.ignoresMouseEvents = false
+        rootState.pointerOnDrawnPanel = false
     }
 
     // MARK: - Panel lifecycle

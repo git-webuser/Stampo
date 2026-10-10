@@ -2673,6 +2673,38 @@ import Testing
         #expect(instead == 1)
     }
 
+    /// ⇥ on Main in the Scrolling mode is held only while the pointer is over
+    /// what the panel draws: its window is as tall as the archive and stops taking
+    /// the pointer where it draws nothing, so the hover the view reports stays
+    /// true after the pointer has left, and ⇥ was gone from every app. The
+    /// archive and the translator are held as they were.
+    @Test func tabOnMainIsHeldOnlyWhileThePointerIsOverTheDrawnPanel() {
+        func holds(_ route: NotchPanelRoute, scroll: Bool = true, over: Bool = true, drawn: Bool = true) -> Bool {
+            route.holdsCycleHotkey(scrollModeSelected: scroll, pointerOverView: over, pointerOnDrawnPanel: drawn)
+        }
+        // Main, Scrolling, the pointer on the strip.
+        #expect(holds(.main))
+        // Off the drawing — in the empty part of the window — or off the window.
+        #expect(!holds(.main, drawn: false))
+        #expect(!holds(.main, over: false))
+        #expect(!holds(.main, over: false, drawn: false))
+        // Another mode: ⇥ is not the panel's to take.
+        #expect(!holds(.main, scroll: false))
+        // The archive and the translator, as before: the view's hover is all.
+        for route in [NotchPanelRoute.archive, .translate] {
+            #expect(holds(route, scroll: false))
+            #expect(holds(route, drawn: false))
+            #expect(!holds(route, over: false))
+        }
+        // The countdown has nothing to step through.
+        #expect(!holds(.cdwn))
+        // The pointer comes onto the strip, rests, goes off it and comes back:
+        // taken, held, given back, taken again.
+        var held: [Bool] = []
+        for drawn in [true, true, false, false, true] { held.append(holds(.main, drawn: drawn)) }
+        #expect(held == [true, true, false, false, true])
+    }
+
     /// Pause and resume before the first strip is in: the capture starts over
     /// from the window, and what ends it is told as any ending before a frame.
     @Test @MainActor func pausingBeforeTheFirstFrameAndResumingStartsTheCaptureOver() async {
