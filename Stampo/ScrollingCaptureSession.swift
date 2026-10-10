@@ -544,14 +544,15 @@ final class ScrollingCaptureSession {
         scale = Self.backingScale(for: selection.bounds)
         try checkWindowAndFocus()
         diagnosticStage = .resolveViewport
-        switch try ScrollDriver.viewport(selection: selection) {
+        switch try ScrollDriver.viewport(selection: selection, axis: axis) {
         case .accessibility(let resolved, let container):
             viewport = resolved
             scrollContainer = container
             diagnosticStage = .validateTarget
             do {
                 try ScrollDriver.validateScrollTarget(selection: selection, point: selection.clickPoint,
-                                                      container: container, ignoring: ignoredWindows())
+                                                      container: container, axis: axis,
+                                                      ignoring: ignoredWindows())
             } catch ScrollDriverError.scrollAreaUnavailable {
                 // AX may expose a partial Chromium tree: keep the selected
                 // CG window and let the pixel probe establish the viewport.
@@ -878,7 +879,7 @@ final class ScrollingCaptureSession {
         }
         do {
             try ScrollDriver.validateScrollTarget(selection: selection, point: point, container: container,
-                                                  ignoring: ignoredWindows())
+                                                  axis: axis, ignoring: ignoredWindows())
         } catch {
             guard ScrollInterference.fallsBackToWindowCheck(error, hasCollected: !assembler.strips.isEmpty) else {
                 throw error

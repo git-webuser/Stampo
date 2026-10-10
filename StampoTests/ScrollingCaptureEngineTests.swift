@@ -738,6 +738,55 @@ import Testing
         }
     }
 
+    /// Which of the areas under the click a capture rests on, by the direction
+    /// it goes. In the Finder's columns the nearest area is one column, which
+    /// scrolls down; the browser around the columns is what scrolls sideways,
+    /// and it has the horizontal scroll bar.
+    @Test func aCaptureSidewaysRestsOnTheNearestAreaThatHasAHorizontalBar() {
+        typealias Link = ScrollAncestorCandidate<String>
+        let window = CGRect(x: 0, y: 0, width: 1280, height: 800)
+        let chain = [
+            Link(identity: "list", role: "AXList", frame: CGRect(x: 0, y: 60, width: 245, height: 720)),
+            Link(identity: "column", role: "AXScrollArea", frame: CGRect(x: 0, y: 60, width: 245, height: 722)),
+            Link(identity: "browser", role: "AXBrowser", frame: CGRect(x: 0, y: 60, width: 1280, height: 722)),
+            Link(identity: "columns", role: "AXScrollArea", frame: CGRect(x: 0, y: 60, width: 1280, height: 722),
+                 hasHorizontalScrollBar: true),
+            Link(identity: "window", role: "AXWindow", frame: window),
+        ]
+        func chosen(_ chain: [Link], _ axis: ScrollAxis) -> String? {
+            ScrollAncestorResolver.chosenIdentity(in: chain, windowBounds: window, axis: axis)
+        }
+        // Down: the column, as ever. Sideways: the browser of columns.
+        #expect(chosen(chain, .vertical) == "column")
+        #expect(chosen(chain, .horizontal) == "columns")
+        // The check against the one chosen at the start goes the same way.
+        #expect(ScrollAncestorResolver.matchesSelectedIdentity("columns", in: chain, windowBounds: window,
+                                                               axis: .horizontal))
+        #expect(!ScrollAncestorResolver.matchesSelectedIdentity("column", in: chain, windowBounds: window,
+                                                                axis: .horizontal))
+        #expect(ScrollAncestorResolver.matchesSelectedIdentity("column", in: chain, windowBounds: window))
+        // A bar nowhere: the nearest area, as before, in either direction.
+        let barless = chain.map {
+            Link(identity: $0.identity, role: $0.role, frame: $0.frame, hasHorizontalScrollBar: false)
+        }
+        #expect(chosen(barless, .horizontal) == "column")
+        #expect(chosen(barless, .vertical) == "column")
+        // The nearest area has the bar itself: it is the one, as it always was.
+        let near = [Link(identity: "page", role: "AXWebArea", frame: window, hasHorizontalScrollBar: true)] + chain
+        #expect(chosen(near, .horizontal) == "page")
+        #expect(chosen(near, .vertical) == "page")
+        // A bar on something that could not scroll — too small, or not an area — is no reason.
+        let wrong = [
+            Link(identity: "tiny", role: "AXScrollArea", frame: CGRect(x: 0, y: 0, width: 40, height: 40),
+                 hasHorizontalScrollBar: true),
+            Link(identity: "group", role: "AXGroup", frame: window, hasHorizontalScrollBar: true),
+            Link(identity: "area", role: "AXScrollArea", frame: window),
+        ]
+        #expect(chosen(wrong, .horizontal) == "area")
+        // No area at all.
+        #expect(chosen([Link(identity: "window", role: "AXWindow", frame: window)], .horizontal) == nil)
+    }
+
     @Test func scrollbarReserveUsesStableOptionalViewportEdges() throws {
         for axis in ScrollAxis.allCases {
             let width = 240, height = 200

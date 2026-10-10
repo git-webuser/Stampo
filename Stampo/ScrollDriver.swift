@@ -7,6 +7,10 @@ nonisolated struct ScrollAncestorCandidate<Identity: Equatable> {
     let identity: Identity
     let role: String
     let frame: CGRect
+    /// Whether the element has a horizontal scroll bar — looked for only on
+    /// the elements that could be the scroll area, and only for a capture that
+    /// goes sideways.
+    var hasHorizontalScrollBar = false
 }
 
 nonisolated enum ScrollAncestorResolver {
@@ -24,10 +28,27 @@ nonisolated enum ScrollAncestorResolver {
         ancestors.first(where: { isSuitable(role: $0.role, frame: $0.frame, windowBounds: windowBounds) })?.identity
     }
 
+    /// The scroll area for a capture along `axis`, from the elements under the
+    /// point, nearest first. Down it is the nearest suitable one. Sideways it is
+    /// the nearest suitable one that has a horizontal scroll bar: in the
+    /// Finder's columns the nearest is one column — a list that scrolls down —
+    /// and the one that scrolls sideways is the browser around the columns. If
+    /// none has a bar, the nearest suitable one, as before.
+    static func chosenIdentity<Identity: Equatable>(
+        in ancestors: [ScrollAncestorCandidate<Identity>], windowBounds: CGRect, axis: ScrollAxis
+    ) -> Identity? {
+        let suitable = ancestors.filter { isSuitable(role: $0.role, frame: $0.frame, windowBounds: windowBounds) }
+        if axis == .horizontal, let sideways = suitable.first(where: \.hasHorizontalScrollBar) {
+            return sideways.identity
+        }
+        return suitable.first?.identity
+    }
+
     static func matchesSelectedIdentity<Identity: Equatable>(
-        _ selected: Identity, in ancestors: [ScrollAncestorCandidate<Identity>], windowBounds: CGRect
+        _ selected: Identity, in ancestors: [ScrollAncestorCandidate<Identity>], windowBounds: CGRect,
+        axis: ScrollAxis = .vertical
     ) -> Bool {
-        nearestSuitableIdentity(in: ancestors, windowBounds: windowBounds) == selected
+        chosenIdentity(in: ancestors, windowBounds: windowBounds, axis: axis) == selected
     }
 }
 
@@ -191,7 +212,8 @@ enum ScrollDriver {
     }
 
     static func validateScrollTarget(selection: WindowPickerSelection, point: CGPoint,
-                                     container: AXUIElement, ignoring: Set<CGWindowID> = []) throws {
+                                     container: AXUIElement, axis: ScrollAxis = .vertical,
+                                     ignoring: Set<CGWindowID> = []) throws {
         guard let top = frontmostWindow(at: point, ignoring: ignoring),
               top.windowID == selection.windowID,
               top.processID == selection.processID else {
@@ -221,10 +243,14 @@ enum ScrollDriver {
         let candidates = ancestors.enumerated().compactMap { index, element -> ScrollAncestorCandidate<Int>? in
             guard let role = stringAttribute(element, kAXRoleAttribute as String),
                   let frame = frameOf(element) else { return nil }
-            return ScrollAncestorCandidate(identity: index, role: role, frame: frame)
+            let sideways = axis == .horizontal
+                && ScrollAncestorResolver.isSuitable(role: role, frame: frame, windowBounds: top.bounds)
+                && hasHorizontalScrollBar(element)
+            return ScrollAncestorCandidate(identity: index, role: role, frame: frame,
+                                           hasHorizontalScrollBar: sideways)
         }
         guard ScrollAncestorResolver.matchesSelectedIdentity(selectedIndex, in: candidates,
-                                                              windowBounds: top.bounds) else {
+                                                              windowBounds: top.bounds, axis: axis) else {
             throw ScrollDriverError.scrollAreaUnavailable
         }
     }
@@ -264,7 +290,19 @@ enum ScrollDriver {
         return nil
     }
 
-    static func viewport(selection: WindowPickerSelection) throws -> ScrollViewportResolution {
+    /// Whether an element has a horizontal scroll bar.
+    static func hasHorizontalScrollBar(_ element: AXUIElement) -> Bool {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, kAXHorizontalScrollBarAttribute as CFString, &value) == .success,
+              let value else { return false }
+        return CFGetTypeID(value) == AXUIElementGetTypeID()
+    }
+
+    /// The scroll area under the click, for a capture along `axis`. Up the
+    /// elements from the click, the first area that could scroll (a scroll
+    /// area, a web area, a table); for a capture sideways, the first of them
+    /// with a horizontal scroll bar, and if there is none, the first as before.
+    static func viewport(selection: WindowPickerSelection, axis: ScrollAxis = .vertical) throws -> ScrollViewportResolution {
         guard AXIsProcessTrusted() else { throw ScrollDriverError.accessibilityDenied }
         let system = systemWideElement()
         var hit: AXUIElement?
@@ -276,30 +314,40 @@ enum ScrollDriver {
         }
 
         var current: AXUIElement? = hit
-        var scrollRect: CGRect?
-        var scrollContainer: AXUIElement?
+        var elements: [AXUIElement] = []
+        var candidates: [ScrollAncestorCandidate<Int>] = []
         var chain: [String] = []
         for _ in 0..<14 {
             guard let element = current else { break }
             let role = stringAttribute(element, kAXRoleAttribute as String) ?? "<role-unavailable>"
             let frame = frameOf(element)
             let geometry = frame.map { String(format: "%.0f,%.0f %.0fx%.0f", $0.minX, $0.minY, $0.width, $0.height) } ?? "<frame-unavailable>"
-            chain.append("\(role)@\(geometry)")
-            if let frame,
-               ScrollAncestorResolver.isSuitable(role: role, frame: frame,
-                                                 windowBounds: selection.bounds) {
-                let rect = frame.intersection(selection.bounds)
-                scrollRect = rect
-                scrollContainer = element
-                break
+            if let frame {
+                let suitable = ScrollAncestorResolver.isSuitable(role: role, frame: frame,
+                                                                 windowBounds: selection.bounds)
+                let sideways = suitable && axis == .horizontal && hasHorizontalScrollBar(element)
+                chain.append("\(role)@\(geometry)\(sideways ? "+hbar" : "")")
+                candidates.append(ScrollAncestorCandidate(identity: elements.count, role: role, frame: frame,
+                                                          hasHorizontalScrollBar: sideways))
+                elements.append(element)
+                // Down: the first area is the one. Sideways: the first with a bar;
+                // an area without one is passed over, and kept as the fallback.
+                if suitable, axis == .vertical || sideways { break }
+            } else {
+                chain.append("\(role)@\(geometry)")
             }
             var parent: CFTypeRef?
             guard AXUIElementCopyAttributeValue(element, kAXParentAttribute as CFString, &parent) == .success,
                   let next = parent, CFGetTypeID(next) == AXUIElementGetTypeID() else { break }
             current = (next as! AXUIElement)
         }
-        guard let rect = scrollRect, rect.width >= 80, rect.height >= 80,
-              let resolvedContainer = scrollContainer else {
+        guard let index = ScrollAncestorResolver.chosenIdentity(in: candidates, windowBounds: selection.bounds,
+                                                                axis: axis) else {
+            Log.capture.notice("scroll viewport fallback · AXError \(result.rawValue, privacy: .public) · chain \(chain.joined(separator: " > "), privacy: .public)")
+            return .window(viewport: windowViewport)
+        }
+        let rect = candidates[index].frame.intersection(selection.bounds)
+        guard rect.width >= 80, rect.height >= 80 else {
             Log.capture.notice("scroll viewport fallback · AXError \(result.rawValue, privacy: .public) · chain \(chain.joined(separator: " > "), privacy: .public)")
             return .window(viewport: windowViewport)
         }
@@ -308,7 +356,7 @@ enum ScrollDriver {
                                                         relativeScrollPoint: CGPoint(x: selection.clickPoint.x - selection.bounds.minX,
                                                                                      y: selection.clickPoint.y - selection.bounds.minY),
                                                         windowBounds: selection.bounds),
-                              container: resolvedContainer)
+                              container: elements[index])
     }
 
     /// One wheel event of `lines` lines, forward or `backwards` — up, or left.
