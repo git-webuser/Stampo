@@ -745,7 +745,7 @@ final class ScrollingCaptureSession {
                                                   axisLength: axisLength(of: first), backingScale: scale)
                 Log.capture.notice("scroll calibrated · \(Int(pixelsPerLine.rounded()), privacy: .public) px per line · \(plan.lines, privacy: .public) lines per step")
             }
-            recordStep(0, "lines=\(probeLines) maximumOffset=\(probeMotionLimit + 24) · match \(match.offset) px · confidence \(Self.percent(match.confidence)) · regions \(match.independentRegions) → calibrated")
+            recordStep(0, "lines=\(probeLines) maximumOffset=\(probeMotionLimit + 24) · match \(match.offset) px · confidence \(Self.percent(match.confidence)) · regions \(match.independentRegions)\(seamNote) → calibrated")
         } catch {
             recordStep(0, "lines=\(probeLines) maximumOffset=\(probeMotionLimit + 24) · \(error) → probe not matched")
             // The selected scroll view did not yield stable moving content
@@ -839,7 +839,7 @@ final class ScrollingCaptureSession {
                     Log.capture.notice("scroll calibrated late · \(Int(late.rounded()), privacy: .public) px per line · \(latePlan.lines, privacy: .public) lines per step")
                 }
                 let queue = waiting == 0 ? "" : " · queue appended \(waiting)"
-                recordStep("\(head) · match \(match.offset) px · confidence \(Self.percent(match.confidence)) · regions \(match.independentRegions)\(queue) → added")
+                recordStep("\(head) · match \(match.offset) px · confidence \(Self.percent(match.confidence)) · regions \(match.independentRegions)\(queue)\(seamNote) → added")
                 previous = next
                 zeroMotionCount = 0
                 unmatchedScroll = 0
@@ -1016,6 +1016,13 @@ final class ScrollingCaptureSession {
         let tiles = added.sorted().map(String.init).joined(separator: ",")
         Log.capture.notice("scroll pinned tiles \(tiles, privacy: .public)")
         dump?.step("   pinned tiles \(tiles)")
+    }
+
+    /// What the last frame laid says about its seam, for the line of its step:
+    /// nothing when the seam is in the middle of the overlap, as it nearly
+    /// always is.
+    private var seamNote: String {
+        assembler.lastSeam?.note.map { " · \($0)" } ?? ""
     }
 
     /// One line about an attempt at a step, for the log — `.notice`, which
