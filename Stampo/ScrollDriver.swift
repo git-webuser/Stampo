@@ -163,7 +163,9 @@ enum ScrollDriver {
     private static let messagingTimeout: Float = 1.0
 
     static func accessibilityIsTrusted(prompt: Bool) -> Bool {
-        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: prompt] as CFDictionary
+        // The key's value, spelled out: the imported global is a mutable var,
+        // which strict concurrency will not let a nonisolated caller read.
+        let options = ["AXTrustedCheckOptionPrompt": prompt] as CFDictionary
         return AXIsProcessTrustedWithOptions(options)
     }
 

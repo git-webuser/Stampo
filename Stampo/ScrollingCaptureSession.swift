@@ -1060,7 +1060,8 @@ final class ScrollingCaptureSession {
     private func presentFailure(_ error: Error) {
         switch error {
         case WindowFrameSourceError.permissionDenied:
-            UserFacingError.present(.screenCaptureFailed(reason: error.localizedDescription))
+            UserFacingError.present(.screenCaptureFailed(
+                reason: LocaleManager.shared.string("Grant Screen Recording access to Stampo, then try again.")))
         case ScrollDriverError.accessibilityDenied:
             UserFacingError.present(.accessibilityPermission)
         default:
@@ -1207,6 +1208,9 @@ final class ScrollingCaptureSession {
     private func localizedMessage(for error: Error) -> String {
         if let matchError = error as? FrameMatchError, matchError == .outputLimitExceeded {
             return LocaleManager.shared.string("The scrolling image reached the configured size limit.")
+        }
+        if case WindowFrameSourceError.windowUnavailable = error {
+            return LocaleManager.shared.string("The selected window is no longer available.")
         }
         return error.localizedDescription
     }

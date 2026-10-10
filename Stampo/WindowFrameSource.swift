@@ -7,10 +7,12 @@ enum WindowFrameSourceError: Error, LocalizedError {
     case invalidFrame
     case captureFailed(String)
 
+    /// English, for the log. What an alert says is localized where the alert
+    /// is put up, on the main actor (`ScrollingCaptureSession.presentFailure`).
     var errorDescription: String? {
         switch self {
-        case .permissionDenied: return LocaleManager.shared.string("Grant Screen Recording access to Stampo, then try again.")
-        case .windowUnavailable: return LocaleManager.shared.string("The selected window is no longer available.")
+        case .permissionDenied: return "Screen Recording access is not granted."
+        case .windowUnavailable: return "The selected window is no longer available."
         // Not shown: a scrolling capture that meets it takes the window as it is.
         case .invalidFrame: return "The selected window has no capturable image."
         case .captureFailed(let reason): return reason

@@ -119,6 +119,9 @@ final class ScreenshotService {
         let store = self.store
         let format = AppSettings.fileFormat
         let service = self
+        // The display, not the screen object, crosses into the encoding task:
+        // NSScreen is not Sendable.
+        let displayID = screen?.displayID
         Task.detached(priority: .userInitiated) { [weak service] in
             do {
                 let rep = NSBitmapImageRep(cgImage: image)
@@ -127,7 +130,7 @@ final class ScreenshotService {
                     throw ScreenshotFileStore.SaveError.encodingFailed
                 }
                 let url = try store.saveEncodedImage(data, format: format)
-                await service?.finishScrollingSave(url, on: screen)
+                await service?.finishScrollingSave(url, onDisplay: displayID)
             } catch {
                 await MainActor.run { [weak service] in
                     service?.captureInProgress = false
@@ -339,7 +342,8 @@ final class ScreenshotService {
         onCaptured?(url)
     }
 
-    private func finishScrollingSave(_ url: URL, on screen: NSScreen?) {
+    private func finishScrollingSave(_ url: URL, onDisplay displayID: CGDirectDisplayID?) {
+        let screen = displayID.flatMap { id in NSScreen.screens.first { $0.displayID == id } }
         captureInProgress = false
         publish(url, on: screen)
         onScrollingEnded?()
