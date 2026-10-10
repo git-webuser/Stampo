@@ -2264,7 +2264,7 @@ import Testing
     }
 
     /// While the capture is paused the user's input is written down: the wheel,
-    /// inertia included, and whether a key or a click may have moved the page.
+    /// inertia included, and whether a key may have moved the page.
     /// The capture's own marked events are not the user's.
     @Test func theLedgerSumsTheUsersWheelAndNotesKeysAndClicks() {
         typealias Event = ScrollInputGuard.Event
@@ -2299,9 +2299,18 @@ import Testing
         #expect(!keyed.mayHaveMovedPage)
         keyed.record(Event(kind: .key(isEscape: false)), axis: .vertical)
         #expect(keyed.mayHaveMovedPage && keyed.pageMovement(scale: 2, pixelsPerLine: 80) == 0)
+        // A click does not scroll a page by itself: never counted.
         var clicked = UserScrollLedger()
         clicked.record(Event(kind: .mouseDown), axis: .vertical)
-        #expect(clicked.mayHaveMovedPage)
+        clicked.record(Event(kind: .mouseDown), axis: .vertical, selectedAppIsFront: false)
+        #expect(!clicked.mayHaveMovedPage)
+        // A key counts only with the page's app in front: it goes to the app in front.
+        var otherApp = UserScrollLedger()
+        otherApp.record(Event(kind: .key(isEscape: false)), axis: .vertical, selectedAppIsFront: false)
+        #expect(!otherApp.mayHaveMovedPage)
+        var theApp = UserScrollLedger()
+        theApp.record(Event(kind: .key(isEscape: false)), axis: .vertical, selectedAppIsFront: true)
+        #expect(theApp.mayHaveMovedPage)
     }
 
     /// After a pause the capture looks for its place only if the page may have
@@ -2313,6 +2322,52 @@ import Testing
         var scrolled = UserScrollLedger()
         scrolled.record(.init(kind: .scrollWheel, lineY: 1), axis: .vertical)
         #expect(ScrollResume.needsLooking(ledger: scrolled, stepWasInFlight: false))
+    }
+
+    /// After a pause the capture looks for the page only when the page may have
+    /// moved, and when the frames cannot say where it is and the user did
+    /// nothing, a step the pause cut short is taken to have arrived — the frame
+    /// now a provisional step of the lines the step had — if there is a
+    /// calibration to say how far that is; with none the capture saves.
+    @Test func afterAPauseTheStepCutShortIsTakenToHaveArrivedWhenTheFramesCannotSay() {
+        typealias Resume = ScrollResume
+        typealias Event = ScrollInputGuard.Event
+        // What the user did while paused, and whether it needs looking for.
+        var click = UserScrollLedger()
+        click.record(Event(kind: .mouseDown), axis: .vertical)
+        #expect(!Resume.needsLooking(ledger: click, stepWasInFlight: false))
+        var otherKey = UserScrollLedger()
+        otherKey.record(Event(kind: .key(isEscape: false)), axis: .vertical, selectedAppIsFront: false)
+        #expect(!Resume.needsLooking(ledger: otherKey, stepWasInFlight: false))
+        var ownKey = UserScrollLedger()
+        ownKey.record(Event(kind: .key(isEscape: false)), axis: .vertical, selectedAppIsFront: true)
+        #expect(Resume.needsLooking(ledger: ownKey, stepWasInFlight: false))
+        #expect(Resume.needsLooking(ledger: click, stepWasInFlight: true))
+
+        // The distance of the step cut short: its lines at the measured line.
+        let quiet = UserScrollLedger()
+        #expect(Resume.inFlightMovement(lines: 10, pixelsPerLine: 80, ledger: quiet) == 800)
+        // None without a step in flight, without a calibration, or if the user may have moved the page too.
+        #expect(Resume.inFlightMovement(lines: nil, pixelsPerLine: 80, ledger: quiet) == nil)
+        #expect(Resume.inFlightMovement(lines: 10, pixelsPerLine: nil, ledger: quiet) == nil)
+        #expect(Resume.inFlightMovement(lines: 10, pixelsPerLine: 80, ledger: ownKey) == nil)
+        #expect(Resume.inFlightMovement(lines: 10, pixelsPerLine: 80, ledger: click) == 800)
+
+        // The frames say nothing (a video), the user did nothing, a step was cut short.
+        #expect(Resume.action(finding: .unknown, userMovement: 0, undone: false, inFlightMovement: 800)
+                == .layTemporary(movement: 800))
+        // No calibration: nothing to take the step by.
+        #expect(Resume.action(finding: .unknown, userMovement: 0, undone: false, inFlightMovement: nil)
+                == .giveUp)
+        // What the frames say is what counts, whatever was in flight.
+        #expect(Resume.action(finding: .same, userMovement: 0, undone: false, inFlightMovement: 800) == .goOn)
+        #expect(Resume.action(finding: .ahead(300), userMovement: 0, undone: false, inFlightMovement: 800)
+                == .lay(movement: 300))
+        // The user scrolled: that is undone first, once, and then it is not taken for the step.
+        #expect(Resume.action(finding: .unknown, userMovement: 900, undone: false, inFlightMovement: nil)
+                == .undoUser(pixels: 900))
+        #expect(Resume.action(finding: .unknown, userMovement: 900, undone: true, inFlightMovement: 800)
+                == .giveUp)
     }
 
     /// What is done with what the frames say about the place, row by row.

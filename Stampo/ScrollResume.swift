@@ -53,29 +53,48 @@ nonisolated enum ScrollResume {
         /// The frames cannot tell: undo what the user did, by this many pixels
         /// (positive: they scrolled toward the end, so it goes back).
         case undoUser(pixels: Int)
+        /// The frames cannot tell and the user did nothing: the pause cut a step
+        /// short on a page the frames cannot place — a video — and the step is
+        /// taken to have arrived. The frame now is a provisional step of this
+        /// many pixels, waiting in the queue for one the matcher places.
+        case layTemporary(movement: Int)
         /// Not to be found: save what is collected.
         case giveUp
     }
 
     /// Whether the page may have moved while the capture was not looking: the
-    /// user scrolled, pressed a key or clicked, or the pause cut a step short
-    /// after its wheel event was sent. If not, it is where it was and there is
-    /// nothing to look for.
+    /// user scrolled or pressed a key with the page's app in front, or the pause
+    /// cut a step short after its wheel event was sent. If not, it is where it
+    /// was and there is nothing to look for.
     static func needsLooking(ledger: UserScrollLedger, stepWasInFlight: Bool) -> Bool {
         ledger.mayHaveMovedPage || stepWasInFlight
     }
 
     /// The next move, from what the frames say and what the user did. The
     /// user's scrolls are undone once, and only if the frames could not say.
-    static func action(finding: ScrollPlaceFinding, userMovement: Int, undone: Bool) -> Action {
+    /// With the user having done nothing and the frames still saying nothing,
+    /// a step the pause cut short (`inFlightMovement`) is taken to have
+    /// arrived; with nothing to take it by, the capture saves what it has.
+    static func action(finding: ScrollPlaceFinding, userMovement: Int, undone: Bool,
+                       inFlightMovement: Int? = nil) -> Action {
         switch finding {
         case .same:             return .goOn
         case .ahead(let by):    return .lay(movement: by)
         case .behind(let by):   return .scrollForward(pixels: by)
         case .unknown:
-            guard !undone, userMovement != 0 else { return .giveUp }
-            return .undoUser(pixels: userMovement)
+            if userMovement != 0 { return undone ? .giveUp : .undoUser(pixels: userMovement) }
+            if let inFlightMovement { return .layTemporary(movement: inFlightMovement) }
+            return .giveUp
         }
+    }
+
+    /// How far the step that the pause cut short was to move the page — its
+    /// lines and what a line was measured to be. Nothing when there was no such
+    /// step, no measure, or something the user did may have moved the page
+    /// too: then the distance is not the step's.
+    static func inFlightMovement(lines: Int32?, pixelsPerLine: Double?, ledger: UserScrollLedger) -> Int? {
+        guard let lines, let pixelsPerLine, !ledger.mayHaveMovedPage else { return nil }
+        return ScrollStepPlanner.predictedOffset(lines: Int(lines), pixelsPerLine: pixelsPerLine)
     }
 
     /// Wheel lines for a distance: as many as measured for a line, or, with no

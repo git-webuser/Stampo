@@ -97,29 +97,34 @@ nonisolated enum ScrollInputGuard {
 }
 
 /// What the user did to the page while the capture was paused: the wheel,
-/// inertia included, summed; and whether keys or clicks that may have moved the
-/// page were pressed. From it the capture works out how far to scroll back.
+/// inertia included, summed; and whether keys that may have moved the page were
+/// pressed. From it the capture works out how far to scroll back.
 nonisolated struct UserScrollLedger: Equatable {
     /// Along the capture's axis; positive toward the start of the page.
     private(set) var precise = 0.0
     private(set) var lines = 0.0
-    /// A key or a click: something that may have moved the page, by how much
-    /// nobody knows.
+    /// A key pressed with the selected app in front: something that may have
+    /// moved the page — space, an arrow, Page Down — by how much nobody knows.
+    /// A click does not, and a key pressed in another app does not.
     private(set) var touched = false
 
     /// Whether anything was done that could have moved the page.
     var mayHaveMovedPage: Bool { touched || precise != 0 || lines != 0 }
 
-    mutating func record(_ event: ScrollInputGuard.Event, axis: ScrollAxis) {
+    /// `selectedAppIsFront` is whether the app whose page is captured was the
+    /// one in front when the event came: a key goes to the app in front, and
+    /// only that one's page can be moved by it. A click does not scroll a page
+    /// by itself, and so is never counted.
+    mutating func record(_ event: ScrollInputGuard.Event, axis: ScrollAxis, selectedAppIsFront: Bool = true) {
         switch event.kind {
         case .scrollWheel:
             guard event.userData != ScrollInputGuard.syntheticMarker else { return }
             precise += axis == .vertical ? event.preciseY : event.preciseX
             lines += axis == .vertical ? event.lineY : event.lineX
         case .mouseDown:
-            touched = true
+            break
         case .key(let isEscape):
-            if !isEscape { touched = true }
+            if !isEscape, selectedAppIsFront { touched = true }
         }
     }
 

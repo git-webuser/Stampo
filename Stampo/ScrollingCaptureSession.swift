@@ -70,6 +70,9 @@ final class ScrollingCaptureSession {
     /// A wheel event has been sent and what came of it not yet dealt with: if a
     /// pause cuts in here, the page is somewhere between the places the frames know.
     private var stepInFlight = false
+    /// The lines of the forward step in flight, while there is one: what the
+    /// pause cut short was to move the page by this many.
+    private var inFlightLines: Int32?
     /// Time that does not count against the 20 s without progress: waiting for
     /// the pointer, and the capture paused. Summed over the whole capture;
     /// what has passed since the last headway is the difference with
@@ -250,7 +253,7 @@ final class ScrollingCaptureSession {
     private func handleUserInput(_ event: ScrollInputGuard.Event) {
         guard !stopped, inputMonitor != nil else { return }
         if paused {
-            pauseLedger.record(event, axis: axis)
+            pauseLedger.record(event, axis: axis, selectedAppIsFront: selectedAppIsFront)
             return
         }
         // The tail of a gesture that began before the capture did is inertia,
@@ -265,11 +268,17 @@ final class ScrollingCaptureSession {
             windowScreenshotInstead()
         case .pause:
             pause(announce: true)
-            pauseLedger.record(event, axis: axis)
+            pauseLedger.record(event, axis: axis, selectedAppIsFront: selectedAppIsFront)
         }
     }
 
     // MARK: Pause and resume
+
+    /// Whether the app whose page is captured is the one in front: a key goes to
+    /// that one.
+    private var selectedAppIsFront: Bool {
+        NSWorkspace.shared.frontmostApplication?.processIdentifier == selection.processID
+    }
 
     /// The ring on the strip, clicked: pauses a capture that runs, resumes one
     /// that waits.
@@ -352,12 +361,16 @@ final class ScrollingCaptureSession {
                 ScrollPlaceFinding.find(last: last, now: now, axis: axis, pinned: pinned)
             }.value
             try ensureActive()
-            let action = ScrollResume.action(finding: finding, userMovement: userMovement, undone: undone)
+            let action = ScrollResume.action(
+                finding: finding, userMovement: userMovement, undone: undone,
+                inFlightMovement: ScrollResume.inFlightMovement(lines: inFlightLines,
+                                                                pixelsPerLine: pixelsPerLine, ledger: ledger))
             Log.capture.notice("scroll place after the pause · \(String(describing: finding), privacy: .public) → \(String(describing: action), privacy: .public)")
             dump?.step("place \(finding) → \(action)")
             switch action {
             case .goOn:
                 stepInFlight = false
+                inFlightLines = nil
                 return true
             case .lay(let movement):
                 guard try lay(now, movement: movement) != nil else {
@@ -366,6 +379,20 @@ final class ScrollingCaptureSession {
                 }
                 previous = now
                 stepInFlight = false
+                inFlightLines = nil
+                zeroMotionCount = 0
+                consecutiveFailures = 0
+                unmatchedScroll = 0
+                return true
+            case .layTemporary(let movement):
+                // The step is taken to have arrived. It waits in the queue, as
+                // a step placed by the calibration does, for one the matcher places.
+                guard temporary.count < TemporarySteps.limit else { return false }
+                temporary.add(now, movement: movement, confirmed: false)
+                noteProgress()
+                previous = now
+                stepInFlight = false
+                inFlightLines = nil
                 zeroMotionCount = 0
                 consecutiveFailures = 0
                 unmatchedScroll = 0
@@ -389,6 +416,7 @@ final class ScrollingCaptureSession {
         var remaining = ScrollResume.lines(forPixels: pixels, pixelsPerLine: pixelsPerLine, scale: scale)
         let point = currentScrollPoint()
         stepInFlight = true
+        inFlightLines = nil
         while remaining > 0 {
             try ensureActive()
             diagnosticStage = .validateTarget
@@ -753,6 +781,7 @@ final class ScrollingCaptureSession {
             diagnosticStage = .validateTarget
             try validateCurrentScrollTarget(at: point)
             stepInFlight = true
+            inFlightLines = plan.lines
             try ScrollDriver.sendScroll(axis: axis, lines: plan.lines, at: point)
             diagnosticStage = .capture
             let next = try await ScrollCaptureCancellationBoundary.awaitActive {
@@ -894,6 +923,7 @@ final class ScrollingCaptureSession {
             }
             // The step is dealt with: a pause from here on cuts nothing short.
             stepInFlight = false
+            inFlightLines = nil
         }
     }
 
@@ -954,6 +984,8 @@ final class ScrollingCaptureSession {
     /// retry's half step starts from a place the frames know, and the distance
     /// the failed step moved is not left for the matcher to search through.
     private func returnPage(by lines: Int32, at point: CGPoint, reference: CaptureFrame) async throws {
+        // The step that failed is done with; what is in flight now is its undoing.
+        inFlightLines = nil
         try ensureActive()
         diagnosticStage = .validateTarget
         try validateCurrentScrollTarget(at: point)
