@@ -1744,22 +1744,6 @@
         }
       }
     },
-    "Click the area to scroll" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Click the area to scroll"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Щёлкните по области прокрутки"
-          }
-        }
-      }
-    },
     "Click the notch — or the center of the menu bar on screens without one — to open the panel." : {
       "comment" : "VoiceOver description of the onboarding animation",
       "localizations" : {
@@ -7303,6 +7287,40 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Выделение"
+          }
+        }
+      }
+    },
+    "Select a horizontal scroll area" : {
+      "comment" : "The window picker's hint while the next scrolling capture goes sideways",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Select a horizontal scroll area"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Выберите область горизонтальной прокрутки"
+          }
+        }
+      }
+    },
+    "Select a vertical scroll area" : {
+      "comment" : "The window picker's hint while the next scrolling capture goes down",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Select a vertical scroll area"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Выберите область вертикальной прокрутки"
           }
         }
       }

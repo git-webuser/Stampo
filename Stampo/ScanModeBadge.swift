@@ -38,7 +38,7 @@ struct ScanModeBadge {
     }
 
     /// A badge with a title and a symbol of its own, for a hint that belongs to
-    /// no scan mode — the window picker's "Click the area to scroll". Geometry
+    /// no scan mode — the window picker's "Select a vertical scroll area". Geometry
     /// and drawing are the scan badge's, so the two cannot differ in shape.
     /// It carries the plain mode, which has no tint: the frame is white.
     init(title: String, symbolName: String) {

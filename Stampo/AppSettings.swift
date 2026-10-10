@@ -492,6 +492,16 @@ enum ScrollDirection: String, CaseIterable, Equatable, Sendable {
         }
     }
     var title: String { localizedTitle() }
+
+    /// What the picker's hint says to do, for this direction: the area is
+    /// the one that scrolls the way the capture will go, and that is not always
+    /// the area under the first click that comes to mind.
+    var pickerHintKey: String {
+        switch self {
+        case .down:  return "Select a vertical scroll area"
+        case .right: return "Select a horizontal scroll area"
+        }
+    }
 }
 
 // MARK: - CaptureMode: RawRepresentable (for @AppStorage)

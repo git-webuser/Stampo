@@ -1034,7 +1034,7 @@ import Testing
     @Test func everyScrollingStringHasARussianTranslation() {
         let ru = Locale(identifier: "ru")
         let keys = [
-            "Click the area to scroll",
+            "Select a vertical scroll area", "Select a horizontal scroll area",
             "Save",
             HotkeyAction.scroll.labelKey, HotkeyAction.scroll.hintKey ?? "",
             "Scrolling", "Down", "Right",
@@ -1111,6 +1111,19 @@ import Testing
         // What the panel shows in the mode's place follows the model.
         #expect(CaptureMode.scroll.icon(direction: AppSettings.scrollDirection)
                 == CaptureMode.scroll.icon(direction: .down))
+    }
+
+    /// The picker's hint names the direction, and changes with it; both
+    /// languages say "select", to the user, as every hint in the app does.
+    @Test func thePickersHintNamesTheDirectionInBothLanguages() {
+        let ru = Locale(identifier: "ru"), en = Locale(identifier: "en")
+        #expect(ScrollDirection.down.pickerHintKey == "Select a vertical scroll area")
+        #expect(ScrollDirection.right.pickerHintKey == "Select a horizontal scroll area")
+        #expect(LocaleManager.string(ScrollDirection.down.pickerHintKey, locale: en) == "Select a vertical scroll area")
+        #expect(LocaleManager.string(ScrollDirection.down.pickerHintKey, locale: ru) == "Выберите область вертикальной прокрутки")
+        #expect(LocaleManager.string(ScrollDirection.right.pickerHintKey, locale: ru) == "Выберите область горизонтальной прокрутки")
+        // The old hint is gone from the catalog: it falls back to its own key.
+        #expect(LocaleManager.string("Click the area to scroll", locale: ru) == "Click the area to scroll")
     }
 
     @Test func theAskedDirectionIsProbedFirstAndTheOtherSecond() {

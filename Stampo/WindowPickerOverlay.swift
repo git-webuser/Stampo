@@ -112,7 +112,7 @@ final class WindowPickerOverlay {
     }
 
     private static func badge(for direction: ScrollDirection) -> ScanModeBadge {
-        ScanModeBadge(title: LocaleManager.shared.string("Click the area to scroll"),
+        ScanModeBadge(title: LocaleManager.shared.string(direction.pickerHintKey),
                       symbolName: direction.icon)
     }
 
