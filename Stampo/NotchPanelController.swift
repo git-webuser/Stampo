@@ -1041,6 +1041,10 @@ final class NotchPanelController: NSObject {
             self?.applyScrollingStatus(status)
         }
         screenshot.onScrollingEnded = { [weak self] in
+            // However it ended — saved, ✕, Esc, the window's screenshot instead —
+            // the direction ⇥ turned for it goes back to down, and the panel's
+            // glyph with it.
+            self?.resetScrollDirection()
             guard let self, case .scrollCapture = self.state else { return }
             self.hideAnimated(reason: .scrollCaptureEnded)
         }
@@ -2405,6 +2409,13 @@ final class NotchPanelController: NSObject {
     }
 
     // MARK: - Header cycling
+
+    /// The direction of the next scrolling capture is down again — in the
+    /// setting and in what the panel shows.
+    func resetScrollDirection() {
+        AppSettings.resetScrollDirection()
+        model.scrollDirection = .down
+    }
 
     /// ⇥ on the open panel: steps whatever the header offers to choose.
     ///

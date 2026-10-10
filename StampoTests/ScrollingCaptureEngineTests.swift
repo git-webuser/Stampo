@@ -1097,6 +1097,22 @@ import Testing
     }
 #endif
 
+    /// ⇥ turns the direction for the next capture only: when a capture ends,
+    /// the setting is down again. A setting that was never turned stays down.
+    @Test func theDirectionTurnedForACaptureGoesBackToDownWhenItEnds() {
+        let before = AppSettings.scrollDirection
+        defer { AppSettings.scrollDirection = before }
+        AppSettings.scrollDirection = .right
+        #expect(AppSettings.scrollDirection == .right)
+        AppSettings.resetScrollDirection()
+        #expect(AppSettings.scrollDirection == .down)
+        AppSettings.resetScrollDirection()
+        #expect(AppSettings.scrollDirection == .down)
+        // What the panel shows in the mode's place follows the model.
+        #expect(CaptureMode.scroll.icon(direction: AppSettings.scrollDirection)
+                == CaptureMode.scroll.icon(direction: .down))
+    }
+
     @Test func theAskedDirectionIsProbedFirstAndTheOtherSecond() {
         #expect(ScrollingCaptureSession.probeOrder(preferred: .vertical) == [.vertical, .horizontal])
         #expect(ScrollingCaptureSession.probeOrder(preferred: .horizontal) == [.horizontal, .vertical])

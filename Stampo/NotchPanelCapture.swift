@@ -275,6 +275,7 @@ extension NotchPanelController {
         // Another capture may already be running; the strip must not stay up
         // for a session that never started.
         if !screenshot.captureScrolling(selection: selection, axis: axis, preferredScreen: currentScreen) {
+            resetScrollDirection()
             hideAnimated(reason: .scrollCaptureEnded)
         }
     }

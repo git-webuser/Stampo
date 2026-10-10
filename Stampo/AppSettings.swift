@@ -335,12 +335,22 @@ enum AppSettings {
     nonisolated static var excludeScrollbars: Bool {
         UserDefaults.standard.object(forKey: Keys.excludeScrollbars) as? Bool ?? true
     }
+    /// The direction of the next scrolling capture. ⇥ turns it — in the picker
+    /// or in the panel — for that capture only: when a capture ends it goes back
+    /// to `.down` (`resetScrollDirection`), the way most pages scroll.
     static var scrollDirection: ScrollDirection {
         get {
             store.string(forKey: Keys.scrollDirection)
                 .flatMap(ScrollDirection.init(rawValue:)) ?? .down
         }
         set { store.set(newValue.rawValue, forKey: Keys.scrollDirection) }
+    }
+
+    /// A scrolling capture is over — saved, dropped, stopped, or given way to
+    /// the window's screenshot — and the direction ⇥ turned for it goes back to
+    /// down.
+    static func resetScrollDirection() {
+        scrollDirection = .down
     }
     static var scrollLengthLimit: Int {
         get { ScrollLengthLimit.validated(store.object(forKey: Keys.scrollLengthLimit) as? Int) }
