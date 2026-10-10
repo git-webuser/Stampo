@@ -428,7 +428,14 @@ enum ScrollDriver {
         let processID: pid_t
         let bounds: CGRect
         let alpha: CGFloat
+        /// The window level. The pointer, where macOS draws it as a window of
+        /// its own (an external display, say), sits at the cursor level.
+        var layer: Int = 0
     }
+
+    /// The level of the window macOS draws the pointer in. It sits exactly on
+    /// the click point and takes no events: it covers nothing.
+    nonisolated static let cursorLayer = Int(CGWindowLevelForKey(.cursorWindow))
 
     /// The window on top at a point. Only `ignoring` is skipped — in practice
     /// the notch panel, whose window is far taller than what it draws and
@@ -439,7 +446,7 @@ enum ScrollDriver {
     nonisolated static func topmostWindow(at point: CGPoint, in entries: [WindowListEntry],
                                           ignoring: Set<CGWindowID>) -> WindowAtPoint? {
         for entry in entries where entry.bounds.contains(point) && entry.alpha > 0.01
-            && !ignoring.contains(entry.windowID) {
+            && entry.layer < cursorLayer && !ignoring.contains(entry.windowID) {
             return WindowAtPoint(windowID: entry.windowID, processID: entry.processID, bounds: entry.bounds)
         }
         return nil
@@ -454,7 +461,8 @@ enum ScrollDriver {
                   let rect = rect(from: bounds), rect.contains(point),
                   let window = info[kCGWindowNumber as String] as? UInt32,
                   !ignoring.contains(CGWindowID(window)),
-                  (info[kCGWindowAlpha as String] as? CGFloat ?? 1) > 0.01 else { continue }
+                  (info[kCGWindowAlpha as String] as? CGFloat ?? 1) > 0.01,
+                  (info[kCGWindowLayer as String] as? Int ?? 0) < cursorLayer else { continue }
             let owner = info[kCGWindowOwnerName as String] as? String ?? "?"
             let layer = info[kCGWindowLayer as String] as? Int ?? 0
             return "\(owner) window \(window) layer \(layer) \(Int(rect.minX)),\(Int(rect.minY)) \(Int(rect.width))x\(Int(rect.height))"
@@ -470,7 +478,8 @@ enum ScrollDriver {
                   let window = info[kCGWindowNumber as String] as? UInt32,
                   let pid = info[kCGWindowOwnerPID as String] as? pid_t else { return nil }
             return WindowListEntry(windowID: CGWindowID(window), processID: pid, bounds: rect,
-                                   alpha: info[kCGWindowAlpha as String] as? CGFloat ?? 1)
+                                   alpha: info[kCGWindowAlpha as String] as? CGFloat ?? 1,
+                                   layer: info[kCGWindowLayer as String] as? Int ?? 0)
         }
         return topmostWindow(at: point, in: entries, ignoring: ignoring)
     }

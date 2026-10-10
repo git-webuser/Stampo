@@ -2099,6 +2099,25 @@ import Testing
         #expect(ScrollDriver.topmostWindow(at: point, in: [gone, page], ignoring: [])?.windowID == 7)
     }
 
+    /// On an external display macOS may draw the pointer as a small window of
+    /// its own, right on the click point. It covered the page in a live check
+    /// (2026-10-10: "Window Server window 8234 layer 2147483630 28x40") and the
+    /// capture gave way to a window screenshot. It covers nothing.
+    @Test func thePointerDrawnAsAWindowDoesNotCoverThePage() {
+        let page = ScrollDriver.WindowListEntry(windowID: 7, processID: 100,
+                                                bounds: CGRect(x: 0, y: 0, width: 800, height: 600), alpha: 1)
+        let pointer = ScrollDriver.WindowListEntry(windowID: 8234, processID: 50,
+                                                   bounds: CGRect(x: 396, y: 96, width: 28, height: 40), alpha: 1,
+                                                   layer: ScrollDriver.cursorLayer)
+        let point = CGPoint(x: 400, y: 100)
+        #expect(ScrollDriver.topmostWindow(at: point, in: [pointer, page], ignoring: [])?.windowID == 7)
+        // Anything below the cursor level still covers: a notification banner.
+        let banner = ScrollDriver.WindowListEntry(windowID: 300, processID: 60,
+                                                  bounds: CGRect(x: 380, y: 80, width: 300, height: 80), alpha: 1,
+                                                  layer: 23)
+        #expect(ScrollDriver.topmostWindow(at: point, in: [pointer, banner, page], ignoring: [])?.windowID == 300)
+    }
+
     /// Who touched the page, and what the capture does about it. The capture's
     /// own wheel events reach a global monitor like any other and are told by
     /// the mark they carry; everything else that moves the page, or could, is
