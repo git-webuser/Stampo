@@ -445,6 +445,23 @@ enum ScrollDriver {
         return nil
     }
 
+    /// For the log: the window on top at a point — owner, layer, number and
+    /// frame — the one `validateSelectedWindow` compares with the selection.
+    static func describeWindow(at point: CGPoint, ignoring: Set<CGWindowID>) -> String {
+        guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else { return "no window list" }
+        for info in list {
+            guard let bounds = info[kCGWindowBounds as String] as? [String: Any],
+                  let rect = rect(from: bounds), rect.contains(point),
+                  let window = info[kCGWindowNumber as String] as? UInt32,
+                  !ignoring.contains(CGWindowID(window)),
+                  (info[kCGWindowAlpha as String] as? CGFloat ?? 1) > 0.01 else { continue }
+            let owner = info[kCGWindowOwnerName as String] as? String ?? "?"
+            let layer = info[kCGWindowLayer as String] as? Int ?? 0
+            return "\(owner) window \(window) layer \(layer) \(Int(rect.minX)),\(Int(rect.minY)) \(Int(rect.width))x\(Int(rect.height))"
+        }
+        return "nothing"
+    }
+
     private static func frontmostWindow(at point: CGPoint, ignoring: Set<CGWindowID>) -> WindowAtPoint? {
         guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else { return nil }
         let entries = list.compactMap { info -> WindowListEntry? in

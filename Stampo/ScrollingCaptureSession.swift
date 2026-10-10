@@ -1099,6 +1099,10 @@ final class ScrollingCaptureSession {
             }
             try await Task.sleep(for: .milliseconds(80))
         }
+        // Which of the two never came true: the app in front, or the point
+        // free — and if not free, whose window is over it.
+        let front = NSWorkspace.shared.frontmostApplication
+        Log.capture.notice("scroll focus wait timed out · front \(front?.localizedName ?? "none", privacy: .public) pid \(front?.processIdentifier ?? 0, privacy: .public), want pid \(self.selection.processID, privacy: .public) window \(self.selection.windowID, privacy: .public) · at the point: \(ScrollDriver.describeWindow(at: self.selection.clickPoint, ignoring: self.ignoredWindows()), privacy: .public)")
         throw WindowFrameSourceError.captureFailed("The window moved to the background.")
     }
 
