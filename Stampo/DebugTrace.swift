@@ -106,6 +106,18 @@ enum PanelHideReason: String {
     case waitFinished
     case environmentInvalidation
     case unknown
+
+    /// Whether the panel going away for this reason is the user leaving, or the
+    /// capture they had begun ending — as against going away to make a capture
+    /// (`captureStart`, `colorPickerStart`) or for what is not theirs to decide.
+    var isTheUserLeaving: Bool {
+        switch self {
+        case .hotkeyToggle, .notchClick, .outsideClick, .escKey, .closeButton, .scrollCaptureEnded:
+            return true
+        case .captureStart, .colorPickerStart, .waitFinished, .environmentInvalidation, .unknown:
+            return false
+        }
+    }
 }
 
 // MARK: - CustomStringConvertible for state types

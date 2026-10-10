@@ -1044,7 +1044,7 @@ final class NotchPanelController: NSObject {
             // However it ended — saved, ✕, Esc, the window's screenshot instead —
             // the direction ⇥ turned for it goes back to down, and the panel's
             // glyph with it.
-            self?.resetScrollDirection()
+            self?.endScrollRun(.captureEnded)
             guard let self, case .scrollCapture = self.state else { return }
             self.hideAnimated(reason: .scrollCaptureEnded)
         }
@@ -1927,6 +1927,7 @@ final class NotchPanelController: NSObject {
             completion?()
             return
         }
+        endScrollRun(.panelClosed(reason))
         rootState.isArchivePinned = false
         // The panel is going away with the sheet's anchor: drop the hold so a
         // close notification that never arrives can't wedge auto-hide.
@@ -2410,9 +2411,11 @@ final class NotchPanelController: NSObject {
 
     // MARK: - Header cycling
 
-    /// The direction of the next scrolling capture is down again — in the
-    /// setting and in what the panel shows.
-    func resetScrollDirection() {
+    /// A run of the scrolling capture has ended, one way or another: the
+    /// direction ⇥ turned for it is down again — in the setting and in what the
+    /// panel shows — so that every run starts with ↓.
+    func endScrollRun(_ exit: ScrollRunExit) {
+        guard exit.resetsDirection else { return }
         AppSettings.resetScrollDirection()
         model.scrollDirection = .down
     }

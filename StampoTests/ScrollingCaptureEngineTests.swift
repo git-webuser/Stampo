@@ -1113,6 +1113,39 @@ import Testing
                 == CaptureMode.scroll.icon(direction: .down))
     }
 
+    /// Every run of the scrolling capture starts with ↓: however a run ends, the
+    /// direction ⇥ turned for it is down again — the capture saved, dropped,
+    /// stopped or given way to the window's screenshot; one that could not
+    /// start; the picker cancelled before a window was chosen; ✕ on the
+    /// countdown; the panel closed by the user. Not the panel going away to
+    /// make a capture, which is a run that has just begun.
+    @Test @MainActor func everyWayARunEndsHandsTheDirectionBackToDown() {
+        let ends: [ScrollRunExit] = [.captureEnded, .couldNotStart, .pickerCancelled, .countdownStopped]
+        for exit in ends { #expect(exit.resetsDirection, "\(exit)") }
+        // The panel closed: by the user, however they did it.
+        let leaving: [PanelHideReason] = [.hotkeyToggle, .notchClick, .outsideClick, .escKey, .closeButton,
+                                          .scrollCaptureEnded]
+        for reason in leaving {
+            #expect(ScrollRunExit.panelClosed(reason).resetsDirection, "\(reason)")
+            #expect(reason.isTheUserLeaving)
+        }
+        // Not when it goes away to start a capture or for reasons of its own.
+        let staying: [PanelHideReason] = [.captureStart, .colorPickerStart, .waitFinished,
+                                          .environmentInvalidation, .unknown]
+        for reason in staying {
+            #expect(!ScrollRunExit.panelClosed(reason).resetsDirection, "\(reason)")
+            #expect(!reason.isTheUserLeaving)
+        }
+        // And it is the setting that goes back, whichever exit asks.
+        let before = AppSettings.scrollDirection
+        defer { AppSettings.scrollDirection = before }
+        for exit in ends + leaving.map({ ScrollRunExit.panelClosed($0) }) {
+            AppSettings.scrollDirection = .right
+            if exit.resetsDirection { AppSettings.resetScrollDirection() }
+            #expect(AppSettings.scrollDirection == .down, "\(exit)")
+        }
+    }
+
     /// The picker's hint names the direction, and changes with it; both
     /// languages say "select", to the user, as every hint in the app does.
     @Test func thePickersHintNamesTheDirectionInBothLanguages() {

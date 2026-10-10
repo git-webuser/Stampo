@@ -336,7 +336,7 @@ enum AppSettings {
         UserDefaults.standard.object(forKey: Keys.excludeScrollbars) as? Bool ?? true
     }
     /// The direction of the next scrolling capture. ⇥ turns it — in the picker
-    /// or in the panel — for that capture only: when a capture ends it goes back
+    /// or in the panel — for that run only: however the run ends it goes back
     /// to `.down` (`resetScrollDirection`), the way most pages scroll.
     static var scrollDirection: ScrollDirection {
         get {
@@ -346,9 +346,8 @@ enum AppSettings {
         set { store.set(newValue.rawValue, forKey: Keys.scrollDirection) }
     }
 
-    /// A scrolling capture is over — saved, dropped, stopped, or given way to
-    /// the window's screenshot — and the direction ⇥ turned for it goes back to
-    /// down.
+    /// The direction ⇥ turned goes back to down: every run of a scrolling
+    /// capture starts with it (`ScrollRunExit`).
     static func resetScrollDirection() {
         scrollDirection = .down
     }
@@ -500,6 +499,33 @@ enum ScrollDirection: String, CaseIterable, Equatable, Sendable {
         switch self {
         case .down:  return "Select a vertical scroll area"
         case .right: return "Select a horizontal scroll area"
+        }
+    }
+}
+
+/// How a run of the scrolling capture ends: the picker, the countdown, the
+/// capture itself, or the panel it began from. Each of them, whatever the
+/// reason, hands the direction back to down — a run is what ⇥ turns it for, and
+/// the next one starts with ↓.
+enum ScrollRunExit: Equatable {
+    /// Saved, dropped with ✕, stopped with Esc, given way to the window's
+    /// screenshot, or the save failed.
+    case captureEnded
+    /// The capture could not start: another one was running.
+    case couldNotStart
+    /// Esc, or a click away, in the picker before a window was chosen.
+    case pickerCancelled
+    /// ✕ on the countdown that was to start the capture.
+    case countdownStopped
+    /// The panel closed: the user leaving it, whatever turned the direction there.
+    case panelClosed(PanelHideReason)
+
+    var resetsDirection: Bool {
+        switch self {
+        case .captureEnded, .couldNotStart, .pickerCancelled, .countdownStopped:
+            return true
+        case .panelClosed(let reason):
+            return reason.isTheUserLeaving
         }
     }
 }

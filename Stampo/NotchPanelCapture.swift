@@ -126,6 +126,9 @@ extension NotchPanelController {
                     }
                 }
                 self.windowPickerOverlay.onCancelled = { [weak self] in
+                    // The picker went away without a window: the run of a
+                    // scrolling capture that ⇥ turned the direction for is over.
+                    if mode == .scroll { self?.endScrollRun(.pickerCancelled) }
                     guard let self,
                           self.animationGenerationMatches(selectionToken) else { return }
                     self.invalidatePanelTransitionActions()
@@ -188,6 +191,7 @@ extension NotchPanelController {
 
     func stopCountdown() {
         cancelCountdownTimer()
+        if case .scrolling = activeCountdown?.target { endScrollRun(.countdownStopped) }
         activeCountdown = nil
         state = .main
         route = .main
@@ -275,7 +279,7 @@ extension NotchPanelController {
         // Another capture may already be running; the strip must not stay up
         // for a session that never started.
         if !screenshot.captureScrolling(selection: selection, axis: axis, preferredScreen: currentScreen) {
-            resetScrollDirection()
+            endScrollRun(.couldNotStart)
             hideAnimated(reason: .scrollCaptureEnded)
         }
     }
