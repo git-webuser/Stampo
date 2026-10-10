@@ -478,12 +478,18 @@ final class ScrollingCaptureSession {
     /// cancellation ends it quietly; any other failure with nothing collected
     /// ends in an alert or the window's screenshot, and with something
     /// collected in a pause.
-    private func guarded(_ body: () async throws -> Void) async {
+    ///
+    /// Whatever a task that has been cancelled throws is the cancellation's
+    /// doing and not a failure: a pause cancels the task, and the step in it
+    /// may fail on its way out — and, run late after a resume, would pause the
+    /// new task or end the capture in a screenshot.
+    func guarded(_ body: () async throws -> Void) async {
         do {
             try await body()
         } catch is CancellationError {
             return
         } catch {
+            if Task.isCancelled { return }
             if !stopped {
                 logFailure(error)
                 guard !assembler.strips.isEmpty else {
@@ -1127,7 +1133,7 @@ final class ScrollingCaptureSession {
         }
     }
 
-    private func waitForTargetFocus() async throws {
+    func waitForTargetFocus() async throws {
         let deadline = Date().addingTimeInterval(1.2)
         while Date() < deadline && !Task.isCancelled {
             if NSWorkspace.shared.frontmostApplication?.processIdentifier == selection.processID {
@@ -1142,6 +1148,8 @@ final class ScrollingCaptureSession {
             }
             try await Task.sleep(for: .milliseconds(80))
         }
+        // Out of the loop by a pause or a stop, not by the time: not a failure.
+        try ensureActive()
         // Which of the two never came true: the app in front, or the point
         // free — and if not free, whose window is over it.
         let front = NSWorkspace.shared.frontmostApplication

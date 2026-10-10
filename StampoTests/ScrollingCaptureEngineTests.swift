@@ -2542,6 +2542,82 @@ import Testing
         #expect(ScrollPlaceFinding.tilesForSamePlace == 2)
     }
 
+    /// A pause while the capture waits for the window to come forward is a
+    /// pause: the wait ends by the cancellation and does not throw "the window
+    /// moved to the background", which before the first strip ends in the
+    /// window's screenshot.
+    @Test @MainActor func aPauseWhileWaitingForTheWindowToComeForwardIsNotAFailure() async throws {
+        // A window of a process that is never in front, so the wait would run its 1.2 s.
+        let selection = WindowPickerSelection(windowID: 17, processID: 1,
+                                              clickPoint: CGPoint(x: 15, y: 15),
+                                              bounds: CGRect(x: 0, y: 0, width: 120, height: 90))
+        let session = ScrollingCaptureSession(selection: selection, axis: .vertical,
+                                              activateSelectedWindow: { _ in })
+        var statuses: [ScrollCaptureStatus] = []
+        var instead = 0
+        session.onStatus = { statuses.append($0) }
+        session.onWindowScreenshotInstead = { instead += 1 }
+        let run = session.scheduleRun()
+        try await Task.sleep(for: .milliseconds(150))
+        session.togglePause()
+        await run.value
+        #expect(statuses == [.paused(announce: false)])
+        #expect(instead == 0, "a pause is not a reason for the window's screenshot")
+    }
+
+    /// The wait for the window to come forward, in a task that has been
+    /// cancelled, ends as a cancellation — it does not run out its time and call
+    /// it "the window moved to the background".
+    @Test @MainActor func theWaitForTheWindowEndsAsACancellationWhenTheTaskIsCancelled() async {
+        let selection = WindowPickerSelection(windowID: 17, processID: 1,
+                                              clickPoint: CGPoint(x: 15, y: 15),
+                                              bounds: CGRect(x: 0, y: 0, width: 120, height: 90))
+        let session = ScrollingCaptureSession(selection: selection, axis: .vertical)
+        let outcome = Task { @MainActor () -> String in
+            withUnsafeCurrentTask { $0?.cancel() }
+            do {
+                try await session.waitForTargetFocus()
+                return "returned"
+            } catch is CancellationError {
+                return "cancelled"
+            } catch {
+                return "failed: \(error)"
+            }
+        }
+        #expect(await outcome.value == "cancelled")
+    }
+
+    /// What a task that has been cancelled throws is not a failure of the
+    /// capture, and a late one must not touch the state the new task is in.
+    @Test @MainActor func anErrorThrownByACancelledTaskIsNotAFailure() async {
+        let selection = WindowPickerSelection(windowID: 17, processID: 42,
+                                              clickPoint: CGPoint(x: 15, y: 15),
+                                              bounds: CGRect(x: 0, y: 0, width: 120, height: 90))
+        let session = ScrollingCaptureSession(selection: selection, axis: .vertical)
+        var statuses: [ScrollCaptureStatus] = []
+        var instead = 0, cancelled = 0
+        session.onStatus = { statuses.append($0) }
+        session.onWindowScreenshotInstead = { instead += 1 }
+        session.onCancelled = { cancelled += 1 }
+        // A task that is cancelled and then fails: with nothing collected, an
+        // error like this one ends in the window's screenshot — unless the task
+        // was cancelled.
+        let late = Task { @MainActor in
+            await session.guarded {
+                withUnsafeCurrentTask { $0?.cancel() }
+                throw ScrollDriverError.eventUnavailable
+            }
+        }
+        await late.value
+        #expect(instead == 0 && cancelled == 0 && statuses.isEmpty)
+        // The same error from a task that is not cancelled is what it always was.
+        let live = Task { @MainActor in
+            await session.guarded { throw ScrollDriverError.eventUnavailable }
+        }
+        await live.value
+        #expect(instead == 1)
+    }
+
     /// Pause and resume before the first strip is in: the capture starts over
     /// from the window, and what ends it is told as any ending before a frame.
     @Test @MainActor func pausingBeforeTheFirstFrameAndResumingStartsTheCaptureOver() async {
