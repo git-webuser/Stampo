@@ -712,7 +712,7 @@ final class ScrollingCaptureSession {
         }
         guard let settled else { throw ScrollDriverError.noMovingContent }
         axis = settled.axis
-        assembler = ImageAssembler(axis: axis, maxLength: lengthLimit)
+        assembler = ImageAssembler(axis: axis, maxLength: lengthLimit, scale: scale)
         let (first, probe) = (settled.outcome.first, settled.outcome.probe)
         let probeStep = settled.step
         let probeLines = settled.lines
