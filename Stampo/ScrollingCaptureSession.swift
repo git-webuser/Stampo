@@ -1128,12 +1128,18 @@ final class ScrollingCaptureSession {
     /// title bar or a fading scrollbar does not keep it waiting.
     private func captureStableWindow(viewport candidate: ScrollViewport) async throws -> CaptureFrame {
         var latest = try await captureWindow()
+        // Each frame is cropped once: the first on its first comparison, and
+        // after that the crop that was made of it as the newer of a pair.
+        var latestCrop: CaptureFrame?
         let deadline = Date().addingTimeInterval(1.8)
         while Date() < deadline && !Task.isCancelled {
             try await Task.sleep(for: .milliseconds(140))
             let next = try await captureWindow()
-            let change = meanDifference(try cropped(latest, to: candidate), try cropped(next, to: candidate))
+            let before = try latestCrop ?? cropped(latest, to: candidate)
+            let after = try cropped(next, to: candidate)
+            let change = meanDifference(before, after)
             latest = next
+            latestCrop = after
             if change < 0.003 { return latest }
         }
         return latest
