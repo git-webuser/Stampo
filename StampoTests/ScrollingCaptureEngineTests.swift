@@ -2521,8 +2521,8 @@ import Testing
 
     @Test func theMonitorsPointerIsInTheWindowListsSpace() {
         // The top of the primary display is y 0 in the window list, its bottom y = height.
-        #expect(ScrollInputGuard.quartzPoint(fromAppKit: NSPoint(x: 5, y: 832), primaryHeight: 832) == CGPoint(x: 5, y: 0))
-        #expect(ScrollInputGuard.quartzPoint(fromAppKit: NSPoint(x: 5, y: 0), primaryHeight: 832) == CGPoint(x: 5, y: 832))
+        #expect(screenPointToCGPoint(NSPoint(x: 5, y: 832), primaryHeight: 832) == CGPoint(x: 5, y: 0))
+        #expect(screenPointToCGPoint(NSPoint(x: 5, y: 0), primaryHeight: 832) == CGPoint(x: 5, y: 832))
     }
 
     /// The button in the arc's place: a turning ring with the pause sign while
@@ -2863,9 +2863,9 @@ import Testing
     @Test @MainActor func aWindowListPointKeepsItsPlaceInAppKitSpace() {
         // The top-left corner of the primary display is its top-left whichever
         // way y runs, and a point 10 below it is 10 under the top edge.
-        let top = NotchPanelController.appKitPoint(fromQuartz: CGPoint(x: 5, y: 0), primaryHeight: 900)
+        let top = cgPointToScreenPoint(CGPoint(x: 5, y: 0), primaryHeight: 900)
         #expect(top == NSPoint(x: 5, y: 900))
-        let below = NotchPanelController.appKitPoint(fromQuartz: CGPoint(x: 5, y: 10), primaryHeight: 900)
+        let below = cgPointToScreenPoint(CGPoint(x: 5, y: 10), primaryHeight: 900)
         #expect(below == NSPoint(x: 5, y: 890))
     }
 

@@ -456,9 +456,7 @@ final class ScrollingCaptureSession {
 
     /// The pointer is off the page or on the strip: hold the next step.
     private func pointerIsAway() -> Bool {
-        let primaryHeight = NSScreen.screens.first(where: { $0.frame.origin == .zero })?.frame.height
-            ?? NSScreen.screens.first?.frame.height ?? 0
-        let pointer = ScrollInputGuard.quartzPoint(fromAppKit: NSEvent.mouseLocation, primaryHeight: primaryHeight)
+        let pointer = screenPointToCGPoint(NSEvent.mouseLocation, primaryHeight: cgPrimaryDisplayHeight())
         let window = ScrollDriver.currentWindowBounds(selection.windowID) ?? selection.bounds
         return ScrollInputGuard.shouldWait(pointer: pointer, window: window, overOwnUI: ownUICovers(pointer))
     }

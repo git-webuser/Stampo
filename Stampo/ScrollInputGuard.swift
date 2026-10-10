@@ -88,12 +88,6 @@ nonisolated enum ScrollInputGuard {
     static func shouldWait(pointer: CGPoint, window: CGRect, overOwnUI: Bool) -> Bool {
         !window.contains(pointer) || overOwnUI
     }
-
-    /// A point in AppKit's screen space (origin bottom left, y up) as the window
-    /// list has it (origin top left of the primary display, y down).
-    static func quartzPoint(fromAppKit point: NSPoint, primaryHeight: CGFloat) -> CGPoint {
-        CGPoint(x: point.x, y: primaryHeight - point.y)
-    }
 }
 
 /// What the user did to the page while the capture was paused: the wheel,
