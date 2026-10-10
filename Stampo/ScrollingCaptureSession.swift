@@ -1262,6 +1262,12 @@ final class ScrollingCaptureSession {
     /// moving box passes through, in pixels across the scroll.
     nonisolated static let shortStaticRun = 16
 
+    /// How much a sample of a line may differ between the two frames of the
+    /// probe — the sum of its three channels, out of 765 — for the line to be
+    /// said not to have changed. A picture that does not move is identical; the
+    /// edge of a pale band that has moved is not.
+    nonisolated static let stillTolerance = 15
+
     /// Finds the 2D bounding box of pixels that changed between the probe pair.
     /// This works for an AX-resolved viewport and for a whole-window fallback,
     /// where fixed sidebars/headers must be excluded before stitching.
@@ -1315,39 +1321,54 @@ final class ScrollingCaptureSession {
                                  xFor: { _, across in across }, yFor: { position, _ in position })
         }
         guard let (p0, p1) = primary, p1 - p0 >= primaryLength / 3 else { return nil }
-        /// Whether a line across the scroll has anything in it — brightness that
-        /// varies along the line, in either frame. A margin is blank; a picture
-        /// or a panel of text that stays where it is is not.
-        func lineHasContent(_ position: Int) -> Bool {
+        /// Whether a line across the scroll holds something that stays where it is:
+        /// it has something in it — brightness that varies along the line, in
+        /// either frame — and not one sample of it changed between the frames, to
+        /// within `stillTolerance`. A margin is blank; a picture or a panel of
+        /// text that does not move is the same pixel for pixel; but a margin that
+        /// crosses a pale band running the width of the page — a menu, a banner,
+        /// the grey background of a section — has something in it, and is not
+        /// still: the band's edge moved with the page.
+        func lineIsStillContent(_ position: Int) -> Bool {
             let step = max(1, primaryLength / 700)
-            for frame in [before, after] {
-                var sum = 0.0, squares = 0.0, count = 0.0
-                for along in stride(from: 0, to: primaryLength, by: step) {
-                    let x = axis == .vertical ? position : along
-                    let y = axis == .vertical ? along : position
-                    let i = (y * frame.width + x) * 4
-                    let value = Double(Int(frame.pixels[i]) + Int(frame.pixels[i + 1]) + Int(frame.pixels[i + 2])) / 765
-                    sum += value; squares += value * value; count += 1
-                }
-                let mean = sum / count
-                if max(0, squares / count - mean * mean).squareRoot() >= FrameMatcher.contentSpread { return true }
+            var hasContent = false
+            var sums = (0.0, 0.0), squares = (0.0, 0.0), count = 0.0
+            for along in stride(from: 0, to: primaryLength, by: step) {
+                let x = axis == .vertical ? position : along
+                let y = axis == .vertical ? along : position
+                let i = (y * before.width + x) * 4
+                let was = Int(before.pixels[i]) + Int(before.pixels[i + 1]) + Int(before.pixels[i + 2])
+                let now = Int(after.pixels[i]) + Int(after.pixels[i + 1]) + Int(after.pixels[i + 2])
+                // One sample that changed is enough: not still.
+                if abs(was - now) > Self.stillTolerance { return false }
+                let a = Double(was) / 765, b = Double(now) / 765
+                sums.0 += a; sums.1 += b
+                squares.0 += a * a; squares.1 += b * b
+                count += 1
             }
-            return false
+            for (sum, square) in [(sums.0, squares.0), (sums.1, squares.1)] {
+                let mean = sum / count
+                if max(0, square / count - mean * mean).squareRoot() >= FrameMatcher.contentSpread {
+                    hasContent = true
+                }
+            }
+            return hasContent
         }
 
         let c0: Int, c1: Int
         if preserveCrossAxis {
             if let (activeStart, activeEnd) = cross {
                 // What moved, and the lines around it that are empty — a web
-                // page's margins, where something may yet appear — or that hold
-                // something that stays still for no more than a few pixels: the
+                // page's margins, where something may yet appear — or in which
+                // something moved, or that hold something that stays still for
+                // no more than a few pixels: the
                 // faint edges of the moving text itself, a rule, a border. A run
                 // of such lines longer than that is a picture above the strip in
                 // a gallery, a panel of links beside the text, and the widening
                 // stops where it begins.
                 var low = activeStart, run = 0, position = activeStart - 1
                 while position >= 0 {
-                    if lineHasContent(position) {
+                    if lineIsStillContent(position) {
                         run += 1
                         if run > ScrollingCaptureSession.shortStaticRun { break }
                     } else {
@@ -1360,7 +1381,7 @@ final class ScrollingCaptureSession {
                 run = 0
                 position = activeEnd
                 while position < crossLength {
-                    if lineHasContent(position) {
+                    if lineIsStillContent(position) {
                         run += 1
                         if run > ScrollingCaptureSession.shortStaticRun { break }
                     } else {

@@ -598,6 +598,66 @@ import Testing
         axis == .vertical ? Int(rect.minX)..<Int(rect.maxX) : Int(rect.minY)..<Int(rect.maxY)
     }
 
+    /// A frame like apple.com's: text that moves in the middle, margins on
+    /// either side that look blank but cross pale bands running the width of the
+    /// page — a menu, a banner, a section's grey background — which move with it;
+    /// and, if asked, something that does not move at all.
+    private func bandedMarginFrame(axis: ScrollAxis, offset: Int, moving: Range<Int>,
+                                   fixed: Range<Int> = 0..<0,
+                                   along: Int = 300, across: Int = 160) -> CaptureFrame {
+        let width = axis == .vertical ? across : along
+        let height = axis == .vertical ? along : across
+        var bytes = [UInt8](repeating: 255, count: width * height * 4)
+        for y in 0..<height {
+            for x in 0..<width {
+                let cross = axis == .vertical ? x : y
+                let position = axis == .vertical ? y : x
+                let value: UInt8
+                if fixed.contains(cross) {
+                    value = UInt8(truncatingIfNeeded: noise(cross, position) >> 56)
+                } else if moving.contains(cross) {
+                    value = UInt8(truncatingIfNeeded: noise(cross, position + offset) >> 56)
+                } else {
+                    // Pale bands 24 deep every 200, 14 levels under white: a column
+                    // through them varies by about 0.02, which is "content" by the
+                    // matcher's measure — and moves with the page, but so little in
+                    // a probe of 8 that the column's mean change is 0.006, under
+                    // what makes a line count as moving (0.012).
+                    value = (position + offset) % 200 < 24 ? 241 : 255
+                }
+                let i = (y * width + x) * 4
+                bytes[i] = value; bytes[i + 1] = value; bytes[i + 2] = value; bytes[i + 3] = 255
+            }
+        }
+        return CaptureFrame(width: width, height: height, pixels: bytes)
+    }
+
+    /// apple.com/ipad came out 2235 px wide instead of 2516: the margins, blank
+    /// but for pale bands across the page, were taken for content that stays
+    /// still, because the bands vary by more than a tile needs for content and
+    /// the probe moved them too little for the margin to count as moving. Only
+    /// content in which not one sample changed stops the widening; a band that
+    /// moved is passed through, and what is the same pixel for pixel — a
+    /// picture, a panel — still ends it.
+    @Test func marginsWithPaleBandsThatMovedAreKeptAndAPanelThatDidNotIsLeftOut() throws {
+        for axis in ScrollAxis.allCases {
+            func box(moving: Range<Int>, fixed: Range<Int> = 0..<0) throws -> Range<Int> {
+                let before = bandedMarginFrame(axis: axis, offset: 0, moving: moving, fixed: fixed)
+                let after = bandedMarginFrame(axis: axis, offset: 8, moving: moving, fixed: fixed)
+                let rect = try #require(ScrollingCaptureSession.movingContentRect(
+                    before: before, after: after, axis: axis, preserveCrossAxis: true))
+                return crossExtent(of: rect, axis: axis)
+            }
+            // Text in the middle, banded margins on both sides: the whole width.
+            #expect(try box(moving: 50..<110) == 0..<160, "\(axis)")
+            // The same with the text near one edge.
+            #expect(try box(moving: 20..<150) == 0..<160, "\(axis)")
+            // A panel that does not move at one side, banded margin at the other:
+            // the box starts after the panel and runs to the margin's end.
+            #expect(try box(moving: 60..<120, fixed: 0..<50) == 50..<160, "\(axis)")
+        }
+    }
+
     /// The faint edges of moving text barely change as it moves, and look like
     /// something that stays still; a rule or a border does too. The widening of
     /// the box passes through such a run of up to 16 lines and stops at a longer
