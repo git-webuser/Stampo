@@ -643,7 +643,9 @@ final class ScrollingCaptureSession {
             try ensureActive()
             let probePoint = currentScrollPoint()
             diagnosticStage = .probeMotion
-            try validateCurrentScrollTarget(at: probePoint)
+            // Checked for the direction being probed: the area was chosen for
+            // it, and the direction asked for has not settled yet.
+            try validateCurrentScrollTarget(at: probePoint, axis: candidate)
             let probeLines = ScrollDriver.lineDelta(for: probeStep, backingScale: scale)
             try ScrollDriver.sendScroll(axis: candidate, lines: probeLines, at: probePoint)
             let after = try await ScrollCaptureCancellationBoundary.awaitActive {
@@ -909,7 +911,8 @@ final class ScrollingCaptureSession {
         }
     }
 
-    private func validateCurrentScrollTarget(at point: CGPoint) throws {
+    private func validateCurrentScrollTarget(at point: CGPoint, axis: ScrollAxis? = nil) throws {
+        let axis = axis ?? self.axis
         guard !ownUICovers(point) else { throw ScrollDriver.selectedWindowNotFrontmost() }
         guard let container = scrollContainer else {
             try ScrollDriver.validateSelectedWindow(selection: selection, point: point,
