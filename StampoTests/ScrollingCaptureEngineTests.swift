@@ -572,8 +572,8 @@ import Testing
     /// A frame of a scroll area across which something stays and something
     /// moves: noise in `fixed` and `moving` across the scroll, white elsewhere;
     /// the moving noise is shifted along the scroll by `offset`.
-    private func crossBandFrame(axis: ScrollAxis, offset: Int, fixed: Range<Int>, moving: Range<Int>,
-                                along: Int = 300, across: Int = 160) -> CaptureFrame {
+    private func crossBandFrame(axis: ScrollAxis, offset: Int, fixed: Range<Int>, alsoFixed: Range<Int> = 0..<0,
+                                moving: Range<Int>, along: Int = 300, across: Int = 160) -> CaptureFrame {
         let width = axis == .vertical ? across : along
         let height = axis == .vertical ? along : across
         var bytes = [UInt8](repeating: 255, count: width * height * 4)
@@ -582,7 +582,7 @@ import Testing
                 let cross = axis == .vertical ? x : y
                 let position = axis == .vertical ? y : x
                 var value: UInt8 = 255
-                if fixed.contains(cross) {
+                if fixed.contains(cross) || alsoFixed.contains(cross) {
                     value = UInt8(truncatingIfNeeded: noise(cross, position) >> 56)
                 } else if moving.contains(cross) {
                     value = UInt8(truncatingIfNeeded: noise(cross, position + offset) >> 56)
@@ -596,6 +596,39 @@ import Testing
 
     private func crossExtent(of rect: CGRect, axis: ScrollAxis) -> Range<Int> {
         axis == .vertical ? Int(rect.minX)..<Int(rect.maxX) : Int(rect.minY)..<Int(rect.maxY)
+    }
+
+    /// The faint edges of moving text barely change as it moves, and look like
+    /// something that stays still; a rule or a border does too. The widening of
+    /// the box passes through such a run of up to 16 lines and stops at a longer
+    /// one — on jquery's two lines the box had stopped at the edges of the text
+    /// itself and the image came out 28 px high.
+    @Test func theBoxIsWidenedThroughShortRunsOfStillContentAndStopsAtLongOnes() throws {
+        for axis in ScrollAxis.allCases {
+            func box(fixed: Range<Int>, alsoFixed: Range<Int> = 0..<0, moving: Range<Int>,
+                     across: Int = 160) throws -> Range<Int> {
+                let before = crossBandFrame(axis: axis, offset: 0, fixed: fixed, alsoFixed: alsoFixed,
+                                            moving: moving, across: across)
+                let after = crossBandFrame(axis: axis, offset: 37, fixed: fixed, alsoFixed: alsoFixed,
+                                           moving: moving, across: across)
+                let rect = try #require(ScrollingCaptureSession.movingContentRect(
+                    before: before, after: after, axis: axis, preserveCrossAxis: true))
+                return crossExtent(of: rect, axis: axis)
+            }
+            // Text with a still line of edge on either side of it, and white all round.
+            #expect(try box(fixed: 7..<8, alsoFixed: 64..<65, moving: 8..<64, across: 700) == 0..<700, "\(axis)")
+            // A column of text with edges and blank margins: all of it.
+            #expect(try box(fixed: 59..<60, alsoFixed: 100..<101, moving: 60..<100) == 0..<160, "\(axis)")
+            // A strip of still content of 10 lines with blank beyond it is passed through…
+            #expect(try box(fixed: 20..<30, moving: 30..<160) == 0..<160, "\(axis)")
+            // …one of 16 as well, one of 17 is a panel and ends the widening where it begins.
+            #expect(try box(fixed: 20..<36, moving: 36..<160) == 0..<160, "\(axis)")
+            #expect(try box(fixed: 20..<37, moving: 37..<160) == 37..<160, "\(axis)")
+            // The gallery and the panel of step 23, as they were.
+            #expect(try box(fixed: 0..<90, moving: 100..<160) == 90..<160, "\(axis)")
+            #expect(try box(fixed: 0..<50, moving: 50..<160) == 50..<160, "\(axis)")
+        }
+        #expect(ScrollingCaptureSession.shortStaticRun == 16)
     }
 
     /// A white frame with two lines of text in it — runs of dark and light along

@@ -1170,6 +1170,10 @@ final class ScrollingCaptureSession {
         return ProbeOutcome(first: first, probe: probe, movingRect: movingRect)
     }
 
+    /// How many lines in a row of something that stays still the widening of the
+    /// moving box passes through, in pixels across the scroll.
+    nonisolated static let shortStaticRun = 16
+
     /// Finds the 2D bounding box of pixels that changed between the probe pair.
     /// This works for an AX-resolved viewport and for a whole-window fallback,
     /// where fixed sidebars/headers must be excluded before stitching.
@@ -1246,14 +1250,37 @@ final class ScrollingCaptureSession {
         let c0: Int, c1: Int
         if preserveCrossAxis {
             if let (activeStart, activeEnd) = cross {
-                // What moved, and the empty lines around it — a web page's margins,
-                // where something may yet appear. The first line with something
-                // that stays where it is stops the widening: a picture in the
-                // gallery above its strip, a panel of links beside the text.
-                var low = activeStart
-                while low > 0, !lineHasContent(low - 1) { low -= 1 }
+                // What moved, and the lines around it that are empty — a web
+                // page's margins, where something may yet appear — or that hold
+                // something that stays still for no more than a few pixels: the
+                // faint edges of the moving text itself, a rule, a border. A run
+                // of such lines longer than that is a picture above the strip in
+                // a gallery, a panel of links beside the text, and the widening
+                // stops where it begins.
+                var low = activeStart, run = 0, position = activeStart - 1
+                while position >= 0 {
+                    if lineHasContent(position) {
+                        run += 1
+                        if run > ScrollingCaptureSession.shortStaticRun { break }
+                    } else {
+                        run = 0
+                        low = position
+                    }
+                    position -= 1
+                }
                 var high = activeEnd
-                while high < crossLength, !lineHasContent(high) { high += 1 }
+                run = 0
+                position = activeEnd
+                while position < crossLength {
+                    if lineHasContent(position) {
+                        run += 1
+                        if run > ScrollingCaptureSession.shortStaticRun { break }
+                    } else {
+                        run = 0
+                        high = position + 1
+                    }
+                    position += 1
+                }
                 c0 = low
                 c1 = high
             } else {
