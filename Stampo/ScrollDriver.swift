@@ -444,17 +444,43 @@ enum ScrollDriver {
     /// covering it: a picker still fading out would otherwise take a scroll
     /// meant for the page under it.
     nonisolated static func topmostWindow(at point: CGPoint, in entries: [WindowListEntry],
-                                          ignoring: Set<CGWindowID>) -> WindowAtPoint? {
+                                          ignoring: Set<CGWindowID>, displays: [CGRect] = [],
+                                          ownPID: pid_t = getpid()) -> WindowAtPoint? {
         for entry in entries where entry.bounds.contains(point) && entry.alpha > 0.01
-            && entry.layer < cursorLayer && !ignoring.contains(entry.windowID) {
+            && entry.layer < cursorLayer && !ignoring.contains(entry.windowID)
+            && !isSystemOverlay(entry, displays: displays, ownPID: ownPID) {
             return WindowAtPoint(windowID: entry.windowID, processID: entry.processID, bounds: entry.bounds)
         }
         return nil
     }
 
+    /// A window of another process above the normal level that covers a whole
+    /// display: a system overlay the pointer passes through — the Dock keeps one
+    /// over the screen at times (seen 2026-10-11: "Dock window layer 20
+    /// 0,0 1280x832" over the page, and every capture gave way to a window
+    /// screenshot). It covers nothing. A notification banner is not a whole
+    /// display and still covers the point; a window of ours always does.
+    nonisolated static func isSystemOverlay(_ entry: WindowListEntry, displays: [CGRect], ownPID: pid_t) -> Bool {
+        guard entry.layer > 0, entry.processID != ownPID else { return false }
+        return displays.contains { display in
+            abs(display.minX - entry.bounds.minX) <= 1 && abs(display.minY - entry.bounds.minY) <= 1
+                && abs(display.width - entry.bounds.width) <= 1 && abs(display.height - entry.bounds.height) <= 1
+        }
+    }
+
+    /// The active displays' frames in the window list's coordinates.
+    static func activeDisplayBounds() -> [CGRect] {
+        var count: UInt32 = 0
+        guard CGGetActiveDisplayList(0, nil, &count) == .success, count > 0 else { return [] }
+        var displays = [CGDirectDisplayID](repeating: 0, count: Int(count))
+        guard CGGetActiveDisplayList(count, &displays, &count) == .success else { return [] }
+        return displays.prefix(Int(count)).map { CGDisplayBounds($0) }
+    }
+
     /// For the log: the window on top at a point — owner, layer, number and
     /// frame — the one `validateSelectedWindow` compares with the selection.
     static func describeWindow(at point: CGPoint, ignoring: Set<CGWindowID>) -> String {
+        let displays = activeDisplayBounds()
         guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else { return "no window list" }
         for info in list {
             guard let bounds = info[kCGWindowBounds as String] as? [String: Any],
@@ -462,7 +488,12 @@ enum ScrollDriver {
                   let window = info[kCGWindowNumber as String] as? UInt32,
                   !ignoring.contains(CGWindowID(window)),
                   (info[kCGWindowAlpha as String] as? CGFloat ?? 1) > 0.01,
-                  (info[kCGWindowLayer as String] as? Int ?? 0) < cursorLayer else { continue }
+                  (info[kCGWindowLayer as String] as? Int ?? 0) < cursorLayer,
+                  !isSystemOverlay(WindowListEntry(windowID: CGWindowID(window),
+                                                   processID: info[kCGWindowOwnerPID as String] as? pid_t ?? 0,
+                                                   bounds: rect, alpha: 1,
+                                                   layer: info[kCGWindowLayer as String] as? Int ?? 0),
+                                   displays: displays, ownPID: getpid()) else { continue }
             let owner = info[kCGWindowOwnerName as String] as? String ?? "?"
             let layer = info[kCGWindowLayer as String] as? Int ?? 0
             return "\(owner) window \(window) layer \(layer) \(Int(rect.minX)),\(Int(rect.minY)) \(Int(rect.width))x\(Int(rect.height))"
@@ -481,7 +512,7 @@ enum ScrollDriver {
                                    alpha: info[kCGWindowAlpha as String] as? CGFloat ?? 1,
                                    layer: info[kCGWindowLayer as String] as? Int ?? 0)
         }
-        return topmostWindow(at: point, in: entries, ignoring: ignoring)
+        return topmostWindow(at: point, in: entries, ignoring: ignoring, displays: activeDisplayBounds())
     }
 
     private static func rect(from bounds: [String: Any]) -> CGRect? {

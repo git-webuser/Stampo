@@ -2262,6 +2262,38 @@ import Testing
     /// its own, right on the click point. It covered the page in a live check
     /// (2026-10-10: "Window Server window 8234 layer 2147483630 28x40") and the
     /// capture gave way to a window screenshot. It covers nothing.
+    /// The Dock at times keeps a window over a whole display, above normal
+    /// windows, that the pointer passes through. It covered the page in a live
+    /// check (2026-10-11: "Dock window 8263 layer 20 0,0 1280x832") and every
+    /// capture gave way to a window screenshot. It covers nothing; a banner
+    /// does, and so does any window of ours.
+    @Test func aSystemOverlayOverAWholeDisplayDoesNotCoverThePage() {
+        let display = CGRect(x: 0, y: 0, width: 1280, height: 832)
+        let page = ScrollDriver.WindowListEntry(windowID: 7, processID: 100,
+                                                bounds: CGRect(x: 0, y: 30, width: 1280, height: 802), alpha: 1)
+        let dock = ScrollDriver.WindowListEntry(windowID: 8263, processID: 60, bounds: display, alpha: 1, layer: 20)
+        let point = CGPoint(x: 400, y: 300)
+        #expect(ScrollDriver.topmostWindow(at: point, in: [dock, page], ignoring: [],
+                                           displays: [display], ownPID: 1)?.windowID == 7)
+        // Without knowing the displays it is taken for what it looks like.
+        #expect(ScrollDriver.topmostWindow(at: point, in: [dock, page], ignoring: [],
+                                           displays: [], ownPID: 1)?.windowID == 8263)
+        // A banner is not a whole display.
+        let banner = ScrollDriver.WindowListEntry(windowID: 300, processID: 70,
+                                                  bounds: CGRect(x: 380, y: 280, width: 300, height: 80), alpha: 1,
+                                                  layer: 23)
+        #expect(ScrollDriver.topmostWindow(at: point, in: [dock, banner, page], ignoring: [],
+                                           displays: [display], ownPID: 1)?.windowID == 300)
+        // A window of ours over the whole display still covers the point.
+        let ours = ScrollDriver.WindowListEntry(windowID: 9, processID: 1, bounds: display, alpha: 1, layer: 101)
+        #expect(ScrollDriver.topmostWindow(at: point, in: [ours, page], ignoring: [],
+                                           displays: [display], ownPID: 1)?.windowID == 9)
+        // A normal-level window over the whole display is an app's, and covers it.
+        let fullScreenApp = ScrollDriver.WindowListEntry(windowID: 11, processID: 80, bounds: display, alpha: 1)
+        #expect(ScrollDriver.topmostWindow(at: point, in: [fullScreenApp, page], ignoring: [],
+                                           displays: [display], ownPID: 1)?.windowID == 11)
+    }
+
     @Test func thePointerDrawnAsAWindowDoesNotCoverThePage() {
         let page = ScrollDriver.WindowListEntry(windowID: 7, processID: 100,
                                                 bounds: CGRect(x: 0, y: 0, width: 800, height: 600), alpha: 1)
