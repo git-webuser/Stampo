@@ -464,7 +464,10 @@ final class ScrollingCaptureSession {
     }
 
     /// Holds still while the pointer is away. The time does not count towards the
-    /// seconds without progress.
+    /// seconds without progress. There is no limit on the wait, on purpose: the
+    /// pointer away is a hiccup like any other and is waited out, nothing
+    /// collected is lost, and the strip with Save, pause and stop stays in view
+    /// all along.
     private func waitForPointer() async throws {
         guard pointerIsAway() else { return }
         let began = Date()
@@ -511,14 +514,19 @@ final class ScrollingCaptureSession {
     /// doing and not a failure: a pause cancels the task, and the step in it
     /// may fail on its way out — and, run late after a resume, would pause the
     /// new task or end the capture in a screenshot.
+    ///
+    /// A hiccup that passes is the loop's next turn, not a call within this
+    /// one: however many a capture waits out, they nest no deeper.
     func guarded(_ body: () async throws -> Void) async {
-        do {
-            try await body()
-        } catch is CancellationError {
-            return
-        } catch {
-            if Task.isCancelled { return }
-            if !stopped {
+        var afterHiccup = false
+        while true {
+            do {
+                if afterHiccup { try await continueFromHere() } else { try await body() }
+                return
+            } catch is CancellationError {
+                return
+            } catch {
+                if Task.isCancelled || stopped { return }
                 logFailure(error)
                 guard !assembler.strips.isEmpty else {
                     failBeforeTheFirstFrame(error)
@@ -534,14 +542,15 @@ final class ScrollingCaptureSession {
                     do { cleared = try await waitOut(interference) } catch { return }
                     if cleared {
                         pauseLedger = UserScrollLedger()
-                        await guarded { try await self.continueFromHere() }
-                        return
+                        afterHiccup = true
+                        continue
                     }
                 }
                 // Whatever it was — the window sent to the back, the scroll area
                 // replaced, a hiccup that did not pass — the log has it; the
                 // toast only says the capture stopped.
                 pause(announce: true)
+                return
             }
         }
     }
