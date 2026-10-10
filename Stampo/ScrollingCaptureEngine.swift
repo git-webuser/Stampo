@@ -450,8 +450,12 @@ nonisolated enum FrameMatcher {
                          offset: Int?, searchLimit: Int) -> StepEvidence {
         // On the band alone, as `match` is, when the content is a thin one.
         if let (_, narrowedPrevious, narrowedCurrent) = narrowed(previous, current, axis: axis) {
-            return evidenceWhole(previous: narrowedPrevious, current: narrowedCurrent, axis: axis,
-                                 offset: offset, searchLimit: searchLimit)
+            let found = evidenceWhole(previous: narrowedPrevious, current: narrowedCurrent, axis: axis,
+                                      offset: offset, searchLimit: searchLimit)
+            // The tile numbers are those of the band's grid, not the frame's:
+            // as with a match on a band, nothing that stands is reported.
+            return StepEvidence(standing: [], consistent: found.consistent, against: found.against,
+                                contradicted: found.contradicted)
         }
         return evidenceWhole(previous: previous, current: current, axis: axis,
                              offset: offset, searchLimit: searchLimit)

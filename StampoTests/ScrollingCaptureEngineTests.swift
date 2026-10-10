@@ -679,6 +679,8 @@ import Testing
                 let right = FrameMatcher.evidence(previous: first, current: next, axis: axis,
                                                   offset: movement, searchLimit: movement + 64)
                 #expect(right.consistent >= 1 && !right.contradicted, "\(axis) \(movement)")
+                // Tile numbers of a band are not the frame's: none is reported standing.
+                #expect(right.standing.isEmpty, "\(axis) \(movement)")
                 let wrong = FrameMatcher.evidence(previous: first, current: next, axis: axis,
                                                   offset: movement * 4 / 5, searchLimit: movement + 64)
                 #expect(wrong.contradicted, "\(axis) \(movement)")
@@ -2493,6 +2495,51 @@ import Testing
         // A smaller minimum than the title needs changes nothing; a larger one wins.
         #expect(PanelCaptureButton.width(minimum: 120, fitting: ru) == 120)
         #expect(PanelCaptureButton.titleInset == 10)
+    }
+
+    /// After a pause a page that has moved on under a panel fixed to the
+    /// viewport is not "the same place": the panel stands in both frames. Only
+    /// tiles of the middle rows that are not pinned say so, and two of them.
+    @Test func aPinnedPanelStandingInBothFramesIsNotTheSamePlace() {
+        // 320 × 260: tiles are 64 wide and 65 high. The panel is two tiles at the
+        // left of the middle rows — 5 and 10 — fixed, with something in it.
+        let width = 320, height = 260
+        let panelColumns = 0..<64, panelRows = 65..<195
+        func page(xOffset: Int = 0, yOffset: Int) -> CaptureFrame {
+            let base = texture(width: width, height: height, xOffset: xOffset, yOffset: yOffset)
+            var pixels = base.pixels
+            for y in panelRows { for x in panelColumns {
+                let i = (y * width + x) * 4
+                let value = UInt8(truncatingIfNeeded: noise(x, y &+ 9000) >> 56)
+                pixels[i] = value; pixels[i + 1] = value; pixels[i + 2] = value
+            } }
+            return CaptureFrame(width: width, height: height, pixels: pixels)
+        }
+        let last = page(yOffset: 300)
+        // Gone on by three screens — nothing of the page is in both frames — with
+        // the same panel in the same place.
+        let moved = page(xOffset: 977, yOffset: 300 + 3 * height)
+        #expect(ScrollPlaceFinding.find(last: last, now: moved, axis: .vertical, pinned: [5, 10]) == .unknown)
+        // Not knowing the panel is pinned, two tiles of the middle say "the same place".
+        #expect(ScrollPlaceFinding.find(last: last, now: moved, axis: .vertical, pinned: []) == .same)
+        // One tile is not enough.
+        #expect(ScrollPlaceFinding.find(last: last, now: moved, axis: .vertical, pinned: [10]) == .unknown)
+        // The same page where it was says so with the panel pinned: the page stands too.
+        #expect(ScrollPlaceFinding.find(last: last, now: last, axis: .vertical, pinned: [5, 10]) == .same)
+        // A bar across the first row — pinned or not — never says it.
+        func barred(xOffset: Int = 0, yOffset: Int) -> CaptureFrame {
+            var pixels = texture(width: width, height: height, xOffset: xOffset, yOffset: yOffset).pixels
+            for y in 0..<65 { for x in 0..<width {
+                let i = (y * width + x) * 4
+                let value = UInt8(truncatingIfNeeded: noise(x, y &+ 5000) >> 56)
+                pixels[i] = value; pixels[i + 1] = value; pixels[i + 2] = value
+            } }
+            return CaptureFrame(width: width, height: height, pixels: pixels)
+        }
+        #expect(ScrollPlaceFinding.find(last: barred(yOffset: 300),
+                                        now: barred(xOffset: 977, yOffset: 300 + 3 * height),
+                                        axis: .vertical, pinned: []) == .unknown)
+        #expect(ScrollPlaceFinding.tilesForSamePlace == 2)
     }
 
     /// Pause and resume before the first strip is in: the capture starts over

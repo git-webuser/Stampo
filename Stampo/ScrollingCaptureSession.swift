@@ -347,8 +347,9 @@ final class ScrollingCaptureSession {
             try ensureActive()
             try checkWindowAndFocus()
             let axis = self.axis
+            let pinned = pinnedTiles
             let finding = await Task.detached(priority: .userInitiated) {
-                ScrollPlaceFinding.find(last: last, now: now, axis: axis)
+                ScrollPlaceFinding.find(last: last, now: now, axis: axis, pinned: pinned)
             }.value
             try ensureActive()
             let action = ScrollResume.action(finding: finding, userMovement: userMovement, undone: undone)

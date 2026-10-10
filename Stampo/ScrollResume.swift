@@ -13,10 +13,19 @@ nonisolated enum ScrollPlaceFinding: Equatable {
     /// what they show has changed too much.
     case unknown
 
+    /// How many tiles that stand still in both frames — unpinned, in the middle
+    /// rows, as for a stop (`ScrollStepDecision.provingStop`) — say it is the
+    /// same place. Two: a bar fixed to the viewport stands in every frame,
+    /// whichever page is under it.
+    static let tilesForSamePlace = 2
+
     /// The page `now` against the page `last`: matched as a step forward, as a
     /// step back, and failing both, whether what stands still in both says it
-    /// is the same place.
-    static func find(last: CaptureFrame, now: CaptureFrame, axis: ScrollAxis) -> ScrollPlaceFinding {
+    /// is the same place. `pinned` are the tiles known to be fixed to the
+    /// viewport: a site's panel stands in `last` and `now` whatever the page
+    /// has done under it, and is no evidence.
+    static func find(last: CaptureFrame, now: CaptureFrame, axis: ScrollAxis,
+                     pinned: Set<Int> = []) -> ScrollPlaceFinding {
         let axisLength = axis == .vertical ? last.height : last.width
         let limit = axisLength * 3 / 4
         if let forward = try? FrameMatcher.match(previous: last, current: now, axis: axis, maximumOffset: limit) {
@@ -27,7 +36,8 @@ nonisolated enum ScrollPlaceFinding: Equatable {
         }
         let standing = FrameMatcher.evidence(previous: last, current: now, axis: axis, offset: nil, searchLimit: 2)
             .standing
-        return standing.count >= 3 ? .same : .unknown
+        return ScrollStepDecision.provingStop(standing: standing, pinned: pinned) >= tilesForSamePlace
+            ? .same : .unknown
     }
 }
 
