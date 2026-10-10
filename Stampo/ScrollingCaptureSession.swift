@@ -50,6 +50,12 @@ final class ScrollingCaptureSession {
     /// Window numbers of ours that do not count as covering the page: the
     /// notch panel's. Every other window of Stampo over the point does.
     private let ignoredWindows: @MainActor () -> Set<CGWindowID>
+    /// What Accessibility says the scroll area under the click is, for a
+    /// direction; and whether the window — and, if one was found, that area —
+    /// is where it should be at the click. Injected so that the choice of area
+    /// per direction can be tested without a window server.
+    private let resolveViewport: @MainActor (WindowPickerSelection, ScrollAxis) throws -> ScrollViewportResolution
+    private let checkTarget: @MainActor (_ container: AXUIElement?, _ axis: ScrollAxis) throws -> Void
     private let source = WindowFrameSource()
     private var escapeToken: UUID?
     /// Watches for the user's own input once the capture scrolls by itself:
@@ -120,7 +126,9 @@ final class ScrollingCaptureSession {
          shrinkToFit: Bool = false,
          activateSelectedWindow: (@MainActor (WindowPickerSelection) throws -> Void)? = nil,
          ownUICovers: @escaping @MainActor (CGPoint) -> Bool = { _ in false },
-         ignoredWindows: @escaping @MainActor () -> Set<CGWindowID> = { [] }) {
+         ignoredWindows: @escaping @MainActor () -> Set<CGWindowID> = { [] },
+         resolveViewport: (@MainActor (WindowPickerSelection, ScrollAxis) throws -> ScrollViewportResolution)? = nil,
+         checkTarget: (@MainActor (AXUIElement?, ScrollAxis) throws -> Void)? = nil) {
         self.selection = selection
         self.axis = axis
         self.excludeScrollbars = excludeScrollbars
@@ -131,6 +139,19 @@ final class ScrollingCaptureSession {
         }
         self.ownUICovers = ownUICovers
         self.ignoredWindows = ignoredWindows
+        self.resolveViewport = resolveViewport ?? { selection, axis in
+            try ScrollDriver.viewport(selection: selection, axis: axis)
+        }
+        self.checkTarget = checkTarget ?? { container, axis in
+            if let container {
+                try ScrollDriver.validateScrollTarget(selection: selection, point: selection.clickPoint,
+                                                      container: container, axis: axis,
+                                                      ignoring: ignoredWindows())
+            } else {
+                try ScrollDriver.validateSelectedWindow(selection: selection, point: selection.clickPoint,
+                                                        ignoring: ignoredWindows())
+            }
+        }
         self.assembler = ImageAssembler(axis: axis, maxLength: lengthLimit)
     }
 
@@ -533,6 +554,46 @@ final class ScrollingCaptureSession {
         try await stepLoop()
     }
 
+    /// The scroll area for a direction, from Accessibility, checked to be where
+    /// it should: set as the capture's viewport and container, and returned
+    /// with the window's rounded edges inset. Where Accessibility finds none, or
+    /// finds one that does not hold, it is the window, which the pixel probe
+    /// narrows to what moves.
+    func resolveArea(for axis: ScrollAxis) throws -> ScrollViewport {
+        diagnosticStage = .resolveViewport
+        var area: ScrollViewport
+        switch try resolveViewport(selection, axis) {
+        case .accessibility(let resolved, let container):
+            area = resolved
+            scrollContainer = container
+            diagnosticStage = .validateTarget
+            do {
+                try checkTarget(container, axis)
+            } catch ScrollDriverError.scrollAreaUnavailable {
+                // AX may expose a partial Chromium tree: keep the selected
+                // CG window and let the pixel probe establish the viewport.
+                Log.capture.notice("scroll capture viewport fallback: AX target identity was incomplete")
+                area = ScrollDriver.windowFallbackViewport(for: selection)
+                scrollContainer = nil
+                try checkTarget(nil, axis)
+            }
+        case .window(let resolved):
+            // Chromium and other complex apps may provide a window capture
+            // before exposing a complete AXWebArea chain. Pixel probing
+            // will reduce this to the region that actually moves.
+            area = resolved
+            scrollContainer = nil
+            Log.capture.notice("scroll capture viewport fallback: AX hit did not resolve a suitable scroll container")
+            diagnosticStage = .validateTarget
+            try checkTarget(nil, axis)
+        }
+        guard let inset = area.insetWindowEdges(points: Geometry.roundedWindowEdgeInsetPoints) else {
+            throw ScrollDriverError.scrollAreaUnavailable
+        }
+        viewport = inset
+        return inset
+    }
+
     /// From the window raised to the probe matched: the first strip is in, and
     /// the step loop can start.
     private func prepare() async throws {
@@ -543,40 +604,12 @@ final class ScrollingCaptureSession {
         try ensureActive()
         scale = Self.backingScale(for: selection.bounds)
         try checkWindowAndFocus()
-        diagnosticStage = .resolveViewport
-        switch try ScrollDriver.viewport(selection: selection, axis: axis) {
-        case .accessibility(let resolved, let container):
-            viewport = resolved
-            scrollContainer = container
-            diagnosticStage = .validateTarget
-            do {
-                try ScrollDriver.validateScrollTarget(selection: selection, point: selection.clickPoint,
-                                                      container: container, axis: axis,
-                                                      ignoring: ignoredWindows())
-            } catch ScrollDriverError.scrollAreaUnavailable {
-                // AX may expose a partial Chromium tree: keep the selected
-                // CG window and let the pixel probe establish the viewport.
-                Log.capture.notice("scroll capture viewport fallback: AX target identity was incomplete")
-                viewport = ScrollDriver.windowFallbackViewport(for: selection)
-                scrollContainer = nil
-                try ScrollDriver.validateSelectedWindow(selection: selection, point: selection.clickPoint,
-                                                    ignoring: ignoredWindows())
-            }
-        case .window(let resolved):
-            // Chromium and other complex apps may provide a window capture
-            // before exposing a complete AXWebArea chain. Pixel probing
-            // will reduce this to the region that actually moves.
-            viewport = resolved
-            scrollContainer = nil
-            Log.capture.notice("scroll capture viewport fallback: AX hit did not resolve a suitable scroll container")
-            diagnosticStage = .validateTarget
-            try ScrollDriver.validateSelectedWindow(selection: selection, point: selection.clickPoint,
-                                                    ignoring: ignoredWindows())
-        }
-        guard let baseViewport = viewport?.insetWindowEdges(points: Geometry.roundedWindowEdgeInsetPoints) else {
-            throw ScrollDriverError.scrollAreaUnavailable
-        }
-        viewport = baseViewport
+        // The scroll area for the direction asked for. It is found again for
+        // the other direction if the probe has to go that way: the area that
+        // scrolls down and the one that scrolls sideways are not the same
+        // (Finder's columns: a column, and the browser around them).
+        var areaAxis = axis
+        var baseViewport = try resolveArea(for: areaAxis)
         diagnosticStage = .capture
         // One look at the whole window before anything moves. It is the
         // start of the capture whichever way the capture ends up going, so
@@ -598,6 +631,12 @@ final class ScrollingCaptureSession {
         var settled: (axis: ScrollAxis, viewport: ScrollViewport, outcome: ProbeOutcome,
                       step: Int, lines: Int32, motionLimit: Int)?
         for candidate in Self.probeOrder(preferred: axis) {
+            if candidate != areaAxis {
+                // The frames are of the whole window, so a different area needs
+                // no new look: the probe is read off the same ones.
+                areaAxis = candidate
+                baseViewport = try resolveArea(for: candidate)
+            }
             let candidateViewport = try viewport(for: candidate, within: baseViewport)
             let initial = try cropped(before, to: candidateViewport)
             let probeStep = max(24, min(56, axisLength(of: initial, along: candidate) / 10))

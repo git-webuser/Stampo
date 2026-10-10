@@ -787,6 +787,41 @@ import Testing
         #expect(chosen([Link(identity: "window", role: "AXWindow", frame: window)], .horizontal) == nil)
     }
 
+    /// The scroll area is found for each direction the probe goes: in the
+    /// Finder's columns the area that scrolls down is one column and the one
+    /// that scrolls sideways is the browser around them, so the area chosen for
+    /// "down" is no good when the probe has to turn sideways. The frames of the
+    /// probe are of the whole window, so it needs no new look — only the area.
+    @Test @MainActor func theScrollAreaIsFoundAgainForEachDirectionThatIsProbed() throws {
+        let bounds = CGRect(x: 0, y: 0, width: 1280, height: 800)
+        let selection = WindowPickerSelection(windowID: 17, processID: 42,
+                                              clickPoint: CGPoint(x: 120, y: 300), bounds: bounds)
+        let column = CGRect(x: 100, y: 60, width: 245, height: 722)
+        let browser = CGRect(x: 100, y: 60, width: 1098, height: 722)
+        var asked: [ScrollAxis] = []
+        var checked: [ScrollAxis] = []
+        let session = ScrollingCaptureSession(
+            selection: selection, axis: .vertical,
+            resolveViewport: { _, axis in
+                asked.append(axis)
+                return .window(viewport: ScrollViewport(windowRect: axis == .vertical ? column : browser,
+                                                        relativeScrollPoint: CGPoint(x: 20, y: 240),
+                                                        windowBounds: bounds))
+            },
+            checkTarget: { _, axis in checked.append(axis) })
+        let down = try session.resolveArea(for: .vertical)
+        let sideways = try session.resolveArea(for: .horizontal)
+        // Asked of Accessibility, and the target checked, once for each direction.
+        #expect(asked == [.vertical, .horizontal])
+        #expect(checked == [.vertical, .horizontal])
+        // The two areas are the column and the browser, rounded edges aside.
+        #expect(down.windowRect.width < 260 && sideways.windowRect.width > 1000)
+        #expect(sideways.windowRect.width > down.windowRect.width * 4)
+        // Asked again for the first direction when it is asked for again.
+        _ = try session.resolveArea(for: .vertical)
+        #expect(asked == [.vertical, .horizontal, .vertical])
+    }
+
     @Test func scrollbarReserveUsesStableOptionalViewportEdges() throws {
         for axis in ScrollAxis.allCases {
             let width = 240, height = 200
