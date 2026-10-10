@@ -74,4 +74,4 @@ Change any of them in **Settings → Hotkeys**.
 
 ---
 
-*Stampo 0.9.2 — for macOS 15.7+*
+*Stampo 0.9.3 — for macOS 15.7+*
