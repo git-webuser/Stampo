@@ -14,6 +14,128 @@ final class PanelPopUpButton: NSPopUpButton {
     }
 }
 
+// MARK: - PanelSpinnerRing
+
+/// The panel's ring: 14pt, a faint track under a bright arc, turning rather
+/// than filling. For work that ends when it ends and has no fraction to report
+/// — the wait strip's translation and save, and a scrolling capture.
+struct PanelSpinnerRing: View {
+    /// Starts and stops the turn: it is the animation's trigger value, so the
+    /// owner flips it when the ring appears and disappears.
+    let isTurning: Bool
+    /// Whether the arc is away from its rest position. The wait strip clears
+    /// this when its work is done *without* touching `isTurning`, which is
+    /// what snaps the arc home instead of winding it back round.
+    var isSpinning = true
+
+    @Environment(\.colorSchemeContrast) private var contrast
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .stroke(PanelChrome.stroke(0.15, contrast), lineWidth: 2)
+            Circle()
+                .trim(from: 0, to: 0.3)
+                .stroke(PanelChrome.stroke(0.8, contrast),
+                        style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                .rotationEffect(.degrees(isTurning && isSpinning ? 360 : 0))
+                .animation(isTurning
+                           ? .linear(duration: 0.9).repeatForever(autoreverses: false)
+                           : .default,
+                           value: isTurning)
+        }
+        .frame(width: 14, height: 14)
+    }
+}
+
+// MARK: - PanelPauseButton
+
+/// The scrolling capture's button on the strip, beside ✕: the ring that turns
+/// while the capture works, with the pause sign inside it; and, once the
+/// capture waits, the play sign in the same circle. A click pauses a running
+/// capture and resumes a paused one. While the image is being saved the ring
+/// turns alone and the button does nothing.
+///
+/// The glyph's circle is the ring's circle. The symbols come in steps — their
+/// outline is 14.875 pt across at 14 pt and 17 at 15 — and the ring's outer
+/// edge is 16, so the glyph is drawn at 14 and scaled to fit.
+struct PanelPauseButton: View {
+    enum Kind: Equatable {
+        /// Working: the ring turns, a click pauses.
+        case pause
+        /// Waiting: a click resumes.
+        case resume
+        /// Saving: the ring turns, nothing to click.
+        case busy
+    }
+
+    let kind: Kind
+    let action: () -> Void
+
+    @Environment(\.colorSchemeContrast) private var contrast
+
+    @State private var isHovered = false
+    @State private var isPressed = false
+    @State private var isTurning = false
+
+    /// The glyph's size, measured: its circle is 14.875 pt across at 14 pt.
+    static let glyphSize: CGFloat = 14
+    /// What takes that circle to the ring's outer edge, 16 pt.
+    static let glyphScale: CGFloat = 16 / 14.875
+
+    var body: some View {
+        Button(action: action) {
+            ZStack {
+                switch kind {
+                case .pause:
+                    glyph("pause.circle")
+                    ring
+                case .resume:
+                    glyph("play.circle")
+                case .busy:
+                    ring
+                }
+            }
+            .frame(width: 24, height: 24)
+            .background(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(backgroundFill)
+            )
+        }
+        .buttonStyle(PanelButtonStyle(isHovered: $isHovered, isPressed: $isPressed))
+        .contentShape(Rectangle())
+        .disabled(kind == .busy)
+        .animation(.easeInOut(duration: 0.18), value: kind)
+        .accessibilityLabel(kind == .resume ? "Resume capture" : "Pause capture")
+    }
+
+    private var ring: some View {
+        PanelSpinnerRing(isTurning: isTurning)
+            .onAppear { isTurning = true }
+            .onDisappear { isTurning = false }
+    }
+
+    /// Dimmer under the turning arc, which has to be seen against it.
+    private func glyph(_ name: String) -> some View {
+        Image(systemName: name)
+            .font(.system(size: Self.glyphSize, weight: .semibold))
+            .scaleEffect(Self.glyphScale)
+            .foregroundStyle(glyphColor)
+    }
+
+    private var glyphColor: Color {
+        if isPressed || isHovered { return .white.opacity(kind == .pause ? 0.7 : 1) }
+        return PanelChrome.foreground(kind == .pause ? 0.5 : 0.8, contrast)
+    }
+
+    private var backgroundFill: Color {
+        if kind == .busy { return .clear }
+        if isPressed { return PanelChrome.fill(0.28, contrast) }
+        if isHovered { return PanelChrome.fill(0.16, contrast) }
+        return .clear
+    }
+}
+
 // MARK: - PanelIconButton
 
 /// Unified icon button for the panel with hover and active states.

@@ -27,10 +27,25 @@ struct ScanModeBadge {
     /// it measures the badge's dirty rect.
     private let symbol: NSImage?
 
+    /// The words of a badge that is not a scan mode — set by `init(title:…)`.
+    private let fixedTitle: String?
+
     init(mode: ScanSelectionMode, translationTarget: Locale.Language? = nil) {
         self.mode = mode
         self.translationTarget = translationTarget
-        self.symbol = Self.makeSymbol(for: mode)
+        self.fixedTitle = nil
+        self.symbol = mode.symbolName.flatMap(Self.makeSymbol(named:))
+    }
+
+    /// A badge with a title and a symbol of its own, for a hint that belongs to
+    /// no scan mode — the window picker's "Select a vertical scroll area". Geometry
+    /// and drawing are the scan badge's, so the two cannot differ in shape.
+    /// It carries the plain mode, which has no tint: the frame is white.
+    init(title: String, symbolName: String) {
+        self.mode = .plain
+        self.translationTarget = nil
+        self.fixedTitle = title
+        self.symbol = Self.makeSymbol(named: symbolName)
     }
 
     /// Verbs, because nothing has happened yet — a mode is armed over a region
@@ -41,6 +56,7 @@ struct ScanModeBadge {
     /// whole truth; past two it is a setting the user can change from right
     /// here, so the badge has to say which way this scan is going.
     var title: String {
+        if let fixedTitle { return fixedTitle }
         let languages = TranslationLanguages.shared
         guard mode == .translate, languages.offersChoice else {
             return LocaleManager.shared.string(mode.titleKey)
@@ -53,8 +69,7 @@ struct ScanModeBadge {
 
     private var padding: NSSize { NSSize(width: 9, height: 5) }
 
-    private static func makeSymbol(for mode: ScanSelectionMode) -> NSImage? {
-        guard let name = mode.symbolName else { return nil }
+    private static func makeSymbol(named name: String) -> NSImage? {
         // Palette colour, not a template tint: drawn straight into the context
         // an untinted symbol comes out black on a black pill.
         let config = NSImage.SymbolConfiguration(pointSize: 12, weight: .semibold)

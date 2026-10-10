@@ -101,10 +101,23 @@ enum PanelHideReason: String {
     case escKey
     case closeButton
     case captureStart
+    case scrollCaptureEnded
     case colorPickerStart
     case waitFinished
     case environmentInvalidation
     case unknown
+
+    /// Whether the panel going away for this reason is the user leaving, or the
+    /// capture they had begun ending — as against going away to make a capture
+    /// (`captureStart`, `colorPickerStart`) or for what is not theirs to decide.
+    var isTheUserLeaving: Bool {
+        switch self {
+        case .hotkeyToggle, .notchClick, .outsideClick, .escKey, .closeButton, .scrollCaptureEnded:
+            return true
+        case .captureStart, .colorPickerStart, .waitFinished, .environmentInvalidation, .unknown:
+            return false
+        }
+    }
 }
 
 // MARK: - CustomStringConvertible for state types
@@ -119,6 +132,7 @@ extension PanelState: CustomStringConvertible {
         case .translate:                    return "translate"
         case .hiding:                       return "hiding"
         case .countdown:                    return "countdown"
+        case .scrollCapture:                return "scrollCapture"
         case .waiting:                      return "waiting"
         case .transitioning(let t):         return "transitioning(\(t))"
         case .preSelection(let k):          return "preSelection(\(k))"

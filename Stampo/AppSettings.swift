@@ -46,6 +46,19 @@ enum AppSettings {
         static let copyToClipboard       = "copyToClipboard"
         static let includeCursor         = "includeCursor"
         static let includeWindowShadow   = "includeWindowShadow"
+        static let excludeScrollbars      = "excludeScrollbars"
+        /// true once macOS has been asked for Accessibility on behalf of a
+        /// scrolling capture. It asks only once; after that our own alert is
+        /// the only thing shown (see `ScrollingCaptureSession.start`).
+        static let scrollAccessibilityPrompted = "scrollAccessibilityPrompted"
+        /// Which way the Scrolling mode goes — shared by the picker's ⇥ and
+        /// the panel, so there is one answer to "which way?".
+        static let scrollDirection = "scrollDirection"
+        /// How long a scrolling capture may grow, in pixels — one of
+        /// `ScrollLengthLimit.options` — and whether it drops to 1x at the
+        /// limit and carries on instead of stopping there.
+        static let scrollLengthLimit = "scrollLengthLimit"
+        static let scrollShrinkToFit = "scrollShrinkToFit"
         static let defaultCaptureMode    = "defaultCaptureMode"
         static let defaultTimerDelay     = "defaultTimerDelay"
         // Permissions
@@ -319,6 +332,37 @@ enum AppSettings {
     nonisolated static var includeWindowShadow: Bool {
         UserDefaults.standard.object(forKey: Keys.includeWindowShadow) as? Bool ?? true
     }
+    nonisolated static var excludeScrollbars: Bool {
+        UserDefaults.standard.object(forKey: Keys.excludeScrollbars) as? Bool ?? true
+    }
+    /// The direction of the next scrolling capture. ⇥ turns it — in the picker
+    /// or in the panel — for that run only: however the run ends it goes back
+    /// to `.down` (`resetScrollDirection`), the way most pages scroll.
+    static var scrollDirection: ScrollDirection {
+        get {
+            store.string(forKey: Keys.scrollDirection)
+                .flatMap(ScrollDirection.init(rawValue:)) ?? .down
+        }
+        set { store.set(newValue.rawValue, forKey: Keys.scrollDirection) }
+    }
+
+    /// The direction ⇥ turned goes back to down: every run of a scrolling
+    /// capture starts with it (`ScrollRunExit`).
+    static func resetScrollDirection() {
+        scrollDirection = .down
+    }
+    static var scrollLengthLimit: Int {
+        get { ScrollLengthLimit.validated(store.object(forKey: Keys.scrollLengthLimit) as? Int) }
+        set { store.set(ScrollLengthLimit.validated(newValue), forKey: Keys.scrollLengthLimit) }
+    }
+    static var scrollShrinkToFit: Bool {
+        get { store.object(forKey: Keys.scrollShrinkToFit) as? Bool ?? false }
+        set { store.set(newValue, forKey: Keys.scrollShrinkToFit) }
+    }
+    static var scrollAccessibilityPrompted: Bool {
+        get { store.bool(forKey: Keys.scrollAccessibilityPrompted) }
+        set { store.set(newValue, forKey: Keys.scrollAccessibilityPrompted) }
+    }
     static var defaultCaptureMode: CaptureMode {
         let raw = UserDefaults.standard.string(forKey: Keys.defaultCaptureMode) ?? "selection"
         return CaptureMode(rawValue: raw) ?? .selection
@@ -420,6 +464,72 @@ enum AppSettings {
     }
 }
 
+// MARK: - ScrollDirection
+
+/// The way a scrolling capture goes. The panel and the window picker share
+/// one value, so ⇥ in the picker is the same choice as the panel's.
+enum ScrollDirection: String, CaseIterable, Equatable, Sendable {
+    case down
+    case right
+
+    var axis: ScrollAxis { self == .down ? .vertical : .horizontal }
+
+    /// The other of the two. ⇥ and ⇧⇥ both land here: with two directions
+    /// "next" and "previous" are the same step.
+    var other: ScrollDirection { self == .down ? .right : .down }
+
+    /// Lines of text with an arrow through them, rather than an arrow to a
+    /// line, which reads as "download". Both ship with macOS 13.
+    var icon: String {
+        self == .down ? "arrow.up.and.down.text.horizontal" : "arrow.left.and.right.text.vertical"
+    }
+
+    func localizedTitle(_ locale: Locale = LocaleManager.shared.locale) -> String {
+        switch self {
+        case .down:  return LocaleManager.string("Down",  locale: locale)
+        case .right: return LocaleManager.string("Right", locale: locale)
+        }
+    }
+    var title: String { localizedTitle() }
+
+    /// What the picker's hint says to do, for this direction: the area is
+    /// the one that scrolls the way the capture will go, and that is not always
+    /// the area under the first click that comes to mind.
+    var pickerHintKey: String {
+        switch self {
+        case .down:  return "Select a vertical scroll area"
+        case .right: return "Select a horizontal scroll area"
+        }
+    }
+}
+
+/// How a run of the scrolling capture ends: the picker, the countdown, the
+/// capture itself, or the panel it began from. Each of them, whatever the
+/// reason, hands the direction back to down — a run is what ⇥ turns it for, and
+/// the next one starts with ↓.
+enum ScrollRunExit: Equatable {
+    /// Saved, dropped with ✕, stopped with Esc, given way to the window's
+    /// screenshot, or the save failed.
+    case captureEnded
+    /// The capture could not start: another one was running.
+    case couldNotStart
+    /// Esc, or a click away, in the picker before a window was chosen.
+    case pickerCancelled
+    /// ✕ on the countdown that was to start the capture.
+    case countdownStopped
+    /// The panel closed: the user leaving it, whatever turned the direction there.
+    case panelClosed(PanelHideReason)
+
+    var resetsDirection: Bool {
+        switch self {
+        case .captureEnded, .couldNotStart, .pickerCancelled, .countdownStopped:
+            return true
+        case .panelClosed(let reason):
+            return reason.isTheUserLeaving
+        }
+    }
+}
+
 // MARK: - CaptureMode: RawRepresentable (for @AppStorage)
 extension CaptureMode: RawRepresentable {
     public typealias RawValue = String
@@ -427,6 +537,7 @@ extension CaptureMode: RawRepresentable {
         switch rawValue {
         case "selection": self = .selection
         case "window":    self = .window
+        case "scroll":    self = .scroll
         case "screen":    self = .screen
         default:          return nil
         }
@@ -435,6 +546,7 @@ extension CaptureMode: RawRepresentable {
         switch self {
         case .selection: return "selection"
         case .window:    return "window"
+        case .scroll:    return "scroll"
         case .screen:    return "screen"
         }
     }

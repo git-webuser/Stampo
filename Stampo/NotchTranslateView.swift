@@ -190,21 +190,8 @@ struct WaitingView: View {
     /// Same ring as the countdown's — 14pt, 2pt stroke, a faint track under a
     /// bright arc — turning instead of filling.
     private var spinner: some View {
-        ZStack {
-            Circle()
-                .stroke(PanelChrome.stroke(0.15, contrast), lineWidth: 2)
-            Circle()
-                .trim(from: 0, to: 0.3)
-                .stroke(PanelChrome.stroke(0.8, contrast),
-                        style: StrokeStyle(lineWidth: 2, lineCap: .round))
-                .rotationEffect(.degrees(isTurning && wait.isWorking ? 360 : 0))
-                .animation(isTurning
-                           ? .linear(duration: 0.9).repeatForever(autoreverses: false)
-                           : .default,
-                           value: isTurning)
-        }
-        .frame(width: 14, height: 14)
-        .frame(width: metrics.cellWidth, height: metrics.iconSize)
+        PanelSpinnerRing(isTurning: isTurning, isSpinning: wait.isWorking)
+            .frame(width: metrics.cellWidth, height: metrics.iconSize)
     }
 
     /// Outer width of the strip: two 32 × 24 cells, 20pt of edge inset either

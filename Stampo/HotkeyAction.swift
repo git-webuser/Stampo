@@ -94,6 +94,10 @@ enum HotkeyAction: UInt32, CaseIterable {
     case collectFiles = 9
     case shareLastItem = 10
     case translateClipboard = 11
+    // One action for both directions; ⇥ in the picker turns it. 13 was the
+    // separate "right" action of the same feature, merged before it shipped.
+    // The ID stays retired.
+    case scroll = 12
 
     /// Settings grouping. Nine editable shortcuts in one flat list stopped
     /// being scannable; the split follows what the action does rather than
@@ -103,7 +107,7 @@ enum HotkeyAction: UInt32, CaseIterable {
         switch self {
         case .togglePanel, .collectFiles, .pinLastCapture, .shareLastItem:
             return .panel
-        case .selection, .fullscreen, .window:
+        case .selection, .fullscreen, .window, .scroll:
             return .capture
         case .color, .scan, .translateClipboard:
             return .tools
@@ -118,6 +122,8 @@ enum HotkeyAction: UInt32, CaseIterable {
         switch self {
         case .scan:
             return "Press ⌥ to keep line breaks, ⌃ to translate"
+        case .scroll:
+            return "Press ⇥ to switch direction"
         case .translateClipboard:
             // The one shortcut with a prerequisite. Pressed on its own it can
             // only report an empty clipboard, and a shortcut that answers "no"
@@ -144,6 +150,7 @@ enum HotkeyAction: UInt32, CaseIterable {
         case .collectFiles: return "Pin Panel"
         case .shareLastItem: return "Share Last Item"
         case .translateClipboard: return "Translate"
+        case .scroll: return "Scrolling Screenshot"
         }
     }
 
@@ -165,6 +172,7 @@ enum HotkeyAction: UInt32, CaseIterable {
         case .collectFiles: return "pin"
         case .shareLastItem: return "square.and.arrow.up"
         case .translateClipboard: return "translate"
+        case .scroll: return "arrow.up.and.down.text.horizontal"
         }
     }
 
@@ -188,6 +196,7 @@ enum HotkeyAction: UInt32, CaseIterable {
         // T was the retired Capture Text action, so the muscle memory it
         // carries is "text" — which is what this one operates on.
         case .translateClipboard: key = kVK_ANSI_T
+        case .scroll: key = kVK_ANSI_F
         }
         return HotkeyCombo(keyCode: UInt16(key), carbonModifiers: mods)
     }
@@ -214,6 +223,7 @@ enum HotkeyAction: UInt32, CaseIterable {
         case .shareLastItem: return "hotkeyShareLastCaptureEnabled"
         // Added long after the combo migration; nothing ever wrote this.
         case .translateClipboard: return "hotkeyTranslateClipboardEnabled"
+        case .scroll: return "hotkeyScrollEnabled"
         }
     }
 

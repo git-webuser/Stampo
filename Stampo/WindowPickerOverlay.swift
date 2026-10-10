@@ -1,4 +1,13 @@
 import AppKit
+import ApplicationServices
+
+struct WindowPickerSelection: Sendable {
+    let windowID: CGWindowID
+    let processID: pid_t
+    /// Global Quartz coordinates (origin at the top left of the primary display).
+    let clickPoint: CGPoint
+    let bounds: CGRect
+}
 
 // MARK: - WindowPickerOverlay
 
@@ -7,9 +16,17 @@ import AppKit
 /// Calls `onSelected` with the CGWindowID of the chosen window.
 final class WindowPickerOverlay {
     var onSelected: ((CGWindowID) -> Void)?
+    /// Rich result used by scrolling capture. The original callback remains
+    /// unchanged for ordinary window screenshots.
+    var onSelectedWindow: ((WindowPickerSelection) -> Void)?
     var onCancelled: (() -> Void)?
+    /// Set for a scrolling capture: a hint rides the pointer saying what the
+    /// click is for and which way it will scroll, and ⇥ turns the direction.
+    /// Nil for an ordinary window shot, which needs neither.
+    var scrollDirection: ScrollDirection?
 
     private var panel: NSPanel?
+    private var view: WindowPickerView?
     private var targetScreen: NSScreen?
     private var escObservation: EscObservation?
     private var cursorObservers: [NSObjectProtocol] = []
@@ -19,6 +36,9 @@ final class WindowPickerOverlay {
     /// True while the cursor has been pushed via NSCursor.push() — guards
     /// against a double-pop if both dismiss() and resetCursorState() fire.
     private var cursorPushed = false
+    /// ⇥ and ⇧⇥ while a scrolling picker is up — see `claimDirectionKeys`.
+    private var tabToken: UUID?
+    private var shiftTabToken: UUID?
 
     isolated deinit {
         resetCursorState()
@@ -29,14 +49,31 @@ final class WindowPickerOverlay {
         let frame = screen.frame
 
         let panel = makeOverlayPanel(frame: frame)
+        // No system disappearance animation, as on the notch panel: on macOS 27
+        // `orderOut` leaves the window under the pointer for ~0.3 s, fading,
+        // and a scroll sent in that time goes to the picker, not the page.
+        panel.animationBehavior = .none
         let wpcCursor = makeWindowCaptureCursor()
 
         let view = WindowPickerView(frame: NSRect(origin: .zero, size: frame.size))
         view.targetScreen = screen
         view.wpcCursor = wpcCursor          // view uses same cursor instance for cursor-rects
-        view.onSelected = { [weak self] windowID in
+        view.badge = scrollDirection.map(Self.badge(for:))
+        view.onSelected = { [weak self] selection in
             self?.dismiss()
-            self?.onSelected?(windowID)
+            if let selection {
+                if let onSelectedWindow = self?.onSelectedWindow {
+                    // Scrolling capture sends events to this window, so it has
+                    // to come forward; an ordinary window shot leaves focus be.
+                    NSRunningApplication(processIdentifier: selection.processID)?
+                        .activate(options: [.activateAllWindows])
+                    onSelectedWindow(selection)
+                } else {
+                    self?.onSelected?(selection.windowID)
+                }
+            } else {
+                self?.onCancelled?()
+            }
         }
         view.onCancelled = { [weak self] in
             self?.dismiss()
@@ -44,6 +81,7 @@ final class WindowPickerOverlay {
         }
         panel.contentView = view
         self.panel = panel
+        self.view = view
 
         escObservation = EscObservation { [weak self] in self?.cancel() }
 
@@ -67,6 +105,48 @@ final class WindowPickerOverlay {
         wpcCursor.set()
 
         installCursorObservers(panel: panel)
+
+        // The hint is for a pointer that is already there: it has not moved,
+        // and until it does there would be nothing on screen to say what the
+        // click is for.
+        view.seedHover()
+        if scrollDirection != nil { claimDirectionKeys(view: view) }
+    }
+
+    private static func badge(for direction: ScrollDirection) -> ScanModeBadge {
+        ScanModeBadge(title: LocaleManager.shared.string(direction.pickerHintKey),
+                      symbolName: direction.icon)
+    }
+
+    /// ⇥ and ⇧⇥ turn the direction while the picker is up, as they turn the
+    /// translation language in the scanner — and are claimed only for that
+    /// long, because a claimed ⇥ is gone for every app on the machine. The
+    /// same setting that governs the scanner's ⇥ governs this one.
+    private func claimDirectionKeys(view: WindowPickerView) {
+        guard AppSettings.hotkeyHUDFormatEnabled, tabToken == nil else { return }
+        tabToken = TransientHotkeyCenter.tab.push { [weak self, weak view] in
+            self?.turnDirection(view: view)
+        }
+        shiftTabToken = TransientHotkeyCenter.shiftTab.push { [weak self, weak view] in
+            self?.turnDirection(view: view)
+        }
+    }
+
+    private func releaseDirectionKeys() {
+        if let tabToken { TransientHotkeyCenter.tab.remove(tabToken) }
+        if let shiftTabToken { TransientHotkeyCenter.shiftTab.remove(shiftTabToken) }
+        tabToken = nil
+        shiftTabToken = nil
+    }
+
+    private func turnDirection(view: WindowPickerView?) {
+        guard let current = scrollDirection else { return }
+        let next = current.other
+        scrollDirection = next
+        // The same setting the panel reads: one answer to "which way?".
+        AppSettings.scrollDirection = next
+        view?.badge = Self.badge(for: next)
+        view?.needsDisplay = true
     }
 
     func cancel() {
@@ -78,6 +158,7 @@ final class WindowPickerOverlay {
     /// dismiss() was already called). Called defensively from
     /// finishCountdown / captureNowFromCountdown in NotchPanelCapture.
     func resetCursorState() {
+        releaseDirectionKeys()
         removeCursorObservers()
         if cursorPushed {
             NSCursor.pop()
@@ -91,6 +172,7 @@ final class WindowPickerOverlay {
 
     private func dismiss() {
         guard panel != nil else { return }
+        releaseDirectionKeys()
         removeCursorObservers()
         if cursorPushed {
             NSCursor.pop()
@@ -102,6 +184,7 @@ final class WindowPickerOverlay {
         escObservation = nil
         panel?.orderOut(nil)
         panel = nil
+        view = nil
         NSCursor.arrow.set()
         Task { @MainActor in NSCursor.arrow.set() }
     }
@@ -154,10 +237,41 @@ final class WindowPickerOverlay {
             Task { @MainActor [weak self] in
                 guard let self, self.cursorPushed else { return }
                 self.wpcCursor?.set()
+                self.followPointer()
             }
         }
         RunLoop.main.add(t, forMode: .common)
         cursorTimer = t
+    }
+
+    /// The overlay is one window over one display, and the pointer may leave it
+    /// for another: there is then nothing to highlight, no hint, and a click
+    /// goes to whatever is under it. The same timer that holds the cursor looks
+    /// where the pointer is, thirty times a second — a global monitor of motion
+    /// would do the same, and needs more of the system to stay quiet — and when
+    /// it is on another display the overlay moves there, and is taken down with
+    /// the timer when the picker goes.
+    private func followPointer() {
+        guard let panel, let view, let current = targetScreen else { return }
+        let screens = NSScreen.screens
+        guard let index = ScreenUnderPointer.index(of: NSEvent.mouseLocation, in: screens.map(\.frame)),
+              screens[index].frame != current.frame else { return }
+        move(to: screens[index], panel: panel, view: view)
+    }
+
+    /// The window to the display, the view to the window, the highlight and the
+    /// hint to the pointer where it is: all in the new display's coordinates.
+    private func move(to screen: NSScreen, panel: NSPanel, view: WindowPickerView) {
+        targetScreen = screen
+        panel.setFrame(screen.frame, display: true)
+        view.frame = NSRect(origin: .zero, size: screen.frame.size)
+        view.targetScreen = screen
+        panel.orderFrontRegardless()
+        panel.makeKeyAndOrderFront(nil)
+        panel.makeFirstResponder(view)
+        panel.invalidateCursorRects(for: view)
+        wpcCursor?.set()
+        view.followPointerToNewScreen()
     }
 
     private func removeCursorObservers() {
@@ -176,11 +290,14 @@ final class WindowPickerOverlay {
 private final class WindowPickerView: NSView {
     var targetScreen: NSScreen?
     var wpcCursor: NSCursor = .arrow      // set by WindowPickerOverlay before display
-    var onSelected: ((CGWindowID) -> Void)?
+    var onSelected: ((WindowPickerSelection?) -> Void)?
     var onCancelled: (() -> Void)?
+    var badge: ScanModeBadge?
 
-    private var hoveredWindowID: CGWindowID?
+    private var hoveredSelection: WindowPickerSelection?
     private var hoveredViewRect: CGRect?
+    /// Where the pointer is, in view coordinates, while a badge follows it.
+    private var hoverPoint: NSPoint?
 
     override var isOpaque: Bool { false }
     override var acceptsFirstResponder: Bool { true }
@@ -216,11 +333,31 @@ private final class WindowPickerView: NSView {
     override func mouseMoved(with event: NSEvent) {
         wpcCursor.set()
         let pt = convert(event.locationInWindow, from: nil)
+        hoverPoint = pt
         updateHover(at: pt)
     }
 
+    /// The pointer has come to this view on another display: what was
+    /// highlighted belonged to the last one, and what is under the pointer is
+    /// found again, in this display's coordinates, without waiting for the next move.
+    func followPointerToNewScreen() {
+        hoveredSelection = nil
+        hoveredViewRect = nil
+        seedHover()
+        if let hoverPoint { updateHover(at: hoverPoint) }
+        needsDisplay = true
+    }
+
+    /// Takes the pointer's place as it is now, with no event to read it from.
+    func seedHover() {
+        guard let window else { return }
+        hoverPoint = convert(window.mouseLocationOutsideOfEventStream, from: nil)
+        needsDisplay = true
+    }
+
     override func mouseDown(with event: NSEvent) {
-        if let id = hoveredWindowID { onSelected?(id) } else { onCancelled?() }
+        updateHover(at: convert(event.locationInWindow, from: nil))
+        onSelected?(hoveredSelection)
     }
 
     override func keyDown(with event: NSEvent) {
@@ -230,12 +367,12 @@ private final class WindowPickerView: NSView {
     private func updateHover(at viewPt: NSPoint) {
         guard let screen = targetScreen else { return }
         let result = windowAtViewPoint(viewPt, screen: screen)
-        hoveredWindowID = result?.0
+        hoveredSelection = result?.0
         hoveredViewRect = result?.1
         needsDisplay = true
     }
 
-    private func windowAtViewPoint(_ viewPt: NSPoint, screen: NSScreen) -> (CGWindowID, CGRect)? {
+    private func windowAtViewPoint(_ viewPt: NSPoint, screen: NSScreen) -> (WindowPickerSelection, CGRect)? {
         let cgPt = viewPointToCGPoint(viewPt, screen: screen)
 
         let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
@@ -246,6 +383,7 @@ private final class WindowPickerView: NSView {
             guard let layer = info[kCGWindowLayer as String] as? Int, layer == 0 else { continue }
             guard let isOn = info[kCGWindowIsOnscreen as String] as? Bool, isOn else { continue }
             guard let num = info[kCGWindowNumber as String] as? UInt32 else { continue }
+            guard let pid = info[kCGWindowOwnerPID as String] as? pid_t else { continue }
             guard let bd = info[kCGWindowBounds as String] as? [String: Any] else { continue }
 
             let wx = (bd["X"] as? CGFloat) ?? 0
@@ -257,7 +395,9 @@ private final class WindowPickerView: NSView {
             let cgRect = CGRect(x: wx, y: wy, width: ww, height: wh)
             guard cgRect.contains(cgPt) else { continue }
 
-            return (CGWindowID(num), cgRectToViewRect(cgRect, screen: screen))
+            return (WindowPickerSelection(windowID: CGWindowID(num), processID: pid,
+                                          clickPoint: cgPt, bounds: cgRect),
+                    cgRectToViewRect(cgRect, screen: screen))
         }
         return nil
     }
@@ -268,7 +408,10 @@ private final class WindowPickerView: NSView {
         ctx.setFillColor(NSColor.black.withAlphaComponent(0.18).cgColor)
         ctx.fill(bounds)
 
-        guard let rect = hoveredViewRect, rect.width > 0, rect.height > 0 else { return }
+        guard let rect = hoveredViewRect, rect.width > 0, rect.height > 0 else {
+            drawBadge()
+            return
+        }
 
         ctx.clear(rect)
 
@@ -276,5 +419,13 @@ private final class WindowPickerView: NSView {
         ctx.setLineWidth(2.0)
         ctx.addRect(rect.insetBy(dx: 1, dy: 1))
         ctx.strokePath()
+        drawBadge()
+    }
+
+    /// Drawn last, over everything: the highlight is the window the click
+    /// will pick, and the badge says what picking it is for.
+    private func drawBadge() {
+        guard let badge, let hoverPoint else { return }
+        badge.draw(in: badge.frame(nearPointer: hoverPoint, in: bounds))
     }
 }

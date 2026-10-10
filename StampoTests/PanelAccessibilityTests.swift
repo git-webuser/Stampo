@@ -31,10 +31,12 @@ import Testing
     /// `NSViewRepresentable.makeNSView` runs during layout, so the tree has to
     /// be pumped before the buttons exist.
     private func panelMenus(mode: CaptureMode = .window,
-                            delay: CaptureDelay = .s5) -> [String: NSPopUpButton] {
+                            delay: CaptureDelay = .s5,
+                            direction: ScrollDirection = .down) -> [String: NSPopUpButton] {
         let model = NotchPanelModel()
         model.mode = mode
         model.delay = delay
+        model.scrollDirection = direction
 
         let view = NotchPanelView(
             metrics: .fallback(),
@@ -91,7 +93,18 @@ import Testing
     @Test(arguments: CaptureMode.allCases)
     func everyModeIsAnnouncedAsItsOwnValue(mode: CaptureMode) {
         #expect(panelMenus(mode: mode)[modeLabel]?.accessibilityValue() as? String
-                == mode.localizedTitle())
+                == mode.accessibilityValue(direction: .down))
+    }
+
+    /// The glyph shows the scroll direction and VoiceOver cannot see a glyph,
+    /// so Scrolling's value carries it: "Scrolling, right". Any other mode
+    /// announces just itself, whatever the direction is set to.
+    @Test func scrollingIsAnnouncedWithItsDirection() {
+        let right = panelMenus(mode: .scroll, direction: .right)[modeLabel]?.accessibilityValue() as? String
+        #expect(right == CaptureMode.scroll.accessibilityValue(direction: .right))
+        #expect(right?.contains(",") == true)
+        #expect(panelMenus(mode: .window, direction: .right)[modeLabel]?.accessibilityValue() as? String
+                == CaptureMode.window.localizedTitle())
     }
 
     /// The more menu never has a selection (`selectItem(at: -1)`), so it gets

@@ -7,6 +7,10 @@ import Testing
         #expect(!PanelState.transitioning(to: .archive).allowsAutoHide)
         #expect(!PanelState.transitioning(to: .main).allowsAutoHide)
         #expect(!PanelState.countdown.allowsAutoHide)
+        // A scrolling capture is raised by the app too: the pointer is in the
+        // window being scrolled, not on the strip, and the strip must not
+        // close itself under the capture.
+        #expect(!PanelState.scrollCapture.allowsAutoHide)
         // The wait is raised by the app, not by the pointer — which is
         // therefore nowhere near it. Left to the ordinary "mouse left" rule
         // the panel would close itself in the middle of the translation it
@@ -39,6 +43,7 @@ import Testing
         #expect(!PanelState.archive.isStale)
         #expect(!PanelState.hiding.isStale)
         #expect(!PanelState.countdown.isStale)
+        #expect(!PanelState.scrollCapture.isStale)
         #expect(!PanelState.preSelection(.selection).isStale)
     }
 }
@@ -105,7 +110,7 @@ import Testing
     /// close the panel then, not collapse something the user can no longer see.
     /// The selection flag is cleared on the same close and outlives it the same
     /// way, so it is read under the same guard.
-    @Test(arguments: [PanelState.main, .showing, .countdown, .transitioning(to: .main)])
+    @Test(arguments: [PanelState.main, .showing, .countdown, .scrollCapture, .transitioning(to: .main)])
     func onlyTheArchiveUnwindsInsteadOfClosing(state: PanelState) {
         #expect(state.escapeAction(
             hasExpandedStack: true, isSelecting: false,
@@ -127,20 +132,49 @@ import Testing
         #expect(!state.wantsEscapeHotkey(isSharePickerOpen: false))
     }
 
+    /// The strip is on screen, but Esc belongs to the capture session: a
+    /// hotkey the panel held here would shadow the session's and close the
+    /// strip without telling the capture it was over.
+    @Test func theScrollingStripLeavesEscToTheSession() {
+        #expect(!PanelState.scrollCapture.wantsEscapeHotkey(isSharePickerOpen: false))
+    }
+
     /// ⇥ is only worth claiming where the header has a list to step through.
     @Test(arguments: [PanelState.archive, .translate])
     func theTwoRoutesWithAListHoldTheCycleKey(state: PanelState) {
-        #expect(state.wantsCycleHotkey)
+        #expect(state.wantsCycleHotkey(scrollModeSelected: false))
+        #expect(state.wantsCycleHotkey(scrollModeSelected: true))
+    }
+
+    /// Main has one thing to step through, and only in Scrolling: the
+    /// direction. In any other mode the key is not the panel's.
+    @Test func mainHoldsTheCycleKeyOnlyInTheScrollingMode() {
+        #expect(PanelState.main.wantsCycleHotkey(scrollModeSelected: true))
+        #expect(!PanelState.main.wantsCycleHotkey(scrollModeSelected: false))
+    }
+
+    /// The view's half of the same rule: which route has something to step
+    /// through. Together with the state's, the pointer being on the panel and
+    /// the setting being on, that is the whole condition for holding ⇥.
+    @Test func routesStepThroughSomethingOnlyWhereThereIsSomething() {
+        #expect(NotchPanelRoute.archive.cyclesSomething(scrollModeSelected: false))
+        #expect(NotchPanelRoute.translate.cyclesSomething(scrollModeSelected: false))
+        #expect(NotchPanelRoute.main.cyclesSomething(scrollModeSelected: true))
+        #expect(!NotchPanelRoute.main.cyclesSomething(scrollModeSelected: false))
+        #expect(!NotchPanelRoute.cdwn.cyclesSomething(scrollModeSelected: true))
     }
 
     /// Everything else hands it straight back. This is the dangerous half: a
     /// registered hotkey consumes ⇥ for every app on the machine, and the
     /// panel can be pinned open for hours.
     @Test(arguments: [PanelState.hidden, .showing, .main, .hiding, .countdown,
-                      .waiting, .transitioning(to: .translate),
+                      .scrollCapture, .waiting, .transitioning(to: .translate),
                       .preSelection(.selection), .stale(reason: .sleep)])
     func everyOtherStateHandsTheCycleKeyBack(state: PanelState) {
-        #expect(!state.wantsCycleHotkey)
+        #expect(!state.wantsCycleHotkey(scrollModeSelected: false))
+        // Not even in Scrolling: that mode's ⇥ is Main's alone.
+        if case .main = state { return }
+        #expect(!state.wantsCycleHotkey(scrollModeSelected: true))
     }
 
     /// The share sheet is our own window: holding the hotkey would eat the Esc

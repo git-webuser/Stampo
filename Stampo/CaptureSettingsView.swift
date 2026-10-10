@@ -9,6 +9,12 @@ struct CaptureSettingsView: View {
     @AppStorage(AppSettings.Keys.copyToClipboard)     private var copyToClipboard     = true
     @AppStorage(AppSettings.Keys.includeCursor)       private var includeCursor       = false
     @AppStorage(AppSettings.Keys.includeWindowShadow) private var includeWindowShadow = true
+    @AppStorage(AppSettings.Keys.excludeScrollbars) private var excludeScrollbars = true
+    @AppStorage(AppSettings.Keys.scrollLengthLimit, store: AppSettings.store)
+    private var scrollLengthLimit = ScrollLengthLimit.default
+    @AppStorage(AppSettings.Keys.scrollShrinkToFit, store: AppSettings.store)
+    private var scrollShrinkToFit = false
+    @Environment(\.locale) private var locale
     @AppStorage(AppSettings.Keys.defaultCaptureMode)  private var defaultCaptureMode  = CaptureMode.selection
     @AppStorage(AppSettings.Keys.defaultTimerDelay)   private var defaultTimerDelay   = CaptureDelay.off
 
@@ -30,6 +36,45 @@ struct CaptureSettingsView: View {
             counter: AppSettings.captureCounter + 1,
             format: fileFormat
         )
+    }
+
+    /// What the chosen length comes to, as the row's second line: screens of the
+    /// page, and the size of the file in the format chosen above. Like the
+    /// filename's, it answers the picker beside it.
+    private var lengthLimitDescription: LocalizedStringKey {
+        let screen = NSScreen.main ?? NSScreen.screens.first
+        let estimate = ScrollLengthLimit.estimate(
+            limit: scrollLengthLimit, format: fileFormat,
+            screenPoints: screen?.frame.size ?? CGSize(width: 1440, height: 900),
+            backingScale: screen?.backingScaleFactor ?? 2)
+        return "About \(estimate.screens) screens · \(fileFormatName) about \(Self.sizeText(estimate.bytes, locale: locale))"
+    }
+
+    private var fileFormatName: String {
+        switch fileFormat {
+        case "jpg", "jpeg": return "JPEG"
+        case "tiff", "tif": return "TIFF"
+        default:            return "PNG"
+        }
+    }
+
+    /// Megabytes (millions of bytes, as Finder counts them), always: a range
+    /// reads as one unit, and the largest estimate — a TIFF on a big display —
+    /// is about a gigabyte, not worth a second unit. Written in the app's
+    /// language, not the system's, which is what `ByteCountFormatter` would
+    /// use: the sentence around the number is in the app's.
+    static func sizeText(_ bytes: ClosedRange<Int64>, locale: Locale) -> String {
+        func megabytes(_ count: Int64) -> String {
+            let value = Double(count) / 1_000_000
+            // One decimal for the small ones, where a decimal is a fifth of the
+            // number; none above ten.
+            return value.formatted(.number.precision(.fractionLength(0...(value < 10 ? 1 : 0))).locale(locale))
+        }
+        let unit = LocaleManager.string("MB", locale: locale)
+        guard bytes.lowerBound != bytes.upperBound else {
+            return "\(megabytes(bytes.upperBound)) \(unit)"
+        }
+        return "\(megabytes(bytes.lowerBound))–\(megabytes(bytes.upperBound)) \(unit)"
     }
 
     var body: some View {
@@ -91,6 +136,33 @@ struct CaptureSettingsView: View {
                 }
                 SettingRow(icon: "shadow", title: "Include window shadow") {
                     Toggle("", isOn: $includeWindowShadow).labelsHidden()
+                }
+            }
+
+            // MARK: Scrolling screenshot
+            Section("Scrolling Screenshot") {
+                SettingRow(
+                    icon: "scroll",
+                    title: "Exclude scrollbars",
+                    description: "Excludes a narrow viewport edge where scrollbars appear; content near that edge may also be cropped."
+                ) {
+                    Toggle("", isOn: $excludeScrollbars).labelsHidden()
+                }
+                SettingRow(icon: "ruler", title: "Length limit", description: lengthLimitDescription) {
+                    Picker("", selection: $scrollLengthLimit) {
+                        ForEach(ScrollLengthLimit.options, id: \.self) { limit in
+                            Text(verbatim: "\(limit.formatted(.number.locale(locale))) px").tag(limit)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .labelsHidden()
+                }
+                SettingRow(
+                    icon: "arrow.down.right.and.arrow.up.left",
+                    title: "Shrink to fit",
+                    description: "At the limit the image drops to standard resolution (1x) and the capture continues — twice as much of the page fits."
+                ) {
+                    Toggle("", isOn: $scrollShrinkToFit).labelsHidden()
                 }
             }
 

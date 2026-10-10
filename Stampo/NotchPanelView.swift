@@ -7,21 +7,38 @@ import AppKit
 enum CaptureMode: CaseIterable, Equatable, Sendable {
     case selection
     case window
+    /// One mode for both ways a page can scroll; which one is a setting
+    /// (`ScrollDirection`), remembered between uses.
+    case scroll
     case screen
 
     func localizedTitle(_ locale: Locale = LocaleManager.shared.locale) -> String {
         switch self {
         case .selection: return LocaleManager.string("Selection",     locale: locale)
         case .window:    return LocaleManager.string("Window",        locale: locale)
+        case .scroll:    return LocaleManager.string("Scrolling", locale: locale)
         case .screen:    return LocaleManager.string("Entire Screen", locale: locale)
         }
     }
     var title: String { localizedTitle() }
 
-    var icon: String {
+    /// What VoiceOver reads as the mode's value: its name, and for Scrolling
+    /// the direction, since the glyph that shows it is not read.
+    func accessibilityValue(direction: ScrollDirection, locale: Locale = LocaleManager.shared.locale) -> String {
+        guard self == .scroll else { return localizedTitle(locale) }
+        return "\(localizedTitle(locale)), \(direction.localizedTitle(locale).lowercased(with: locale))"
+    }
+
+    var icon: String { icon(direction: AppSettings.scrollDirection) }
+
+    /// The glyph for a mode; Scrolling takes the direction's, so the cell says
+    /// which way it will go. The panel passes its own observed direction so the
+    /// icon follows it when a picker has turned it.
+    func icon(direction: ScrollDirection) -> String {
         switch self {
         case .selection: return "rectangle.dashed"
         case .window:    return "macwindow"
+        case .scroll:    return direction.icon
         case .screen:    return "menubar.dock.rectangle"
         }
     }
@@ -30,6 +47,7 @@ enum CaptureMode: CaseIterable, Equatable, Sendable {
         switch self {
         case .selection: return "Sel"
         case .window:    return "Win"
+        case .scroll:    return AppSettings.scrollDirection == .down ? "↓" : "→"
         case .screen:    return "Full"
         }
     }
@@ -74,6 +92,9 @@ enum CaptureDelay: CaseIterable, Equatable {
 @Observable final class NotchPanelModel {
     var mode: CaptureMode   = AppSettings.defaultCaptureMode
     var delay: CaptureDelay = AppSettings.defaultTimerDelay
+    /// Which way Scrolling goes, as the panel last read it. The window picker
+    /// can turn it while the panel is away, so it is read again on every show.
+    var scrollDirection: ScrollDirection = AppSettings.scrollDirection
 }
 
 // MARK: - NotchPanelView
@@ -109,6 +130,10 @@ struct NotchPanelView: View {
     /// The mode cell's icon lags its model the same way, for the same reason —
     /// it is swapped behind a fade rather than replaced under the pointer.
     @State private var shownMode: CaptureMode?
+    /// The direction the Scrolling glyph shows. It is part of the mode cell's
+    /// icon, so it lags with it: ⇥ turning the direction is the same swap of
+    /// one glyph for another, and goes through the same fade.
+    @State private var shownDirection: ScrollDirection?
     @State private var modeGlyphOpacity: Double = 1
     @State private var modeHighlightSuppressed = false
     @State private var modeStaging: Task<Void, Never>?
@@ -125,7 +150,15 @@ struct NotchPanelView: View {
         .allowsHitTesting(interaction.isEnabled)
         .animation(nil, value: interaction.isEnabled)
         .onChange(of: model.delay) { _, newDelay in stageDelayChange(to: newDelay) }
-        .onChange(of: model.mode)  { _, newMode in stageModeChange(to: newMode) }
+        .onChange(of: model.mode)  { _, newMode in
+            stageModeChange(to: newMode, direction: model.scrollDirection)
+        }
+        .onChange(of: model.scrollDirection) { _, newDirection in
+            // Another mode's glyph does not show the direction, so there is
+            // nothing to swap; it is only remembered for when Scrolling is.
+            guard model.mode == .scroll else { shownDirection = newDirection; return }
+            stageModeChange(to: model.mode, direction: newDirection)
+        }
         // Both sequences sleep in the middle. The panel is torn down and rebuilt
         // for a Space switch, a sleep or a display change, and a task left
         // running wakes to write into `@State` that no longer belongs to
@@ -238,7 +271,7 @@ struct NotchPanelView: View {
     /// there is nothing for the fade to cover. It runs anyway, because a panel
     /// where one menu cell dissolves and the one beside it snaps is a panel
     /// with two opinions about what changing a value looks like.
-    private func stageModeChange(to newMode: CaptureMode) {
+    private func stageModeChange(to newMode: CaptureMode, direction newDirection: ScrollDirection) {
         modeStaging?.cancel()
         withAnimation(.easeInOut(duration: PanelTiming.delayHighlightRelease)) {
             modeHighlightSuppressed = true
@@ -247,6 +280,7 @@ struct NotchPanelView: View {
         // See `stageDelayChange` on why this asks `isEnabled`.
         guard interaction.isEnabled else {
             shownMode = newMode
+            shownDirection = newDirection
             modeGlyphOpacity = 1
             onModeDelayChanged()
             return
@@ -263,6 +297,7 @@ struct NotchPanelView: View {
             guard !Task.isCancelled else { return }
 
             shownMode = newMode
+            shownDirection = newDirection
             onModeDelayChanged()
 
             withAnimation(.easeOut(duration: PanelTiming.delayGlyphFade)) {
@@ -345,6 +380,7 @@ struct NotchPanelView: View {
         // side. Same reason `notchLayout` states for `contentVisibility`.
         .animation(nil, value: model.delay)
         .animation(nil, value: model.mode)
+        .animation(nil, value: model.scrollDirection)
     }
 
     // MARK: - Cells
@@ -367,11 +403,12 @@ struct NotchPanelView: View {
             metrics: metrics,
             onPickColor: onPickColor,
             onScan: onScan,
-            iconName: (shownMode ?? model.mode).icon,
+            iconName: (shownMode ?? model.mode).icon(direction: shownDirection ?? model.scrollDirection),
             glyphOpacity: modeGlyphOpacity,
             highlightSuppressed: $modeHighlightSuppressed
         )
         .animation(nil, value: model.mode)
+        .animation(nil, value: model.scrollDirection)
         .help("Capture mode")
         // No .accessibilityLabel here: the cell is a ZStack around an
         // NSPopUpButton, so the label that actually reaches VoiceOver is the
@@ -455,6 +492,9 @@ struct NotchPanelView: View {
 
 private struct PopUpModeButtonWrapper: NSViewRepresentable {
     @Binding var selection: CaptureMode
+    /// Which way Scrolling goes: the glyph shows it to the eye, and the value
+    /// VoiceOver reads has to say it too.
+    var scrollDirection: ScrollDirection
     var onPickColor: () -> Void
     var onScan: () -> Void
     var onOpen:  () -> Void
@@ -536,7 +576,7 @@ private struct PopUpModeButtonWrapper: NSViewRepresentable {
         // leaning on the cell's implicit value: the button is transparent and
         // borderless, and the mode is the one thing VoiceOver must announce.
         button.setAccessibilityLabel(LocaleManager.string("Capture mode", locale: locale))
-        button.setAccessibilityValue(selection.localizedTitle(locale))
+        button.setAccessibilityValue(selection.accessibilityValue(direction: scrollDirection, locale: locale))
         // Separator is at allCases.count + 1, Pick Color at + 2, Scan at + 3.
         button.item(at: CaptureMode.allCases.count + 2)?.title =
             LocaleManager.string("Pick Color", locale: locale)
@@ -738,6 +778,7 @@ private struct PanelModeMenuButton: View {
         return ZStack {
             PopUpModeButtonWrapper(
                 selection: $model.mode,
+                scrollDirection: model.scrollDirection,
                 onPickColor: onPickColor,
                 onScan: onScan,
                 onOpen:  { isMenuOpen = true; highlightSuppressed = false },
@@ -903,21 +944,33 @@ private struct PanelTimerMenuButton: View {
 
 // MARK: - PanelCaptureButton
 
-private struct PanelCaptureButton: View {
+struct PanelCaptureButton: View {
     let metrics: NotchMetrics
+    /// "Capture" everywhere but on a running scrolling capture, where the same
+    /// button saves what is collected and says so.
+    var title: LocalizedStringKey = "Capture"
+    /// The key of a title that is to be given room: the button is as wide as
+    /// the title and `titleInset` on each side, if that is more than the
+    /// button's own width. Nil keeps the button's width, which the panel's
+    /// layout has counted.
+    var fitting: String? = nil
     let action: () -> Void
 
+    /// What is left on either side of a title the button grew to hold.
+    static let titleInset: CGFloat = 10
+
     @Environment(\.colorSchemeContrast) private var contrast
+    @Environment(\.locale) private var locale
 
     @State private var isHovered = false
     @State private var isPressed = false
 
     var body: some View {
         Button(action: action) {
-            Text("Capture")
+            Text(title)
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(isPressed || isHovered ? .white : PanelChrome.foreground(0.8, contrast))
-                .frame(width: metrics.captureButtonWidth, height: metrics.buttonHeight)
+                .frame(width: width, height: metrics.buttonHeight)
                 .background(
                     RoundedRectangle(cornerRadius: metrics.buttonRadius, style: .continuous)
                         .fill(captureBackground)
@@ -926,6 +979,21 @@ private struct PanelCaptureButton: View {
         .buttonStyle(PanelButtonStyle(isHovered: $isHovered, isPressed: $isPressed))
         .contentShape(Rectangle())
         .animation(.easeInOut(duration: 0.12), value: isHovered)
+    }
+
+    private var width: CGFloat {
+        guard let fitting else { return metrics.captureButtonWidth }
+        return Self.width(minimum: metrics.captureButtonWidth,
+                          fitting: LocaleManager.string(fitting, locale: locale))
+    }
+
+    /// The button's width for a title: its own, or — when the title and its
+    /// insets need more — what they need. Measured as the button sets it, in
+    /// 12 pt semibold.
+    static func width(minimum: CGFloat, fitting title: String) -> CGFloat {
+        let font = NSFont.systemFont(ofSize: 12, weight: .semibold)
+        let natural = ceil((title as NSString).size(withAttributes: [.font: font]).width)
+        return max(minimum, natural + 2 * titleInset)
     }
 
     private var captureBackground: Color {
@@ -937,15 +1005,26 @@ private struct PanelCaptureButton: View {
 
 // MARK: - CountdownView
 
+/// What the countdown's strip shows in the arc's place.
+enum CountdownPhase: Equatable {
+    case countdown(seconds: Int, total: Int)
+    /// A scrolling capture has the strip: where the arc was, the ring turns
+    /// with the pause sign in it — a button that pauses — or, when the capture
+    /// waits, the play sign — a button that resumes. ✕ drops the capture and
+    /// the capture button saves it.
+    case scrolling(ScrollStripPhase)
+}
+
 struct CountdownView: View {
     @Environment(\.colorSchemeContrast) private var contrast
 
     let metrics: NotchMetrics
     var interaction: NotchPanelInteractionState
-    let secondsRemaining: Int
-    let totalSeconds: Int
+    let phase: CountdownPhase
     let onStop: () -> Void
     let onCaptureNow: () -> Void
+    /// The ring or play sign of a scrolling capture, clicked.
+    var onTogglePause: () -> Void = {}
 
     var body: some View {
         Group {
@@ -970,7 +1049,7 @@ struct CountdownView: View {
             HStack(spacing: 0) {
                 HStack(spacing: metrics.gap) {
                     stopCell
-                    arcIndicator
+                    indicator
                 }
                 .padding(.leading, metrics.edgeSafe)
                 .padding(.trailing, metrics.leftMinToNotch)
@@ -996,7 +1075,7 @@ struct CountdownView: View {
     private var noNotchLayout: some View {
         HStack(spacing: metrics.gap) {
             stopCell
-            arcIndicator
+            indicator
             Spacer()
             captureNowCell
         }
@@ -1021,6 +1100,31 @@ struct CountdownView: View {
             action: onStop
         )
         .frame(width: metrics.cellWidth, height: metrics.iconSize)
+    }
+
+    /// The countdown's arc, or — once a scrolling capture has taken the strip
+    /// over — its ring. One crossfade in place: the strip itself never leaves.
+    private var indicator: some View {
+        ZStack {
+            switch phase {
+            case .countdown:
+                arcIndicator.transition(.opacity)
+            case .scrolling(let strip):
+                PanelPauseButton(kind: strip.pauseButtonKind, action: onTogglePause)
+                    .transition(.opacity)
+            }
+        }
+        .animation(.easeInOut(duration: 0.18), value: indicatorKind)
+    }
+
+    /// Which of the three things is showing — the crossfade's trigger. The
+    /// phase itself changes every second while counting down, and the arc has
+    /// its own animation for that.
+    private var indicatorKind: Int {
+        switch phase {
+        case .countdown: return 0
+        case .scrolling(let strip): return strip == .paused ? 2 : 1
+        }
     }
 
     private var arcIndicator: some View {
@@ -1056,7 +1160,8 @@ struct CountdownView: View {
     }
 
     private var captureNowCell: some View {
-        PanelCaptureButton(metrics: metrics, action: onCaptureNow)
+        PanelCaptureButton(metrics: metrics, title: captureTitle,
+                           fitting: isScrolling ? "Save" : nil, action: onCaptureNow)
     }
 
     // MARK: - Helpers
@@ -1065,6 +1170,30 @@ struct CountdownView: View {
     private var arcProgress: Double {
         guard totalSeconds > 0 else { return 0 }
         return Double(totalSeconds - secondsRemaining) / Double(totalSeconds)
+    }
+
+    /// Once a scrolling capture is running the button no longer takes a
+    /// picture: it ends the capture and saves what is collected, and it says
+    /// so — "Done" left it unclear that nothing had been saved yet.
+    private var captureTitle: LocalizedStringKey {
+        isScrolling ? "Save" : "Capture"
+    }
+
+    /// Whether a scrolling capture has the strip. Its button is the one that
+    /// grows to hold its title.
+    private var isScrolling: Bool {
+        if case .scrolling = phase { return true }
+        return false
+    }
+
+    private var secondsRemaining: Int {
+        if case .countdown(let seconds, _) = phase { return seconds }
+        return 0
+    }
+
+    private var totalSeconds: Int {
+        if case .countdown(_, let total) = phase { return total }
+        return 0
     }
 
     private var contentOpacity: Double {

@@ -119,22 +119,44 @@ func viewRectToCGRect(_ rect: CGRect, panelOrigin: CGPoint, screen: NSScreen) ->
 
 /// View-local point → global CG point.
 func viewPointToCGPoint(_ pt: CGPoint, screen: NSScreen) -> CGPoint {
-    let h = cgPrimaryDisplayHeight(fallback: screen)
-    return CGPoint(
-        x: pt.x + screen.frame.minX,
-        y: h - (pt.y + screen.frame.minY)
+    viewPointToCGPoint(pt, screenFrame: screen.frame, primaryHeight: cgPrimaryDisplayHeight(fallback: screen))
+}
+
+/// The same from the screen's frame and the primary display's height, which
+/// is all it takes: a picker that follows the pointer from one display to
+/// another converts against the frame of the one it is on.
+func viewPointToCGPoint(_ pt: CGPoint, screenFrame: CGRect, primaryHeight h: CGFloat) -> CGPoint {
+    CGPoint(
+        x: pt.x + screenFrame.minX,
+        y: h - (pt.y + screenFrame.minY)
     )
 }
 
 /// Global CG rect → view-local rect.
 func cgRectToViewRect(_ rect: CGRect, screen: NSScreen) -> CGRect {
-    let h = cgPrimaryDisplayHeight(fallback: screen)
-    return CGRect(
-        x: rect.minX - screen.frame.minX,
-        y: h - rect.maxY - screen.frame.minY,
+    cgRectToViewRect(rect, screenFrame: screen.frame, primaryHeight: cgPrimaryDisplayHeight(fallback: screen))
+}
+
+func cgRectToViewRect(_ rect: CGRect, screenFrame: CGRect, primaryHeight h: CGFloat) -> CGRect {
+    CGRect(
+        x: rect.minX - screenFrame.minX,
+        y: h - rect.maxY - screenFrame.minY,
         width: rect.width,
         height: rect.height
     )
+}
+
+/// Which display the pointer is on, for an overlay that follows it.
+nonisolated enum ScreenUnderPointer {
+    /// The index of the frame — in AppKit's global coordinates, as
+    /// `NSScreen.frame` and `NSEvent.mouseLocation` are — that holds the point;
+    /// nil when it is on none, in the gap between two displays that do not touch.
+    /// A frame holds its left and bottom edge and not its right and top, so a
+    /// point on the line two displays share is on the one it has entered, and
+    /// never on both.
+    static func index(of point: CGPoint, in frames: [CGRect]) -> Int? {
+        frames.firstIndex { $0.contains(point) }
+    }
 }
 
 // MARK: - Shared overlay panel factory

@@ -19,6 +19,22 @@ import Testing
         assertSymbols(ArchiveDropZone.allCases.map(\.icon))
     }
 
+    /// The Scrolling mode's glyphs — both directions, and the hotkey's.
+    @Test func scrollingSymbolsExist() {
+        assertSymbols(ScrollDirection.allCases.map(\.icon) + [HotkeyAction.scroll.icon])
+    }
+
+    /// The Scrolling Screenshot settings rows: the length limit and the shrink.
+    @Test func scrollingSettingsSymbolsExist() {
+        assertSymbols(["scroll", "ruler", "arrow.down.right.and.arrow.up.left"])
+    }
+
+    /// The strip's button of a scrolling capture: pause while it works, play
+    /// while it waits.
+    @Test func scrollStripPauseAndPlaySymbolsExist() {
+        assertSymbols(["pause.circle", "play.circle"])
+    }
+
     @Test func waitStripSymbolsExist() {
         assertSymbols([PanelWait.translating, .saving, .saved].map(\.systemImage))
     }

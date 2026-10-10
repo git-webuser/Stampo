@@ -16,6 +16,8 @@ final class ScreenshotService {
     private nonisolated let capturer = ScreenshotCapturer()
     private nonisolated let store = ScreenshotFileStore()
     private(set) var lastCaptureURL: URL?
+    private var scrollingSession: ScrollingCaptureSession?
+    private var captureInProgress = false
 
     private let thumbnailHUD = ScreenshotThumbnailHUD()
 
@@ -31,6 +33,32 @@ final class ScreenshotService {
     /// Called when a capture is cancelled by the user (e.g. Esc during window picker).
     var onCancelled: (() -> Void)?
 
+    /// Whether Stampo's own visible UI is over a Quartz point. A scrolling
+    /// capture never scrolls through it.
+    var scrollingOwnUICovers: ((CGPoint) -> Bool)?
+
+    /// The notch panel's window number, the one window of ours a scrolling
+    /// capture looks through.
+    var scrollingIgnoredWindows: (() -> Set<CGWindowID>)?
+
+    /// What the notch strip should show while a scrolling capture runs.
+    var onScrollingStatus: ((ScrollCaptureStatus) -> Void)?
+
+    /// The scrolling capture is over — saved, cancelled or failed — and the
+    /// strip can leave.
+    var onScrollingEnded: (() -> Void)?
+
+    var isScrolling: Bool { scrollingSession != nil }
+
+    /// Done on the strip: save what is collected.
+    func finishScrolling() { scrollingSession?.finish() }
+
+    /// ✕ on the strip: drop it.
+    func cancelScrolling() { scrollingSession?.cancel() }
+
+    /// The ring or play sign on the strip: pause the capture, or resume it.
+    func toggleScrollingPause() { scrollingSession?.togglePause() }
+
     init() {
         thumbnailHUD.onTapped = { [weak self] in
             self?.onThumbnailTapped?()
@@ -41,9 +69,101 @@ final class ScreenshotService {
     /// Безопасно вызывать с любого потока; используется при sleep/wake/display change.
     nonisolated func cancelCurrentCapture() {
         capturer.terminateCurrentCapture()
+        Task { @MainActor [weak self] in self?.scrollingSession?.cancel() }
+    }
+
+    /// Starts the single in-memory scrolling capture session. The final image
+    /// enters the same store/publish pipeline as an ordinary screenshot.
+    /// Returns false when another capture is already running; nothing starts.
+    @discardableResult
+    func captureScrolling(selection: WindowPickerSelection, axis: ScrollAxis, preferredScreen: NSScreen?) -> Bool {
+        guard !captureInProgress, scrollingSession == nil else { return false }
+        captureInProgress = true
+        let session = ScrollingCaptureSession(selection: selection, axis: axis,
+                                              excludeScrollbars: AppSettings.excludeScrollbars,
+                                              lengthLimit: AppSettings.scrollLengthLimit,
+                                              shrinkToFit: AppSettings.scrollShrinkToFit,
+                                              ownUICovers: { [weak self] point in
+                                                  self?.scrollingOwnUICovers?(point) ?? false
+                                              },
+                                              ignoredWindows: { [weak self] in
+                                                  self?.scrollingIgnoredWindows?() ?? []
+                                              })
+        scrollingSession = session
+        session.onStatus = { [weak self] status in self?.onScrollingStatus?(status) }
+        session.onFinished = { [weak self] image in
+            guard let self else { return }
+            self.scrollingSession = nil
+            self.saveScrollingImage(image, on: preferredScreen)
+        }
+        session.onCancelled = { [weak self] in
+            self?.scrollingSession = nil
+            self?.captureInProgress = false
+            self?.onScrollingEnded?()
+        }
+        // Nothing to scroll through: the strip leaves and the window is
+        // captured as the Window mode captures it — same settings, same
+        // thumbnail, and an alert only if that fails too.
+        session.onWindowScreenshotInstead = { [weak self] in
+            guard let self else { return }
+            self.scrollingSession = nil
+            self.captureInProgress = false
+            self.onScrollingEnded?()
+            self.captureWindowID(selection.windowID, preferredScreen: preferredScreen)
+        }
+        session.start()
+        return true
+    }
+
+    private func saveScrollingImage(_ image: CGImage, on screen: NSScreen?) {
+        let store = self.store
+        let format = AppSettings.fileFormat
+        let service = self
+        // The display, not the screen object, crosses into the encoding task:
+        // NSScreen is not Sendable.
+        let displayID = screen?.displayID
+        Task.detached(priority: .userInitiated) { [weak service] in
+            do {
+                let rep = NSBitmapImageRep(cgImage: image)
+                let (type, properties) = ScreenshotFileStore.encoding(for: format)
+                guard let data = rep.representation(using: type, properties: properties) else {
+                    throw ScreenshotFileStore.SaveError.encodingFailed
+                }
+                let url = try store.saveEncodedImage(data, format: format)
+                await service?.finishScrollingSave(url, onDisplay: displayID)
+            } catch {
+                await MainActor.run { [weak service] in
+                    service?.captureInProgress = false
+                    let nsError = error as NSError
+                    Log.capture.error("scroll capture failed at stage save · \(nsError.domain, privacy: .public) code \(nsError.code, privacy: .public)")
+                    UserFacingError.present(Self.scrollingSaveErrorKind(error))
+                    service?.onScrollingEnded?()
+                }
+            }
+        }
+    }
+
+    static func scrollingSaveErrorKind(_ error: Error) -> UserFacingError.Kind {
+        if let saveError = error as? ScreenshotFileStore.SaveError,
+           case .encodingFailed = saveError {
+            return .scrollingCaptureFailed(reason: LocaleManager.shared.string("Stampo couldn't encode the scrolling image."))
+        }
+
+        let nsError = error as NSError
+        let isCocoaPermissionError = nsError.domain == NSCocoaErrorDomain
+            && [CocoaError.Code.fileWriteNoPermission.rawValue,
+                CocoaError.Code.fileReadNoPermission.rawValue].contains(nsError.code)
+        let isPOSIXPermissionError = nsError.domain == NSPOSIXErrorDomain
+            && [1, 13].contains(nsError.code) // EPERM or EACCES during the destination write
+        if isCocoaPermissionError || isPOSIXPermissionError {
+            return .saveDirectoryInaccessible(url: AppSettings.saveDirectoryURL)
+        }
+        return .scrollingCaptureFailed(reason: error.localizedDescription)
     }
 
     func capture(mode: CaptureMode, delaySeconds: Int, preferredScreen: NSScreen?) {
+        guard !captureInProgress, scrollingSession == nil else { return }
+        captureInProgress = true
         let displayID = preferredScreen?.displayID
         let frontmostWindowID = mode == .window
             ? FrontmostWindowResolver.frontmostWindowID()
@@ -76,6 +196,8 @@ final class ScreenshotService {
     }
 
     func captureRect(_ rect: CGRect, preferredScreen: NSScreen?) {
+        guard !captureInProgress, scrollingSession == nil else { return }
+        captureInProgress = true
         let displayID = preferredScreen?.displayID
         let configuration = ScreenshotCaptureConfiguration.current
         let capturer = self.capturer
@@ -94,6 +216,8 @@ final class ScreenshotService {
     }
 
     func captureWindowID(_ windowID: CGWindowID, preferredScreen: NSScreen?) {
+        guard !captureInProgress, scrollingSession == nil else { return }
+        captureInProgress = true
         let displayID = preferredScreen?.displayID
         let configuration = ScreenshotCaptureConfiguration.current
         let capturer = self.capturer
@@ -173,6 +297,7 @@ final class ScreenshotService {
     // MARK: - Main actor
 
     private func finish(_ result: CaptureWorkerResult, preferredDisplayID: CGDirectDisplayID?) {
+        captureInProgress = false
         let preferredScreen = preferredDisplayID.flatMap { id in
             NSScreen.screens.first { $0.displayID == id }
         }
@@ -215,5 +340,12 @@ final class ScreenshotService {
         thumbnailHUD.onDelete = { [weak self] in self?.onDelete?(url) }
         thumbnailHUD.show(imageURL: url, on: screen)
         onCaptured?(url)
+    }
+
+    private func finishScrollingSave(_ url: URL, onDisplay displayID: CGDirectDisplayID?) {
+        let screen = displayID.flatMap { id in NSScreen.screens.first { $0.displayID == id } }
+        captureInProgress = false
+        publish(url, on: screen)
+        onScrollingEnded?()
     }
 }

@@ -53,8 +53,8 @@ import Testing
         #expect(keys == ["Panel and Archive", "Screen Capture", "Tools"])
     }
 
-    /// Two actions do something the shortcut alone does not say, and the row
-    /// subtitle is the only place either is written down.
+    /// Three actions do something the shortcut alone does not say, and the row
+    /// subtitle is the only place any of them is written down.
     @Test func hintsAreCarriedByTheActionsThatNeedThem() {
         // Both modifiers: a key held during a drag leaves no trace anywhere
         // else in the interface.
@@ -62,9 +62,12 @@ import Testing
         // The prerequisite: pressed with an empty clipboard this shortcut can
         // only say no, and its other half — ⌘C — happens in another app.
         #expect(HotkeyAction.translateClipboard.hintKey == "Translates text copied with ⌘C")
+        // A key pressed while the picker is up: it turns the direction, and
+        // nothing about the shortcut itself would suggest it.
+        #expect(HotkeyAction.scroll.hintKey == "Press ⇥ to switch direction")
 
         let withHints = Set(HotkeyAction.allCases.filter { $0.hintKey != nil })
-        #expect(withHints == [.scan, .translateClipboard])
+        #expect(withHints == [.scan, .translateClipboard, .scroll])
     }
 }
 

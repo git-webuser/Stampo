@@ -41,6 +41,9 @@ final class TextCaptureHUD {
         case translationFailed
         /// The Translate hotkey fired with no text on the clipboard.
         case nothingToTranslate
+        /// A scrolling capture stopped with part of the image collected. It says
+        /// only that, and the strip in the notch carries the two ways out.
+        case scrollingStopped
     }
 
     private var panel: NSPanel?
@@ -211,6 +214,10 @@ private struct TextCaptureHUDView: View {
                 // "copy, then press", and this fires when the first half was
                 // skipped or the clipboard holds something that is not text.
                 statusRow(title: "Copy some text first", systemName: "translate", iconOpacity: 0.6)
+                    .fixedSize()
+            case .scrollingStopped:
+                statusRow(title: "Screenshot capture stopped",
+                          systemName: "exclamationmark.triangle", iconOpacity: 0.6)
                     .fixedSize()
             }
         }
