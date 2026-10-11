@@ -850,11 +850,17 @@ final class ScrollingCaptureSession {
         }
         self.viewport = croppedViewport
         assembler.begin(with: first)
+        // The top of a site, as the window showed it, once above the first frame.
+        var headerNote = ""
+        if let header = settled.outcome.header, assembler.setHeader(header) {
+            headerNote = " · header \(assembler.headerLength) px"
+            dump?.save(header, as: "00-header")
+        }
         noteProgress()
         previous = probe
         dump?.step("area: " + (settled.viewport.webPage.map {
             "web page (\($0.rawValue))" + (settled.axis == .vertical ? ", whole width" : ", the strip that moves")
-        } ?? "not a web page"))
+        } ?? "not a web page") + headerNote)
         dump?.save(probe, as: "00-probe")
         Log.capture.notice("scroll probe settled · \(self.axis == .vertical ? "vertical" : "horizontal", privacy: .public) · \(probeLines, privacy: .public) lines · limit \(probeMotionLimit, privacy: .public) px · scale \(self.scale, privacy: .public)")
         requestedStep = max(24, Int(Double(axisLength(of: first)) * 0.60))
@@ -1541,6 +1547,18 @@ final class ScrollingCaptureSession {
         let probe: CaptureFrame
         /// That part, in pixels of the viewport's crop.
         let movingRect: CGRect
+        /// The rows of the viewport above it, from the frame before the probe:
+        /// what a site's window showed at the top, to lay once above the image.
+        let header: CaptureFrame?
+    }
+
+    /// How tall the header of a web page is: the rows above the ones that
+    /// scroll. A site scrolled down has one if the rows began to change below
+    /// the top of its area; anything else — a strip that scrolls sideways, a
+    /// gallery, a moving box that begins at the top — has none.
+    nonisolated static func headerLength(wholeWidth: Bool, axis: ScrollAxis, movingStart: Int) -> Int? {
+        guard wholeWidth, axis == .vertical, movingStart > 0 else { return nil }
+        return movingStart
     }
 
     /// Cuts two whole-window frames to a direction's viewport and finds what
@@ -1557,7 +1575,10 @@ final class ScrollingCaptureSession {
               let first = initial.cropped(to: movingRect),
               let probe = moved.cropped(to: movingRect)
         else { return nil }
-        return ProbeOutcome(first: first, probe: probe, movingRect: movingRect)
+        let header = headerLength(wholeWidth: wholeWidth, axis: axis, movingStart: Int(movingRect.minY)).flatMap {
+            initial.cropped(to: CGRect(x: movingRect.minX, y: 0, width: movingRect.width, height: CGFloat($0)))
+        }
+        return ProbeOutcome(first: first, probe: probe, movingRect: movingRect, header: header)
     }
 
     /// How many lines in a row of something that stays still the widening of the

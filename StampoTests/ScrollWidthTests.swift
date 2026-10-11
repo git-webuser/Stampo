@@ -119,6 +119,41 @@ import Testing
         #expect(other.first.width == across - 250)
     }
 
+    /// The rows of a web page's area above the ones that scroll come with the
+    /// outcome, once, from the frame before the probe: the whole width. A page
+    /// that is not a site has no header, and neither has a sideways scroll.
+    @Test func theProbeOfAWebPageBringsTheHeaderOfItsWindow() throws {
+        let before = frame(axis: .vertical, shift: 0, panel: true, end: length)
+        let after = frame(axis: .vertical, shift: 20, panel: true, end: length)
+        let whole = CGRect(x: 0, y: 0, width: across, height: length)
+        let site = try #require(ScrollingCaptureSession.probeOutcome(
+            before: before, after: after, viewportPixels: whole, axis: .vertical,
+            preserveCrossAxis: true, wholeWidth: true))
+        let header = try #require(site.header)
+        #expect(header.width == across && header.height == headerRows)
+        #expect(header == before.cropped(to: CGRect(x: 0, y: 0, width: across, height: headerRows)))
+        let other = try #require(ScrollingCaptureSession.probeOutcome(
+            before: before, after: after, viewportPixels: whole, axis: .vertical, preserveCrossAxis: true))
+        #expect(other.header == nil)
+
+        let sideways = try #require(ScrollingCaptureSession.probeOutcome(
+            before: frame(axis: .horizontal, shift: 0, panel: false, end: length),
+            after: frame(axis: .horizontal, shift: 20, panel: false, end: length),
+            viewportPixels: CGRect(x: 0, y: 0, width: length, height: across), axis: .horizontal,
+            preserveCrossAxis: true, wholeWidth: true))
+        #expect(sideways.header == nil)
+    }
+
+    @Test func theHeaderIsTheRowsAboveTheMovingOnesOfASiteScrolledDown() {
+        let header = ScrollingCaptureSession.headerLength
+        #expect(header(true, .vertical, 120) == 120)
+        // The rows move from the top: nothing above them.
+        #expect(header(true, .vertical, 0) == nil)
+        // Not a site, or a strip that scrolls sideways.
+        #expect(header(false, .vertical, 120) == nil)
+        #expect(header(true, .horizontal, 120) == nil)
+    }
+
     @Test func theWebPageMarkTravelsWithTheViewport() throws {
         let bounds = CGRect(x: 0, y: 0, width: 1280, height: 800)
         let base = ScrollViewport(windowRect: bounds, relativeScrollPoint: .zero, windowBounds: bounds)

@@ -646,6 +646,11 @@ nonisolated struct ImageAssembler: Sendable {
     private var skipBeforeLast = 0
     /// The seam of the last frame laid, and why it fell there.
     private(set) var lastSeam: ScrollSeam.Choice?
+    /// What the viewport showed above the rows that scroll, once, at the top
+    /// of the image: a site's bar as the browser's window has it. It takes no
+    /// part in the matching and is laid at no seam; the frames begin below it.
+    /// In the image's own pixels, so it is halved with the strips.
+    private(set) var header: CaptureFrame?
 
     init(axis: ScrollAxis, maxLength: Int = ScrollLengthLimit.default, scale: CGFloat = 1) {
         self.axis = axis
@@ -666,9 +671,15 @@ nonisolated struct ImageAssembler: Sendable {
         ScrollLengthLimit.effectiveLimit(limit: maxLength, crossSize: outputCrossSize)
     }
 
+    /// The header's length along the scroll, in the image's own pixels.
+    var headerLength: Int {
+        guard let header else { return 0 }
+        return axis == .vertical ? header.height : header.width
+    }
+
     /// How long the image would be after `movement` more pixels of the frames.
     func lengthAfterAdding(_ movement: Int) -> Int {
-        isShrunk ? (fullLength + movement) / 2 : fullLength + movement
+        (isShrunk ? (fullLength + movement) / 2 : fullLength + movement) + headerLength
     }
 
     mutating func begin(with frame: CaptureFrame) {
@@ -684,6 +695,26 @@ nonisolated struct ImageAssembler: Sendable {
         lastMovement = 0
         skipBeforeLast = 0
         lastSeam = nil
+        header = nil
+    }
+
+    /// Puts `frame` once above the image, after `begin`. Its other side has to
+    /// be the frames' own. Returns whether it was taken; the image is as long
+    /// again as the header, which the limit counts.
+    @discardableResult
+    mutating func setHeader(_ frame: CaptureFrame) -> Bool {
+        guard header == nil, !strips.isEmpty else { return false }
+        let length = axis == .vertical ? frame.height : frame.width
+        let cross = axis == .vertical ? frame.width : frame.height
+        guard length > 0, cross == (axis == .vertical ? viewportWidth : viewportHeight) else { return false }
+        if isShrunk {
+            guard length / 2 > 0, let halved = Self.halved(frame, axis: axis, length: length / 2) else { return false }
+            header = halved
+        } else {
+            header = frame
+        }
+        totalLength += headerLength
+        return true
     }
 
     /// Adds a frame that is `movement` pixels further along than the last one.
@@ -733,7 +764,7 @@ nonisolated struct ImageAssembler: Sendable {
                 strips.append(CaptureStrip(frame: halved, start: start))
             }
             fullLength += movement
-            totalLength = fullLength / 2
+            totalLength = fullLength / 2 + headerLength
         } else {
             trim(to: seam)
             strips.append(CaptureStrip(frame: rest, start: seam))
@@ -818,7 +849,11 @@ nonisolated struct ImageAssembler: Sendable {
         }
         strips = halved
         isShrunk = true
-        totalLength = fullLength / 2
+        if let header {
+            let length = axis == .vertical ? header.height : header.width
+            self.header = length / 2 > 0 ? Self.halved(header, axis: axis, length: length / 2) : nil
+        }
+        totalLength = fullLength / 2 + headerLength
     }
 
     /// `frame` at half its size across the scroll and `length` pixels along it.
@@ -856,6 +891,7 @@ nonisolated struct ImageAssembler: Sendable {
         lastMovement = 0
         skipBeforeLast = 0
         lastSeam = nil
+        header = nil
     }
 
     func makeImage(maxPixels: Int? = nil) throws -> CGImage {
@@ -876,14 +912,18 @@ nonisolated struct ImageAssembler: Sendable {
         else { throw FrameMatchError.outputLimitExceeded }
         let output = data.assumingMemoryBound(to: UInt8.self)
         let outputRow = context.bytesPerRow
-        for strip in strips {
-            let rowBytes = strip.frame.width * 4
-            strip.frame.pixels.withUnsafeBufferPointer { source in
+        // The header at the top, the strips from below it.
+        let offset = headerLength
+        var layers = strips.map { ($0.frame, $0.start + offset) }
+        if let header { layers.insert((header, 0), at: 0) }
+        for (frame, start) in layers {
+            let rowBytes = frame.width * 4
+            frame.pixels.withUnsafeBufferPointer { source in
                 guard let base = source.baseAddress else { return }
-                for y in 0..<strip.frame.height {
+                for y in 0..<frame.height {
                     let target = axis == .vertical
-                        ? (strip.start + y) * outputRow
-                        : y * outputRow + strip.start * 4
+                        ? (start + y) * outputRow
+                        : y * outputRow + start * 4
                     (output + target).update(from: base + y * rowBytes, count: rowBytes)
                 }
             }
