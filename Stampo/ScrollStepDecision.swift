@@ -201,6 +201,43 @@ nonisolated enum ScrollQueueRelay {
     }
 }
 
+/// A calibration that the steps themselves contradict, with no queue to say so.
+/// The probe of one line can land on something that moves faster than the page
+/// — a floating card — and give a line twice as long as the page's. Steps the
+/// matcher places firmly and that the calibration does not predict are then the
+/// evidence, and one is not enough, a parallax card can place a step too; two in
+/// a row that agree with each other are. (When steps wait in the queue,
+/// `ScrollQueueRelay` has it from their frames.)
+nonisolated enum ScrollRecalibration {
+    enum Action: Equatable {
+        /// This step's line, kept to see whether the next step agrees with it.
+        case remember(Double)
+        /// Two steps in a row agree: the calibration is this line.
+        case recalibrate(Double)
+        /// Nothing to go on: forget what was kept.
+        case forget
+    }
+
+    /// What a step placed by the matcher makes of what is kept. `qualifies`: it
+    /// is a clean step of the capture's own — not a push, none of the steps
+    /// before it decided as stationary — placed firmly (`ScrollQueueRelay.isFirm`),
+    /// and there is a calibration to contradict. `confirmsCalibration`: the
+    /// calibration predicts its distance, which settles it the other way. The
+    /// two steps agree as a step and a calibration do for `confirmsLinearity`:
+    /// within two pixels or two percent.
+    static func next(remembered: Double?, offset: Int, lines: Int,
+                     qualifies: Bool, confirmsCalibration: Bool) -> Action {
+        guard qualifies, !confirmsCalibration,
+              let line = ScrollStepPlanner.pixelsPerLine(offset: offset, lines: lines)
+        else { return .forget }
+        if let remembered,
+           ScrollStepPlanner.confirmsLinearity(offset: offset, lines: lines, pixelsPerLine: remembered) {
+            return .recalibrate(line)
+        }
+        return .remember(line)
+    }
+}
+
 /// A page that holds still while something on it moves: a section pinned to
 /// the viewport whose stages change with the scroll, and which snaps back to
 /// the middle of a stage when the wheel stops. A step of a few lines is less

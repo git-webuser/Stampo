@@ -111,6 +111,10 @@ final class ScrollingCaptureSession {
     /// such steps, how many there were.
     private var stationaryAllReliable = true
     private var pushAfterReliableSteps = 0
+    /// The line of the last step that was placed firmly and that the calibration
+    /// did not predict, kept to see whether the next such step agrees with it
+    /// (`ScrollRecalibration`).
+    private var rememberedLine: Double?
     /// The frames and steps of this capture on disk, when a Debug build is asked
     /// to keep them (`ScrollFrameDump`), and which attempt at a step is being made.
     private var dump: ScrollFrameDump?
@@ -313,6 +317,7 @@ final class ScrollingCaptureSession {
         pauseLedger = UserScrollLedger()
         pushMode = .none
         pushAfterReliableSteps = 0
+        rememberedLine = nil
         task?.cancel()
         task = nil
         Log.capture.notice("scroll capture paused · \(announce ? "with a toast" : "by the user", privacy: .public) · \(self.assembler.totalLength, privacy: .public) px collected")
@@ -848,6 +853,7 @@ final class ScrollingCaptureSession {
         stationaryAllReliable = true
         pushMode = .none
         pushAfterReliableSteps = 0
+        rememberedLine = nil
 
         do {
             diagnosticStage = .match
@@ -981,11 +987,38 @@ final class ScrollingCaptureSession {
                                                           axisLength: axisLength(of: next), backingScale: scale)
                     Log.capture.notice("scroll calibrated late · \(Int(late.rounded()), privacy: .public) px per line · \(latePlan.lines, privacy: .public) lines per step")
                 }
+                // No queue to say that the calibration is wrong: two firm steps in a
+                // row that agree with each other and not with it say so.
+                var recalibrated = ""
+                if relay?.movements != nil {
+                    rememberedLine = nil
+                } else {
+                    let confirms = pixelsPerLine.map {
+                        ScrollStepPlanner.confirmsLinearity(offset: match.offset, lines: Int(plan.lines), pixelsPerLine: $0)
+                    } ?? false
+                    let qualifies = !isPush && cleanStep && pixelsPerLine != nil && stationaryLines == 0
+                        && ScrollQueueRelay.isFirm(confidence: match.confidence)
+                    switch ScrollRecalibration.next(remembered: rememberedLine, offset: match.offset,
+                                                    lines: Int(plan.lines), qualifies: qualifies,
+                                                    confirmsCalibration: confirms) {
+                    case .remember(let line):
+                        rememberedLine = line
+                    case .recalibrate(let line):
+                        let was = Int((pixelsPerLine ?? 0).rounded()), now = Int(line.rounded())
+                        Log.capture.notice("scroll recalibrated · \(now, privacy: .public) px per line (was \(was, privacy: .public)) · two steps agree")
+                        pixelsPerLine = line
+                        linearityConfirmed = true
+                        rememberedLine = nil
+                        recalibrated = " · recalibrated \(now) px/line"
+                    case .forget:
+                        rememberedLine = nil
+                    }
+                }
                 let queue = laid.waiting == 0 ? "" : " · "
                     + (relay.map { "\($0.note) · " } ?? "")
                     + "queue appended \(laid.waiting) (seams \(laid.queueSeams.map(\.summary).joined(separator: ", ")))"
                 let pushed = isPush ? " · push: placed" : ""
-                recordStep("\(head) · match \(match.offset) px · confidence \(Self.percent(match.confidence)) · regions \(match.independentRegions)\(queue)\(seamNote)\(pushed) → added")
+                recordStep("\(head) · match \(match.offset) px · confidence \(Self.percent(match.confidence)) · regions \(match.independentRegions)\(queue)\(seamNote)\(recalibrated)\(pushed) → added")
                 pushMode = .none
                 previous = next
                 zeroMotionCount = 0
@@ -998,6 +1031,7 @@ final class ScrollingCaptureSession {
             } catch is CancellationError {
                 throw CancellationError()
             } catch {
+                rememberedLine = nil
                 // The matcher cannot place the step. Why is a question for
                 // the frames, asked once: which tiles stand still, and, when
                 // the calibration says how far the page should have moved,
