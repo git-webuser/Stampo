@@ -60,29 +60,81 @@ import Testing
         let frame = CaptureFrame(width: 8, height: 8, pixels: [UInt8](repeating: 0, count: 8 * 8 * 4))
         var queue = TemporarySteps()
         queue.add(frame, movement: 552, confirmed: true, lines: 4)
+        queue.add(frame, movement: 552, confirmed: false, lines: 4, stationaryLines: 4)
         queue.add(frame, movement: 200, confirmed: false)
-        #expect(queue.steps.map(\.lines) == [4, nil])
-        #expect(queue.take().map(\.lines) == [4, nil])
+        #expect(queue.steps.map(\.lines) == [4, 4, nil])
+        #expect(queue.steps.map(\.stationaryLines) == [0, 4, 0])
+        #expect(queue.take().map(\.stationaryLines) == [0, 4, 0])
         #expect(queue.isEmpty)
+    }
+
+    /// 2026-10-11-124606: step 03 was decided "stationary" by a wrong
+    /// calibration, its frame thrown away, and step 04 was 640 px from the one
+    /// kept — two steps of four lines at 80 px.
+    @Test func aStepAfterStationaryStepsCanBeTheDistanceOfThemAll() {
+        #expect(ScrollQueueRelay.movementWithStationary(lines: 4, stationaryLines: 4, pixelsPerLine: 80,
+                                                        axisLength: 932) == 640)
+        // Rounded, as the other.
+        #expect(ScrollQueueRelay.movementWithStationary(lines: 4, stationaryLines: 3, pixelsPerLine: 79.6,
+                                                        axisLength: 932) == 557)
+        // Nothing stationary, no lines, nothing to divide by: no second distance.
+        #expect(ScrollQueueRelay.movementWithStationary(lines: 4, stationaryLines: 0, pixelsPerLine: 80,
+                                                        axisLength: 932) == nil)
+        #expect(ScrollQueueRelay.movementWithStationary(lines: nil, stationaryLines: 4, pixelsPerLine: 80,
+                                                        axisLength: 932) == nil)
+        #expect(ScrollQueueRelay.movementWithStationary(lines: 4, stationaryLines: 4, pixelsPerLine: 0,
+                                                        axisLength: 932) == nil)
+        // As far as three quarters of the frame, 699 here, and no further.
+        #expect(ScrollQueueRelay.movementWithStationary(lines: 4, stationaryLines: 4, pixelsPerLine: 87.4,
+                                                        axisLength: 932) == 699)
+        #expect(ScrollQueueRelay.movementWithStationary(lines: 4, stationaryLines: 4, pixelsPerLine: 87.5,
+                                                        axisLength: 932) == nil)
+    }
+
+    @Test func theLongerDistanceNeedsStrictlyMoreTilesAndATieKeepsTheStep() {
+        // 02 → 04 of 124606: 1 tile at 320, 3 at 640.
+        #expect(ScrollQueueRelay.prefersStationaryLines(tilesOne: 1, tilesWithStationary: 3))
+        // The decision that the page stood is not refuted by a tie.
+        #expect(!ScrollQueueRelay.prefersStationaryLines(tilesOne: 2, tilesWithStationary: 2))
+        #expect(!ScrollQueueRelay.prefersStationaryLines(tilesOne: 0, tilesWithStationary: 0))
+        #expect(!ScrollQueueRelay.prefersStationaryLines(tilesOne: 5, tilesWithStationary: 2))
+    }
+
+    /// The tiles of a pair of frames choose between the two distances: 200 apart,
+    /// they bear out 200; 400 apart, 400 — the page moved in the step between.
+    @Test func theTilesOfThePairChooseBetweenTheOneStepAndTheTwo() {
+        let frames = [0, 200, 400].map(noisePage)
+        func tiles(_ from: Int, _ to: Int, at offset: Int) -> Int {
+            FrameMatcher.evidence(previous: frames[from], current: frames[to], axis: .vertical,
+                                  offset: offset, searchLimit: 532).consistent
+        }
+        // 0 → 1 is one step: the page stood in none.
+        #expect(!ScrollQueueRelay.prefersStationaryLines(tilesOne: tiles(0, 1, at: 200),
+                                                         tilesWithStationary: tiles(0, 1, at: 400)))
+        // 0 → 2 is two: the page moved in the step that was thrown away.
+        #expect(ScrollQueueRelay.prefersStationaryLines(tilesOne: tiles(0, 2, at: 200),
+                                                        tilesWithStationary: tiles(0, 2, at: 400)))
+    }
+
+    /// A page of noise, `offset` rows down.
+    private func noisePage(_ offset: Int) -> CaptureFrame {
+        let width = 240, height = 800
+        var bytes = [UInt8](repeating: 255, count: width * height * 4)
+        for y in 0..<height {
+            for x in 0..<width {
+                let value = SeamScenes.page(offset + y, x)
+                let i = (y * width + x) * 4
+                bytes[i] = value; bytes[i + 1] = value; bytes[i + 2] = value
+            }
+        }
+        return CaptureFrame(width: width, height: height, pixels: bytes)
     }
 
     /// Frames of a page scrolled 320 px a step. The tiles bear out 320, and
     /// none of them 552, which is what a calibration of 138 px a line would
     /// have laid them at: the sums that decide.
     @Test func theTilesOfFramesScrolled320BearOut320AndNot552() {
-        func frame(_ offset: Int) -> CaptureFrame {
-            let width = 240, height = 800
-            var bytes = [UInt8](repeating: 255, count: width * height * 4)
-            for y in 0..<height {
-                for x in 0..<width {
-                    let value = SeamScenes.page(offset + y, x)
-                    let i = (y * width + x) * 4
-                    bytes[i] = value; bytes[i + 1] = value; bytes[i + 2] = value
-                }
-            }
-            return CaptureFrame(width: width, height: height, pixels: bytes)
-        }
-        let frames = (0..<4).map { frame($0 * 320) }
+        let frames = (0..<4).map { noisePage($0 * 320) }
         var at320 = 0, at552 = 0
         for index in 1..<frames.count {
             at320 += FrameMatcher.evidence(previous: frames[index - 1], current: frames[index], axis: .vertical,

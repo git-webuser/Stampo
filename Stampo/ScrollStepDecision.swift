@@ -104,6 +104,10 @@ nonisolated struct TemporarySteps {
         /// can be worked out again if the calibration turns out wrong. Nil for
         /// a step taken to have arrived while the capture was paused.
         let lines: Int32?
+        /// The lines of steps decided as stationary between the last frame kept
+        /// and this one: the page may have moved in those too, and then this
+        /// frame is further from the one before it than its own lines say.
+        let stationaryLines: Int32
     }
 
     private(set) var steps: [Step] = []
@@ -111,8 +115,10 @@ nonisolated struct TemporarySteps {
     var count: Int { steps.count }
     var isEmpty: Bool { steps.isEmpty }
 
-    mutating func add(_ frame: CaptureFrame, movement: Int, confirmed: Bool, lines: Int32? = nil) {
-        steps.append(Step(frame: frame, movement: movement, confirmed: confirmed, lines: lines))
+    mutating func add(_ frame: CaptureFrame, movement: Int, confirmed: Bool, lines: Int32? = nil,
+                      stationaryLines: Int32 = 0) {
+        steps.append(Step(frame: frame, movement: movement, confirmed: confirmed, lines: lines,
+                          stationaryLines: stationaryLines))
     }
 
     /// The waiting steps, in order, and none left waiting: they are about to
@@ -157,6 +163,24 @@ nonisolated enum ScrollQueueRelay {
     /// ended, not because a line is shorter, and the tiles then keep the old.
     static func shouldRelay(tilesOld: Int, tilesNew: Int) -> Bool {
         tilesNew > tilesOld
+    }
+
+    /// The distance of a step that came after steps decided as stationary, if
+    /// the page moved in those as well: its lines and theirs, times a line.
+    /// Nil when there were none, or if it comes out as nothing or as more than
+    /// three quarters of the frame.
+    static func movementWithStationary(lines: Int32?, stationaryLines: Int32, pixelsPerLine: Double,
+                                       axisLength: Int) -> Int? {
+        guard let lines, stationaryLines > 0, pixelsPerLine > 0 else { return nil }
+        let moved = Int((Double(lines + stationaryLines) * pixelsPerLine).rounded())
+        return moved > 0 && moved <= axisLength * 3 / 4 ? moved : nil
+    }
+
+    /// Which of the two distances of a step after "stationary" steps its own
+    /// pair of frames bears out: the longer, if strictly more tiles agree with
+    /// it. The decision that the page stood was not refuted by a tie.
+    static func prefersStationaryLines(tilesOne: Int, tilesWithStationary: Int) -> Bool {
+        tilesWithStationary > tilesOne
     }
 
     /// The distance of each step of a queue for a line of `pixelsPerLine`:

@@ -96,6 +96,10 @@ final class ScrollingCaptureSession {
     private var assembler: ImageAssembler
     private var previous: CaptureFrame?
     private var zeroMotionCount = 0
+    /// The lines of the steps decided as stationary since the last frame was
+    /// kept. The page may have moved in them all the same, when the calibration
+    /// they were judged by was wrong.
+    private var stationaryLines: Int32 = 0
     /// The frames and steps of this capture on disk, when a Debug build is asked
     /// to keep them (`ScrollFrameDump`), and which attempt at a step is being made.
     private var dump: ScrollFrameDump?
@@ -381,6 +385,7 @@ final class ScrollingCaptureSession {
                 stepInFlight = false
                 inFlightLines = nil
                 zeroMotionCount = 0
+                stationaryLines = 0
                 consecutiveFailures = 0
                 unmatchedScroll = 0
                 return true
@@ -394,6 +399,7 @@ final class ScrollingCaptureSession {
                 stepInFlight = false
                 inFlightLines = nil
                 zeroMotionCount = 0
+                stationaryLines = 0
                 consecutiveFailures = 0
                 unmatchedScroll = 0
                 return true
@@ -475,8 +481,11 @@ final class ScrollingCaptureSession {
     /// predict, with steps waiting that the calibration placed. Each waiting
     /// frame is looked at against the one before it, at the distance it was
     /// laid at and at the distance the placed step's line would give; whichever
-    /// the tiles of more of them bear out is the queue's. Nil when there is
-    /// nothing to ask: no frame to start from, or no step with lines.
+    /// the tiles of more of them bear out is the queue's. A step that came
+    /// after steps decided as stationary has two such distances — its own lines,
+    /// or those and theirs, if the page moved in them too — and the tiles of its
+    /// own pair of frames choose. Nil when there is nothing to ask: no frame to
+    /// start from, or no step with lines.
     private func relayQueue(match: FrameMatch, lines: Int32, axisLength: Int,
                             searchLimit: Int) async throws -> QueueRelay? {
         guard let perLine = ScrollStepPlanner.pixelsPerLine(offset: match.offset, lines: Int(lines)),
@@ -485,33 +494,52 @@ final class ScrollingCaptureSession {
         guard let moved = ScrollQueueRelay.movements(lines: queue.map(\.lines), current: queue.map(\.movement),
                                                      pixelsPerLine: perLine, axisLength: axisLength)
         else { return nil }
-        var jobs: [(before: CaptureFrame, after: CaptureFrame, old: Int, new: Int)] = []
+        var jobs: [(index: Int, before: CaptureFrame, after: CaptureFrame, old: Int, one: Int, longer: Int?)] = []
         for (index, step) in queue.enumerated() {
             if step.lines != nil {
-                jobs.append((before, step.frame, step.movement, moved[index]))
+                let longer = ScrollQueueRelay.movementWithStationary(
+                    lines: step.lines, stationaryLines: step.stationaryLines,
+                    pixelsPerLine: perLine, axisLength: axisLength)
+                jobs.append((index, before, step.frame, step.movement, moved[index], longer))
             }
             before = step.frame
         }
         guard !jobs.isEmpty else { return nil }
         let axis = self.axis
         let work = jobs
-        let (tilesOld, tilesNew) = await Task.detached(priority: .userInitiated) {
-            var old = 0, new = 0
+        let asked = await Task.detached(priority: .userInitiated) {
+            var old = 0, new = 0, longerTaken = 0
+            var chosen: [Int: Int] = [:]
             for job in work {
                 old += FrameMatcher.evidence(previous: job.before, current: job.after, axis: axis,
                                              offset: job.old, searchLimit: searchLimit).consistent
-                new += FrameMatcher.evidence(previous: job.before, current: job.after, axis: axis,
-                                             offset: job.new, searchLimit: searchLimit).consistent
+                var distance = job.one
+                var tiles = FrameMatcher.evidence(previous: job.before, current: job.after, axis: axis,
+                                                  offset: job.one, searchLimit: searchLimit).consistent
+                if let longer = job.longer {
+                    let withStationary = FrameMatcher.evidence(previous: job.before, current: job.after, axis: axis,
+                                                               offset: longer, searchLimit: searchLimit).consistent
+                    if ScrollQueueRelay.prefersStationaryLines(tilesOne: tiles, tilesWithStationary: withStationary) {
+                        distance = longer
+                        tiles = withStationary
+                        longerTaken += 1
+                    }
+                }
+                new += tiles
+                chosen[job.index] = distance
             }
-            return (old, new)
+            return (old: old, new: new, longerTaken: longerTaken, chosen: chosen)
         }.value
         try ensureActive()
-        if ScrollQueueRelay.shouldRelay(tilesOld: tilesOld, tilesNew: tilesNew) {
-            return QueueRelay(movements: moved, pixelsPerLine: perLine,
-                              note: "queue re-laid at \(Int(perLine.rounded())) px/line (tiles \(tilesNew) vs \(tilesOld))")
+        if ScrollQueueRelay.shouldRelay(tilesOld: asked.old, tilesNew: asked.new) {
+            var distances = moved
+            for (index, distance) in asked.chosen { distances[index] = distance }
+            let over = asked.longerTaken == 0 ? "" : ", \(asked.longerTaken) over a stand"
+            return QueueRelay(movements: distances, pixelsPerLine: perLine,
+                              note: "queue re-laid at \(Int(perLine.rounded())) px/line (tiles \(asked.new) vs \(asked.old)\(over))")
         }
         return QueueRelay(movements: nil, pixelsPerLine: perLine,
-                          note: "queue kept (tiles \(tilesOld) vs \(tilesNew))")
+                          note: "queue kept (tiles \(asked.old) vs \(asked.new))")
     }
 
     /// The capture has made headway: the seconds without it start again.
@@ -798,6 +826,7 @@ final class ScrollingCaptureSession {
         unmatchedScroll = 0
         pixelsPerLine = nil
         linearityConfirmed = false
+        stationaryLines = 0
 
         do {
             diagnosticStage = .match
@@ -888,7 +917,7 @@ final class ScrollingCaptureSession {
                 // should be: the calibration may be the wrong one. The tiles of
                 // the waiting frames say which distances they bear out.
                 var relay: QueueRelay?
-                if cleanStep, let pixelsPerLine, !temporary.isEmpty,
+                if cleanStep, let pixelsPerLine, !temporary.isEmpty, stationaryLines == 0,
                    ScrollQueueRelay.isFirm(confidence: match.confidence),
                    !ScrollStepPlanner.confirmsLinearity(offset: match.offset, lines: Int(plan.lines),
                                                         pixelsPerLine: pixelsPerLine) {
@@ -931,6 +960,7 @@ final class ScrollingCaptureSession {
                 recordStep("\(head) · match \(match.offset) px · confidence \(Self.percent(match.confidence)) · regions \(match.independentRegions)\(queue)\(seamNote) → added")
                 previous = next
                 zeroMotionCount = 0
+                stationaryLines = 0
                 unmatchedScroll = 0
                 requestedStep = max(24, Int(Double(axisLength(of: next)) * 0.60))
                 consecutiveFailures = 0
@@ -973,6 +1003,7 @@ final class ScrollingCaptureSession {
                 switch decision {
                 case .stationary:
                     zeroMotionCount += 1
+                    stationaryLines += plan.lines
                     consecutiveFailures = 0
                     recordStep("\(head) · \(error) · \(said) → stop: \(standing), page not moving \(zeroMotionCount) of 3")
                     if zeroMotionCount >= 3 {
@@ -985,11 +1016,13 @@ final class ScrollingCaptureSession {
                     // Not placed by the frames: placed where the calibration
                     // says, and kept apart until a step the matcher does
                     // place carries it into the image.
-                    temporary.add(next, movement: expected ?? 0, confirmed: confirmed, lines: plan.lines)
+                    temporary.add(next, movement: expected ?? 0, confirmed: confirmed, lines: plan.lines,
+                                  stationaryLines: stationaryLines)
                     noteProgress()
                     recordStep("\(head) · \(error) · \(said) · \(standing) → temporary (\(confirmed ? "confirmed" : "unconfirmed")), queue \(temporary.count)")
                     previous = next
                     zeroMotionCount = 0
+                    stationaryLines = 0
                     unmatchedScroll = 0
                     requestedStep = max(24, Int(Double(axisLength(of: next)) * 0.60))
                     consecutiveFailures = 0
