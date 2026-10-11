@@ -289,6 +289,21 @@ nonisolated enum ScrollPush {
         }
     }
 
+    /// Whether a frame whose difference from the one it is compared with is
+    /// `difference` has changed.
+    static func isChanged(_ difference: Double) -> Bool {
+        difference >= changedFrom
+    }
+
+    /// What a push is compared with to see whether it changed anything: the
+    /// last frame decided as stationary, when there is one — the question is
+    /// whether the push did something, and the page can differ from the frame
+    /// kept by a little all the same, steadily, at the end of a page. In a
+    /// section, and after a quiet push, the frame before the step is the one kept.
+    static func comparesWithStationaryFrame(mode: Mode, haveStationaryFrame: Bool) -> Bool {
+        mode == .push && haveStationaryFrame
+    }
+
     /// How many pushes a section has had so far.
     static func pushes(in mode: Mode) -> Int {
         if case .section(let pushes) = mode { return pushes }

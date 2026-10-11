@@ -103,6 +103,9 @@ final class ScrollingCaptureSession {
     /// What the next step is: ordinary, or a push through a section pinned to
     /// the viewport (`ScrollPush`).
     private var pushMode: ScrollPush.Mode = .none
+    /// The last frame decided as stationary since a frame was kept: what a push
+    /// is compared with.
+    private var lastStationaryFrame: CaptureFrame?
     /// The frames and steps of this capture on disk, when a Debug build is asked
     /// to keep them (`ScrollFrameDump`), and which attempt at a step is being made.
     private var dump: ScrollFrameDump?
@@ -390,6 +393,7 @@ final class ScrollingCaptureSession {
                 inFlightLines = nil
                 zeroMotionCount = 0
                 stationaryLines = 0
+                lastStationaryFrame = nil
                 consecutiveFailures = 0
                 unmatchedScroll = 0
                 return true
@@ -404,6 +408,7 @@ final class ScrollingCaptureSession {
                 inFlightLines = nil
                 zeroMotionCount = 0
                 stationaryLines = 0
+                lastStationaryFrame = nil
                 consecutiveFailures = 0
                 unmatchedScroll = 0
                 return true
@@ -831,6 +836,7 @@ final class ScrollingCaptureSession {
         pixelsPerLine = nil
         linearityConfirmed = false
         stationaryLines = 0
+        lastStationaryFrame = nil
         pushMode = .none
 
         do {
@@ -974,6 +980,7 @@ final class ScrollingCaptureSession {
                 previous = next
                 zeroMotionCount = 0
                 stationaryLines = 0
+                lastStationaryFrame = nil
                 unmatchedScroll = 0
                 requestedStep = max(24, Int(Double(axisLength(of: next)) * 0.60))
                 consecutiveFailures = 0
@@ -1015,8 +1022,18 @@ final class ScrollingCaptureSession {
                       : "step not clean (\(unmatchedScroll) px unaccounted)")
                 let standing = "\(unpinned) unpinned middle tiles stand"
                 // Only a step decided as stationary goes on in a push or a section.
-                var push = ScrollPush.next(mode: pushMode, outcome: decision == .stationary
-                                           ? .stationary(changed: difference >= ScrollPush.changedFrom) : .other)
+                // A push is compared with the last frame that stood, the others
+                // with the frame kept.
+                let modeBefore = pushMode
+                let standingFrame = lastStationaryFrame
+                let changeDifference = ScrollPush.comparesWithStationaryFrame(mode: modeBefore,
+                                                                              haveStationaryFrame: standingFrame != nil)
+                    ? meanDifference(standingFrame ?? oldFrame, next) : difference
+                var push = ScrollPush.next(mode: modeBefore, outcome: decision == .stationary
+                                           ? .stationary(changed: ScrollPush.isChanged(changeDifference)) : .other)
+                let pushed = modeBefore == .push
+                    ? " · \(standing) · vs \(standingFrame == nil ? "kept" : "standing") frame \(String(format: "%.4f", changeDifference))"
+                    : " · \(standing)"
                 if push.action == .replace {
                     do { try assembler.replaceLast(with: next) } catch { push = .init(action: .count, mode: .none) }
                 }
@@ -1024,7 +1041,7 @@ final class ScrollingCaptureSession {
                 switch decision {
                 case .stationary where push.action == .end:
                     // A push moved nothing and changed nothing: the end of the content.
-                    recordStep("\(head) · \(error) · \(said) → push: nothing changed, end")
+                    recordStep("\(head) · \(error) · \(said)\(pushed) → push: nothing changed, end")
                     Log.capture.notice("scroll push changed nothing · end")
                     finish()
                     return
@@ -1033,10 +1050,11 @@ final class ScrollingCaptureSession {
                     // pinned to the viewport, passing from one stage to the
                     // next. The image has the last frame laid as this one is.
                     noteProgress()
-                    recordStep("\(head) · \(error) · \(said) → push: pinned section, frame replaced (\(ScrollPush.pushes(in: push.mode)))")
+                    recordStep("\(head) · \(error) · \(said)\(pushed) → push: pinned section, frame replaced (\(ScrollPush.pushes(in: push.mode)))")
                     previous = next
                     zeroMotionCount = 0
                     stationaryLines = 0
+                    lastStationaryFrame = nil
                     unmatchedScroll = 0
                     consecutiveFailures = 0
                     if ScrollPush.isExhausted(push.mode) {
@@ -1045,11 +1063,13 @@ final class ScrollingCaptureSession {
                         return
                     }
                 case .stationary where push.action == .hold:
+                    lastStationaryFrame = next
                     consecutiveFailures = 0
-                    recordStep("\(head) · \(error) · \(said) → push: nothing changed, an ordinary step next")
+                    recordStep("\(head) · \(error) · \(said)\(pushed) → push: nothing changed, an ordinary step next")
                 case .stationary:
                     zeroMotionCount += 1
                     stationaryLines += sentLines
+                    lastStationaryFrame = next
                     consecutiveFailures = 0
                     recordStep("\(head) · \(error) · \(said) → stop: \(standing), page not moving \(zeroMotionCount) of 3")
                     if zeroMotionCount >= 3 {
@@ -1074,6 +1094,7 @@ final class ScrollingCaptureSession {
                     previous = next
                     zeroMotionCount = 0
                     stationaryLines = 0
+                    lastStationaryFrame = nil
                     unmatchedScroll = 0
                     requestedStep = max(24, Int(Double(axisLength(of: next)) * 0.60))
                     consecutiveFailures = 0

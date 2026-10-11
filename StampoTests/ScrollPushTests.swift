@@ -78,8 +78,31 @@ import Testing
     @Test func aFrameIsTheSameFrameBelowAThousandth() {
         #expect(ScrollPush.changedFrom == 0.001)
         // The differences of 2026-10-11-124606 steps 10–12, and a stage change.
-        #expect(0.0000 < ScrollPush.changedFrom)
-        #expect(0.0446 >= ScrollPush.changedFrom)
+        #expect(!ScrollPush.isChanged(0.0000))
+        #expect(ScrollPush.isChanged(0.0446))
+        #expect(ScrollPush.isChanged(0.001))
+        #expect(!ScrollPush.isChanged(0.00099))
+    }
+
+    @Test func aPushIsComparedWithTheLastFrameThatStoodWhenThereIsOne() {
+        #expect(ScrollPush.comparesWithStationaryFrame(mode: .push, haveStationaryFrame: true))
+        #expect(!ScrollPush.comparesWithStationaryFrame(mode: .push, haveStationaryFrame: false))
+        // In a section and after a quiet push the frame before the step is the one kept.
+        for mode in [Mode.none, .section(pushes: 2), .settle] {
+            #expect(!ScrollPush.comparesWithStationaryFrame(mode: mode, haveStationaryFrame: true), "\(mode)")
+        }
+    }
+
+    /// 2026-10-11-000034, 2026-10-10-150813, 2026-10-11-005720: at the end of the
+    /// page the frames of three steps are the same as each other and differ from
+    /// the frame kept by a steady amount (0.0129, 0.0047, 0.0037). A push shows
+    /// the same frame again: against the frame kept that is a change and a
+    /// section, against the one before the push it is nothing, and the end.
+    @Test func aPageThatDiffersFromTheKeptFrameBySteadilyAndStandsIsTheEnd() {
+        let againstKept = 0.0129, againstStanding = 0.0
+        #expect(next(.push, .stationary(changed: ScrollPush.isChanged(againstKept))).action == .replace)
+        #expect(next(.push, .stationary(changed: ScrollPush.isChanged(againstStanding)))
+                == Step(action: .end, mode: .none))
     }
 
     /// The walk of a pinned section as the capture goes through it: two steps
