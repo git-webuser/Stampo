@@ -463,6 +463,41 @@ nonisolated enum ScrollPush {
     }
 }
 
+/// Where the page is after it was sent back to a frame that is kept — a retry's
+/// half step, a push undone. The wheel back does not always bring it all the
+/// way: a section that pinned the page and let it go, a box with a scroll of its
+/// own, a page that glides on. A page that has come back is the frame kept, or
+/// near enough that the next step finds it; one that is further on is not within
+/// reach of a step sent from the frame kept — the step is looked for at its own
+/// distance from that frame, and the distance the page went too far is outside
+/// the window of the search — and what it shows, in 2026-10-11-235202 a dock
+/// and the start of a quotation, is lost.
+nonisolated enum ScrollReturn {
+    enum Landing: Equatable {
+        /// The frame is the one returned to, as far as a thousandth of a frame.
+        case same
+        /// The matcher places it this many pixels further along than the frame
+        /// returned to: real content, to be laid as a step of its own.
+        case further(Int)
+        /// Anything else: it differs and is not placed, or is placed behind. As
+        /// before — the next step places itself from the frame kept. A page
+        /// behind the frame kept is within its reach, and of the 16 frames in
+        /// the recordings that differed and were not placed, 7 were followed by a
+        /// step the matcher placed all the same; a frame that differs by an
+        /// animation or a panel that moved is not a page that stayed away.
+        case elsewhere
+    }
+
+    /// `forward`: the distance the matcher places the frame after the return
+    /// further along than the frame returned to, nil when it does not place it
+    /// (or places it behind).
+    static func landing(difference: Double, forward: Int?) -> Landing {
+        guard ScrollPush.isChanged(difference) else { return .same }
+        guard let forward, forward > 0 else { return .elsewhere }
+        return .further(forward)
+    }
+}
+
 /// When a capture that makes no headway is saved. There is no limit on how long
 /// a capture may take — a long page is a long capture, and the length the
 /// settings allow is the only cap — but a capture that adds nothing for this

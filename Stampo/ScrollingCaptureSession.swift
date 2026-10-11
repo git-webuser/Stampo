@@ -992,7 +992,7 @@ final class ScrollingCaptureSession {
                     // content that no frame has. Nothing is laid or replaced;
                     // the page goes back to where the push began.
                     recordStep("\(head) · match \(match.offset) px · confidence \(Self.percent(match.confidence)) · regions \(match.independentRegions) → check: page moves, push undone, back \(check.lines + sentLines) lines")
-                    try await undoPush(check, checkLines: sentLines, at: point)
+                    guard try await undoPush(check, checkLines: sentLines, at: point) else { return }
                     stepInFlight = false
                     inFlightLines = nil
                     continue
@@ -1135,7 +1135,7 @@ final class ScrollingCaptureSession {
                                                      movesPage: ScrollPush.movesPage(placed: false, decision: decision))
                     if step.action == .undo {
                         recordStep("\(head) · \(error) · \(said) → check: page moves, push undone, back \(check.lines + sentLines) lines")
-                        try await undoPush(check, checkLines: sentLines, at: point)
+                        guard try await undoPush(check, checkLines: sentLines, at: point) else { return }
                     } else if !confirmSection(check, step: step, checkFrame: next,
                                                differenceFromPush: difference,
                                                line: "\(head) · \(error) · \(said)") {
@@ -1249,7 +1249,8 @@ final class ScrollingCaptureSession {
                     requestedStep = max(12, currentStep / 2)
                     // Only this step's lines are undone: a probe that moved
                     // the page unmatched still has to be allowed for.
-                    try await returnPage(by: sentLines, at: point, reference: oldFrame)
+                    let back = try await returnPage(by: sentLines, at: point, reference: oldFrame)
+                    guard try await landReturn(back, to: oldFrame) else { return }
                 }
             }
             // The step is dealt with: a pause from here on cuts nothing short.
@@ -1314,7 +1315,7 @@ final class ScrollingCaptureSession {
     /// the other way, and a look at it once it has settled — so that the
     /// retry's half step starts from a place the frames know, and the distance
     /// the failed step moved is not left for the matcher to search through.
-    private func returnPage(by lines: Int32, at point: CGPoint, reference: CaptureFrame) async throws {
+    private func returnPage(by lines: Int32, at point: CGPoint, reference: CaptureFrame) async throws -> CaptureFrame {
         // The step that failed is done with; what is in flight now is its undoing.
         inFlightLines = nil
         try ensureActive()
@@ -1330,6 +1331,45 @@ final class ScrollingCaptureSession {
         try ensureActive()
         try checkWindowAndFocus()
         dump?.save(back, as: String(format: "%02ld-back", stepNumber))
+        return back
+    }
+
+    /// The page was sent back to `target`, the frame kept. When the frame after
+    /// the return is further along than it (`ScrollReturn`), that is content no
+    /// step would reach from `target`: it is laid as a step, and the capture goes
+    /// on from it. Returns false when the capture is saved.
+    private func landReturn(_ back: CaptureFrame, to target: CaptureFrame) async throws -> Bool {
+        let difference = meanDifference(target, back)
+        var forward: Int?
+        if ScrollPush.isChanged(difference) {
+            let axis = self.axis
+            let limit = axisLength(of: target) * 3 / 4 + 32
+            forward = await Task.detached(priority: .userInitiated) {
+                (try? FrameMatcher.match(previous: target, current: back, axis: axis, maximumOffset: limit))?.offset
+            }.value
+            try ensureActive()
+        }
+        guard case .further(let pixels) = ScrollReturn.landing(difference: difference, forward: forward) else {
+            return true
+        }
+        guard try lay(back, movement: pixels) != nil else {
+            finish()
+            return false
+        }
+        recordStep("· back landed \(pixels) px further, laid")
+        Log.capture.notice("scroll back landed \(pixels, privacy: .public) px further · laid")
+        pushMode = .none
+        pushAfterReliableSteps = 0
+        previous = back
+        zeroMotionCount = 0
+        stationaryLines = 0
+        lastStationaryFrame = nil
+        stationaryAllReliable = true
+        pushesAllowed = true
+        unmatchedScroll = 0
+        consecutiveFailures = 0
+        requestedStep = max(24, Int(Double(axisLength(of: back)) * 0.60))
+        return true
     }
 
     /// The step after a push that changed the frame, and the page did not move:
@@ -1368,13 +1408,15 @@ final class ScrollingCaptureSession {
     /// The page moves under the push: it went past content. The page goes back
     /// by the lines of the push and of the check, the frame kept is the one
     /// before the push, and no push is sent until a frame is laid.
-    private func undoPush(_ check: PushCheck, checkLines: Int32, at point: CGPoint) async throws {
+    /// Returns false when the capture is saved.
+    private func undoPush(_ check: PushCheck, checkLines: Int32, at point: CGPoint) async throws -> Bool {
         pushCheck = nil
         pushMode = .none
         pushAfterReliableSteps = 0
         pushesAllowed = false
         previous = check.before
-        try await returnPage(by: check.lines + checkLines, at: point, reference: check.before)
+        let back = try await returnPage(by: check.lines + checkLines, at: point, reference: check.before)
+        return try await landReturn(back, to: check.before)
     }
 
     /// Remembers the tiles that stood still in a step that moved the page.
