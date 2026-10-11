@@ -1043,7 +1043,7 @@ final class ScrollingCaptureSession {
                     + (relay.map { "\($0.note) · " } ?? "")
                     + "queue appended \(laid.waiting) (seams \(laid.queueSeams.map(\.summary).joined(separator: ", ")))"
                 let pushed = isPush ? " · push: placed" : ""
-                recordStep("\(head) · match \(match.offset) px · confidence \(Self.percent(match.confidence)) · regions \(match.independentRegions)\(match.near > 0 ? " · \(match.near) near" : "")\(queue)\(seamNote)\(recalibrated)\(pushed) → added")
+                recordStep("\(head) · match \(match.offset) px · confidence \(Self.percent(match.confidence)) · regions \(match.independentRegions)\(match.near > 0 ? " · \(match.near) near" : "")\(match.sticking > 0 ? " · \(match.sticking) sticking" : "")\(queue)\(seamNote)\(recalibrated)\(pushed) → added")
                 pushMode = .none
                 previous = next
                 zeroMotionCount = 0
@@ -1087,6 +1087,7 @@ final class ScrollingCaptureSession {
                 let said = expected.map {
                     "expected \($0) px · \(evidence?.consistent ?? 0) tiles agree, \(evidence?.against ?? 0) against, \(required) needed"
                         + ((evidence?.near ?? 0) > 0 ? ", \(evidence?.near ?? 0) near" : "")
+                        + ((evidence?.sticking ?? 0) > 0 ? ", \(evidence?.sticking ?? 0) sticking" : "")
                         + (evidence?.contradicted == true ? ", contradicted" : "")
                 } ?? (!undecided ? "not to be predicted"
                       : isPush ? "a push, no distance expected"

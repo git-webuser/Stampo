@@ -90,6 +90,11 @@ nonisolated struct FrameMatch: Equatable, Sendable {
     /// Tiles that put the page a little way off the offset found, neither for it
     /// nor against it (`FrameMatcher.nearRange(of:)`).
     var near = 0
+    /// Tiles of a part of the page that moved less than the rest and stopped — a
+    /// panel pinned to the viewport that was still on its way when the earlier
+    /// frame was taken (`FrameMatcher.isSticking`) — neither for the offset found
+    /// nor against it.
+    var sticking = 0
 }
 
 nonisolated enum FrameMatchError: Error, Equatable, LocalizedError {
@@ -255,14 +260,16 @@ nonisolated enum FrameMatcher {
             throw FrameMatchError.crossAxisMotion
         }
 
-        var agreeing = 0, decisive = 0, against = 0, near = 0, tileMargin = 0.0
+        var agreeing = 0, decisive = 0, against = 0, near = 0, sticking = 0, tileMargin = 0.0
         for t in moving {
             let curve = tileCost[t]
             let atBest = curve[best]
             guard atBest.isFinite, let lowest = curve.filter(\.isFinite).min() else { continue }
             guard atBest - lowest <= tolerance else {
                 if let other = uniqueBest(curve, tolerance: tolerance) {
-                    if abs(other - best) <= nearRange(of: best) { near += 1 } else { against += 1 }
+                    if abs(other - best) <= nearRange(of: best) { near += 1 }
+                    else if isSticking(other, offset: best) { sticking += 1 }
+                    else { against += 1 }
                 }
                 continue
             }
@@ -272,6 +279,13 @@ nonisolated enum FrameMatcher {
                 decisive += 1
                 tileMargin = max(tileMargin, (alternative - atBest) / max(alternative, 0.015))
             }
+        }
+        // Tiles that stuck are neutral beside tiles that are exact at the offset
+        // and nowhere else, and only if they are all that dissent; with fewer of
+        // those, or beside a tile that went further, they know better, as ever.
+        if decisive < stickingNeedsExact || against > 0 {
+            against += sticking
+            sticking = 0
         }
         let alternative = agg.enumerated().filter { abs($0.offset - best) > 2 }.map(\.element).filter(\.isFinite).min() ?? 1
         let frameMargin = (alternative - agg[best]) / max(alternative, 0.015)
@@ -302,7 +316,7 @@ nonisolated enum FrameMatcher {
         let confidence = min(1, (1 - agg[best]) * 0.55 + margin * 0.45)
         guard confidence >= minimumConfidence else { throw FrameMatchError.ambiguousMotion }
         return FrameMatch(offset: best, confidence: confidence, independentRegions: agreeing,
-                          standing: standingTiles(tiles), near: near)
+                          standing: standingTiles(tiles), near: near, sticking: sticking)
     }
 
     /// The tiles that stand still: they have something in them, and their one
@@ -337,6 +351,27 @@ nonisolated enum FrameMatcher {
     static func nearRange(of offset: Int) -> Int {
         max(2, Int((Double(offset) * nearFraction).rounded()))
     }
+
+    /// A tile whose one best fit lies strictly between standing still and the
+    /// offset less its near range: that part of the page moved a little way and
+    /// stopped. A panel pinned to the viewport — Wikipedia's "Contents" and
+    /// "Appearance" — rides with the page until it reaches its place and stays
+    /// there; a frame taken before that and one taken after put it the rest of
+    /// the way apart, 38 px whatever the page did (2026-10-11-193039).
+    static func isSticking(_ best: Int, offset: Int) -> Bool {
+        best > 0 && best < offset - nearRange(of: offset)
+    }
+
+    /// Tiles that are exact at the offset and at no other — their one best fit
+    /// is the offset, to within two pixels — that a tile which stuck needs
+    /// beside it to be neither for the offset nor against it. Fewer, and the
+    /// tile that knows better is believed: a calibration that is wrong makes
+    /// its own offset, and tiles that fit it by the repeat of a list agree
+    /// with it in no way worth the name (2026-10-11-134734, 552 asked for the
+    /// 399 that two tiles found). Nor do they stick beside a tile that went
+    /// further than the offset: columns eight percent either way of a list's
+    /// line are a different line of it, not a panel that stopped.
+    static let stickingNeedsExact = 2
 
     /// How far a tile's cost may sit above its own best and still be said to
     /// agree with an offset, and the cost under which a tile fits at all.
@@ -463,6 +498,9 @@ nonisolated enum FrameMatcher {
         /// Tiles whose one best fit is near the distance asked about
         /// (`nearRange(of:)`): not counted for it nor against it.
         var near = 0
+        /// Tiles that stuck (`isSticking`) beside at least `stickingNeedsExact`
+        /// tiles exact at the distance: not counted for it nor against it.
+        var sticking = 0
     }
 
     /// One pass over the tiles of two frames the matcher could not place: which
@@ -479,7 +517,7 @@ nonisolated enum FrameMatcher {
             // The tile numbers are those of the band's grid, not the frame's:
             // as with a match on a band, nothing that stands is reported.
             return StepEvidence(standing: [], consistent: found.consistent, against: found.against,
-                                contradicted: found.contradicted, near: found.near)
+                                contradicted: found.contradicted, near: found.near, sticking: found.sticking)
         }
         return evidenceWhole(previous: previous, current: current, axis: axis,
                              offset: offset, searchLimit: searchLimit)
@@ -495,7 +533,7 @@ nonisolated enum FrameMatcher {
         let tiles = tileCurves(previous: previous, current: current, axis: axis, limit: limit)
         let standing = standingTiles(tiles)
         guard let offset else { return StepEvidence(standing: standing, consistent: 0, against: 0, contradicted: false) }
-        var consistent = 0, against = 0, near = 0, moving = 0
+        var consistent = 0, against = 0, near = 0, sticking = 0, exact = 0, moving = 0
         for t in 0..<tiles.cost.count {
             let curve = tiles.cost[t]
             guard let lowest = curve.filter(\.isFinite).min(), lowest <= fitThreshold else { continue }
@@ -503,10 +541,18 @@ nonisolated enum FrameMatcher {
             if still - lowest <= tolerance { continue }
             moving += 1
             guard curve[offset].isFinite else { continue }
-            if curve[offset] - lowest <= tolerance { consistent += 1 }
-            else if let other = uniqueBest(curve, tolerance: tolerance) {
-                if abs(other - offset) <= nearRange(of: offset) { near += 1 } else { against += 1 }
+            if curve[offset] - lowest <= tolerance {
+                consistent += 1
+                if let only = uniqueBest(curve, tolerance: tolerance), abs(only - offset) <= 2 { exact += 1 }
+            } else if let other = uniqueBest(curve, tolerance: tolerance) {
+                if abs(other - offset) <= nearRange(of: offset) { near += 1 }
+                else if isSticking(other, offset: offset) { sticking += 1 }
+                else { against += 1 }
             }
+        }
+        if exact < stickingNeedsExact || against > 0 {
+            against += sticking
+            sticking = 0
         }
         // Tiles near the distance are neutral only beside a tile that is exact at
         // it: the columns of a parallax are off by a little while the rest of the
@@ -520,7 +566,7 @@ nonisolated enum FrameMatcher {
             near = 0
         }
         return StepEvidence(standing: standing, consistent: consistent, against: against,
-                            contradicted: against > max(0, moving / 5), near: near)
+                            contradicted: against > max(0, moving / 5), near: near, sticking: sticking)
     }
 
     /// Whether `offset` is consistent with the frames when they cannot pin it
