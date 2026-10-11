@@ -111,6 +111,18 @@ final class ScrollingCaptureSession {
     /// such steps, how many there were.
     private var stationaryAllReliable = true
     private var pushAfterReliableSteps = 0
+    /// A push that changed the frame and was not placed, waiting for the step
+    /// that says what the change was (`ScrollPush.afterCheck`): the frame kept
+    /// before it, its own frame, and the lines it sent.
+    private struct PushCheck {
+        let before: CaptureFrame
+        let frame: CaptureFrame
+        let lines: Int32
+    }
+    private var pushCheck: PushCheck?
+    /// Whether a push may be sent: not after a check has found the page going
+    /// on under one, until a frame is laid.
+    private var pushesAllowed = true
     /// The line of the last step that was placed firmly and that the calibration
     /// did not predict, kept to see whether the next such step agrees with it
     /// (`ScrollRecalibration`).
@@ -317,6 +329,12 @@ final class ScrollingCaptureSession {
         pauseLedger = UserScrollLedger()
         pushMode = .none
         pushAfterReliableSteps = 0
+        // A push waiting to be checked is not laid: the frame kept is the one
+        // before it, and the pause finds the place from there.
+        if let check = pushCheck {
+            previous = check.before
+            pushCheck = nil
+        }
         rememberedLine = nil
         task?.cancel()
         task = nil
@@ -406,6 +424,7 @@ final class ScrollingCaptureSession {
                 stationaryLines = 0
                 lastStationaryFrame = nil
                 stationaryAllReliable = true
+                pushesAllowed = true
                 consecutiveFailures = 0
                 unmatchedScroll = 0
                 return true
@@ -613,6 +632,7 @@ final class ScrollingCaptureSession {
 
     private func releaseCaptureBuffers() {
         previous = nil
+        pushCheck = nil
         temporary.discard()
         assembler.reset()
     }
@@ -872,6 +892,8 @@ final class ScrollingCaptureSession {
         stationaryAllReliable = true
         pushMode = .none
         pushAfterReliableSteps = 0
+        pushCheck = nil
+        pushesAllowed = true
         rememberedLine = nil
 
         do {
@@ -964,6 +986,17 @@ final class ScrollingCaptureSession {
                     }.value
                 }
                 try ensureActive()
+                if let check = pushCheck {
+                    // The step after a push that changed the frame is placed:
+                    // the page goes on as usual, and the push took it past
+                    // content that no frame has. Nothing is laid or replaced;
+                    // the page goes back to where the push began.
+                    recordStep("\(head) · match \(match.offset) px · confidence \(Self.percent(match.confidence)) · regions \(match.independentRegions) → check: page moves, push undone, back \(check.lines + sentLines) lines")
+                    try await undoPush(check, checkLines: sentLines, at: point)
+                    stepInFlight = false
+                    inFlightLines = nil
+                    continue
+                }
                 // Steps wait that the calibration placed, and this one, which
                 // the matcher placed, is not where the calibration says it
                 // should be: the calibration may be the wrong one. The tiles of
@@ -1050,6 +1083,7 @@ final class ScrollingCaptureSession {
                 stationaryLines = 0
                 lastStationaryFrame = nil
                 stationaryAllReliable = true
+                pushesAllowed = true
                 unmatchedScroll = 0
                 requestedStep = max(24, Int(Double(axisLength(of: next)) * 0.60))
                 consecutiveFailures = 0
@@ -1093,6 +1127,24 @@ final class ScrollingCaptureSession {
                       : isPush ? "a push, no distance expected"
                       : pixelsPerLine == nil ? "no calibration"
                       : "step not clean (\(unmatchedScroll) px unaccounted)")
+                if let check = pushCheck {
+                    // Not placed. The tiles say whether it moves the page all
+                    // the same; if they do not, the page stood and the section
+                    // changed its stage.
+                    let step = ScrollPush.afterCheck(mode: pushMode,
+                                                     movesPage: ScrollPush.movesPage(placed: false, decision: decision))
+                    if step.action == .undo {
+                        recordStep("\(head) · \(error) · \(said) → check: page moves, push undone, back \(check.lines + sentLines) lines")
+                        try await undoPush(check, checkLines: sentLines, at: point)
+                    } else if !confirmSection(check, step: step, checkFrame: next,
+                                               differenceFromPush: difference,
+                                               line: "\(head) · \(error) · \(said)") {
+                        return
+                    }
+                    stepInFlight = false
+                    inFlightLines = nil
+                    continue
+                }
                 let standing = "\(unpinned) unpinned middle tiles stand"
                 // Only a step decided as stationary goes on in a push or a section.
                 // A push is compared with the last frame that stood, the others
@@ -1105,21 +1157,17 @@ final class ScrollingCaptureSession {
                 let changed = ScrollPush.isChanged(changeDifference)
                 let afterBlank = pushAfterReliableSteps > 0
                 let outcome = ScrollPush.outcome(decidedStationary: decision == .stationary, undecided: undecided,
-                                                 changed: changed, afterReliableSteps: afterBlank, mode: modeBefore)
-                // A push that changed the frame after steps that stood for sure is a
-                // section changing its stage, tiles standing or not.
+                                                 changed: changed, mode: modeBefore)
+                // A push that changed the frame is checked, tiles standing or not.
                 let withoutTiles = ScrollPush.acceptsWithoutStandingTiles(
                     decidedStationary: decision == .stationary, undecided: undecided, changed: changed,
-                    afterReliableSteps: afterBlank, mode: modeBefore)
+                    mode: modeBefore)
                 let effective: ScrollStepDecision = withoutTiles ? .stationary : decision
-                var push = ScrollPush.next(mode: modeBefore, outcome: outcome)
+                let push = ScrollPush.next(mode: modeBefore, outcome: outcome)
                 var pushed = ScrollPush.sendsPush(modeBefore) && afterBlank ? " · after \(pushAfterReliableSteps) standing steps" : ""
                 pushed += modeBefore == .push
                     ? " · \(standing) · vs \(standingFrame == nil ? "kept" : "standing") frame \(String(format: "%.4f", changeDifference))"
                     : " · \(standing)"
-                if push.action == .replace {
-                    do { try assembler.replaceLast(with: next) } catch { push = .init(action: .count, mode: .none) }
-                }
                 pushMode = push.mode
                 if push.mode == .none { pushAfterReliableSteps = 0 }
                 switch effective {
@@ -1129,25 +1177,16 @@ final class ScrollingCaptureSession {
                     Log.capture.notice("scroll push changed nothing · end")
                     finish()
                     return
-                case .stationary where push.action == .replace:
-                    // The page stood and something on it changed: a section
-                    // pinned to the viewport, passing from one stage to the
-                    // next. The image has the last frame laid as this one is.
-                    noteProgress()
-                    let how = withoutTiles ? "pinned section (frame changed, nothing placed)" : "pinned section"
-                    recordStep("\(head) · \(error) · \(said)\(pushed) → push: \(how), frame replaced (\(ScrollPush.pushes(in: push.mode)))")
+                case .stationary where push.action == .check:
+                    // The push changed the frame and nothing placed it. That is
+                    // not yet a stage of a section: a page that the push took
+                    // past more than a frame looks the same. An ordinary step
+                    // from this frame says which.
+                    recordStep("\(head) · \(error) · \(said)\(pushed) → push: frame changed, checking")
+                    pushCheck = PushCheck(before: oldFrame, frame: next, lines: sentLines)
                     previous = next
-                    zeroMotionCount = 0
-                    stationaryLines = 0
-                    lastStationaryFrame = nil
-                    stationaryAllReliable = true
                     unmatchedScroll = 0
                     consecutiveFailures = 0
-                    if ScrollPush.isExhausted(push.mode) {
-                        recordStep("saved: \(ScrollPush.limit) pushes and the page has not moved")
-                        finish()
-                        return
-                    }
                 case .stationary where push.action == .hold:
                     lastStationaryFrame = next
                     consecutiveFailures = 0
@@ -1168,7 +1207,8 @@ final class ScrollingCaptureSession {
                     }
                     // Two in a row, and nothing waiting: the third is a push, in
                     // case the page snaps back to where it was after a short step.
-                    if ScrollPush.startsPush(zeroMotionCount: zeroMotionCount, queueIsEmpty: temporary.isEmpty) {
+                    if ScrollPush.startsPush(zeroMotionCount: zeroMotionCount, queueIsEmpty: temporary.isEmpty,
+                                             allowed: pushesAllowed) {
                         pushMode = .push
                         pushAfterReliableSteps = stationaryAllReliable ? zeroMotionCount : 0
                     }
@@ -1290,6 +1330,51 @@ final class ScrollingCaptureSession {
         try ensureActive()
         try checkWindowAndFocus()
         dump?.save(back, as: String(format: "%02ld-back", stepNumber))
+    }
+
+    /// The step after a push that changed the frame, and the page did not move:
+    /// a pinned section changed its stage. The frame replaces the last one laid,
+    /// the check's own if it changed after the push, and the pushes go on.
+    /// Returns false when the capture is saved.
+    private func confirmSection(_ check: PushCheck, step: ScrollPush.Step, checkFrame: CaptureFrame,
+                                differenceFromPush: Double, line: String) -> Bool {
+        let stage = ScrollPush.stageFrameIsChecks(differenceFromPush: differenceFromPush) ? checkFrame : check.frame
+        do {
+            try assembler.replaceLast(with: stage)
+        } catch {
+            recordStep("\(line) → check: section, frame not replaced")
+            finish()
+            return false
+        }
+        noteProgress()
+        pushCheck = nil
+        pushMode = step.mode
+        previous = checkFrame
+        zeroMotionCount = 0
+        stationaryLines = 0
+        lastStationaryFrame = nil
+        stationaryAllReliable = true
+        unmatchedScroll = 0
+        consecutiveFailures = 0
+        recordStep("\(line) → check: section · frame replaced (\(ScrollPush.pushes(in: step.mode)))")
+        if ScrollPush.isExhausted(step.mode) {
+            recordStep("saved: \(ScrollPush.limit) pushes and the page has not moved")
+            finish()
+            return false
+        }
+        return true
+    }
+
+    /// The page moves under the push: it went past content. The page goes back
+    /// by the lines of the push and of the check, the frame kept is the one
+    /// before the push, and no push is sent until a frame is laid.
+    private func undoPush(_ check: PushCheck, checkLines: Int32, at point: CGPoint) async throws {
+        pushCheck = nil
+        pushMode = .none
+        pushAfterReliableSteps = 0
+        pushesAllowed = false
+        previous = check.before
+        try await returnPage(by: check.lines + checkLines, at: point, reference: check.before)
     }
 
     /// Remembers the tiles that stood still in a step that moved the page.

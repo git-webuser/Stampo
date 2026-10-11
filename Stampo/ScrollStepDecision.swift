@@ -268,6 +268,12 @@ nonisolated enum ScrollRecalibration {
 /// page. A push — one wheel event of twice the lines — is more than half a
 /// stage; the section changes and, once it is passed, the page is further on.
 ///
+/// A push that changes the frame and is not placed may be that, or the page
+/// going past a whole frame at once — the wheel went to a box with a scroll of
+/// its own until it ended, then to the page. An ordinary step from the push's
+/// frame tells them apart (`afterCheck`): a section does not move the page for
+/// it either; a page moves.
+///
 /// What the capture does about it, as a state: `Mode` says what the next step is,
 /// `next` what a step's outcome makes of it.
 nonisolated enum ScrollPush {
@@ -288,6 +294,14 @@ nonisolated enum ScrollPush {
         case section(pushes: Int)
         /// A push left the frame as it was: the next step is an ordinary one.
         case settle
+        /// A push changed the frame and was not placed, `pushes` so far, this
+        /// one included. The next step is an ordinary one, from the push's
+        /// frame, and it says what the change was (`afterCheck`): a pinned
+        /// section passing to its next stage leaves the page where it is, and
+        /// that step does not move it either; a page that the push took past
+        /// more than a frame — the wheel went to a box with a scroll of its own
+        /// until it ended, then to the page — goes on as usual under it.
+        case check(pushes: Int)
     }
 
     /// What a step came to, as far as this goes.
@@ -309,6 +323,12 @@ nonisolated enum ScrollPush {
         case replace
         /// A push left everything as it was in a section: nothing counts.
         case hold
+        /// The push changed the frame and nothing placed it: an ordinary step
+        /// from its frame comes before the frame goes into the image.
+        case check
+        /// The page moves under the push: it went past content. Nothing is
+        /// replaced, the page goes back, and no push is sent until a frame is laid.
+        case undo
         /// There is nothing more to find: save.
         case end
     }
@@ -321,14 +341,16 @@ nonisolated enum ScrollPush {
     static func sendsPush(_ mode: Mode) -> Bool {
         switch mode {
         case .push, .section: return true
-        case .none, .settle: return false
+        case .none, .settle, .check: return false
         }
     }
 
     /// The step after the second in a row that proved the page stood is a
     /// push — with steps waiting, as ever, a third of those ends the capture.
-    static func startsPush(zeroMotionCount: Int, queueIsEmpty: Bool) -> Bool {
-        zeroMotionCount == 2 && queueIsEmpty
+    /// Not once a check has found the page going on under a push, until a frame
+    /// is laid: `allowed`.
+    static func startsPush(zeroMotionCount: Int, queueIsEmpty: Bool, allowed: Bool = true) -> Bool {
+        zeroMotionCount == 2 && queueIsEmpty && allowed
     }
 
     static func next(mode: Mode, outcome: Outcome) -> Step {
@@ -337,15 +359,43 @@ nonisolated enum ScrollPush {
         case .none:
             return Step(action: .count, mode: .none)
         case .push:
-            return changed ? Step(action: .replace, mode: .section(pushes: 1))
+            return changed ? Step(action: .check, mode: .check(pushes: 1))
                            : Step(action: .end, mode: .none)
         case .section(let pushes):
-            return changed ? Step(action: .replace, mode: .section(pushes: pushes + 1))
+            return changed ? Step(action: .check, mode: .check(pushes: pushes + 1))
                            : Step(action: .hold, mode: .settle)
+        case .check:
+            // The step after a push is decided by `afterCheck`.
+            return Step(action: .proceed, mode: .none)
         case .settle:
             return changed ? Step(action: .count, mode: .none)
                            : Step(action: .end, mode: .none)
         }
+    }
+
+    /// What the step after a push that changed the frame comes to, `mode` being
+    /// `.check`. When the page moves under it, the push went past content that
+    /// no frame has: nothing is replaced, and the page goes back. Otherwise the
+    /// page stood and the section changed its stage: the frame replaces the last
+    /// one laid, and the pushes go on as in a section.
+    static func afterCheck(mode: Mode, movesPage: Bool) -> Step {
+        guard case .check(let pushes) = mode else { return Step(action: .proceed, mode: .none) }
+        return movesPage ? Step(action: .undo, mode: .none)
+                         : Step(action: .replace, mode: .section(pushes: pushes))
+    }
+
+    /// Whether the step after a push shows the page going on: the matcher placed
+    /// it, or the tiles of its frames bear out the distance it was sent for.
+    /// Anything else — tiles standing, nothing agreeing, nothing against, no
+    /// way to tell — is a page that stood.
+    static func movesPage(placed: Bool, decision: ScrollStepDecision) -> Bool {
+        placed || decision == .temporary(confirmed: true)
+    }
+
+    /// Which frame the section's stage is: the check's own if it changed after
+    /// the push — the section went on to a later stage — else the push's.
+    static func stageFrameIsChecks(differenceFromPush: Double) -> Bool {
+        isChanged(differenceFromPush)
     }
 
     /// How many unpinned tiles of the middle rows must stand for a step decided as
@@ -363,24 +413,24 @@ nonisolated enum ScrollPush {
         !isChanged(difference) || unpinnedStanding >= reliableStandingTiles
     }
 
-    /// What a step came to when the page stood for two steps before it. When both
-    /// steps that started a push were reliable, a push the matcher could not
-    /// place whose frame changed is a section changing its stage, whether or not
-    /// a tile of the frame stands: the section fills the viewport and may leave
-    /// nothing standing but the bars. A false "stationary" is neither blank nor
-    /// stands on three tiles, so it never makes such a pair.
-    static func outcome(decidedStationary: Bool, undecided: Bool, changed: Bool,
-                        afterReliableSteps: Bool, mode: Mode) -> Outcome {
+    /// What a step came to when the page stood for two steps before it. A push the
+    /// matcher could not place whose frame changed is checked, whether or not a
+    /// tile of the frame stands: a section fills the viewport and may leave
+    /// nothing standing but the bars. Whether the two steps before it were ones
+    /// to rely on (`isReliableStep`) does not matter: the check step tells a
+    /// section from a page that moved all the same, and a false "stationary"
+    /// is caught by it, not by the tiles of the push.
+    static func outcome(decidedStationary: Bool, undecided: Bool, changed: Bool, mode: Mode) -> Outcome {
         if decidedStationary { return .stationary(changed: changed) }
-        if sendsPush(mode), afterReliableSteps, undecided, changed { return .stationary(changed: true) }
+        if sendsPush(mode), undecided, changed { return .stationary(changed: true) }
         return .other
     }
 
     /// Whether `outcome` took a step that the decision had refused as stationary.
     static func acceptsWithoutStandingTiles(decidedStationary: Bool, undecided: Bool, changed: Bool,
-                                            afterReliableSteps: Bool, mode: Mode) -> Bool {
+                                            mode: Mode) -> Bool {
         !decidedStationary && outcome(decidedStationary: false, undecided: undecided, changed: changed,
-                                      afterReliableSteps: afterReliableSteps, mode: mode) != .other
+                                      mode: mode) != .other
     }
 
     /// Whether a frame whose difference from the one it is compared with is
@@ -400,8 +450,10 @@ nonisolated enum ScrollPush {
 
     /// How many pushes a section has had so far.
     static func pushes(in mode: Mode) -> Int {
-        if case .section(let pushes) = mode { return pushes }
-        return 0
+        switch mode {
+        case .section(let pushes), .check(let pushes): return pushes
+        case .none, .push, .settle: return 0
+        }
     }
 
     /// The pushes have reached the limit with nothing placed.
