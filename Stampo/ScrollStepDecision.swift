@@ -99,6 +99,11 @@ nonisolated struct TemporarySteps {
         let frame: CaptureFrame
         let movement: Int
         let confirmed: Bool
+        /// The wheel lines that were sent for it, when it was a step of the
+        /// capture's own: its distance is then lines times a calibration, and
+        /// can be worked out again if the calibration turns out wrong. Nil for
+        /// a step taken to have arrived while the capture was paused.
+        let lines: Int32?
     }
 
     private(set) var steps: [Step] = []
@@ -106,8 +111,8 @@ nonisolated struct TemporarySteps {
     var count: Int { steps.count }
     var isEmpty: Bool { steps.isEmpty }
 
-    mutating func add(_ frame: CaptureFrame, movement: Int, confirmed: Bool) {
-        steps.append(Step(frame: frame, movement: movement, confirmed: confirmed))
+    mutating func add(_ frame: CaptureFrame, movement: Int, confirmed: Bool, lines: Int32? = nil) {
+        steps.append(Step(frame: frame, movement: movement, confirmed: confirmed, lines: lines))
     }
 
     /// The waiting steps, in order, and none left waiting: they are about to
@@ -123,6 +128,52 @@ nonisolated struct TemporarySteps {
         let dropped = steps.count
         steps.removeAll()
         return dropped
+    }
+}
+
+/// A queue laid by a calibration that a step the matcher placed then
+/// contradicted: the probe landed on a floating card that moves faster than the
+/// page, and gave 138 px to a line where every matched step gives 80. The queue
+/// was laid at 138; the tiles of its own frames can say which of the two
+/// distances they bear out.
+nonisolated enum ScrollQueueRelay {
+    /// How sure the matcher must be of the step that overturns a calibration.
+    /// It accepts a match from 0.72, and a barely accepted one on a page with
+    /// video — 0.73 after a pause, with five regions — can be wrong while the
+    /// steps around it say the line is what it was; the tiles of a page like
+    /// that are noise too. The steps this was made for were placed at 1.00 by
+    /// eight or nine regions.
+    static let firmConfidence = 0.9
+
+    /// Whether a step placed with this confidence is firm enough to say what a
+    /// line is.
+    static func isFirm(confidence: Double) -> Bool {
+        confidence >= firmConfidence
+    }
+
+    /// Lay the queue again at the new distances when more tiles agree with
+    /// them than with the old: strictly more, so that a tie leaves things as
+    /// they are. Near the end of a page the last step is short because the page
+    /// ended, not because a line is shorter, and the tiles then keep the old.
+    static func shouldRelay(tilesOld: Int, tilesNew: Int) -> Bool {
+        tilesNew > tilesOld
+    }
+
+    /// The distance of each step of a queue for a line of `pixelsPerLine`:
+    /// lines times that, rounded. A step without lines keeps its distance. Nil
+    /// if any comes out as nothing or more than three quarters of the frame,
+    /// which is as far as a step is ever planned.
+    static func movements(lines: [Int32?], current: [Int], pixelsPerLine: Double,
+                          axisLength: Int) -> [Int]? {
+        guard lines.count == current.count, pixelsPerLine > 0 else { return nil }
+        var result: [Int] = []
+        for (lines, movement) in zip(lines, current) {
+            guard let lines else { result.append(movement); continue }
+            let moved = Int((Double(lines) * pixelsPerLine).rounded())
+            guard moved > 0, moved <= axisLength * 3 / 4 else { return nil }
+            result.append(moved)
+        }
+        return result
     }
 }
 

@@ -429,22 +429,80 @@ final class ScrollingCaptureSession {
     }
 
     /// Lays a frame that is `movement` pixels along from the last frame into the
-    /// image — first the steps that waited for one the matcher placed. Returns
-    /// how many of those there were, or nil when the image has no room for them.
-    private func lay(_ frame: CaptureFrame, movement: Int) throws -> Int? {
+    /// image — first the steps that waited for one the matcher placed, at their
+    /// own distances or, if the queue has been worked out again, at
+    /// `queueMovements`. Returns how many of those there were, or nil when the
+    /// image has no room for them.
+    private func lay(_ frame: CaptureFrame, movement: Int, queueMovements: [Int]? = nil) throws -> Int? {
         let waiting = temporary.take()
-        for step in waiting {
-            guard makeRoom(for: step.movement) else {
+        for (index, step) in waiting.enumerated() {
+            let moved = queueMovements.flatMap { $0.indices.contains(index) ? $0[index] : nil } ?? step.movement
+            guard makeRoom(for: moved) else {
                 Log.capture.notice("scroll queue only partly laid · the image is full")
                 return nil
             }
-            try assembler.append(step.frame, movement: step.movement)
+            try assembler.append(step.frame, movement: moved)
         }
         guard makeRoom(for: movement) else { return nil }
         try ensureActive()
         try assembler.append(frame, movement: movement)
         noteProgress()
         return waiting.count
+    }
+
+    /// The outcome of asking the tiles of a queue's frames which distances they
+    /// bear out, after a step the matcher placed has shown that the calibration
+    /// the queue was laid by is wrong.
+    private struct QueueRelay {
+        /// The new distances, in the queue's order — nil if the queue stays as
+        /// it was laid.
+        let movements: [Int]?
+        let pixelsPerLine: Double
+        /// For the line of the step in the log and in `steps.txt`.
+        let note: String
+    }
+
+    /// A step that the matcher placed at a distance the calibration does not
+    /// predict, with steps waiting that the calibration placed. Each waiting
+    /// frame is looked at against the one before it, at the distance it was
+    /// laid at and at the distance the placed step's line would give; whichever
+    /// the tiles of more of them bear out is the queue's. Nil when there is
+    /// nothing to ask: no frame to start from, or no step with lines.
+    private func relayQueue(match: FrameMatch, lines: Int32, axisLength: Int,
+                            searchLimit: Int) async throws -> QueueRelay? {
+        guard let perLine = ScrollStepPlanner.pixelsPerLine(offset: match.offset, lines: Int(lines)),
+              var before = assembler.lastFrame else { return nil }
+        let queue = temporary.steps
+        guard let moved = ScrollQueueRelay.movements(lines: queue.map(\.lines), current: queue.map(\.movement),
+                                                     pixelsPerLine: perLine, axisLength: axisLength)
+        else { return nil }
+        var jobs: [(before: CaptureFrame, after: CaptureFrame, old: Int, new: Int)] = []
+        for (index, step) in queue.enumerated() {
+            if step.lines != nil {
+                jobs.append((before, step.frame, step.movement, moved[index]))
+            }
+            before = step.frame
+        }
+        guard !jobs.isEmpty else { return nil }
+        let axis = self.axis
+        let work = jobs
+        let (tilesOld, tilesNew) = await Task.detached(priority: .userInitiated) {
+            var old = 0, new = 0
+            for job in work {
+                old += FrameMatcher.evidence(previous: job.before, current: job.after, axis: axis,
+                                             offset: job.old, searchLimit: searchLimit).consistent
+                new += FrameMatcher.evidence(previous: job.before, current: job.after, axis: axis,
+                                             offset: job.new, searchLimit: searchLimit).consistent
+            }
+            return (old, new)
+        }.value
+        try ensureActive()
+        if ScrollQueueRelay.shouldRelay(tilesOld: tilesOld, tilesNew: tilesNew) {
+            return QueueRelay(movements: moved, pixelsPerLine: perLine,
+                              note: "queue re-laid at \(Int(perLine.rounded())) px/line (tiles \(tilesNew) vs \(tilesOld))")
+        }
+        return QueueRelay(movements: nil, pixelsPerLine: perLine,
+                          note: "queue kept (tiles \(tilesOld) vs \(tilesNew))")
     }
 
     /// The capture has made headway: the seconds without it start again.
@@ -816,13 +874,33 @@ final class ScrollingCaptureSession {
                     }.value
                 }
                 try ensureActive()
+                // Steps wait that the calibration placed, and this one, which
+                // the matcher placed, is not where the calibration says it
+                // should be: the calibration may be the wrong one. The tiles of
+                // the waiting frames say which distances they bear out.
+                var relay: QueueRelay?
+                if cleanStep, let pixelsPerLine, !temporary.isEmpty,
+                   ScrollQueueRelay.isFirm(confidence: match.confidence),
+                   !ScrollStepPlanner.confirmsLinearity(offset: match.offset, lines: Int(plan.lines),
+                                                        pixelsPerLine: pixelsPerLine) {
+                    relay = try await relayQueue(match: match, lines: plan.lines,
+                                                 axisLength: axisLength(of: oldFrame), searchLimit: motionLimit + 32)
+                }
                 // The steps that waited for this one go into the image first.
-                guard let waiting = try lay(next, movement: match.offset) else {
+                guard let waiting = try lay(next, movement: match.offset, queueMovements: relay?.movements) else {
                     finish()
                     return
                 }
                 notePinned(match.standing)
-                if cleanStep, let pixelsPerLine,
+                if let relay, relay.movements != nil {
+                    // The line is what this step shows. One step cannot confirm
+                    // that lines move the page in proportion; that waits for
+                    // the next full one.
+                    let was = Int((pixelsPerLine ?? 0).rounded()), now = Int(relay.pixelsPerLine.rounded())
+                    Log.capture.notice("scroll recalibrated · \(now, privacy: .public) px per line (was \(was, privacy: .public))")
+                    pixelsPerLine = relay.pixelsPerLine
+                    linearityConfirmed = false
+                } else if cleanStep, let pixelsPerLine,
                    ScrollStepPlanner.confirmsLinearity(offset: match.offset, lines: Int(plan.lines),
                                                        pixelsPerLine: pixelsPerLine) {
                     linearityConfirmed = true
@@ -838,7 +916,9 @@ final class ScrollingCaptureSession {
                                                           axisLength: axisLength(of: next), backingScale: scale)
                     Log.capture.notice("scroll calibrated late · \(Int(late.rounded()), privacy: .public) px per line · \(latePlan.lines, privacy: .public) lines per step")
                 }
-                let queue = waiting == 0 ? "" : " · queue appended \(waiting)"
+                let queue = waiting == 0 ? "" : " · "
+                    + (relay.map { "\($0.note) · " } ?? "")
+                    + "queue appended \(waiting)"
                 recordStep("\(head) · match \(match.offset) px · confidence \(Self.percent(match.confidence)) · regions \(match.independentRegions)\(queue)\(seamNote) → added")
                 previous = next
                 zeroMotionCount = 0
@@ -896,7 +976,7 @@ final class ScrollingCaptureSession {
                     // Not placed by the frames: placed where the calibration
                     // says, and kept apart until a step the matcher does
                     // place carries it into the image.
-                    temporary.add(next, movement: expected ?? 0, confirmed: confirmed)
+                    temporary.add(next, movement: expected ?? 0, confirmed: confirmed, lines: plan.lines)
                     noteProgress()
                     recordStep("\(head) · \(error) · \(said) · \(standing) → temporary (\(confirmed ? "confirmed" : "unconfirmed")), queue \(temporary.count)")
                     previous = next

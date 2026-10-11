@@ -600,7 +600,7 @@ nonisolated struct ImageAssembler: Sendable {
     private(set) var viewportHeight = 0
     /// The last frame laid, whole, and the rows of it the seam before it left
     /// to the frame before: what the next seam is chosen against.
-    private var lastFrame: CaptureFrame?
+    private(set) var lastFrame: CaptureFrame?
     private var lastSkip = 0
     /// The seam of the last frame laid, and why it fell there.
     private(set) var lastSeam: ScrollSeam.Choice?
