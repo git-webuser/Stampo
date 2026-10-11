@@ -428,13 +428,21 @@ final class ScrollingCaptureSession {
         }
     }
 
+    /// What `lay` put into the image besides the frame itself.
+    private struct Laid {
+        /// How many steps had waited.
+        let waiting: Int
+        /// The seam each of them fell at, in order.
+        let queueSeams: [ScrollSeam.Choice]
+    }
+
     /// Lays a frame that is `movement` pixels along from the last frame into the
     /// image — first the steps that waited for one the matcher placed, at their
     /// own distances or, if the queue has been worked out again, at
-    /// `queueMovements`. Returns how many of those there were, or nil when the
-    /// image has no room for them.
-    private func lay(_ frame: CaptureFrame, movement: Int, queueMovements: [Int]? = nil) throws -> Int? {
+    /// `queueMovements`. Nil when the image has no room for them.
+    private func lay(_ frame: CaptureFrame, movement: Int, queueMovements: [Int]? = nil) throws -> Laid? {
         let waiting = temporary.take()
+        var seams: [ScrollSeam.Choice] = []
         for (index, step) in waiting.enumerated() {
             let moved = queueMovements.flatMap { $0.indices.contains(index) ? $0[index] : nil } ?? step.movement
             guard makeRoom(for: moved) else {
@@ -442,12 +450,13 @@ final class ScrollingCaptureSession {
                 return nil
             }
             try assembler.append(step.frame, movement: moved)
+            if let seam = assembler.lastSeam { seams.append(seam) }
         }
         guard makeRoom(for: movement) else { return nil }
         try ensureActive()
         try assembler.append(frame, movement: movement)
         noteProgress()
-        return waiting.count
+        return Laid(waiting: waiting.count, queueSeams: seams)
     }
 
     /// The outcome of asking the tiles of a queue's frames which distances they
@@ -887,7 +896,7 @@ final class ScrollingCaptureSession {
                                                  axisLength: axisLength(of: oldFrame), searchLimit: motionLimit + 32)
                 }
                 // The steps that waited for this one go into the image first.
-                guard let waiting = try lay(next, movement: match.offset, queueMovements: relay?.movements) else {
+                guard let laid = try lay(next, movement: match.offset, queueMovements: relay?.movements) else {
                     finish()
                     return
                 }
@@ -916,9 +925,9 @@ final class ScrollingCaptureSession {
                                                           axisLength: axisLength(of: next), backingScale: scale)
                     Log.capture.notice("scroll calibrated late · \(Int(late.rounded()), privacy: .public) px per line · \(latePlan.lines, privacy: .public) lines per step")
                 }
-                let queue = waiting == 0 ? "" : " · "
+                let queue = laid.waiting == 0 ? "" : " · "
                     + (relay.map { "\($0.note) · " } ?? "")
-                    + "queue appended \(waiting)"
+                    + "queue appended \(laid.waiting) (seams \(laid.queueSeams.map(\.summary).joined(separator: ", ")))"
                 recordStep("\(head) · match \(match.offset) px · confidence \(Self.percent(match.confidence)) · regions \(match.independentRegions)\(queue)\(seamNote) → added")
                 previous = next
                 zeroMotionCount = 0

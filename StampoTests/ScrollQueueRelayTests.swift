@@ -94,4 +94,12 @@ import Testing
         #expect(ScrollQueueRelay.shouldRelay(tilesOld: at552, tilesNew: at320))
         #expect(!ScrollQueueRelay.shouldRelay(tilesOld: at320, tilesNew: at552))
     }
+
+    @Test func aSeamIsSaidInAFewWordsAndTheMiddleInOne() {
+        #expect(ScrollSeam.Choice(skip: 70, reason: .middleAgrees).summary == "middle")
+        #expect(ScrollSeam.Choice(skip: 59, reason: .moved(11)).summary == "−11 px")
+        #expect(ScrollSeam.Choice(skip: 70, reason: .floor).summary == "middle (floor)")
+        #expect(ScrollSeam.Choice(skip: 70, reason: .noRun).summary == "middle (no run)")
+        #expect(ScrollSeam.Choice(skip: 70, reason: .details).summary == "middle (details)")
+    }
 }
