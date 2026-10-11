@@ -106,11 +106,11 @@ final class ScrollingCaptureSession {
     /// The last frame decided as stationary since a frame was kept: what a push
     /// is compared with.
     private var lastStationaryFrame: CaptureFrame?
-    /// Whether every step decided as stationary since a frame was kept left the
-    /// frame the same as it (a blank step), and, once a push has begun after
+    /// Whether every step decided as stationary since a frame was kept is one to
+    /// rely on (`ScrollPush.isReliableStep`), and, once a push has begun after
     /// such steps, how many there were.
-    private var stationaryAllBlank = true
-    private var pushAfterBlankSteps = 0
+    private var stationaryAllReliable = true
+    private var pushAfterReliableSteps = 0
     /// The frames and steps of this capture on disk, when a Debug build is asked
     /// to keep them (`ScrollFrameDump`), and which attempt at a step is being made.
     private var dump: ScrollFrameDump?
@@ -312,7 +312,7 @@ final class ScrollingCaptureSession {
         pausedAt = Date()
         pauseLedger = UserScrollLedger()
         pushMode = .none
-        pushAfterBlankSteps = 0
+        pushAfterReliableSteps = 0
         task?.cancel()
         task = nil
         Log.capture.notice("scroll capture paused · \(announce ? "with a toast" : "by the user", privacy: .public) · \(self.assembler.totalLength, privacy: .public) px collected")
@@ -400,7 +400,7 @@ final class ScrollingCaptureSession {
                 zeroMotionCount = 0
                 stationaryLines = 0
                 lastStationaryFrame = nil
-                stationaryAllBlank = true
+                stationaryAllReliable = true
                 consecutiveFailures = 0
                 unmatchedScroll = 0
                 return true
@@ -416,7 +416,7 @@ final class ScrollingCaptureSession {
                 zeroMotionCount = 0
                 stationaryLines = 0
                 lastStationaryFrame = nil
-                stationaryAllBlank = true
+                stationaryAllReliable = true
                 consecutiveFailures = 0
                 unmatchedScroll = 0
                 return true
@@ -845,9 +845,9 @@ final class ScrollingCaptureSession {
         linearityConfirmed = false
         stationaryLines = 0
         lastStationaryFrame = nil
-        stationaryAllBlank = true
+        stationaryAllReliable = true
         pushMode = .none
-        pushAfterBlankSteps = 0
+        pushAfterReliableSteps = 0
 
         do {
             diagnosticStage = .match
@@ -991,7 +991,7 @@ final class ScrollingCaptureSession {
                 zeroMotionCount = 0
                 stationaryLines = 0
                 lastStationaryFrame = nil
-                stationaryAllBlank = true
+                stationaryAllReliable = true
                 unmatchedScroll = 0
                 requestedStep = max(24, Int(Double(axisLength(of: next)) * 0.60))
                 consecutiveFailures = 0
@@ -1041,17 +1041,17 @@ final class ScrollingCaptureSession {
                                                                               haveStationaryFrame: standingFrame != nil)
                     ? meanDifference(standingFrame ?? oldFrame, next) : difference
                 let changed = ScrollPush.isChanged(changeDifference)
-                let afterBlank = pushAfterBlankSteps > 0
+                let afterBlank = pushAfterReliableSteps > 0
                 let outcome = ScrollPush.outcome(decidedStationary: decision == .stationary, undecided: undecided,
-                                                 changed: changed, afterBlankSteps: afterBlank, mode: modeBefore)
-                // A push that changed the frame after steps that left it as it was
-                // is a section changing its stage, tiles standing or not.
+                                                 changed: changed, afterReliableSteps: afterBlank, mode: modeBefore)
+                // A push that changed the frame after steps that stood for sure is a
+                // section changing its stage, tiles standing or not.
                 let withoutTiles = ScrollPush.acceptsWithoutStandingTiles(
                     decidedStationary: decision == .stationary, undecided: undecided, changed: changed,
-                    afterBlankSteps: afterBlank, mode: modeBefore)
+                    afterReliableSteps: afterBlank, mode: modeBefore)
                 let effective: ScrollStepDecision = withoutTiles ? .stationary : decision
                 var push = ScrollPush.next(mode: modeBefore, outcome: outcome)
-                var pushed = ScrollPush.sendsPush(modeBefore) && afterBlank ? " · after \(pushAfterBlankSteps) blank steps" : ""
+                var pushed = ScrollPush.sendsPush(modeBefore) && afterBlank ? " · after \(pushAfterReliableSteps) standing steps" : ""
                 pushed += modeBefore == .push
                     ? " · \(standing) · vs \(standingFrame == nil ? "kept" : "standing") frame \(String(format: "%.4f", changeDifference))"
                     : " · \(standing)"
@@ -1059,7 +1059,7 @@ final class ScrollingCaptureSession {
                     do { try assembler.replaceLast(with: next) } catch { push = .init(action: .count, mode: .none) }
                 }
                 pushMode = push.mode
-                if push.mode == .none { pushAfterBlankSteps = 0 }
+                if push.mode == .none { pushAfterReliableSteps = 0 }
                 switch effective {
                 case .stationary where push.action == .end:
                     // A push moved nothing and changed nothing: the end of the content.
@@ -1078,7 +1078,7 @@ final class ScrollingCaptureSession {
                     zeroMotionCount = 0
                     stationaryLines = 0
                     lastStationaryFrame = nil
-                    stationaryAllBlank = true
+                    stationaryAllReliable = true
                     unmatchedScroll = 0
                     consecutiveFailures = 0
                     if ScrollPush.isExhausted(push.mode) {
@@ -1094,7 +1094,8 @@ final class ScrollingCaptureSession {
                     zeroMotionCount += 1
                     stationaryLines += sentLines
                     lastStationaryFrame = next
-                    stationaryAllBlank = stationaryAllBlank && !ScrollPush.isChanged(difference)
+                    stationaryAllReliable = stationaryAllReliable
+                        && ScrollPush.isReliableStep(difference: difference, unpinnedStanding: unpinned)
                     consecutiveFailures = 0
                     recordStep("\(head) · \(error) · \(said) → stop: \(standing), page not moving \(zeroMotionCount) of 3")
                     if zeroMotionCount >= 3 {
@@ -1107,7 +1108,7 @@ final class ScrollingCaptureSession {
                     // case the page snaps back to where it was after a short step.
                     if ScrollPush.startsPush(zeroMotionCount: zeroMotionCount, queueIsEmpty: temporary.isEmpty) {
                         pushMode = .push
-                        pushAfterBlankSteps = stationaryAllBlank ? zeroMotionCount : 0
+                        pushAfterReliableSteps = stationaryAllReliable ? zeroMotionCount : 0
                     }
                 case .temporary(let confirmed):
                     // Not placed by the frames: placed where the calibration
@@ -1121,7 +1122,7 @@ final class ScrollingCaptureSession {
                     zeroMotionCount = 0
                     stationaryLines = 0
                     lastStationaryFrame = nil
-                    stationaryAllBlank = true
+                    stationaryAllReliable = true
                     unmatchedScroll = 0
                     requestedStep = max(24, Int(Double(axisLength(of: next)) * 0.60))
                     consecutiveFailures = 0

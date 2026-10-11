@@ -105,27 +105,46 @@ import Testing
                 == Step(action: .end, mode: .none))
     }
 
+    /// A step decided as stationary is one to rely on when its frame is the same
+    /// as the one kept, or three unpinned tiles of the middle rows stand.
+    @Test func aStationaryStepIsReliableWhenBlankOrWhenThreeTilesStand() {
+        #expect(ScrollPush.reliableStandingTiles == 3)
+        // Blank: 2026-10-11-133221 steps 12, 13 (difference 0.0000), however few tiles.
+        #expect(ScrollPush.isReliableStep(difference: 0.0, unpinnedStanding: 8))
+        #expect(ScrollPush.isReliableStep(difference: 0.0, unpinnedStanding: 0))
+        // Not blank, an animation in the section: 2026-10-11-140123 steps 10, 11
+        // (0.0102, 0.0163) with four tiles standing.
+        #expect(ScrollPush.isReliableStep(difference: 0.0102, unpinnedStanding: 4))
+        #expect(ScrollPush.isReliableStep(difference: 0.0163, unpinnedStanding: 3))
+        // Two: the old rule. One: the only false "stationary" there is,
+        // 2026-10-11-124606 step 03, where the page had moved.
+        #expect(!ScrollPush.isReliableStep(difference: 0.0433, unpinnedStanding: 2))
+        #expect(!ScrollPush.isReliableStep(difference: 0.0433, unpinnedStanding: 1))
+        #expect(!ScrollPush.isReliableStep(difference: 0.0433, unpinnedStanding: 0))
+    }
+
     /// 2026-10-11-133221: steps 12 and 13 left the frame the same (difference
     /// 0.0000), the push of step 14 changed it (0.0668) and the matcher could not
     /// place it; not one unpinned tile of the new stage stood, and the decision
-    /// was "retry". After two blank steps that is a section changing its stage.
-    @Test func aChangedPushAfterBlankStepsIsASectionWithoutStandingTiles() {
+    /// was "retry". After two reliable steps that is a section changing its stage.
+    @Test func aChangedPushAfterReliableStepsIsASectionWithoutStandingTiles() {
         func outcome(_ stationary: Bool, undecided: Bool = true, changed: Bool = true,
-                     blank: Bool = true, mode: Mode = .push) -> ScrollPush.Outcome {
+                     reliable: Bool = true, mode: Mode = .push) -> ScrollPush.Outcome {
             ScrollPush.outcome(decidedStationary: stationary, undecided: undecided, changed: changed,
-                               afterBlankSteps: blank, mode: mode)
+                               afterReliableSteps: reliable, mode: mode)
         }
-        // The case: blank pair, changed, not placed, no tile stands.
+        // The case: reliable pair, changed, not placed, no tile stands.
         #expect(outcome(false) == .stationary(changed: true))
         #expect(ScrollPush.acceptsWithoutStandingTiles(decidedStationary: false, undecided: true, changed: true,
-                                                       afterBlankSteps: true, mode: .push))
+                                                       afterReliableSteps: true, mode: .push))
         #expect(outcome(false, mode: .section(pushes: 2)) == .stationary(changed: true))
-        // A pair that was not blank — an animation, a frame that differs from the
-        // one kept by a steady amount: only a decided stationary counts, as before.
-        #expect(outcome(false, blank: false) == .other)
-        #expect(outcome(true, blank: false) == .stationary(changed: true))
+        // A pair that was not reliable — an animation with two tiles standing, a
+        // frame that differs from the one kept by a steady amount: only a decided
+        // stationary counts, as before.
+        #expect(outcome(false, reliable: false) == .other)
+        #expect(outcome(true, reliable: false) == .stationary(changed: true))
         #expect(!ScrollPush.acceptsWithoutStandingTiles(decidedStationary: false, undecided: true, changed: true,
-                                                        afterBlankSteps: false, mode: .push))
+                                                        afterReliableSteps: false, mode: .push))
         // Nothing changed: no section, and a decided stationary is the end.
         #expect(outcome(false, changed: false) == .other)
         #expect(outcome(true, changed: false) == .stationary(changed: false))
