@@ -289,6 +289,28 @@ nonisolated enum ScrollPush {
         }
     }
 
+    /// What a step came to when the page stood for two steps before it. A blank
+    /// step — the frame the same as the one kept, after wheel events — shows that
+    /// a short step does not move the page; the steps that started a push were
+    /// both blank, a false "stationary" (the page moved, the matcher did not
+    /// see it) never is. After such a pair, a push the matcher could not place
+    /// whose frame changed is a section changing its stage, whether or not a
+    /// tile of the frame stands: the section fills the viewport and may leave
+    /// nothing standing but the bars.
+    static func outcome(decidedStationary: Bool, undecided: Bool, changed: Bool,
+                        afterBlankSteps: Bool, mode: Mode) -> Outcome {
+        if decidedStationary { return .stationary(changed: changed) }
+        if sendsPush(mode), afterBlankSteps, undecided, changed { return .stationary(changed: true) }
+        return .other
+    }
+
+    /// Whether `outcome` took a step that the decision had refused as stationary.
+    static func acceptsWithoutStandingTiles(decidedStationary: Bool, undecided: Bool, changed: Bool,
+                                            afterBlankSteps: Bool, mode: Mode) -> Bool {
+        !decidedStationary && outcome(decidedStationary: false, undecided: undecided, changed: changed,
+                                      afterBlankSteps: afterBlankSteps, mode: mode) != .other
+    }
+
     /// Whether a frame whose difference from the one it is compared with is
     /// `difference` has changed.
     static func isChanged(_ difference: Double) -> Bool {

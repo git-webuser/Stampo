@@ -105,6 +105,41 @@ import Testing
                 == Step(action: .end, mode: .none))
     }
 
+    /// 2026-10-11-133221: steps 12 and 13 left the frame the same (difference
+    /// 0.0000), the push of step 14 changed it (0.0668) and the matcher could not
+    /// place it; not one unpinned tile of the new stage stood, and the decision
+    /// was "retry". After two blank steps that is a section changing its stage.
+    @Test func aChangedPushAfterBlankStepsIsASectionWithoutStandingTiles() {
+        func outcome(_ stationary: Bool, undecided: Bool = true, changed: Bool = true,
+                     blank: Bool = true, mode: Mode = .push) -> ScrollPush.Outcome {
+            ScrollPush.outcome(decidedStationary: stationary, undecided: undecided, changed: changed,
+                               afterBlankSteps: blank, mode: mode)
+        }
+        // The case: blank pair, changed, not placed, no tile stands.
+        #expect(outcome(false) == .stationary(changed: true))
+        #expect(ScrollPush.acceptsWithoutStandingTiles(decidedStationary: false, undecided: true, changed: true,
+                                                       afterBlankSteps: true, mode: .push))
+        #expect(outcome(false, mode: .section(pushes: 2)) == .stationary(changed: true))
+        // A pair that was not blank — an animation, a frame that differs from the
+        // one kept by a steady amount: only a decided stationary counts, as before.
+        #expect(outcome(false, blank: false) == .other)
+        #expect(outcome(true, blank: false) == .stationary(changed: true))
+        #expect(!ScrollPush.acceptsWithoutStandingTiles(decidedStationary: false, undecided: true, changed: true,
+                                                        afterBlankSteps: false, mode: .push))
+        // Nothing changed: no section, and a decided stationary is the end.
+        #expect(outcome(false, changed: false) == .other)
+        #expect(outcome(true, changed: false) == .stationary(changed: false))
+        #expect(next(.push, outcome(true, changed: false)) == Step(action: .end, mode: .none))
+        // Not "cannot tell" — some other refusal: no.
+        #expect(outcome(false, undecided: false) == .other)
+        // Ordinary steps and the step after a quiet push are not pushes.
+        #expect(outcome(false, mode: .none) == .other)
+        #expect(outcome(false, mode: .settle) == .other)
+        // And what follows: the section replaces the frame.
+        #expect(next(.push, outcome(false)) == Step(action: .replace, mode: .section(pushes: 1)))
+        #expect(next(.section(pushes: 1), outcome(false)) == Step(action: .replace, mode: .section(pushes: 2)))
+    }
+
     /// The walk of a pinned section as the capture goes through it: two steps
     /// that stand, a push that changes the frame twice, a push that places.
     @Test func theWalkThroughASection() {
