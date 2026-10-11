@@ -1076,6 +1076,13 @@ final class NotchPanelController: NSObject {
             guard let number = self?.panel?.windowNumber, number > 0 else { return [] }
             return [CGWindowID(number)]
         }
+        screenshot.scrollingOwnUIRect = { [weak self] in
+            guard let self, let panel = self.panel, panel.isVisible else { return nil }
+            let drawn = self.drawnContentRect
+            guard !drawn.isNull, !drawn.isEmpty else { return nil }
+            return CGRect(x: drawn.minX, y: cgPrimaryDisplayHeight() - drawn.maxY,
+                          width: drawn.width, height: drawn.height)
+        }
         screenshot.scrollingOwnUICovers = { [weak self] quartzPoint in
             guard let self, let panel = self.panel, panel.isVisible else { return false }
             return self.drawnContentRect.contains(cgPointToScreenPoint(quartzPoint,

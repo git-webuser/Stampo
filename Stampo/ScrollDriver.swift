@@ -425,10 +425,55 @@ enum ScrollDriver {
     /// One wheel event of `lines` lines, forward or `backwards` — up, or left.
     /// How far that moves the page is the app's own business —
     /// `ScrollStepPlanner` works it out from a probe.
-    static func sendScroll(axis: ScrollAxis, lines: Int32, backwards: Bool = false, at point: CGPoint) throws {
+    /// `toProcess`: post the event to that process instead of through the event
+    /// tap (`ScrollPointerExperiment`).
+    static func sendScroll(axis: ScrollAxis, lines: Int32, backwards: Bool = false, at point: CGPoint,
+                           toProcess processID: pid_t? = nil) throws {
         guard let event = scrollEvent(axis: axis, lines: lines, backwards: backwards, at: point)
         else { throw ScrollDriverError.eventUnavailable }
-        event.post(tap: .cghidEventTap)
+        if let processID {
+            event.postToPid(processID)
+        } else {
+            event.post(tap: .cghidEventTap)
+        }
+    }
+
+    /// For the record of a capture: the Accessibility chain from the element
+    /// under `point` up to `container`, the area the capture found, as roles —
+    /// and whether a scroll area of its own lies between them, a box that turns
+    /// under the wheel before the page does. A chain that never reaches the
+    /// container says so; so does a container that is not known.
+    static func axChain(at point: CGPoint, upTo container: AXUIElement?) -> String {
+        let system = systemWideElement()
+        var hit: AXUIElement?
+        let result = AXUIElementCopyElementAtPosition(system, Float(point.x), Float(point.y), &hit)
+        guard result == .success, var current = hit else { return "no element (AXError \(result.rawValue))" }
+        var parts: [String] = []
+        var nested: [String] = []
+        var reached = false
+        for _ in 0..<24 {
+            let role = stringAttribute(current, kAXRoleAttribute as String) ?? "?"
+            if let container, CFEqual(current, container) {
+                parts.append("\(role)[area]")
+                reached = true
+                break
+            }
+            if role == (kAXScrollAreaRole as String) {
+                let geometry = frameOf(current).map { String(format: "%.0f,%.0f %.0fx%.0f", $0.minX, $0.minY, $0.width, $0.height) } ?? "?"
+                parts.append("\(role)@\(geometry)")
+                nested.append(geometry)
+            } else {
+                parts.append(role)
+            }
+            if role == (kAXWindowRole as String) { break }
+            var parent: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(current, kAXParentAttribute as CFString, &parent) == .success,
+                  let next = parent, CFGetTypeID(next) == AXUIElementGetTypeID() else { break }
+            current = (next as! AXUIElement)
+        }
+        let area = container == nil ? " · no area known" : (reached ? "" : " · area not in the chain")
+        let box = nested.isEmpty ? "no" : "yes (\(nested.count): \(nested.joined(separator: "; ")))"
+        return parts.joined(separator: " > ") + area + " · own scroll area between: " + box
     }
 
     /// The wheel event for `sendScroll`, marked as the capture's own so that
