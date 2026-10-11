@@ -75,6 +75,9 @@ struct ScrollViewport: Equatable, Sendable {
     /// The hit point relative to the window, so moving the window can rebase it.
     let relativeScrollPoint: CGPoint
     let windowBounds: CGRect
+    /// The area Accessibility found is a web page (an `AXWebArea`): a site, which
+    /// is made to be scrolled and shown in the width of the browser's window.
+    var isWebPage = false
 
     func cropped(to pixelRect: CGRect, backingScale: CGFloat) -> ScrollViewport? {
         guard backingScale > 0, pixelRect.width >= 1, pixelRect.height >= 1 else { return nil }
@@ -85,7 +88,7 @@ struct ScrollViewport: Equatable, Sendable {
                                        width: pointRect.width, height: pointRect.height)
         return ScrollViewport(windowRect: croppedWindowRect,
                               relativeScrollPoint: relativeScrollPoint,
-                              windowBounds: windowBounds)
+                              windowBounds: windowBounds, isWebPage: isWebPage)
     }
 
     func insetWindowEdges(points: CGFloat) -> ScrollViewport? {
@@ -112,7 +115,7 @@ struct ScrollViewport: Equatable, Sendable {
                           height: windowRect.height - top - bottom)
         guard rect.width >= 40, rect.height >= 40 else { return nil }
         return ScrollViewport(windowRect: rect, relativeScrollPoint: relativeScrollPoint,
-                              windowBounds: windowBounds)
+                              windowBounds: windowBounds, isWebPage: isWebPage)
     }
 
     var cropRectInWindowPoints: CGRect {
@@ -353,11 +356,12 @@ enum ScrollDriver {
             Log.capture.notice("scroll viewport fallback · AXError \(result.rawValue, privacy: .public) · chain \(chain.joined(separator: " > "), privacy: .public)")
             return .window(viewport: windowViewport)
         }
-        Log.capture.notice("scroll viewport resolved · AXError \(result.rawValue, privacy: .public) · chain \(chain.joined(separator: " > "), privacy: .public) · viewport \(rect.debugDescription, privacy: .public)")
+        let isWebPage = candidates[index].role == "AXWebArea"
+        Log.capture.notice("scroll viewport resolved · AXError \(result.rawValue, privacy: .public) · chain \(chain.joined(separator: " > "), privacy: .public) · viewport \(rect.debugDescription, privacy: .public)\(isWebPage ? " · web page" : "")")
         return .accessibility(viewport: ScrollViewport(windowRect: rect,
                                                         relativeScrollPoint: CGPoint(x: selection.clickPoint.x - selection.bounds.minX,
                                                                                      y: selection.clickPoint.y - selection.bounds.minY),
-                                                        windowBounds: selection.bounds),
+                                                        windowBounds: selection.bounds, isWebPage: isWebPage),
                               container: elements[index])
     }
 

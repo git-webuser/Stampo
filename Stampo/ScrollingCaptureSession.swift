@@ -815,7 +815,9 @@ final class ScrollingCaptureSession {
             if let outcome = Self.probeOutcome(before: before, after: after,
                                                viewportPixels: pixelRect(of: candidateViewport),
                                                axis: candidate,
-                                               preserveCrossAxis: scrollContainer != nil) {
+                                               preserveCrossAxis: scrollContainer != nil,
+                                               wholeWidth: candidateViewport.isWebPage) {
+                dump?.save(after, as: "00-probe-window")
                 let motionLimit = ScrollDriver.maximumLikelyMovement(
                     pixelStep: probeStep, backingScale: scale,
                     viewportLength: axisLength(of: initial, along: candidate))
@@ -842,6 +844,7 @@ final class ScrollingCaptureSession {
         assembler.begin(with: first)
         noteProgress()
         previous = probe
+        dump?.step("area: \(settled.viewport.isWebPage ? "web page, whole width" : "not a web page")")
         dump?.save(probe, as: "00-probe")
         Log.capture.notice("scroll probe settled · \(self.axis == .vertical ? "vertical" : "horizontal", privacy: .public) · \(probeLines, privacy: .public) lines · limit \(probeMotionLimit, privacy: .public) px · scale \(self.scale, privacy: .public)")
         requestedStep = max(24, Int(Double(axisLength(of: first)) * 0.60))
@@ -1528,11 +1531,12 @@ final class ScrollingCaptureSession {
     /// whole-window frames is what lets one starting frame serve either axis.
     nonisolated static func probeOutcome(before: CaptureFrame, after: CaptureFrame,
                                           viewportPixels: CGRect, axis: ScrollAxis,
-                                          preserveCrossAxis: Bool) -> ProbeOutcome? {
+                                          preserveCrossAxis: Bool, wholeWidth: Bool = false) -> ProbeOutcome? {
         guard let initial = before.cropped(to: viewportPixels),
               let moved = after.cropped(to: viewportPixels),
               let movingRect = movingContentRect(before: initial, after: moved, axis: axis,
-                                                 preserveCrossAxis: preserveCrossAxis),
+                                                 preserveCrossAxis: preserveCrossAxis,
+                                                 wholeWidth: wholeWidth),
               let first = initial.cropped(to: movingRect),
               let probe = moved.cropped(to: movingRect)
         else { return nil }
@@ -1557,8 +1561,17 @@ final class ScrollingCaptureSession {
     /// the margins across the scroll, so that what appears in them later is not
     /// cut off, but not what stays where it is and has something in it: that
     /// would be laid down once for every step.
+    ///
+    /// With `wholeWidth` — the area is a web page — the box is the whole width
+    /// of the viewport across the scroll, whatever stands still in it: a site is
+    /// made to be scrolled in the width of the browser's window, and a side
+    /// panel, a floating card or a pinned bar of its own is part of what the
+    /// reader sees. Without it, what stands still above and below the moving
+    /// rows does not narrow the box: only the lines that go into the frames are
+    /// looked at.
     nonisolated static func movingContentRect(before: CaptureFrame, after: CaptureFrame,
-                                               axis: ScrollAxis, preserveCrossAxis: Bool = false) -> CGRect? {
+                                               axis: ScrollAxis, preserveCrossAxis: Bool = false,
+                                               wholeWidth: Bool = false) -> CGRect? {
         guard before.width == after.width, before.height == after.height else { return nil }
         let primaryLength = axis == .vertical ? before.height : before.width
         let crossLength = axis == .vertical ? before.width : before.height
@@ -1614,7 +1627,7 @@ final class ScrollingCaptureSession {
             let step = max(1, primaryLength / 700)
             var hasContent = false
             var sums = (0.0, 0.0), squares = (0.0, 0.0), count = 0.0
-            for along in stride(from: 0, to: primaryLength, by: step) {
+            for along in stride(from: p0, to: p1, by: step) {
                 let x = axis == .vertical ? position : along
                 let y = axis == .vertical ? along : position
                 let i = (y * before.width + x) * 4
@@ -1637,7 +1650,10 @@ final class ScrollingCaptureSession {
         }
 
         let c0: Int, c1: Int
-        if preserveCrossAxis {
+        if wholeWidth {
+            c0 = 0
+            c1 = crossLength
+        } else if preserveCrossAxis {
             if let (activeStart, activeEnd) = cross {
                 // What moved, and the lines around it that are empty — a web
                 // page's margins, where something may yet appear — or in which
