@@ -13,6 +13,56 @@ nonisolated struct ScrollAncestorCandidate<Identity: Equatable> {
     var hasHorizontalScrollBar = false
 }
 
+/// Whether the area Accessibility found is a web page — a site, made to be
+/// scrolled and shown in the width of the browser's window — and how it is known.
+nonisolated enum ScrollWebPage {
+    enum Kind: String, Equatable, Sendable {
+        /// The area is an `AXWebArea`: Safari, and Chromium with a whole tree.
+        case webArea = "web area"
+        /// The area is an `AXScrollArea` with an `AXWebArea` among its own children.
+        case childWebArea = "child web area"
+        /// The children could not be had, the window is a browser's and the area
+        /// takes at least half of it.
+        case browserWindow = "browser window"
+    }
+
+    /// The browsers, by bundle identifier, with their beta and nightly builds.
+    static let browserBundles: Set<String> = [
+        "com.apple.Safari", "com.apple.SafariTechnologyPreview",
+        "com.google.Chrome", "com.google.Chrome.beta", "com.google.Chrome.dev", "com.google.Chrome.canary",
+        "org.chromium.Chromium",
+        "com.brave.Browser", "com.brave.Browser.beta", "com.brave.Browser.nightly",
+        "com.microsoft.edgemac", "com.microsoft.edgemac.Beta", "com.microsoft.edgemac.Dev",
+        "com.microsoft.edgemac.Canary",
+        "company.thebrowser.Browser",
+        "ru.yandex.desktop.yandex-browser",
+        "com.operasoftware.Opera", "com.operasoftware.OperaGX",
+        "com.vivaldi.Vivaldi",
+        "org.mozilla.firefox", "org.mozilla.firefoxdeveloperedition", "org.mozilla.nightly",
+    ]
+
+    /// How the chosen area is a web page, or nil if it is not. `childRoles` are
+    /// the roles of the area's own children: nil when they could not be had.
+    /// Chromium with a partial tree gives an `AXScrollArea` and no `AXWebArea`
+    /// in the chain; the page is then the web area among the scroll area's
+    /// children, and when even those are not to be had, a browser window whose
+    /// area is most of it. A scroll area whose children are known and hold no web
+    /// area — the list of a Finder window — is not a page.
+    static func kind(role: String, childRoles: [String]?, bundleIdentifier: String?,
+                     areaSize: CGSize, windowSize: CGSize) -> Kind? {
+        if role == "AXWebArea" { return .webArea }
+        guard role == (kAXScrollAreaRole as String) else { return nil }
+        if let childRoles, !childRoles.isEmpty {
+            return childRoles.contains("AXWebArea") ? .childWebArea : nil
+        }
+        guard let bundleIdentifier, browserBundles.contains(bundleIdentifier),
+              windowSize.width > 0, windowSize.height > 0,
+              areaSize.width * areaSize.height * 2 >= windowSize.width * windowSize.height
+        else { return nil }
+        return .browserWindow
+    }
+}
+
 nonisolated enum ScrollAncestorResolver {
     static func isSuitable(role: String, frame: CGRect, windowBounds: CGRect) -> Bool {
         guard role == (kAXScrollAreaRole as String) || role == "AXWebArea" || role == "AXTable" else {
@@ -75,9 +125,11 @@ struct ScrollViewport: Equatable, Sendable {
     /// The hit point relative to the window, so moving the window can rebase it.
     let relativeScrollPoint: CGPoint
     let windowBounds: CGRect
-    /// The area Accessibility found is a web page (an `AXWebArea`): a site, which
-    /// is made to be scrolled and shown in the width of the browser's window.
-    var isWebPage = false
+    /// The area Accessibility found is a web page, and how that is known: a
+    /// site, which is made to be scrolled and shown in the width of the browser's
+    /// window.
+    var webPage: ScrollWebPage.Kind?
+    var isWebPage: Bool { webPage != nil }
 
     func cropped(to pixelRect: CGRect, backingScale: CGFloat) -> ScrollViewport? {
         guard backingScale > 0, pixelRect.width >= 1, pixelRect.height >= 1 else { return nil }
@@ -88,7 +140,7 @@ struct ScrollViewport: Equatable, Sendable {
                                        width: pointRect.width, height: pointRect.height)
         return ScrollViewport(windowRect: croppedWindowRect,
                               relativeScrollPoint: relativeScrollPoint,
-                              windowBounds: windowBounds, isWebPage: isWebPage)
+                              windowBounds: windowBounds, webPage: webPage)
     }
 
     func insetWindowEdges(points: CGFloat) -> ScrollViewport? {
@@ -115,7 +167,7 @@ struct ScrollViewport: Equatable, Sendable {
                           height: windowRect.height - top - bottom)
         guard rect.width >= 40, rect.height >= 40 else { return nil }
         return ScrollViewport(windowRect: rect, relativeScrollPoint: relativeScrollPoint,
-                              windowBounds: windowBounds, isWebPage: isWebPage)
+                              windowBounds: windowBounds, webPage: webPage)
     }
 
     var cropRectInWindowPoints: CGRect {
@@ -356,12 +408,17 @@ enum ScrollDriver {
             Log.capture.notice("scroll viewport fallback · AXError \(result.rawValue, privacy: .public) · chain \(chain.joined(separator: " > "), privacy: .public)")
             return .window(viewport: windowViewport)
         }
-        let isWebPage = candidates[index].role == "AXWebArea"
-        Log.capture.notice("scroll viewport resolved · AXError \(result.rawValue, privacy: .public) · chain \(chain.joined(separator: " > "), privacy: .public) · viewport \(rect.debugDescription, privacy: .public)\(isWebPage ? " · web page" : "")")
+        let role = candidates[index].role
+        let webPage = ScrollWebPage.kind(
+            role: role,
+            childRoles: role == (kAXScrollAreaRole as String) ? childRoles(of: elements[index]) : nil,
+            bundleIdentifier: NSRunningApplication(processIdentifier: selection.processID)?.bundleIdentifier,
+            areaSize: rect.size, windowSize: selection.bounds.size)
+        Log.capture.notice("scroll viewport resolved · AXError \(result.rawValue, privacy: .public) · chain \(chain.joined(separator: " > "), privacy: .public) · viewport \(rect.debugDescription, privacy: .public)\(webPage.map { " · web page (\($0.rawValue))" } ?? "")")
         return .accessibility(viewport: ScrollViewport(windowRect: rect,
                                                         relativeScrollPoint: CGPoint(x: selection.clickPoint.x - selection.bounds.minX,
                                                                                      y: selection.clickPoint.y - selection.bounds.minY),
-                                                        windowBounds: selection.bounds, isWebPage: isWebPage),
+                                                        windowBounds: selection.bounds, webPage: webPage),
                               container: elements[index])
     }
 
@@ -542,6 +599,15 @@ enum ScrollDriver {
         let system = AXUIElementCreateSystemWide()
         AXUIElementSetMessagingTimeout(system, messagingTimeout)
         return system
+    }
+
+    /// The roles of an element's own children, in one request; nil when they
+    /// could not be had.
+    private static func childRoles(of element: AXUIElement) -> [String]? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &value) == .success,
+              let children = value as? [AXUIElement] else { return nil }
+        return children.prefix(64).map { stringAttribute($0, kAXRoleAttribute as String) ?? "" }
     }
 
     private static func stringAttribute(_ element: AXUIElement, _ key: String) -> String? {

@@ -77,8 +77,11 @@ import Testing
         #expect(plain.minX == CGFloat(headerRows) && plain.width == CGFloat(length - headerRows), "\(plain)")
         let withPanel = try rect(.horizontal, panel: true)
         #expect(withPanel.minY == 250 && withPanel.maxY == CGFloat(across), "\(withPanel)")
+        // A strip that scrolls sideways inside a page is the strip, page or not.
         let site = try rect(.horizontal, panel: true, wholeWidth: true)
-        #expect(site.minY == 0 && site.height == CGFloat(across), "\(site)")
+        #expect(site == withPanel, "\(site)")
+        let siteWithoutPanel = try rect(.horizontal, wholeWidth: true)
+        #expect(siteWithoutPanel == plain, "\(siteWithoutPanel)")
     }
 
     /// The probe's outcome for a web page: the first frame and the probe are
@@ -99,9 +102,9 @@ import Testing
         let bounds = CGRect(x: 0, y: 0, width: 1280, height: 800)
         let base = ScrollViewport(windowRect: bounds, relativeScrollPoint: .zero, windowBounds: bounds)
         #expect(!base.isWebPage)
-        let page = ScrollViewport(windowRect: bounds, relativeScrollPoint: .zero, windowBounds: bounds, isWebPage: true)
-        #expect(page.isWebPage)
-        #expect(page.cropped(to: CGRect(x: 10, y: 10, width: 600, height: 400), backingScale: 2)?.isWebPage == true)
+        let page = ScrollViewport(windowRect: bounds, relativeScrollPoint: .zero, windowBounds: bounds, webPage: .webArea)
+        #expect(page.isWebPage && page.webPage == .webArea)
+        #expect(page.cropped(to: CGRect(x: 10, y: 10, width: 600, height: 400), backingScale: 2)?.webPage == .webArea)
         #expect(page.excludingScrollbar(axis: .vertical, insetPoints: 15)?.isWebPage == true)
         #expect(page.insetWindowEdges(points: 8)?.isWebPage == true)
         #expect(base.excludingScrollbar(axis: .vertical, insetPoints: 15)?.isWebPage == false)
