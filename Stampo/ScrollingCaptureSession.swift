@@ -1568,9 +1568,11 @@ final class ScrollingCaptureSession {
     /// whole width of the viewport across the scroll, whatever stands still in
     /// it: a site is made to be scrolled in the width of the browser's window,
     /// and a side panel, a floating card or a pinned bar of its own is part of
-    /// what the reader sees. It is about the sides of a page that is read
-    /// downwards: a strip that scrolls sideways inside a page is the strip, and
-    /// `wholeWidth` does nothing for it. Without it, what stands still above and
+    /// what the reader sees, and so is the bottom of the window, down to the
+    /// edge of the area; the top is where the rows began to change, below the
+    /// pinned bar. It is about a page that is read downwards: a strip that
+    /// scrolls sideways inside a page is the strip, and `wholeWidth` does
+    /// nothing for it. Without it, what stands still above and
     /// below the moving rows does not narrow the box: only the lines that go into
     /// the frames are looked at.
     nonisolated static func movingContentRect(before: CaptureFrame, after: CaptureFrame,
@@ -1618,7 +1620,11 @@ final class ScrollingCaptureSession {
             cross = activeBounds(length: before.height, cross: before.width,
                                  xFor: { _, across in across }, yFor: { position, _ in position })
         }
-        guard let (p0, p1) = primary, p1 - p0 >= primaryLength / 3 else { return nil }
+        guard let (p0, movingEnd) = primary, movingEnd - p0 >= primaryLength / 3 else { return nil }
+        // A site scrolled down shows the bottom of the browser's window in every
+        // frame: where the rows stopped changing at the probe — an empty
+        // background under the content — is not where the page ends.
+        let p1 = wholeWidth && axis == .vertical ? primaryLength : movingEnd
         /// Whether a line across the scroll holds something that stays where it is:
         /// it has something in it — brightness that varies along the line, in
         /// either frame — and not one sample of it changed between the frames, to
