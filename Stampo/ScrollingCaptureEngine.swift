@@ -87,6 +87,9 @@ nonisolated struct FrameMatch: Equatable, Sendable {
     /// the rest moved: a bar fixed to the viewport, or a part of the page that
     /// does not scroll with the rest.
     var standing: Set<Int> = []
+    /// Tiles that put the page a little way off the offset found, neither for it
+    /// nor against it (`FrameMatcher.nearRange(of:)`).
+    var near = 0
 }
 
 nonisolated enum FrameMatchError: Error, Equatable, LocalizedError {
@@ -252,13 +255,15 @@ nonisolated enum FrameMatcher {
             throw FrameMatchError.crossAxisMotion
         }
 
-        var agreeing = 0, decisive = 0, against = 0, tileMargin = 0.0
+        var agreeing = 0, decisive = 0, against = 0, near = 0, tileMargin = 0.0
         for t in moving {
             let curve = tileCost[t]
             let atBest = curve[best]
             guard atBest.isFinite, let lowest = curve.filter(\.isFinite).min() else { continue }
             guard atBest - lowest <= tolerance else {
-                if uniqueBest(curve, tolerance: tolerance) != nil { against += 1 }
+                if let other = uniqueBest(curve, tolerance: tolerance) {
+                    if abs(other - best) <= nearRange(of: best) { near += 1 } else { against += 1 }
+                }
                 continue
             }
             agreeing += 1
@@ -297,7 +302,7 @@ nonisolated enum FrameMatcher {
         let confidence = min(1, (1 - agg[best]) * 0.55 + margin * 0.45)
         guard confidence >= minimumConfidence else { throw FrameMatchError.ambiguousMotion }
         return FrameMatch(offset: best, confidence: confidence, independentRegions: agreeing,
-                          standing: standingTiles(tiles))
+                          standing: standingTiles(tiles), near: near)
     }
 
     /// The tiles that stand still: they have something in them, and their one
@@ -317,6 +322,22 @@ nonisolated enum FrameMatcher {
     /// Tiles the sample grid is cut into: `tileRows` along the scroll, `tileColumns`
     /// across it, a tile's number being its row times `tileColumns` plus its column.
     static let tileRows = 4, tileColumns = 5
+    /// How far from an offset a tile's one best fit may lie and the tile still
+    /// be neither for the offset nor against it: `nearFraction` of the offset,
+    /// and two pixels at the least. Two columns of a page that the page's
+    /// script moves a little faster and a little slower than the rest — a
+    /// parallax of ±3.1 % on claude.com's use-case library, up to 3.7 % in
+    /// others — are each rigid and exact at their own offset, and a few of
+    /// their tiles are enough to refuse a step whose centre is exact; a pixel of
+    /// play between frames is the same thing at a smaller scale. Four percent
+    /// leaves a margin over the parallax and is far under the 12.5 % that a list
+    /// of lines 80 px apart makes of a step of 640, where a tile that knows
+    /// better is a different line of the list.
+    static let nearFraction = 0.04
+    static func nearRange(of offset: Int) -> Int {
+        max(2, Int((Double(offset) * nearFraction).rounded()))
+    }
+
     /// How far a tile's cost may sit above its own best and still be said to
     /// agree with an offset, and the cost under which a tile fits at all.
     private static let tolerance = 0.005, fitThreshold = 0.03
@@ -439,6 +460,9 @@ nonisolated enum FrameMatcher {
         /// More tiles know better than a fifth of those that move, or the
         /// distance cannot be looked at: the frames contradict it.
         let contradicted: Bool
+        /// Tiles whose one best fit is near the distance asked about
+        /// (`nearRange(of:)`): not counted for it nor against it.
+        var near = 0
     }
 
     /// One pass over the tiles of two frames the matcher could not place: which
@@ -455,7 +479,7 @@ nonisolated enum FrameMatcher {
             // The tile numbers are those of the band's grid, not the frame's:
             // as with a match on a band, nothing that stands is reported.
             return StepEvidence(standing: [], consistent: found.consistent, against: found.against,
-                                contradicted: found.contradicted)
+                                contradicted: found.contradicted, near: found.near)
         }
         return evidenceWhole(previous: previous, current: current, axis: axis,
                              offset: offset, searchLimit: searchLimit)
@@ -471,7 +495,7 @@ nonisolated enum FrameMatcher {
         let tiles = tileCurves(previous: previous, current: current, axis: axis, limit: limit)
         let standing = standingTiles(tiles)
         guard let offset else { return StepEvidence(standing: standing, consistent: 0, against: 0, contradicted: false) }
-        var consistent = 0, against = 0, moving = 0
+        var consistent = 0, against = 0, near = 0, moving = 0
         for t in 0..<tiles.cost.count {
             let curve = tiles.cost[t]
             guard let lowest = curve.filter(\.isFinite).min(), lowest <= fitThreshold else { continue }
@@ -480,10 +504,23 @@ nonisolated enum FrameMatcher {
             moving += 1
             guard curve[offset].isFinite else { continue }
             if curve[offset] - lowest <= tolerance { consistent += 1 }
-            else if uniqueBest(curve, tolerance: tolerance) != nil { against += 1 }
+            else if let other = uniqueBest(curve, tolerance: tolerance) {
+                if abs(other - offset) <= nearRange(of: offset) { near += 1 } else { against += 1 }
+            }
+        }
+        // Tiles near the distance are neutral only beside a tile that is exact at
+        // it: the columns of a parallax are off by a little while the rest of the
+        // page is where it was asked. With none exact, nothing says the page
+        // moved by that distance, and tiles that are all a little off it are what
+        // a picture growing as the page scrolls looks like (2026-10-11-115436:
+        // one tile at 635 against the 640 asked, the rest changing by
+        // themselves). Then they are against, as they were.
+        if consistent == 0 {
+            against += near
+            near = 0
         }
         return StepEvidence(standing: standing, consistent: consistent, against: against,
-                            contradicted: against > max(0, moving / 5))
+                            contradicted: against > max(0, moving / 5), near: near)
     }
 
     /// Whether `offset` is consistent with the frames when they cannot pin it
