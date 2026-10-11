@@ -100,6 +100,9 @@ final class ScrollingCaptureSession {
     /// kept. The page may have moved in them all the same, when the calibration
     /// they were judged by was wrong.
     private var stationaryLines: Int32 = 0
+    /// What the next step is: ordinary, or a push through a section pinned to
+    /// the viewport (`ScrollPush`).
+    private var pushMode: ScrollPush.Mode = .none
     /// The frames and steps of this capture on disk, when a Debug build is asked
     /// to keep them (`ScrollFrameDump`), and which attempt at a step is being made.
     private var dump: ScrollFrameDump?
@@ -300,6 +303,7 @@ final class ScrollingCaptureSession {
         paused = true
         pausedAt = Date()
         pauseLedger = UserScrollLedger()
+        pushMode = .none
         task?.cancel()
         task = nil
         Log.capture.notice("scroll capture paused · \(announce ? "with a toast" : "by the user", privacy: .public) · \(self.assembler.totalLength, privacy: .public) px collected")
@@ -827,6 +831,7 @@ final class ScrollingCaptureSession {
         pixelsPerLine = nil
         linearityConfirmed = false
         stationaryLines = 0
+        pushMode = .none
 
         do {
             diagnosticStage = .match
@@ -878,14 +883,19 @@ final class ScrollingCaptureSession {
             let currentStep = min(requestedStep, max(24, axisLength(of: oldFrame) * 3 / 4))
             let plan = ScrollStepPlanner.plan(target: currentStep, pixelsPerLine: pixelsPerLine,
                                               axisLength: axisLength(of: oldFrame), backingScale: scale)
-            let motionLimit = plan.motionLimit
+            // A push is one wheel event of twice the lines, with the search as
+            // wide as a step is ever matched: where the page ends up when it has
+            // gone past a section that pins it is not a multiple of the lines.
+            let isPush = ScrollPush.sendsPush(pushMode)
+            let sentLines: Int32 = isPush ? plan.lines * 2 : plan.lines
+            let motionLimit = isPush ? max(plan.motionLimit, axisLength(of: oldFrame) * 3 / 4) : plan.motionLimit
             let point = currentScrollPoint()
             try ensureActive()
             diagnosticStage = .validateTarget
             try validateCurrentScrollTarget(at: point)
             stepInFlight = true
-            inFlightLines = plan.lines
-            try ScrollDriver.sendScroll(axis: axis, lines: plan.lines, at: point)
+            inFlightLines = sentLines
+            try ScrollDriver.sendScroll(axis: axis, lines: sentLines, at: point)
             diagnosticStage = .capture
             let next = try await ScrollCaptureCancellationBoundary.awaitActive {
                 try await self.captureStableViewport(reference: oldFrame)
@@ -900,8 +910,9 @@ final class ScrollingCaptureSession {
             /// accounts for.
             let cleanStep = unmatchedScroll == 0
             let maximumOffset = motionLimit + unmatchedScroll + 32
-            let head = "lines=\(plan.lines) motionLimit=\(motionLimit) maximumOffset=\(maximumOffset)"
-                + " difference=\(String(format: "%.4f", meanDifference(oldFrame, next)))"
+            let difference = meanDifference(oldFrame, next)
+            let head = "lines=\(sentLines)\(isPush ? " push" : "") motionLimit=\(motionLimit) maximumOffset=\(maximumOffset)"
+                + " difference=\(String(format: "%.4f", difference))"
             do {
                 diagnosticStage = .match
                 let axis = self.axis
@@ -938,11 +949,11 @@ final class ScrollingCaptureSession {
                     Log.capture.notice("scroll recalibrated · \(now, privacy: .public) px per line (was \(was, privacy: .public))")
                     pixelsPerLine = relay.pixelsPerLine
                     linearityConfirmed = false
-                } else if cleanStep, let pixelsPerLine,
+                } else if !isPush, cleanStep, let pixelsPerLine,
                    ScrollStepPlanner.confirmsLinearity(offset: match.offset, lines: Int(plan.lines),
                                                        pixelsPerLine: pixelsPerLine) {
                     linearityConfirmed = true
-                } else if cleanStep, pixelsPerLine == nil,
+                } else if !isPush, cleanStep, pixelsPerLine == nil,
                           let late = ScrollStepPlanner.pixelsPerLine(offset: match.offset,
                                                                      lines: Int(plan.lines)) {
                     // The probe could not be matched — the first screen is
@@ -957,7 +968,9 @@ final class ScrollingCaptureSession {
                 let queue = laid.waiting == 0 ? "" : " · "
                     + (relay.map { "\($0.note) · " } ?? "")
                     + "queue appended \(laid.waiting) (seams \(laid.queueSeams.map(\.summary).joined(separator: ", ")))"
-                recordStep("\(head) · match \(match.offset) px · confidence \(Self.percent(match.confidence)) · regions \(match.independentRegions)\(queue)\(seamNote) → added")
+                let pushed = isPush ? " · push: placed" : ""
+                recordStep("\(head) · match \(match.offset) px · confidence \(Self.percent(match.confidence)) · regions \(match.independentRegions)\(queue)\(seamNote)\(pushed) → added")
+                pushMode = .none
                 previous = next
                 zeroMotionCount = 0
                 stationaryLines = 0
@@ -972,7 +985,7 @@ final class ScrollingCaptureSession {
                 // the calibration says how far the page should have moved,
                 // which tiles bear that out.
                 let undecided = ScrollStepDecision.isUndecided(error)
-                let expected: Int? = undecided && cleanStep
+                let expected: Int? = undecided && cleanStep && !isPush
                     ? pixelsPerLine.map { ScrollStepPlanner.predictedOffset(lines: Int(plan.lines), pixelsPerLine: $0) }
                     : nil
                 var evidence: FrameMatcher.StepEvidence?
@@ -997,13 +1010,46 @@ final class ScrollingCaptureSession {
                     "expected \($0) px · \(evidence?.consistent ?? 0) tiles agree, \(evidence?.against ?? 0) against, \(required) needed"
                         + (evidence?.contradicted == true ? ", contradicted" : "")
                 } ?? (!undecided ? "not to be predicted"
+                      : isPush ? "a push, no distance expected"
                       : pixelsPerLine == nil ? "no calibration"
                       : "step not clean (\(unmatchedScroll) px unaccounted)")
                 let standing = "\(unpinned) unpinned middle tiles stand"
+                // Only a step decided as stationary goes on in a push or a section.
+                var push = ScrollPush.next(mode: pushMode, outcome: decision == .stationary
+                                           ? .stationary(changed: difference >= ScrollPush.changedFrom) : .other)
+                if push.action == .replace {
+                    do { try assembler.replaceLast(with: next) } catch { push = .init(action: .count, mode: .none) }
+                }
+                pushMode = push.mode
                 switch decision {
+                case .stationary where push.action == .end:
+                    // A push moved nothing and changed nothing: the end of the content.
+                    recordStep("\(head) · \(error) · \(said) → push: nothing changed, end")
+                    Log.capture.notice("scroll push changed nothing · end")
+                    finish()
+                    return
+                case .stationary where push.action == .replace:
+                    // The page stood and something on it changed: a section
+                    // pinned to the viewport, passing from one stage to the
+                    // next. The image has the last frame laid as this one is.
+                    noteProgress()
+                    recordStep("\(head) · \(error) · \(said) → push: pinned section, frame replaced (\(ScrollPush.pushes(in: push.mode)))")
+                    previous = next
+                    zeroMotionCount = 0
+                    stationaryLines = 0
+                    unmatchedScroll = 0
+                    consecutiveFailures = 0
+                    if ScrollPush.isExhausted(push.mode) {
+                        recordStep("saved: \(ScrollPush.limit) pushes and the page has not moved")
+                        finish()
+                        return
+                    }
+                case .stationary where push.action == .hold:
+                    consecutiveFailures = 0
+                    recordStep("\(head) · \(error) · \(said) → push: nothing changed, an ordinary step next")
                 case .stationary:
                     zeroMotionCount += 1
-                    stationaryLines += plan.lines
+                    stationaryLines += sentLines
                     consecutiveFailures = 0
                     recordStep("\(head) · \(error) · \(said) → stop: \(standing), page not moving \(zeroMotionCount) of 3")
                     if zeroMotionCount >= 3 {
@@ -1012,11 +1058,16 @@ final class ScrollingCaptureSession {
                         finish()
                         return
                     }
+                    // Two in a row, and nothing waiting: the third is a push, in
+                    // case the page snaps back to where it was after a short step.
+                    if ScrollPush.startsPush(zeroMotionCount: zeroMotionCount, queueIsEmpty: temporary.isEmpty) {
+                        pushMode = .push
+                    }
                 case .temporary(let confirmed):
                     // Not placed by the frames: placed where the calibration
                     // says, and kept apart until a step the matcher does
                     // place carries it into the image.
-                    temporary.add(next, movement: expected ?? 0, confirmed: confirmed, lines: plan.lines,
+                    temporary.add(next, movement: expected ?? 0, confirmed: confirmed, lines: sentLines,
                                   stationaryLines: stationaryLines)
                     noteProgress()
                     recordStep("\(head) · \(error) · \(said) · \(standing) → temporary (\(confirmed ? "confirmed" : "unconfirmed")), queue \(temporary.count)")
@@ -1043,11 +1094,11 @@ final class ScrollingCaptureSession {
                         return
                     }
                     // Back to where the step began, then half of it from there.
-                    recordStep("\(head) · \(error) · \(said) · \(standing) → retry \(consecutiveFailures) of 2, back \(plan.lines) lines")
+                    recordStep("\(head) · \(error) · \(said) · \(standing) → retry \(consecutiveFailures) of 2, back \(sentLines) lines")
                     requestedStep = max(12, currentStep / 2)
                     // Only this step's lines are undone: a probe that moved
                     // the page unmatched still has to be allowed for.
-                    try await returnPage(by: plan.lines, at: point, reference: oldFrame)
+                    try await returnPage(by: sentLines, at: point, reference: oldFrame)
                 }
             }
             // The step is dealt with: a pause from here on cuts nothing short.

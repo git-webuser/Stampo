@@ -201,6 +201,107 @@ nonisolated enum ScrollQueueRelay {
     }
 }
 
+/// A page that holds still while something on it moves: a section pinned to
+/// the viewport whose stages change with the scroll, and which snaps back to
+/// the middle of a stage when the wheel stops. A step of a few lines is less
+/// than half a stage, so the page comes back to where it was and the frames are
+/// the same: three of those in a row would end the capture in the middle of the
+/// page. A push — one wheel event of twice the lines — is more than half a
+/// stage; the section changes and, once it is passed, the page is further on.
+///
+/// What the capture does about it, as a state: `Mode` says what the next step is,
+/// `next` what a step's outcome makes of it.
+nonisolated enum ScrollPush {
+    /// A frame whose difference from the last is under this is the same frame.
+    static let changedFrom = 0.001
+    /// Pushes that move nothing and change the frame each time, at most: a video
+    /// or an animation at the end of the page changes the frames and does not go
+    /// anywhere.
+    static let limit = 6
+
+    enum Mode: Equatable {
+        /// Ordinary steps.
+        case none
+        /// Two steps in a row proved the page stood: the next step is a push.
+        case push
+        /// The frames of a pinned section are being replaced, `pushes` so far;
+        /// the next step is a push too.
+        case section(pushes: Int)
+        /// A push left the frame as it was: the next step is an ordinary one.
+        case settle
+    }
+
+    /// What a step came to, as far as this goes.
+    enum Outcome: Equatable {
+        /// The matcher placed it.
+        case placed
+        /// Decided as stationary, the frame changed or not.
+        case stationary(changed: Bool)
+        /// Anything else: retried, queued, finished.
+        case other
+    }
+
+    enum Action: Equatable {
+        /// As before: nothing special.
+        case proceed
+        /// Counts as a step that the page stood in.
+        case count
+        /// Lay the frame over the last one laid.
+        case replace
+        /// A push left everything as it was in a section: nothing counts.
+        case hold
+        /// There is nothing more to find: save.
+        case end
+    }
+
+    struct Step: Equatable {
+        let action: Action
+        let mode: Mode
+    }
+
+    static func sendsPush(_ mode: Mode) -> Bool {
+        switch mode {
+        case .push, .section: return true
+        case .none, .settle: return false
+        }
+    }
+
+    /// The step after the second in a row that proved the page stood is a
+    /// push — with steps waiting, as ever, a third of those ends the capture.
+    static func startsPush(zeroMotionCount: Int, queueIsEmpty: Bool) -> Bool {
+        zeroMotionCount == 2 && queueIsEmpty
+    }
+
+    static func next(mode: Mode, outcome: Outcome) -> Step {
+        guard case .stationary(let changed) = outcome else { return Step(action: .proceed, mode: .none) }
+        switch mode {
+        case .none:
+            return Step(action: .count, mode: .none)
+        case .push:
+            return changed ? Step(action: .replace, mode: .section(pushes: 1))
+                           : Step(action: .end, mode: .none)
+        case .section(let pushes):
+            return changed ? Step(action: .replace, mode: .section(pushes: pushes + 1))
+                           : Step(action: .hold, mode: .settle)
+        case .settle:
+            return changed ? Step(action: .count, mode: .none)
+                           : Step(action: .end, mode: .none)
+        }
+    }
+
+    /// How many pushes a section has had so far.
+    static func pushes(in mode: Mode) -> Int {
+        if case .section(let pushes) = mode { return pushes }
+        return 0
+    }
+
+    /// The pushes have reached the limit with nothing placed.
+    static func isExhausted(_ mode: Mode) -> Bool {
+        if case .section(let pushes) = mode { return pushes >= limit }
+        return false
+    }
+}
+
 /// When a capture that makes no headway is saved. There is no limit on how long
 /// a capture may take — a long page is a long capture, and the length the
 /// settings allow is the only cap — but a capture that adds nothing for this
