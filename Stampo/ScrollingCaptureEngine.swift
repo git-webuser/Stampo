@@ -602,6 +602,11 @@ nonisolated struct ImageAssembler: Sendable {
     /// to the frame before: what the next seam is chosen against.
     private(set) var lastFrame: CaptureFrame?
     private var lastSkip = 0
+    /// How far the last frame laid was from the one before it, and where the
+    /// seam before it fell in that one: together they say how much of the last
+    /// frame the one before it had already given (`replaceLast`).
+    private var lastMovement = 0
+    private var skipBeforeLast = 0
     /// The seam of the last frame laid, and why it fell there.
     private(set) var lastSeam: ScrollSeam.Choice?
 
@@ -639,6 +644,8 @@ nonisolated struct ImageAssembler: Sendable {
         fullLength = length
         lastFrame = frame
         lastSkip = 0
+        lastMovement = 0
+        skipBeforeLast = 0
         lastSeam = nil
     }
 
@@ -696,9 +703,42 @@ nonisolated struct ImageAssembler: Sendable {
             totalLength += movement
             fullLength += movement
         }
+        skipBeforeLast = lastSkip
+        lastMovement = movement
         lastFrame = frame
         lastSkip = skip
         lastSeam = choice
+    }
+
+    /// Lays `frame` over the last frame laid, at the same place: the page did
+    /// not move, something on it did — a section pinned to the viewport changed
+    /// its stage — and the image is to have it as it is now. The image is as
+    /// long as it was. The new frame gives everything from the floor, where the
+    /// seam before the last frame left off (the rows above it are the earlier
+    /// frame's and stay), so that it covers as much as it can; in the halved
+    /// image the same, in its pixels. The next frame is laid against this one.
+    mutating func replaceLast(with frame: CaptureFrame) throws {
+        guard lastFrame != nil, !strips.isEmpty,
+              frame.width == viewportWidth, frame.height == viewportHeight
+        else { throw FrameMatchError.noReliableMotion }
+        let frameLength = axis == .vertical ? frame.height : frame.width
+        let floor = max(0, skipBeforeLast - lastMovement)
+        let seam = fullLength - frameLength + floor
+        guard seam >= 0, let rest = Self.dropping(floor, from: frame, axis: axis)
+        else { throw FrameMatchError.noReliableMotion }
+        if isShrunk {
+            let start = seam / 2, end = fullLength / 2
+            trim(to: start)
+            if end > start, let halved = Self.halved(rest, axis: axis, length: end - start) {
+                strips.append(CaptureStrip(frame: halved, start: start))
+            }
+        } else {
+            trim(to: seam)
+            strips.append(CaptureStrip(frame: rest, start: seam))
+        }
+        lastFrame = frame
+        lastSkip = floor
+        lastSeam = nil
     }
 
     /// `frame` without its first `count` rows (columns, along a horizontal
@@ -776,6 +816,8 @@ nonisolated struct ImageAssembler: Sendable {
         viewportHeight = 0
         lastFrame = nil
         lastSkip = 0
+        lastMovement = 0
+        skipBeforeLast = 0
         lastSeam = nil
     }
 
