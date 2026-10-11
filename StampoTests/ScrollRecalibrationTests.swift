@@ -56,6 +56,29 @@ import Testing
         #expect(next(nil, offset: 320, qualifies: false) == .forget)
     }
 
+    /// 2026-10-11-185309: step 07 placed at 47 px on three lines — 15.7 a line
+    /// against 138, 0.11 times — and the calibration became 16 px a line.
+    @Test func aNewLineIsBelievedOnlyBetweenTwoFifthsAndTwoAndAHalfTimesTheCurrent() {
+        #expect(ScrollRecalibration.plausibleRatio == 0.4...2.5)
+        // The probe on a floating card: 138 against the page's 80, a step on 80 back.
+        #expect(ScrollRecalibration.isPlausible(newLine: 80, current: 138))
+        #expect(ScrollRecalibration.isPlausible(newLine: 138, current: 80))
+        // The edges are in; just outside are not.
+        #expect(ScrollRecalibration.isPlausible(newLine: 40, current: 100))
+        #expect(ScrollRecalibration.isPlausible(newLine: 250, current: 100))
+        #expect(!ScrollRecalibration.isPlausible(newLine: 39.9, current: 100))
+        #expect(!ScrollRecalibration.isPlausible(newLine: 250.1, current: 100))
+        // 185309.
+        #expect(!ScrollRecalibration.isPlausible(newLine: 47.0 / 3, current: 138))
+        // Nothing to compare with.
+        #expect(!ScrollRecalibration.isPlausible(newLine: 80, current: 0))
+    }
+
+    @Test func aRefusalSaysWhatWasRefusedAndByHowMuch() {
+        #expect(ScrollRecalibration.refusal(newLine: 47.0 / 3, current: 138) == "recalibration refused (16 px/line, ×0.11)")
+        #expect(ScrollRecalibration.refusal(newLine: 400, current: 100) == "recalibration refused (400 px/line, ×4.00)")
+    }
+
     @Test func nothingToDivideByIsForgotten() {
         #expect(next(80, offset: 320, lines: 0) == .forget)
         #expect(next(80, offset: 0, lines: 4) == .forget)

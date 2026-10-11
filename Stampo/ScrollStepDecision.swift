@@ -218,6 +218,21 @@ nonisolated enum ScrollRecalibration {
         case forget
     }
 
+    /// How far a new line may be from the current calibration and still be
+    /// believed: between 0.4 and 2.5 times it. A probe on a floating card gave
+    /// 138 px to a line where the page gives 80 (0.58 times); a step placed wrongly
+    /// gave 16 (0.11 times) and broke the capture.
+    static let plausibleRatio: ClosedRange<Double> = 0.4...2.5
+
+    static func isPlausible(newLine: Double, current: Double) -> Bool {
+        current > 0 && plausibleRatio.contains(newLine / current)
+    }
+
+    /// For the line of a step: what was refused and by how much.
+    static func refusal(newLine: Double, current: Double) -> String {
+        "recalibration refused (\(Int(newLine.rounded())) px/line, ×\(String(format: "%.2f", current > 0 ? newLine / current : 0)))"
+    }
+
     /// What a step placed by the matcher makes of what is kept. `qualifies`: it
     /// is a clean step of the capture's own — not a push, none of the steps
     /// before it decided as stationary — placed firmly (`ScrollQueueRelay.isFirm`),

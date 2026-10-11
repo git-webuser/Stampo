@@ -512,6 +512,14 @@ final class ScrollingCaptureSession {
                             searchLimit: Int) async throws -> QueueRelay? {
         guard let perLine = ScrollStepPlanner.pixelsPerLine(offset: match.offset, lines: Int(lines)),
               var before = assembler.lastFrame else { return nil }
+        // A line that is nowhere near the calibration is more likely a step the
+        // matcher misplaced than the page's own: 47 px for three lines against
+        // 138 (2026-10-11-185309) broke the capture.
+        if let current = pixelsPerLine, !ScrollRecalibration.isPlausible(newLine: perLine, current: current) {
+            let refusal = ScrollRecalibration.refusal(newLine: perLine, current: current)
+            Log.capture.notice("scroll \(refusal, privacy: .public)")
+            return QueueRelay(movements: nil, pixelsPerLine: perLine, note: refusal)
+        }
         let queue = temporary.steps
         guard let moved = ScrollQueueRelay.movements(lines: queue.map(\.lines), current: queue.map(\.movement),
                                                      pixelsPerLine: perLine, axisLength: axisLength)
@@ -1010,11 +1018,17 @@ final class ScrollingCaptureSession {
                         rememberedLine = line
                     case .recalibrate(let line):
                         let was = Int((pixelsPerLine ?? 0).rounded()), now = Int(line.rounded())
-                        Log.capture.notice("scroll recalibrated · \(now, privacy: .public) px per line (was \(was, privacy: .public)) · two steps agree")
-                        pixelsPerLine = line
-                        linearityConfirmed = true
                         rememberedLine = nil
-                        recalibrated = " · recalibrated \(now) px/line"
+                        if let current = pixelsPerLine, !ScrollRecalibration.isPlausible(newLine: line, current: current) {
+                            let refusal = ScrollRecalibration.refusal(newLine: line, current: current)
+                            Log.capture.notice("scroll \(refusal, privacy: .public)")
+                            recalibrated = " · \(refusal)"
+                        } else {
+                            Log.capture.notice("scroll recalibrated · \(now, privacy: .public) px per line (was \(was, privacy: .public)) · two steps agree")
+                            pixelsPerLine = line
+                            linearityConfirmed = true
+                            recalibrated = " · recalibrated \(now) px/line"
+                        }
                     case .forget:
                         rememberedLine = nil
                     }
