@@ -1076,7 +1076,8 @@ final class ScrollingCaptureSession {
                     undecided: undecided, canExpect: expected != nil,
                     consistent: evidence?.consistent ?? 0, against: evidence?.against ?? 0,
                     contradicted: evidence?.contradicted ?? false, required: required,
-                    unpinnedStanding: unpinned, queued: temporary.count))
+                    unpinnedStanding: unpinned, queued: temporary.count,
+                    frameUnchanged: !ScrollPush.isChanged(difference)))
                 let said = expected.map {
                     "expected \($0) px · \(evidence?.consistent ?? 0) tiles agree, \(evidence?.against ?? 0) against, \(required) needed"
                         + ((evidence?.near ?? 0) > 0 ? ", \(evidence?.near ?? 0) near" : "")

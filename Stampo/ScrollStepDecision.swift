@@ -42,6 +42,8 @@ nonisolated enum ScrollStepDecision: Equatable {
         var unpinnedStanding: Int
         /// Steps already waiting.
         var queued: Int
+        /// The frame is the same as the one kept (`ScrollPush.changedFrom`).
+        var frameUnchanged = false
     }
 
     /// Whether the matcher's refusal is "cannot tell". All three are: the frames
@@ -77,6 +79,11 @@ nonisolated enum ScrollStepDecision: Equatable {
     /// are no proof.
     static func decide(_ evidence: Evidence) -> ScrollStepDecision {
         guard evidence.undecided else { return .retry }
+        // A frame the same as the last, after the wheel turned: the page did not
+        // move. No tile need stand to prove it — the bars of a footer may be all
+        // that stands, and are pinned — and a step that was queued in its place
+        // would be laid down in the image at a distance the page did not go.
+        if evidence.frameUnchanged { return .stationary }
         if evidence.unpinnedStanding >= 1, evidence.consistent == 0 { return .stationary }
         guard evidence.canExpect, !evidence.contradicted else { return .retry }
         if evidence.queued >= TemporarySteps.limit { return .finish }
