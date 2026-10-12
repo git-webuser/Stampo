@@ -698,6 +698,36 @@ nonisolated struct ImageAssembler: Sendable {
     /// In the image's own pixels, so it is halved with the strips.
     private(set) var header: CaptureFrame?
 
+    // What a page pins to the viewport (`ScrollPinned`) is put back under once the frame after the one it
+    // is in has come: the slice of a frame is mended when the next is laid, from the frame before and that one.
+    private var pinnedAccumulator = ScrollPinned.Accumulator()
+    /// Whether pinned blocks have been given, which is when the frame before the last is kept.
+    private var tracksPinned = false
+    private var beforeLast: CaptureFrame?
+    /// The pinned blocks of the pair of the frame before the last and the last, and what pinned elements cover in
+    /// the frame before the last.
+    private var lastPair: PinnedGrid?
+    private var beforeLastRegion = PinnedGrid(columns: 0, rows: 0)
+    private var framesLaid = 0
+    /// Where the strip of the last frame begins, in the image's pixels, to know it is still the last strip.
+    private var lastStripStart: Int?
+    /// The rows of the first frame that the first slice holds: from here to its end, the image has the rest from
+    /// the frames after it.
+    private var firstSeamRow = 0
+    private var firstScreen: FirstScreen?
+    /// What the last frame laid did for the slice before it: nil when nothing was covered.
+    private(set) var lastRepair: ScrollPinned.Repair?
+
+    /// The first screen as the window showed it: the pixels of the first frame from `rowStart` on, where a pinned
+    /// element of it lies (`region`), over what the frames after it have there. In the pixels of the image: halved
+    /// with it.
+    private struct FirstScreen: Sendable {
+        var region: PinnedGrid
+        var rowStart: Int
+        var pixels: CaptureFrame
+        var halved = false
+    }
+
     init(axis: ScrollAxis, maxLength: Int = ScrollLengthLimit.default, scale: CGFloat = 1) {
         self.axis = axis
         self.maxLength = maxLength
@@ -742,6 +772,22 @@ nonisolated struct ImageAssembler: Sendable {
         skipBeforeLast = 0
         lastSeam = nil
         header = nil
+        resetPinned()
+        framesLaid = 1
+        lastStripStart = 0
+    }
+
+    private mutating func resetPinned() {
+        pinnedAccumulator = ScrollPinned.Accumulator()
+        tracksPinned = false
+        beforeLast = nil
+        lastPair = nil
+        beforeLastRegion = PinnedGrid(columns: 0, rows: 0)
+        framesLaid = 0
+        lastStripStart = nil
+        firstSeamRow = 0
+        firstScreen = nil
+        lastRepair = nil
     }
 
     /// Puts `frame` once above the image, after `begin`. Its other side has to
@@ -781,7 +827,11 @@ nonisolated struct ImageAssembler: Sendable {
     ///
     /// Direction is normalized so the assembled document reads top-to-bottom /
     /// left-to-right.
-    mutating func append(_ frame: CaptureFrame, movement: Int) throws {
+    ///
+    /// `pinned`: the blocks of `frame` that stand where they stood in the frame before it although the page
+    /// moved (`ScrollPinned.pinnedBlocks`). Given, they are what the slice of the last frame is mended by now that
+    /// this one is here; without them the image is laid as it always was.
+    mutating func append(_ frame: CaptureFrame, movement: Int, pinned: PinnedGrid? = nil) throws {
         let frameLength = axis == .vertical ? frame.height : frame.width
         guard !strips.isEmpty, frame.width == viewportWidth, frame.height == viewportHeight,
               movement > 0, movement < frameLength
@@ -804,24 +854,93 @@ nonisolated struct ImageAssembler: Sendable {
             // exactly.
             let start = seam / 2, end = (fullLength + movement) / 2
             trim(to: start)
+            repairLastSlice(next: frame, movement: movement, skip: skip, pinned: pinned)
             // A frame can round to nothing only in a degenerate case; the image
             // then simply ends where the cut left it, and the next begins there.
+            lastStripStart = nil
             if end > start, let halved = Self.halved(rest, axis: axis, length: end - start) {
                 strips.append(CaptureStrip(frame: halved, start: start))
+                lastStripStart = start
             }
             fullLength += movement
             totalLength = fullLength / 2 + headerLength
         } else {
             trim(to: seam)
+            repairLastSlice(next: frame, movement: movement, skip: skip, pinned: pinned)
             strips.append(CaptureStrip(frame: rest, start: seam))
+            lastStripStart = seam
             totalLength += movement
             fullLength += movement
         }
+        if pinned != nil { tracksPinned = true }
+        if tracksPinned {
+            beforeLast = lastFrame
+            lastPair = pinned
+        }
+        framesLaid += 1
         skipBeforeLast = lastSkip
         lastMovement = movement
         lastFrame = frame
         lastSkip = skip
         lastSeam = choice
+    }
+
+    /// With the frame after the last one here, mend the slice the last one gives to the image: where pinned
+    /// elements cover it, the page comes from the frame after it or the one before it. Nothing happens for the
+    /// first frame (the first screen is as the window showed it, `firstScreen`), for the last frame laid (its
+    /// slice waits for a neighbour and, if none comes, stays as it is), or when no pinned blocks were given.
+    private mutating func repairLastSlice(next frame: CaptureFrame, movement: Int, skip: Int, pinned: PinnedGrid?) {
+        lastRepair = nil
+        guard axis == .vertical, let pinned else { return }
+        pinnedAccumulator.add(pinned)
+        // The first frame has no pair before it, so there is nothing to mend; the second pair is what first
+        // makes a region of it.
+        if framesLaid == 1 { firstSeamRow = movement + skip; return }
+        guard framesLaid >= 2, let last = lastFrame, let before = beforeLast else { return }
+        let height = last.height
+        let ownBlocks = lastPair.map { $0.union(pinned) } ?? pinned
+        let region = pinnedAccumulator.region(for: ownBlocks)
+        // What the frame after covers is not known yet (its second pair is still to come): its first pair stands in,
+        // which can only cover more.
+        let nextRegion = pinnedAccumulator.region(for: pinned)
+        let previousRegion: PinnedGrid
+        if framesLaid == 2 {
+            // The frame before the last is the first: its region, and from it the first screen.
+            previousRegion = pinnedAccumulator.region(for: lastPair ?? pinned)
+            buildFirstScreen(from: before, region: previousRegion)
+        } else {
+            previousRegion = beforeLastRegion
+        }
+        beforeLastRegion = region
+        guard !region.isEmpty else { return }
+        let from = lastSkip, to = movement + skip
+        guard from >= 0, to > from, to <= height,
+              let strip = strips.last, strip.start == lastStripStart else { return }
+        let result = ScrollPinned.repairedSlice(
+            frame: last, rows: from..<to, region: region,
+            neighbours: [.init(frame: frame, region: nextRegion, offset: movement),
+                         .init(frame: before, region: previousRegion, offset: -lastMovement)])
+        guard result.repair.blocks > 0 else { return }
+        let size = strip.frame.height
+        let mended: CaptureFrame
+        if isShrunk {
+            guard let halved = Self.halved(result.slice, axis: axis, length: size) else { return }
+            mended = halved
+        } else {
+            guard result.slice.height == size else { return }
+            mended = result.slice
+        }
+        strips[strips.count - 1] = CaptureStrip(frame: mended, start: strip.start)
+        lastRepair = result.repair
+    }
+
+    /// The first frame's pixels below the first seam, kept to be laid over the image where a pinned element of the
+    /// first frame lies: the card that was whole on the first screen is whole there and not cut at the seam.
+    private mutating func buildFirstScreen(from first: CaptureFrame, region: PinnedGrid) {
+        guard !region.isEmpty, firstSeamRow >= 0, firstSeamRow < first.height else { return }
+        let rect = CGRect(x: 0, y: firstSeamRow, width: first.width, height: first.height - firstSeamRow)
+        guard let rows = first.cropped(to: rect) else { return }
+        firstScreen = FirstScreen(region: region, rowStart: firstSeamRow, pixels: rows)
     }
 
     /// Lays `frame` over the last frame laid, at the same place: the page did
@@ -831,7 +950,9 @@ nonisolated struct ImageAssembler: Sendable {
     /// seam before the last frame left off (the rows above it are the earlier
     /// frame's and stay), so that it covers as much as it can; in the halved
     /// image the same, in its pixels. The next frame is laid against this one.
-    mutating func replaceLast(with frame: CaptureFrame) throws {
+    ///
+    /// `pinned`: the pinned blocks of the pair of the frame before the last and `frame`.
+    mutating func replaceLast(with frame: CaptureFrame, pinned: PinnedGrid? = nil) throws {
         guard lastFrame != nil, !strips.isEmpty,
               frame.width == viewportWidth, frame.height == viewportHeight
         else { throw FrameMatchError.noReliableMotion }
@@ -843,16 +964,21 @@ nonisolated struct ImageAssembler: Sendable {
         if isShrunk {
             let start = seam / 2, end = fullLength / 2
             trim(to: start)
+            lastStripStart = nil
             if end > start, let halved = Self.halved(rest, axis: axis, length: end - start) {
                 strips.append(CaptureStrip(frame: halved, start: start))
+                lastStripStart = start
             }
         } else {
             trim(to: seam)
             strips.append(CaptureStrip(frame: rest, start: seam))
+            lastStripStart = seam
         }
         lastFrame = frame
         lastSkip = floor
         lastSeam = nil
+        lastRepair = nil
+        if tracksPinned { lastPair = pinned }
     }
 
     /// `frame` without its first `count` rows (columns, along a horizontal
@@ -895,6 +1021,17 @@ nonisolated struct ImageAssembler: Sendable {
         }
         strips = halved
         isShrunk = true
+        lastStripStart = lastStripStart.map { $0 / 2 }
+        if var screen = firstScreen, !screen.halved {
+            if screen.pixels.height / 2 > 0,
+               let pixels = Self.halved(screen.pixels, axis: axis, length: screen.pixels.height / 2) {
+                screen.pixels = pixels
+                screen.halved = true
+                firstScreen = screen
+            } else {
+                firstScreen = nil
+            }
+        }
         if let header {
             let length = axis == .vertical ? header.height : header.width
             self.header = length / 2 > 0 ? Self.halved(header, axis: axis, length: length / 2) : nil
@@ -938,6 +1075,7 @@ nonisolated struct ImageAssembler: Sendable {
         skipBeforeLast = 0
         lastSeam = nil
         header = nil
+        resetPinned()
     }
 
     func makeImage(maxPixels: Int? = nil) throws -> CGImage {
@@ -971,6 +1109,23 @@ nonisolated struct ImageAssembler: Sendable {
                         ? (start + y) * outputRow
                         : y * outputRow + start * 4
                     (output + target).update(from: base + y * rowBytes, count: rowBytes)
+                }
+            }
+        }
+        // The first screen as the window showed it, over what the frames after the first have at those places.
+        if let screen = firstScreen, axis == .vertical {
+            let scale = screen.halved ? 2 : 1
+            let firstRow = screen.halved ? screen.rowStart / 2 : screen.rowStart
+            let blockSize = ScrollPinned.block
+            let columns = screen.pixels.width
+            screen.pixels.pixels.withUnsafeBufferPointer { source in
+                for row in 0..<screen.pixels.height {
+                    let y = offset + firstRow + row
+                    guard y < height else { break }
+                    let blockRow = (screen.rowStart + row * scale) / blockSize
+                    for x in 0..<columns where screen.region[(x * scale) / blockSize, blockRow] {
+                        (output + y * outputRow + x * 4).update(from: source.baseAddress! + (row * columns + x) * 4, count: 4)
+                    }
                 }
             }
         }
