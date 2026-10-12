@@ -47,9 +47,6 @@ final class ScrollingCaptureSession {
     /// Whether Stampo's own visible UI (the notch panel) is over a Quartz
     /// point. Own windows are not in the frontmost-window check.
     private let ownUICovers: @MainActor (CGPoint) -> Bool
-    /// The rect of the strip in Quartz coordinates, nil when it is not shown:
-    /// where `ScrollPointerExperiment` puts the pointer.
-    private let ownUIRect: @MainActor () -> CGRect?
     /// Window numbers of ours that do not count as covering the page: the
     /// notch panel's. Every other window of Stampo over the point does.
     private let ignoredWindows: @MainActor () -> Set<CGWindowID>
@@ -123,14 +120,6 @@ final class ScrollingCaptureSession {
         let lines: Int32
     }
     private var pushCheck: PushCheck?
-    /// The pointer put on the strip for the experiment, and where it was
-    /// (`ScrollPointerExperiment`); nil without the flag.
-    private struct PointerExperiment {
-        let mode: ScrollPointerExperiment.Mode
-        let placed: CGPoint
-        let original: CGPoint
-    }
-    private var pointerExperiment: PointerExperiment?
     /// Whether a push may be sent: not after a check has found the page going
     /// on under one, until a frame is laid.
     private var pushesAllowed = true
@@ -171,7 +160,6 @@ final class ScrollingCaptureSession {
          shrinkToFit: Bool = false,
          activateSelectedWindow: (@MainActor (WindowPickerSelection) throws -> Void)? = nil,
          ownUICovers: @escaping @MainActor (CGPoint) -> Bool = { _ in false },
-         ownUIRect: @escaping @MainActor () -> CGRect? = { nil },
          ignoredWindows: @escaping @MainActor () -> Set<CGWindowID> = { [] },
          resolveViewport: (@MainActor (WindowPickerSelection, ScrollAxis) throws -> ScrollViewportResolution)? = nil,
          checkTarget: (@MainActor (AXUIElement?, ScrollAxis) throws -> Void)? = nil) {
@@ -184,7 +172,6 @@ final class ScrollingCaptureSession {
             try ScrollDriver.raiseSelectedWindow(selected, ignoring: ignoredWindows())
         }
         self.ownUICovers = ownUICovers
-        self.ownUIRect = ownUIRect
         self.ignoredWindows = ignoredWindows
         self.resolveViewport = resolveViewport ?? { selection, axis in
             try ScrollDriver.viewport(selection: selection, axis: axis)
@@ -482,7 +469,7 @@ final class ScrollingCaptureSession {
             diagnosticStage = .validateTarget
             try validateCurrentScrollTarget(at: point)
             let lines = min(remaining, Int(ScrollResume.linesPerEvent))
-            try sendWheel(axis: axis, lines: Int32(lines), backwards: !forward, at: point)
+            try ScrollDriver.sendScroll(axis: axis, lines: Int32(lines), backwards: !forward, at: point)
             remaining -= lines
             try await Task.sleep(for: .milliseconds(60))
         }
@@ -614,9 +601,6 @@ final class ScrollingCaptureSession {
     /// The pointer is off the page or on the strip: hold the next step.
     private func pointerIsAway() -> Bool {
         let pointer = screenPointToCGPoint(NSEvent.mouseLocation, primaryHeight: cgPrimaryDisplayHeight())
-        // Put on the strip by the experiment, and still there: not away.
-        if let experiment = pointerExperiment,
-           ScrollPointerExperiment.isAtPlacement(pointer: pointer, placed: experiment.placed) { return false }
         let window = ScrollDriver.currentWindowBounds(selection.windowID) ?? selection.bounds
         return ScrollInputGuard.shouldWait(pointer: pointer, window: window, overOwnUI: ownUICovers(pointer))
     }
@@ -638,46 +622,7 @@ final class ScrollingCaptureSession {
         Log.capture.notice("scroll goes on, the pointer is back")
     }
 
-    /// Debug experiment: the pointer goes to the strip's left edge and the capture
-    /// does not wait for it there; the wheel is sent by the mode asked for.
-    private func placeExperimentPointer() {
-        guard let mode = ScrollPointerExperiment.current() else { return }
-        let height = cgPrimaryDisplayHeight()
-        let original = screenPointToCGPoint(NSEvent.mouseLocation, primaryHeight: height)
-        guard let strip = ownUIRect() else {
-            Log.capture.notice("scroll experiment pointer: \(mode.rawValue, privacy: .public) · no strip, the pointer stays")
-            dump?.step("experiment pointer: \(mode.rawValue) · no strip, the pointer stays")
-            return
-        }
-        let target = ScrollPointerExperiment.placement(strip: strip)
-        _ = CGWarpMouseCursorPosition(target)
-        _ = CGAssociateMouseAndMouseCursorPosition(1)
-        pointerExperiment = PointerExperiment(mode: mode, placed: target, original: original)
-        let scrollPoint = currentScrollPoint()
-        let line = "experiment pointer: \(mode.rawValue) · pointer (\(Int(target.x)), \(Int(target.y))) · scroll point (\(Int(scrollPoint.x)), \(Int(scrollPoint.y))) · was (\(Int(original.x)), \(Int(original.y)))"
-        Log.capture.notice("scroll \(line, privacy: .public)")
-        dump?.step(line)
-    }
-
-    /// The pointer goes back where it was.
-    private func restoreExperimentPointer() {
-        guard let experiment = pointerExperiment else { return }
-        pointerExperiment = nil
-        _ = CGWarpMouseCursorPosition(experiment.original)
-        _ = CGAssociateMouseAndMouseCursorPosition(1)
-        Log.capture.notice("scroll experiment pointer: back to (\(Int(experiment.original.x), privacy: .public), \(Int(experiment.original.y), privacy: .public))")
-    }
-
-    /// A wheel event of the capture's own: through the event tap, or, in the
-    /// experiment's `strip-pid`, posted to the window's process.
-    private func sendWheel(axis: ScrollAxis, lines: Int32, backwards: Bool = false, at point: CGPoint) throws {
-        try ScrollDriver.sendScroll(axis: axis, lines: lines, backwards: backwards, at: point,
-                                    toProcess: pointerExperiment?.mode.postsToProcess == true
-                                        ? selection.processID : nil)
-    }
-
     private func cleanup() {
-        restoreExperimentPointer()
         stopInputGuard()
         if let escapeToken { TransientHotkeyCenter.escape.remove(escapeToken) }
         escapeToken = nil
@@ -889,7 +834,7 @@ final class ScrollingCaptureSession {
             // it, and the direction asked for has not settled yet.
             try validateCurrentScrollTarget(at: probePoint, axis: candidate)
             let probeLines = ScrollDriver.lineDelta(for: probeStep, backingScale: scale)
-            try sendWheel(axis: candidate, lines: probeLines, at: probePoint)
+            try ScrollDriver.sendScroll(axis: candidate, lines: probeLines, at: probePoint)
             let after = try await ScrollCaptureCancellationBoundary.awaitActive {
                 try await self.captureStableWindow(viewport: candidateViewport)
             }
@@ -933,7 +878,6 @@ final class ScrollingCaptureSession {
         }
         noteProgress()
         previous = probe
-        placeExperimentPointer()
         dump?.step("area: " + (settled.viewport.webPage.map {
             "web page (\($0.rawValue))" + (settled.axis == .vertical ? ", whole width" : ", the strip that moves")
         } ?? "not a web page") + headerNote)
@@ -1017,7 +961,7 @@ final class ScrollingCaptureSession {
             try validateCurrentScrollTarget(at: point)
             stepInFlight = true
             inFlightLines = sentLines
-            try sendWheel(axis: axis, lines: sentLines, at: point)
+            try ScrollDriver.sendScroll(axis: axis, lines: sentLines, at: point)
             diagnosticStage = .capture
             let next = try await ScrollCaptureCancellationBoundary.awaitActive {
                 try await self.captureStableViewport(reference: oldFrame)
@@ -1380,7 +1324,7 @@ final class ScrollingCaptureSession {
         try ensureActive()
         diagnosticStage = .validateTarget
         try validateCurrentScrollTarget(at: point)
-        try sendWheel(axis: axis, lines: lines, backwards: true, at: point)
+        try ScrollDriver.sendScroll(axis: axis, lines: lines, backwards: true, at: point)
         diagnosticStage = .capture
         // Settled before the next step is sent, so that the two do not run
         // into each other while the page still glides back.

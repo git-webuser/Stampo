@@ -425,17 +425,10 @@ enum ScrollDriver {
     /// One wheel event of `lines` lines, forward or `backwards` — up, or left.
     /// How far that moves the page is the app's own business —
     /// `ScrollStepPlanner` works it out from a probe.
-    /// `toProcess`: post the event to that process instead of through the event
-    /// tap (`ScrollPointerExperiment`).
-    static func sendScroll(axis: ScrollAxis, lines: Int32, backwards: Bool = false, at point: CGPoint,
-                           toProcess processID: pid_t? = nil) throws {
+    static func sendScroll(axis: ScrollAxis, lines: Int32, backwards: Bool = false, at point: CGPoint) throws {
         guard let event = scrollEvent(axis: axis, lines: lines, backwards: backwards, at: point)
         else { throw ScrollDriverError.eventUnavailable }
-        if let processID {
-            event.postToPid(processID)
-        } else {
-            event.post(tap: .cghidEventTap)
-        }
+        event.post(tap: .cghidEventTap)
     }
 
     /// For the record of a capture: the Accessibility chain from the element

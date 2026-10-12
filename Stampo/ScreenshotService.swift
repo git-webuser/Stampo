@@ -37,10 +37,6 @@ final class ScreenshotService {
     /// capture never scrolls through it.
     var scrollingOwnUICovers: ((CGPoint) -> Bool)?
 
-    /// The rect of Stampo's strip, in Quartz coordinates, nil when it is not
-    /// shown (`ScrollPointerExperiment`).
-    var scrollingOwnUIRect: (() -> CGRect?)?
-
     /// The notch panel's window number, the one window of ours a scrolling
     /// capture looks through.
     var scrollingIgnoredWindows: (() -> Set<CGWindowID>)?
@@ -89,9 +85,6 @@ final class ScreenshotService {
                                               shrinkToFit: AppSettings.scrollShrinkToFit,
                                               ownUICovers: { [weak self] point in
                                                   self?.scrollingOwnUICovers?(point) ?? false
-                                              },
-                                              ownUIRect: { [weak self] in
-                                                  self?.scrollingOwnUIRect?()
                                               },
                                               ignoredWindows: { [weak self] in
                                                   self?.scrollingIgnoredWindows?() ?? []
