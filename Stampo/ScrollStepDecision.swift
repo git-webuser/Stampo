@@ -115,6 +115,9 @@ nonisolated struct TemporarySteps {
         /// and this one: the page may have moved in those too, and then this
         /// frame is further from the one before it than its own lines say.
         let stationaryLines: Int32
+        /// The pinned blocks of the pair of this frame and the one before it
+        /// (`ScrollPinned`), worked out when it was kept; nil when they could not be.
+        let pinned: PinnedGrid?
     }
 
     private(set) var steps: [Step] = []
@@ -123,9 +126,9 @@ nonisolated struct TemporarySteps {
     var isEmpty: Bool { steps.isEmpty }
 
     mutating func add(_ frame: CaptureFrame, movement: Int, confirmed: Bool, lines: Int32? = nil,
-                      stationaryLines: Int32 = 0) {
+                      stationaryLines: Int32 = 0, pinned: PinnedGrid? = nil) {
         steps.append(Step(frame: frame, movement: movement, confirmed: confirmed, lines: lines,
-                          stationaryLines: stationaryLines))
+                          stationaryLines: stationaryLines, pinned: pinned))
     }
 
     /// The waiting steps, in order, and none left waiting: they are about to

@@ -413,7 +413,9 @@ final class ScrollingCaptureSession {
                 inFlightLines = nil
                 return true
             case .lay(let movement):
-                guard try lay(now, movement: movement) != nil else {
+                let blocks = await pinnedBlocks(from: last, to: now, shift: movement)
+                try ensureActive()
+                guard try lay(now, movement: movement, pinned: blocks) != nil else {
                     finish()
                     return true
                 }
@@ -432,7 +434,9 @@ final class ScrollingCaptureSession {
                 // The step is taken to have arrived. It waits in the queue, as
                 // a step placed by the calibration does, for one the matcher places.
                 guard temporary.count < TemporarySteps.limit else { return false }
-                temporary.add(now, movement: movement, confirmed: false)
+                let blocks = await pinnedBlocks(from: last, to: now, shift: nil)
+                try ensureActive()
+                temporary.add(now, movement: movement, confirmed: false, pinned: blocks)
                 noteProgress()
                 previous = now
                 stepInFlight = false
@@ -481,29 +485,52 @@ final class ScrollingCaptureSession {
         let waiting: Int
         /// The seam each of them fell at, in order.
         let queueSeams: [ScrollSeam.Choice]
+        /// What laying them mended in the slices of the frames before (`ScrollPinned`).
+        var repairs: [ScrollPinned.Repair] = []
+
+        /// For the line of the step: nothing when no pinned element was in the way.
+        var fixed: String {
+            let blocks = repairs.reduce(0) { $0 + $1.blocks }
+            guard blocks > 0 else { return "" }
+            let copied = repairs.reduce(0) { $0 + $1.fromNeighbour }, filled = repairs.reduce(0) { $0 + $1.filled }
+            return " · fixed \(blocks) blocks: \(copied) from neighbour, \(filled) filled"
+        }
+    }
+
+    /// The pinned blocks of a pair of frames, off the main thread, for a vertical scroll (`ScrollPinned`). Nil when
+    /// there is no frame to compare with or the scroll goes the other way. `shift`: how far the page moved, when known.
+    private func pinnedBlocks(from previous: CaptureFrame?, to frame: CaptureFrame, shift: Int?) async -> PinnedGrid? {
+        guard axis == .vertical, let previous else { return nil }
+        return await Task.detached(priority: .userInitiated) {
+            ScrollPinned.pinnedBlocks(previous: previous, current: frame, shift: shift)
+        }.value
     }
 
     /// Lays a frame that is `movement` pixels along from the last frame into the
     /// image — first the steps that waited for one the matcher placed, at their
     /// own distances or, if the queue has been worked out again, at
     /// `queueMovements`. Nil when the image has no room for them.
-    private func lay(_ frame: CaptureFrame, movement: Int, queueMovements: [Int]? = nil) throws -> Laid? {
+    private func lay(_ frame: CaptureFrame, movement: Int, queueMovements: [Int]? = nil,
+                     pinned: PinnedGrid? = nil) throws -> Laid? {
         let waiting = temporary.take()
         var seams: [ScrollSeam.Choice] = []
+        var repairs: [ScrollPinned.Repair] = []
         for (index, step) in waiting.enumerated() {
             let moved = queueMovements.flatMap { $0.indices.contains(index) ? $0[index] : nil } ?? step.movement
             guard makeRoom(for: moved) else {
                 Log.capture.notice("scroll queue only partly laid · the image is full")
                 return nil
             }
-            try assembler.append(step.frame, movement: moved)
+            try assembler.append(step.frame, movement: moved, pinned: step.pinned)
             if let seam = assembler.lastSeam { seams.append(seam) }
+            if let repair = assembler.lastRepair { repairs.append(repair) }
         }
         guard makeRoom(for: movement) else { return nil }
         try ensureActive()
-        try assembler.append(frame, movement: movement)
+        try assembler.append(frame, movement: movement, pinned: pinned)
+        if let repair = assembler.lastRepair { repairs.append(repair) }
         noteProgress()
-        return Laid(waiting: waiting.count, queueSeams: seams)
+        return Laid(waiting: waiting.count, queueSeams: seams, repairs: repairs)
     }
 
     /// The outcome of asking the tiles of a queue's frames which distances they
@@ -901,7 +928,9 @@ final class ScrollingCaptureSession {
             let match = try FrameMatcher.match(previous: first, current: probe, axis: axis,
                                                maximumOffset: probeMotionLimit + 24)
             try ensureActive()
-            try assembler.append(probe, movement: match.offset)
+            let probeBlocks = await pinnedBlocks(from: first, to: probe, shift: match.offset)
+            try ensureActive()
+            try assembler.append(probe, movement: match.offset, pinned: probeBlocks)
             notePinned(match.standing)
             pixelsPerLine = ScrollStepPlanner.pixelsPerLine(offset: match.offset, lines: Int(probeLines))
             if let pixelsPerLine {
@@ -1013,7 +1042,11 @@ final class ScrollingCaptureSession {
                                                  axisLength: axisLength(of: oldFrame), searchLimit: motionLimit + 32)
                 }
                 // The steps that waited for this one go into the image first.
-                guard let laid = try lay(next, movement: match.offset, queueMovements: relay?.movements) else {
+                // The pinned blocks of the pair, off the main thread, before anything is taken from the queue.
+                let blocks = await pinnedBlocks(from: oldFrame, to: next, shift: match.offset)
+                try ensureActive()
+                guard let laid = try lay(next, movement: match.offset, queueMovements: relay?.movements,
+                                         pinned: blocks) else {
                     finish()
                     return
                 }
@@ -1079,7 +1112,7 @@ final class ScrollingCaptureSession {
                     + (relay.map { "\($0.note) · " } ?? "")
                     + "queue appended \(laid.waiting) (seams \(laid.queueSeams.map(\.summary).joined(separator: ", ")))"
                 let pushed = isPush ? " · push: placed" : ""
-                recordStep("\(head) · match \(match.offset) px · confidence \(Self.percent(match.confidence)) · regions \(match.independentRegions)\(match.near > 0 ? " · \(match.near) near" : "")\(match.sticking > 0 ? " · \(match.sticking) sticking" : "")\(queue)\(seamNote)\(recalibrated)\(pushed) → added")
+                recordStep("\(head) · match \(match.offset) px · confidence \(Self.percent(match.confidence)) · regions \(match.independentRegions)\(match.near > 0 ? " · \(match.near) near" : "")\(match.sticking > 0 ? " · \(match.sticking) sticking" : "")\(queue)\(seamNote)\(laid.fixed)\(recalibrated)\(pushed) → added")
                 pushMode = .none
                 previous = next
                 zeroMotionCount = 0
@@ -1139,9 +1172,9 @@ final class ScrollingCaptureSession {
                     if step.action == .undo {
                         recordStep("\(head) · \(error) · \(said) → check: page moves, push undone, back \(check.lines + sentLines) lines")
                         guard try await undoPush(check, checkLines: sentLines, at: point) else { return }
-                    } else if !confirmSection(check, step: step, checkFrame: next,
-                                               differenceFromPush: difference,
-                                               line: "\(head) · \(error) · \(said)") {
+                    } else if await !confirmSection(check, step: step, checkFrame: next,
+                                                     differenceFromPush: difference,
+                                                     line: "\(head) · \(error) · \(said)") {
                         return
                     }
                     stepInFlight = false
@@ -1219,8 +1252,10 @@ final class ScrollingCaptureSession {
                     // Not placed by the frames: placed where the calibration
                     // says, and kept apart until a step the matcher does
                     // place carries it into the image.
+                    let blocks = await pinnedBlocks(from: oldFrame, to: next, shift: nil)
+                    try ensureActive()
                     temporary.add(next, movement: expected ?? 0, confirmed: confirmed, lines: sentLines,
-                                  stationaryLines: stationaryLines)
+                                  stationaryLines: stationaryLines, pinned: blocks)
                     noteProgress()
                     recordStep("\(head) · \(error) · \(said) · \(standing) → temporary (\(confirmed ? "confirmed" : "unconfirmed")), queue \(temporary.count)")
                     previous = next
@@ -1355,11 +1390,13 @@ final class ScrollingCaptureSession {
         guard case .further(let pixels) = ScrollReturn.landing(difference: difference, forward: forward) else {
             return true
         }
-        guard try lay(back, movement: pixels) != nil else {
+        let blocks = await pinnedBlocks(from: target, to: back, shift: pixels)
+        try ensureActive()
+        guard let laid = try lay(back, movement: pixels, pinned: blocks) else {
             finish()
             return false
         }
-        recordStep("· back landed \(pixels) px further, laid")
+        recordStep("· back landed \(pixels) px further, laid\(laid.fixed)")
         Log.capture.notice("scroll back landed \(pixels, privacy: .public) px further · laid")
         pushMode = .none
         pushAfterReliableSteps = 0
@@ -1380,10 +1417,12 @@ final class ScrollingCaptureSession {
     /// the check's own if it changed after the push, and the pushes go on.
     /// Returns false when the capture is saved.
     private func confirmSection(_ check: PushCheck, step: ScrollPush.Step, checkFrame: CaptureFrame,
-                                differenceFromPush: Double, line: String) -> Bool {
+                                differenceFromPush: Double, line: String) async -> Bool {
         let stage = ScrollPush.stageFrameIsChecks(differenceFromPush: differenceFromPush) ? checkFrame : check.frame
+        // The pinned blocks of the stage with the frame before the one it replaces.
+        let blocks = await pinnedBlocks(from: assembler.frameBeforeLast, to: stage, shift: nil)
         do {
-            try assembler.replaceLast(with: stage)
+            try assembler.replaceLast(with: stage, pinned: blocks)
         } catch {
             recordStep("\(line) → check: section, frame not replaced")
             finish()

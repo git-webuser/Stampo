@@ -717,6 +717,9 @@ nonisolated struct ImageAssembler: Sendable {
     private var firstScreen: FirstScreen?
     /// What the last frame laid did for the slice before it: nil when nothing was covered.
     private(set) var lastRepair: ScrollPinned.Repair?
+    /// The frame before the last, kept once pinned blocks have been given: what a frame that replaces the last is
+    /// compared with.
+    var frameBeforeLast: CaptureFrame? { beforeLast }
 
     /// The first screen as the window showed it: the pixels of the first frame from `rowStart` on, where a pinned
     /// element of it lies (`region`), over what the frames after it have there. In the pixels of the image: halved
