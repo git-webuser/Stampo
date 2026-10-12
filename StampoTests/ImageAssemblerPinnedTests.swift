@@ -12,6 +12,8 @@ import Testing
         var image: CaptureFrame
         var assembler: ImageAssembler
         var repairs: [ScrollPinned.Repair?]
+        /// What settling the capture's end mended.
+        var settled: ScrollPinned.Repair?
     }
 
     /// The image of `frames` frames of a scene, with the pinned blocks of each pair given or not. `shrinkBefore`: drop
@@ -38,14 +40,15 @@ import Testing
             previous = frame
             if let replace, replace.index == index {
                 let stage = PinnedScenes.frame(index, of: scene, extra: replace.extra)
-                let before = PinnedScenes.frame(index - 1, of: scene)
-                let stageBlocks = pinned ? ScrollPinned.pinnedBlocks(previous: before, current: stage, shift: nil) : nil
-                try assembler.replaceLast(with: stage, pinned: stageBlocks)
+                try assembler.replaceLast(with: stage)
                 previous = stage
             }
         }
+        // The end of the capture, as the session finishes it.
+        assembler.settlePending()
+        let settled = assembler.lastRepair
         let image = try #require(CaptureFrame(image: assembler.makeImage()))
-        return Built(image: image, assembler: assembler, repairs: repairs)
+        return Built(image: image, assembler: assembler, repairs: repairs, settled: settled)
     }
 
     /// The pixels of `frame`, whose top is at row `top` of the image, over `rows` and `columns` of the image.
@@ -106,15 +109,37 @@ import Testing
         #expect(firstMismatch(unmended.image, expected, rows: 0..<expected.height) != nil)
     }
 
-    /// The slice of a frame is mended when the next is laid: the first frame never, the second when the third is
-    /// here (two pairs make a region), the last never.
-    @Test func theSlicesAreMendedAsTheNextFrameComes() throws {
-        let built = try build(Scene(), frames: 6, pinned: true)
-        // append(1): nothing before it to mend; append(2): the slice of frame 1 (the second pair makes the region)...
-        #expect(built.repairs[0] == nil)
-        #expect(built.repairs[1] != nil && built.repairs[2] != nil && built.repairs[3] != nil && built.repairs[4] != nil)
-        let report = try #require(built.repairs[1])
-        #expect(report.blocks > 0 && report.fromNeighbour == report.blocks && report.filled == 0)
+    /// While the capture is young the slices wait: an element that sticks only after the first scroll has shown itself
+    /// in few pairs. Once `waitingPairs` pairs are in they are mended together, and then the slice of the frame before
+    /// the last as each frame comes; at the end the slice of the frame before the last is mended with what there is
+    /// and the last is left as it came.
+    @Test func theSlicesWaitWhileTheCaptureIsYoungAndAreMendedTogether() throws {
+        let frames = ScrollPinned.waitingPairs + 3
+        let built = try build(Scene(), frames: frames, pinned: true)
+        // append(k) lays frame k: the pairs seen are k.
+        for k in 1..<ScrollPinned.waitingPairs { #expect(built.repairs[k - 1] == nil, "append \(k)") }
+        let together = try #require(built.repairs[ScrollPinned.waitingPairs - 1])
+        let one = try #require(built.repairs[ScrollPinned.waitingPairs])
+        // Frames 1 to 4 wait; the first screen is not a slice. Together they are more than the one that follows.
+        #expect(together.blocks > one.blocks && one.blocks > 0)
+        #expect(one.fromNeighbour == one.blocks && one.filled == 0)
+        #expect(built.repairs[ScrollPinned.waitingPairs + 1] != nil)
+        let settled = try #require(built.settled)
+        #expect(settled.blocks > 0)
+    }
+
+    /// A short capture mends its slices at the end.
+    @Test func aShortCaptureIsMendedWhenItEnds() throws {
+        let built = try build(Scene(), frames: 5, pinned: true)
+        #expect(built.repairs.allSatisfy { $0 == nil })
+        let settled = try #require(built.settled)
+        #expect(settled.blocks > 0)
+        let clean = try build(Scene(card: false), frames: 5, pinned: false)
+        for k in 1...3 {
+            let from = k == 1 ? 800 : k * movement + 200, to = k * movement + 600
+            let mismatch = firstMismatch(built.image, clean.image, rows: from..<to)
+            #expect(mismatch == nil, "slice \(k): \(mismatch ?? "")")
+        }
     }
 
     @Test func aPageWithNothingPinnedIsLaidAsItAlwaysWasByteForByte() throws {
@@ -184,10 +209,11 @@ import Testing
     // MARK: Half size, a stage replaced, a header
 
     /// Halved the image is mended the same: the frames are worked from whole, and halved as they are laid.
-    @Test func inTheHalvedImageTheSlicesAreMendedAsWell() throws {
+    /// The image is halved before frame 3 or 4 is laid: slices that waited for evidence were cut when it was whole.
+    @Test(arguments: [3, 4]) func inTheHalvedImageTheSlicesAreMendedAsWell(shrinkBefore: Int) throws {
         let frames = 6
-        let mended = try build(Scene(), frames: frames, pinned: true, shrinkBefore: 3)
-        let clean = try build(Scene(card: false), frames: frames, pinned: false, shrinkBefore: 3)
+        let mended = try build(Scene(), frames: frames, pinned: true, shrinkBefore: shrinkBefore)
+        let clean = try build(Scene(card: false), frames: frames, pinned: false, shrinkBefore: shrinkBefore)
         #expect(mended.assembler.isShrunk && mended.image.height == clean.image.height)
         // The middle slices are the clean image's — below the first screen, and to within a few levels: a slice halved
         // alone is resampled a little differently from the whole rest of its frame, which is rounded to the rows that

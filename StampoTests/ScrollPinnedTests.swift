@@ -39,9 +39,9 @@ nonisolated enum PinnedScenes {
     }
 
     /// The blocks of the pair of frames `index − 1` and `index`.
-    static func pair(_ index: Int, of scene: Scene) -> PinnedGrid {
-        ScrollPinned.pinnedBlocks(previous: frame(index - 1, of: scene), current: frame(index, of: scene),
-                                  shift: movement)!
+    static func pair(_ index: Int, of scene: Scene, extra: ((Int, Int) -> UInt8?)? = nil) -> PinnedGrid {
+        ScrollPinned.pinnedBlocks(previous: frame(index - 1, of: scene, extra: extra),
+                                  current: frame(index, of: scene, extra: extra), shift: movement)!
     }
 }
 
@@ -105,29 +105,53 @@ nonisolated enum PinnedScenes {
         #expect(ScrollPinned.pinnedBlocks(previous: a, current: small, shift: 400) == nil)
     }
 
+    /// A box's border is a vertical line: the same in the two frames of a pair whatever the page did, and no part of
+    /// a pinned element. It is not taken, so that the box round a line is not made an element.
+    @Test func aVerticalLineIsNotPinned() {
+        let line: (Int, Int) -> UInt8? = { _, x in x == 204 ? 0 : (x == 203 || x == 205 ? 128 : nil) }
+        #expect(PinnedScenes.pair(1, of: Scene(card: false), extra: line).isEmpty)
+        // The card, which changes down the frame, is still found with the line there.
+        let withCard = PinnedScenes.pair(1, of: Scene(), extra: line)
+        #expect(blocks(PinnedScenes.card).allSatisfy { withCard[$0.0, $0.1] })
+    }
+
     // MARK: The regions
 
-    private func accumulate(_ pairs: Int, scene: Scene = Scene()) -> ScrollPinned.Accumulator {
+    /// The frame `index` of a scene, and the frames next to it.
+    private func around(_ index: Int, of scene: Scene, extra: ((Int, Int) -> UInt8?)? = nil) -> (frame: CaptureFrame, near: [CaptureFrame]) {
+        (PinnedScenes.frame(index, of: scene, extra: extra),
+         [PinnedScenes.frame(index - 1, of: scene, extra: extra), PinnedScenes.frame(index + 1, of: scene, extra: extra)])
+    }
+
+    /// A frame with nothing in it: white, as the margin behind a panel is.
+    private func blank() -> CaptureFrame {
+        CaptureFrame(width: 480, height: 800, pixels: [UInt8](repeating: 255, count: 480 * 800 * 4))
+    }
+
+    private func accumulate(_ pairs: Int, scene: Scene = Scene(),
+                            extra: ((Int, Int) -> UInt8?)? = nil) -> ScrollPinned.Accumulator {
         var accumulator = ScrollPinned.Accumulator()
-        for index in 1...pairs { accumulator.add(PinnedScenes.pair(index, of: scene)) }
+        for index in 1...pairs { accumulator.add(PinnedScenes.pair(index, of: scene, extra: extra)) }
         return accumulator
     }
 
     /// One pair is a coincidence: it takes two to be a pinned element.
     @Test func aRegionNeedsTwoPairs() {
+        let scene = Scene()
         var one = accumulate(1)
-        let fromOne = one.region(for: PinnedScenes.pair(1, of: Scene()))
-        #expect(fromOne.isEmpty)
+        let (frame1, near1) = around(1, of: scene)
+        #expect(one.region(of: frame1, near: near1).isEmpty)
         var two = accumulate(2)
-        let fromTwo = two.region(for: PinnedScenes.pair(2, of: Scene()))
-        #expect(!fromTwo.isEmpty)
+        let (frame2, near2) = around(2, of: scene)
+        #expect(!two.region(of: frame2, near: near2).isEmpty)
     }
 
     /// The region is the card's box and five blocks round it (the frame is 60 by 100 blocks, the card 20 by 25 at
     /// its bottom right: the margin is cut by the edges there).
     @Test func theRegionIsTheBoxOfTheCardWithAMarginOfFiveBlocks() {
         var accumulator = accumulate(3)
-        let region = accumulator.region(for: PinnedScenes.pair(3, of: Scene()))
+        let (frame, near) = around(2, of: Scene())
+        let region = accumulator.region(of: frame, near: near)
         let card = PinnedScenes.card
         let first = Int(card.minX) / block, last = Int(card.maxX) / block - 1
         let top = Int(card.minY) / block, bottom = Int(card.maxY) / block - 1
@@ -141,39 +165,70 @@ nonisolated enum PinnedScenes {
     }
 
     /// Pinned elements are in most pairs. A card that is in two pairs out of five is one — the active item of a
-    /// menu is in as many — and a frame that does not have it is not covered by it.
-    @Test func aPieceNeedsTwoFifthsOfThePairsAndTheFrameNeedsToHaveIt() {
+    /// menu is in as many — and a frame that does not show it is not covered by it.
+    @Test func aPieceNeedsTwoFifthsOfThePairsAndTheFrameNeedsToShowIt() {
         let withCard = PinnedScenes.pair(1, of: Scene())
         let without = PinnedScenes.pair(1, of: Scene(card: false))
+        let (frame, near) = around(1, of: Scene())
         var accumulator = ScrollPinned.Accumulator()
         for pair in [withCard, without, without, without, without] { accumulator.add(pair) }
         // One of five: not stable.
-        let oneOfFive = accumulator.region(for: withCard)
-        #expect(oneOfFive.isEmpty)
+        #expect(accumulator.region(of: frame, near: near).isEmpty)
         accumulator.add(withCard)
         // Two of six: not yet (the least is two, but two fifths of six is 2.4, three).
-        let twoOfSix = accumulator.region(for: withCard)
-        #expect(twoOfSix.isEmpty)
+        #expect(accumulator.region(of: frame, near: near).isEmpty)
         var enough = ScrollPinned.Accumulator()
         for pair in [withCard, without, withCard, without, without] { enough.add(pair) }
-        let twoOfFive = enough.region(for: withCard)
-        #expect(!twoOfFive.isEmpty)
-        // A frame whose own pairs have none of it is not covered.
-        let without2 = enough.region(for: without)
-        #expect(without2.isEmpty)
+        #expect(!enough.region(of: frame, near: near).isEmpty)
+        // A frame that is white where the card would be shows none of it.
+        #expect(enough.region(of: blank(), near: [blank()]).isEmpty)
+    }
+
+    /// A frame the page drew a pixel or two off its neighbours' still shows the element: what counts is that the
+    /// blocks are alike, not that they are the same to the pixel.
+    @Test func aFrameDrawnOffItsNeighboursStillShowsTheCard() {
+        var accumulator = accumulate(4)
+        let scene = Scene()
+        let moved: (Int, Int) -> UInt8? = { y, x in
+            PinnedScenes.card.contains(CGPoint(x: x, y: y)) ? SeamScenes.panelPixel(y + 1, x + 2) : nil
+        }
+        let frame = PinnedScenes.frame(2, of: scene, extra: moved)
+        let near = [PinnedScenes.frame(1, of: scene), PinnedScenes.frame(3, of: scene)]
+        #expect(!accumulator.region(of: frame, near: near).isEmpty)
     }
 
     /// A pinned bar across the whole width, joined to panels at the sides, makes a piece whose box is the whole
     /// frame. It is covered as it is, with the margin, not as the box: the page between the panels is not covered.
     @Test func aPieceThatIsMostOfTheFrameIsNotMadeABox() {
-        var pair = PinnedGrid(columns: 60, rows: 100)
-        for row in 5..<12 { for column in 0..<60 { pair[column, row] = true } }
-        for row in 5..<95 { for column in 0..<10 { pair[column, row] = true } }
-        var accumulator = ScrollPinned.Accumulator()
-        accumulator.add(pair); accumulator.add(pair)
-        let region = accumulator.region(for: pair)
+        let drawn: (Int, Int) -> UInt8? = { y, x in
+            if (40..<96).contains(y) { return SeamScenes.panelPixel(y, x) }
+            if x < 80 { return SeamScenes.panelPixel(y + 3_000, x) }
+            return nil
+        }
+        let scene = Scene(card: false)
+        var accumulator = accumulate(3, scene: scene, extra: drawn)
+        let (frame, near) = around(2, of: scene, extra: drawn)
+        let region = accumulator.region(of: frame, near: near)
         #expect(region[30, 8] && region[3, 60])
         #expect(!region[30, 60])
+    }
+
+    /// The lines of a menu that changed in the middle leave two pieces in the same columns, one over the other. They
+    /// are one element, and the box covers what lies between them — when they are close enough.
+    @Test func piecesInTheSameColumnsAreOneElementWhenTheyAreClose() {
+        func region(gapRows: Int) -> PinnedGrid {
+            let upper = 0..<120, lower = (120 + gapRows * 8)..<800
+            let drawn: (Int, Int) -> UInt8? = { y, x in
+                x < 96 && (upper.contains(y) || lower.contains(y)) ? SeamScenes.panelPixel(y, x) : nil
+            }
+            let scene = Scene(card: false)
+            var accumulator = accumulate(3, scene: scene, extra: drawn)
+            let (frame, near) = around(2, of: scene, extra: drawn)
+            return accumulator.region(of: frame, near: near)
+        }
+        // Between them, 40 blocks down: covered. Far apart (more than `joinGap`): not.
+        #expect(region(gapRows: 40)[5, 120 / 8 + 20])
+        #expect(!region(gapRows: ScrollPinned.joinGap + 12)[5, 120 / 8 + 30])
     }
 
     // MARK: Mending a slice
@@ -231,6 +286,25 @@ nonisolated enum PinnedScenes {
             frame: drawn, rows: 100..<400, region: covered,
             neighbours: [.init(frame: uniform(0), region: covers, offset: 100), .init(frame: uniform(77), region: free, offset: 40)])
         #expect(second.repair.fromNeighbour == 100 && second.slice[240, 140, 0] == 77)
+    }
+
+    /// The last rows of a frame may show what the browser draws over the page, the address of a link: a neighbour
+    /// gives nothing from them.
+    @Test func aNeighbourGivesNothingFromItsLastRows() {
+        var scene = Scene(card: false)
+        scene.page = { _, _ in 120 }
+        let drawn = PinnedScenes.frame(1, of: scene) { y, x in (200..<280).contains(y) && (200..<280).contains(x) ? SeamScenes.page(y, x) : nil }
+        let covered = region(CGRect(x: 200, y: 200, width: 80, height: 80))
+        let free = PinnedGrid(columns: 60, rows: 100)
+        // The neighbour is 540 rows up: the block at row 200 is its row 740, and the one at 272 its 812: out of the frame.
+        func repair(offset: Int) -> ScrollPinned.Repair {
+            ScrollPinned.repairedSlice(frame: drawn, rows: 100..<400, region: covered,
+                                       neighbours: [.init(frame: uniform(77), region: free, offset: offset)]).repair
+        }
+        // Up to 48 rows from the bottom a neighbour gives; closer to it, not.
+        #expect(repair(offset: -540).fromNeighbour > 0)
+        #expect(repair(offset: -570).fromNeighbour < repair(offset: -540).fromNeighbour)
+        #expect(repair(offset: -700).fromNeighbour == 0)
     }
 
     @Test func aSliceWithNoRegionIsTheSliceOfTheFrame() {

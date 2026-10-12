@@ -241,6 +241,11 @@ final class ScrollingCaptureSession {
             dump?.step("   queue dropped \(dropped)")
         }
         Log.capture.notice("scroll capture saving · \(self.assembler.totalLength, privacy: .public) px · \(self.assembler.strips.count, privacy: .public) strips · \(self.stepNumber, privacy: .public) steps")
+        // The slice of the frame before the last waited for one more frame, which does not come.
+        assembler.settlePending()
+        if let repair = assembler.lastRepair {
+            dump?.step("   settled: fixed \(repair.blocks) blocks: \(repair.fromNeighbour) from neighbour, \(repair.filled) filled")
+        }
         do {
             let image = try assembler.makeImage()
             dump?.save(image, as: "final")
@@ -1172,9 +1177,9 @@ final class ScrollingCaptureSession {
                     if step.action == .undo {
                         recordStep("\(head) · \(error) · \(said) → check: page moves, push undone, back \(check.lines + sentLines) lines")
                         guard try await undoPush(check, checkLines: sentLines, at: point) else { return }
-                    } else if await !confirmSection(check, step: step, checkFrame: next,
-                                                     differenceFromPush: difference,
-                                                     line: "\(head) · \(error) · \(said)") {
+                    } else if !confirmSection(check, step: step, checkFrame: next,
+                                               differenceFromPush: difference,
+                                               line: "\(head) · \(error) · \(said)") {
                         return
                     }
                     stepInFlight = false
@@ -1417,12 +1422,10 @@ final class ScrollingCaptureSession {
     /// the check's own if it changed after the push, and the pushes go on.
     /// Returns false when the capture is saved.
     private func confirmSection(_ check: PushCheck, step: ScrollPush.Step, checkFrame: CaptureFrame,
-                                differenceFromPush: Double, line: String) async -> Bool {
+                                differenceFromPush: Double, line: String) -> Bool {
         let stage = ScrollPush.stageFrameIsChecks(differenceFromPush: differenceFromPush) ? checkFrame : check.frame
-        // The pinned blocks of the stage with the frame before the one it replaces.
-        let blocks = await pinnedBlocks(from: assembler.frameBeforeLast, to: stage, shift: nil)
         do {
-            try assembler.replaceLast(with: stage, pinned: blocks)
+            try assembler.replaceLast(with: stage)
         } catch {
             recordStep("\(line) → check: section, frame not replaced")
             finish()

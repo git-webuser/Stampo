@@ -127,12 +127,24 @@ nonisolated enum ScrollPinned {
     /// by chance, such as a repeating pattern) differs from the earlier frame by no more than this at the place the
     /// shift gives it, and is not pinned.
     static let movedTolerance = 6.0
+    /// What a page draws as a vertical line — the border of a box — is the same in the frames of a pair whatever the
+    /// page did, and is no part of a pinned element. A block that is the same as itself `verticalProbe` rows lower in
+    /// its own frame, to within `verticalChange` per channel, is not taken: the text and icons of a pinned element are
+    /// not the same a few rows down.
+    static let verticalProbe = 4
+    static let verticalChange = 4.0
 
     /// Pinned elements stand in most pairs of the capture, page content in few: a block is taken as pinned when it
     /// is found in this share of the pairs seen so far, and in at least `minimumPairs` of them. Under the full share
     /// the active item of a menu, which changes as the page goes by, would fall out of its panel.
     static let presenceShare = 0.4
     static let minimumPairs = 2
+    /// Whether a frame shows an element is read off the frame itself, not off its pairs, so that a frame that the
+    /// page drew a pixel or two off its neighbours', or that a fade has not finished, still shows it: a block of the
+    /// element stands in the frame when it has something in it and its mean colour is within this much (per channel,
+    /// out of 255) of the same block in a frame next to it. At most `presenceSample` blocks of an element are looked at.
+    static let presenceTolerance = 16.0
+    static let presenceSample = 64
     /// Gaps of up to twice this many blocks between the blocks of one element are bridged — the lines of a menu
     /// are one panel — and a piece of fewer than `minimumBlocks` pinned blocks is too little to be an element.
     static let closing = 4
@@ -143,6 +155,17 @@ nonisolated enum ScrollPinned {
     /// as it is, with the margin.
     static let margin = 5
     static let compactShare = 0.35
+    /// The last rows of a frame may show what the browser draws over the page — the address of the link under the
+    /// pointer — and are not the page's: a neighbour gives nothing from them.
+    static let edgeRows = 48
+    /// Pieces stood one over the other in the same columns, with up to `joinGap` blocks between them, are one element
+    /// — a menu whose lines changed in the middle — when the box round both is still compact. They are the same
+    /// columns when the narrower is `joinOverlap` inside the wider.
+    static let joinGap = 48
+    static let joinOverlap = 0.6
+    /// A slice that no element covers waits for the frames to come, while the accumulator has seen fewer pairs than
+    /// this: an element that sticks to the viewport only after the first scroll has shown itself in too few pairs.
+    static let waitingPairs = 6
 
     // MARK: Finding the blocks
 
@@ -160,6 +183,8 @@ nonisolated enum ScrollPinned {
         let sameLimit = Int(sameTolerance * Double(area * 3))
         let movedLimit = Int(movedTolerance * Double(area * 3))
         let spreadNeeded = contentSpread
+        let probe = verticalProbe
+        let probeLimit = Int(verticalChange * Double(area * 3))
         flags.withUnsafeMutableBufferPointer { out in
             let outBox = Shared(value: out.baseAddress!)
             previous.pixels.withUnsafeBufferPointer { beforeBuffer in
@@ -198,6 +223,20 @@ nonisolated enum ScrollPinned {
                             let mean = Double(sum) / Double(area) / 3
                             let spread = max(0, Double(squares) / Double(area) / 9 - mean * mean).squareRoot()
                             guard spread >= spreadNeeded else { continue }
+                            // It changes down the frame: a vertical line does not.
+                            let probeStep = row * block + block + probe <= height ? probe : -probe
+                            var probed = 0
+                            for y in 0..<block {
+                                let line = ((row * block + y) * width + column * block) * 4
+                                let other = ((row * block + y + probeStep) * width + column * block) * 4
+                                for x in 0..<block {
+                                    let i = line + x * 4, j = other + x * 4
+                                    var d = Int(now[i]) - Int(now[j]); probed += d < 0 ? -d : d
+                                    d = Int(now[i + 1]) - Int(now[j + 1]); probed += d < 0 ? -d : d
+                                    d = Int(now[i + 2]) - Int(now[j + 2]); probed += d < 0 ? -d : d
+                                }
+                            }
+                            guard probed >= probeLimit else { continue }
                             if let shift {
                                 let top = row * block + shift
                                 if top + block <= height {
@@ -259,26 +298,60 @@ nonisolated enum ScrollPinned {
             for index in 0..<pair.cells.count where pair.cells[index] { counts[index] += 1 }
         }
 
-        /// The cells that pinned elements cover in a frame with the pinned blocks `frame` (the blocks of its pairs):
-        /// the pieces of the stable blocks that the frame has at least two fifths of. Empty before `minimumPairs`
-        /// pairs have been seen.
-        mutating func region(for frame: PinnedGrid) -> PinnedGrid {
-            var region = PinnedGrid(columns: max(columns, frame.columns), rows: max(rows, frame.rows))
-            guard pairs >= ScrollPinned.minimumPairs, frame.columns == columns, frame.rows == rows else { return region }
-            if checkedPairs != pairs {
-                let need = Int32(max(ScrollPinned.minimumPairs, Int((Double(pairs) * ScrollPinned.presenceShare).rounded(.up))))
-                var stable = PinnedGrid(columns: columns, rows: rows)
-                for index in 0..<counts.count where counts[index] >= need { stable.cells[index] = true }
-                if stable != cachedStable {
-                    cachedPieces = Self.pieces(of: stable)
-                    cachedStable = stable
-                }
-                checkedPairs = pairs
+        /// The pieces of the stable blocks of the pairs seen so far, made again only when the stable blocks change.
+        private mutating func refresh() {
+            guard checkedPairs != pairs else { return }
+            let need = Int32(max(ScrollPinned.minimumPairs, Int((Double(pairs) * ScrollPinned.presenceShare).rounded(.up))))
+            var stable = PinnedGrid(columns: columns, rows: rows)
+            for index in 0..<counts.count where counts[index] >= need { stable.cells[index] = true }
+            if stable != cachedStable {
+                cachedPieces = Self.pieces(of: stable)
+                cachedStable = stable
             }
-            for piece in cachedPieces {
-                let have = piece.stable.filter { frame.cells[$0] }.count
-                guard Double(have) >= ScrollPinned.presenceShare * Double(piece.stable.count) else { continue }
-                region = region.union(piece.cover)
+            checkedPairs = pairs
+        }
+
+        /// The cells that pinned elements cover in `frame`: the pieces of the stable blocks that the frame shows at
+        /// least two fifths of, a block of a piece being shown when the frame has something in it there and it is
+        /// the same, to within `presenceTolerance`, in one of `neighbours` (the frames next to it in the capture).
+        /// Empty before `minimumPairs` pairs have been seen.
+        mutating func region(of frame: CaptureFrame, near neighbours: [CaptureFrame]) -> PinnedGrid {
+            let block = ScrollPinned.block
+            var region = PinnedGrid(columns: frame.width / block, rows: frame.height / block)
+            guard pairs >= ScrollPinned.minimumPairs, region.columns == columns, region.rows == rows else { return region }
+            refresh()
+            guard !cachedPieces.isEmpty else { return region }
+            let near = neighbours.filter { $0.width == frame.width && $0.height == frame.height }
+            let width = frame.width
+            let limit = Int(ScrollPinned.presenceTolerance * Double(block * block * 3))
+            let sampleSize = ScrollPinned.presenceSample
+            frame.pixels.withUnsafeBufferPointer { own in
+                ScrollPinned.withPixels(of: near) { others in
+                    for piece in cachedPieces {
+                        let step = max(1, piece.stable.count / sampleSize)
+                        var seen = 0, have = 0
+                        var at = 0
+                        while at < piece.stable.count {
+                            let cell = piece.stable[at]
+                            at += step
+                            seen += 1
+                            let x0 = (cell % columns) * block, y0 = (cell / columns) * block
+                            guard let mine = ScrollPinned.blockSums(own, width: width, x: x0, y: y0),
+                                  mine.spread >= ScrollPinned.contentSpread else { continue }
+                            for other in others {
+                                let theirs = ScrollPinned.blockSums(UnsafeBufferPointer(start: other, count: own.count),
+                                                                    width: width, x: x0, y: y0)
+                                if let theirs, abs(mine.red - theirs.red) + abs(mine.green - theirs.green)
+                                    + abs(mine.blue - theirs.blue) <= limit {
+                                    have += 1
+                                    break
+                                }
+                            }
+                        }
+                        guard Double(have) >= ScrollPinned.presenceShare * Double(seen) else { continue }
+                        region = region.union(piece.cover)
+                    }
+                }
             }
             return region
         }
@@ -286,31 +359,67 @@ nonisolated enum ScrollPinned {
         private static func pieces(of stable: PinnedGrid) -> [Piece] {
             guard !stable.isEmpty else { return [] }
             let shape = stable.closed(by: ScrollPinned.closing)
-            var out: [Piece] = []
+            // What each element is made of, and the box round it.
+            struct Candidate {
+                var cells: [Int]
+                var inside: [Int]
+                var minColumn: Int, maxColumn: Int, minRow: Int, maxRow: Int
+            }
+            var candidates: [Candidate] = []
             for cells in shape.pieces() {
                 let inside = cells.filter { stable.cells[$0] }
                 guard inside.count >= ScrollPinned.minimumBlocks else { continue }
-                var piece = PinnedGrid(columns: stable.columns, rows: stable.rows)
-                var minColumn = stable.columns, maxColumn = 0, minRow = stable.rows, maxRow = 0
+                var candidate = Candidate(cells: cells, inside: inside, minColumn: stable.columns, maxColumn: 0,
+                                          minRow: stable.rows, maxRow: 0)
                 for index in cells {
-                    piece.cells[index] = true
                     let column = index % stable.columns, row = index / stable.columns
-                    minColumn = min(minColumn, column); maxColumn = max(maxColumn, column)
-                    minRow = min(minRow, row); maxRow = max(maxRow, row)
+                    candidate.minColumn = min(candidate.minColumn, column); candidate.maxColumn = max(candidate.maxColumn, column)
+                    candidate.minRow = min(candidate.minRow, row); candidate.maxRow = max(candidate.maxRow, row)
                 }
-                let boxArea = (maxColumn - minColumn + 1) * (maxRow - minRow + 1)
+                candidates.append(candidate)
+            }
+            let frameArea = Double(stable.columns * stable.rows)
+            func boxArea(_ c: Candidate) -> Double { Double((c.maxColumn - c.minColumn + 1) * (c.maxRow - c.minRow + 1)) }
+            // Pieces in the same columns, one over the other and close, are one.
+            var merged = true
+            while merged {
+                merged = false
+                search: for i in 0..<candidates.count {
+                    for j in (i + 1)..<max(i + 1, candidates.count) {
+                        let a = candidates[i], b = candidates[j]
+                        let overlap = min(a.maxColumn, b.maxColumn) - max(a.minColumn, b.minColumn) + 1
+                        let narrower = min(a.maxColumn - a.minColumn, b.maxColumn - b.minColumn) + 1
+                        guard overlap > 0, Double(overlap) >= ScrollPinned.joinOverlap * Double(narrower) else { continue }
+                        let gap = max(a.minRow, b.minRow) - min(a.maxRow, b.maxRow) - 1
+                        guard gap <= ScrollPinned.joinGap else { continue }
+                        var both = a
+                        both.cells += b.cells; both.inside += b.inside
+                        both.minColumn = min(a.minColumn, b.minColumn); both.maxColumn = max(a.maxColumn, b.maxColumn)
+                        both.minRow = min(a.minRow, b.minRow); both.maxRow = max(a.maxRow, b.maxRow)
+                        guard boxArea(both) <= ScrollPinned.compactShare * frameArea else { continue }
+                        candidates[i] = both
+                        candidates.remove(at: j)
+                        merged = true
+                        break search
+                    }
+                }
+            }
+            var out: [Piece] = []
+            for candidate in candidates {
                 var cover: PinnedGrid
-                if Double(boxArea) <= ScrollPinned.compactShare * Double(stable.columns * stable.rows) {
+                if boxArea(candidate) <= ScrollPinned.compactShare * frameArea {
                     cover = PinnedGrid(columns: stable.columns, rows: stable.rows)
-                    for row in max(0, minRow - ScrollPinned.margin)...min(stable.rows - 1, maxRow + ScrollPinned.margin) {
-                        for column in max(0, minColumn - ScrollPinned.margin)...min(stable.columns - 1, maxColumn + ScrollPinned.margin) {
+                    for row in max(0, candidate.minRow - ScrollPinned.margin)...min(stable.rows - 1, candidate.maxRow + ScrollPinned.margin) {
+                        for column in max(0, candidate.minColumn - ScrollPinned.margin)...min(stable.columns - 1, candidate.maxColumn + ScrollPinned.margin) {
                             cover[column, row] = true
                         }
                     }
                 } else {
+                    var piece = PinnedGrid(columns: stable.columns, rows: stable.rows)
+                    for index in candidate.cells { piece.cells[index] = true }
                     cover = piece.dilated(by: ScrollPinned.margin)
                 }
-                out.append(Piece(cover: cover, stable: inside))
+                out.append(Piece(cover: cover, stable: candidate.inside))
             }
             return out
         }
@@ -320,7 +429,7 @@ nonisolated enum ScrollPinned {
 
     /// A frame next to the one being repaired, as far as the place of the page goes: `offset` is how far its top
     /// stands along the scroll from the repaired frame's (positive for the frame that follows) and `region` what
-    /// its own pinned elements cover.
+    /// its own pinned elements cover: it gives nothing of the page from there.
     struct Neighbour: Sendable {
         let frame: CaptureFrame
         let region: PinnedGrid
@@ -335,6 +444,13 @@ nonisolated enum ScrollPinned {
         var filled = 0
         /// How long the repair took.
         var milliseconds = 0.0
+
+        mutating func add(_ other: Repair) {
+            blocks += other.blocks
+            fromNeighbour += other.fromNeighbour
+            filled += other.filled
+            milliseconds += other.milliseconds
+        }
 
         static func == (lhs: Repair, rhs: Repair) -> Bool {
             lhs.blocks == rhs.blocks && lhs.fromNeighbour == rhs.fromNeighbour && lhs.filled == rhs.filled
@@ -381,7 +497,7 @@ nonisolated enum ScrollPinned {
                         for (index, neighbour) in neighbours.enumerated() {
                             // This place of the page, in the neighbour's frame.
                             let top = row * block - neighbour.offset
-                            guard top >= 0, top + block <= height else { continue }
+                            guard top >= 0, top + block <= height - edgeRows else { continue }
                             if !neighbour.region[column, top / block] && !neighbour.region[column, (top + block - 1) / block] {
                                 source = (index, top)
                                 break
@@ -482,8 +598,30 @@ nonisolated enum ScrollPinned {
         return (median(bins[0]), median(bins[1]), median(bins[2]))
     }
 
+    /// The sums of each channel over the block of 8 × 8 pixels at (`x`, `y`) of a frame `width` wide, and the spread of
+    /// the brightness of its pixels (standard deviation, out of 255); nil if the block is not in the pixels.
+    fileprivate static func blockSums(_ pixels: UnsafeBufferPointer<UInt8>, width: Int, x: Int, y: Int)
+        -> (red: Int, green: Int, blue: Int, spread: Double)? {
+        guard x >= 0, y >= 0, x + block <= width, ((y + block) * width) * 4 <= pixels.count else { return nil }
+        var red = 0, green = 0, blue = 0, squares = 0
+        for row in 0..<block {
+            var i = ((y + row) * width + x) * 4
+            for _ in 0..<block {
+                let r = Int(pixels[i]), g = Int(pixels[i + 1]), b = Int(pixels[i + 2])
+                red += r; green += g; blue += b
+                let brightness = r + g + b
+                squares += brightness * brightness
+                i += 4
+            }
+        }
+        let area = Double(block * block)
+        let mean = (Double(red + green + blue)) / area / 3
+        let spread = max(0, Double(squares) / area / 9 - mean * mean).squareRoot()
+        return (red, green, blue, spread)
+    }
+
     /// The pixels of each of `frames`, as pointers valid inside `body`.
-    private static func withPixels(of frames: [CaptureFrame], _ body: ([UnsafePointer<UInt8>]) -> Void) {
+    fileprivate static func withPixels(of frames: [CaptureFrame], _ body: ([UnsafePointer<UInt8>]) -> Void) {
         func go(_ index: Int, _ pointers: [UnsafePointer<UInt8>]) {
             guard index < frames.count else { body(pointers); return }
             frames[index].pixels.withUnsafeBufferPointer { buffer in

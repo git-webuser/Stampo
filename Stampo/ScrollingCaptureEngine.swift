@@ -698,28 +698,48 @@ nonisolated struct ImageAssembler: Sendable {
     /// In the image's own pixels, so it is halved with the strips.
     private(set) var header: CaptureFrame?
 
-    // What a page pins to the viewport (`ScrollPinned`) is put back under once the frame after the one it
-    // is in has come: the slice of a frame is mended when the next is laid, from the frame before and that one.
+    // What a page pins to the viewport (`ScrollPinned`) is put back under once two frames after the one it is in
+    // have come: the slice of a frame is mended when the frame two after it is laid, from the frames next to it, so
+    // that the elements are known from one pair more than the first look would give.
     private var pinnedAccumulator = ScrollPinned.Accumulator()
-    /// Whether pinned blocks have been given, which is when the frame before the last is kept.
+    /// Whether pinned blocks have been given, which is when the frames before the last are kept.
     private var tracksPinned = false
+    /// The frames before the last, and how far the frame before the last stands from the one before it.
     private var beforeLast: CaptureFrame?
-    /// The pinned blocks of the pair of the frame before the last and the last, and what pinned elements cover in
-    /// the frame before the last.
-    private var lastPair: PinnedGrid?
-    private var beforeLastRegion = PinnedGrid(columns: 0, rows: 0)
+    private var beforeBeforeLast: CaptureFrame?
+    private var movementBeforeLast = 0
     private var framesLaid = 0
-    /// Where the strip of the last frame begins, in the image's pixels, to know it is still the last strip.
+    /// A slice that no element covered yet, with the frames it is mended from, waiting for evidence while the capture
+    /// is young (`ScrollPinned.waitingPairs`).
+    private var waiting: [WaitingSlice] = []
+    /// Where the strips of the last frame and of the one before it begin, in the image's pixels, to know they are
+    /// still there.
     private var lastStripStart: Int?
+    private var beforeLastStripStart: Int?
     /// The rows of the first frame that the first slice holds: from here to its end, the image has the rest from
     /// the frames after it.
     private var firstSeamRow = 0
     private var firstScreen: FirstScreen?
-    /// What the last frame laid did for the slice before it: nil when nothing was covered.
+    /// The first two frames, kept until the first screen is made from them (`ScrollPinned.waitingPairs`).
+    private var firstFrame: CaptureFrame?
+    private var secondFrame: CaptureFrame?
+    /// What the last mending did for a slice: nil when nothing was covered.
     private(set) var lastRepair: ScrollPinned.Repair?
-    /// The frame before the last, kept once pinned blocks have been given: what a frame that replaces the last is
-    /// compared with.
-    var frameBeforeLast: CaptureFrame? { beforeLast }
+
+    /// A slice of a frame to be mended: its rows `from..<to`, the strip it is in, the frames next to it and how far
+    /// they stand along the scroll.
+    private struct WaitingSlice: Sendable {
+        var earlier: CaptureFrame?
+        var middle: CaptureFrame
+        var following: CaptureFrame
+        var from: Int
+        var to: Int
+        var stripStart: Int
+        var movementBefore: Int
+        var movementAfter: Int
+        /// The frame after `following`, when it has come.
+        var newer: CaptureFrame?
+    }
 
     /// The first screen as the window showed it: the pixels of the first frame from `rowStart` on, where a pinned
     /// element of it lies (`region`), over what the frames after it have there. In the pixels of the image: halved
@@ -784,12 +804,16 @@ nonisolated struct ImageAssembler: Sendable {
         pinnedAccumulator = ScrollPinned.Accumulator()
         tracksPinned = false
         beforeLast = nil
-        lastPair = nil
-        beforeLastRegion = PinnedGrid(columns: 0, rows: 0)
+        beforeBeforeLast = nil
+        movementBeforeLast = 0
         framesLaid = 0
+        waiting = []
         lastStripStart = nil
+        beforeLastStripStart = nil
         firstSeamRow = 0
         firstScreen = nil
+        firstFrame = nil
+        secondFrame = nil
         lastRepair = nil
     }
 
@@ -832,8 +856,9 @@ nonisolated struct ImageAssembler: Sendable {
     /// left-to-right.
     ///
     /// `pinned`: the blocks of `frame` that stand where they stood in the frame before it although the page
-    /// moved (`ScrollPinned.pinnedBlocks`). Given, they are what the slice of the last frame is mended by now that
-    /// this one is here; without them the image is laid as it always was.
+    /// moved (`ScrollPinned.pinnedBlocks`). Given, they tell what the page pins to the viewport, and the slice of
+    /// the frame before the last is mended by that now that this one is here; without them the image is laid as it
+    /// always was. The slice of the last frame laid waits for the next one (`settlePending`).
     mutating func append(_ frame: CaptureFrame, movement: Int, pinned: PinnedGrid? = nil) throws {
         let frameLength = axis == .vertical ? frame.height : frame.width
         guard !strips.isEmpty, frame.width == viewportWidth, frame.height == viewportHeight,
@@ -850,6 +875,11 @@ nonisolated struct ImageAssembler: Sendable {
         let skip = choice.skip
         let seam = fullLength - overlap + skip
         guard let rest = Self.dropping(skip, from: frame, axis: axis) else { throw FrameMatchError.noReliableMotion }
+        let stripStartBefore = lastStripStart
+        if pinned != nil, axis == .vertical {
+            if framesLaid == 1 { firstFrame = lastFrame }
+            if framesLaid == 2 { secondFrame = lastFrame }
+        }
         if isShrunk {
             // In the output's pixels, from the same floor as ever: the rest of
             // the frame begins at half of where it begins in its own, and ends
@@ -857,7 +887,7 @@ nonisolated struct ImageAssembler: Sendable {
             // exactly.
             let start = seam / 2, end = (fullLength + movement) / 2
             trim(to: start)
-            repairLastSlice(next: frame, movement: movement, skip: skip, pinned: pinned)
+            noteAndMend(next: frame, movement: movement, skip: skip, pinned: pinned)
             // A frame can round to nothing only in a degenerate case; the image
             // then simply ends where the cut left it, and the next begins there.
             lastStripStart = nil
@@ -869,7 +899,7 @@ nonisolated struct ImageAssembler: Sendable {
             totalLength = fullLength / 2 + headerLength
         } else {
             trim(to: seam)
-            repairLastSlice(next: frame, movement: movement, skip: skip, pinned: pinned)
+            noteAndMend(next: frame, movement: movement, skip: skip, pinned: pinned)
             strips.append(CaptureStrip(frame: rest, start: seam))
             lastStripStart = seam
             totalLength += movement
@@ -877,9 +907,11 @@ nonisolated struct ImageAssembler: Sendable {
         }
         if pinned != nil { tracksPinned = true }
         if tracksPinned {
+            beforeBeforeLast = beforeLast
             beforeLast = lastFrame
-            lastPair = pinned
         }
+        beforeLastStripStart = stripStartBefore
+        movementBeforeLast = lastMovement
         framesLaid += 1
         skipBeforeLast = lastSkip
         lastMovement = movement
@@ -888,53 +920,94 @@ nonisolated struct ImageAssembler: Sendable {
         lastSeam = choice
     }
 
-    /// With the frame after the last one here, mend the slice the last one gives to the image: where pinned
-    /// elements cover it, the page comes from the frame after it or the one before it. Nothing happens for the
-    /// first frame (the first screen is as the window showed it, `firstScreen`), for the last frame laid (its
-    /// slice waits for a neighbour and, if none comes, stays as it is), or when no pinned blocks were given.
-    private mutating func repairLastSlice(next frame: CaptureFrame, movement: Int, skip: Int, pinned: PinnedGrid?) {
+    /// Takes in the pinned blocks of the pair this frame makes with the last, and mends what is ready to be mended.
+    private mutating func noteAndMend(next frame: CaptureFrame, movement: Int, skip: Int, pinned: PinnedGrid?) {
         lastRepair = nil
         guard axis == .vertical, let pinned else { return }
         pinnedAccumulator.add(pinned)
-        // The first frame has no pair before it, so there is nothing to mend; the second pair is what first
-        // makes a region of it.
-        if framesLaid == 1 { firstSeamRow = movement + skip; return }
-        guard framesLaid >= 2, let last = lastFrame, let before = beforeLast else { return }
-        let height = last.height
-        let ownBlocks = lastPair.map { $0.union(pinned) } ?? pinned
-        let region = pinnedAccumulator.region(for: ownBlocks)
-        // What the frame after covers is not known yet (its second pair is still to come): its first pair stands in,
-        // which can only cover more.
-        let nextRegion = pinnedAccumulator.region(for: pinned)
-        let previousRegion: PinnedGrid
-        if framesLaid == 2 {
-            // The frame before the last is the first: its region, and from it the first screen.
-            previousRegion = pinnedAccumulator.region(for: lastPair ?? pinned)
-            buildFirstScreen(from: before, region: previousRegion)
-        } else {
-            previousRegion = beforeLastRegion
+        // The first frame has no pair before it: its slice is the first screen, and where that ends is known now.
+        if framesLaid == 1 { firstSeamRow = movement + skip }
+        mendBeforeLast(next: frame, final: false)
+    }
+
+    /// Mends the slice that the frame before the last gives to the image: where pinned elements cover it, the page
+    /// comes from the frame after it or the one before it. Nothing happens for the first frame (the first screen is
+    /// as the window showed it, `firstScreen`), for the last frame laid (its slice waits for a neighbour and, if none
+    /// comes, stays as it is), or when no pinned blocks were given. While the capture is young — an element that
+    /// sticks to the viewport only after the first scroll has shown itself in few pairs — the slices wait, to be
+    /// mended together once `ScrollPinned.waitingPairs` pairs are in, or at the end (`final`).
+    /// Mending the same slice again gives the same.
+    private mutating func mendBeforeLast(next newer: CaptureFrame?, final: Bool) {
+        lastRepair = nil
+        guard axis == .vertical, tracksPinned, let following = lastFrame, let middle = beforeLast else { return }
+        let earlier = beforeBeforeLast
+        // The first screen, once the accumulator has seen enough pairs to say what is pinned in the first frame.
+        if let first = firstFrame, final || pinnedAccumulator.pairs >= ScrollPinned.waitingPairs {
+            buildFirstScreen(from: first, region: pinnedAccumulator.region(of: first, near: [secondFrame].compactMap { $0 }))
+            firstFrame = nil
+            secondFrame = nil
         }
-        beforeLastRegion = region
-        guard !region.isEmpty else { return }
-        let from = lastSkip, to = movement + skip
-        guard from >= 0, to > from, to <= height,
-              let strip = strips.last, strip.start == lastStripStart else { return }
-        let result = ScrollPinned.repairedSlice(
-            frame: last, rows: from..<to, region: region,
-            neighbours: [.init(frame: frame, region: nextRegion, offset: movement),
-                         .init(frame: before, region: previousRegion, offset: -lastMovement)])
-        guard result.repair.blocks > 0 else { return }
+        // The slice of the frame before the last.
+        var queue = waiting
+        waiting = []
+        let from = skipBeforeLast, to = lastMovement + lastSkip
+        // The first frame has no slice to mend: what the window showed is the first screen.
+        if from >= 0, to > from, to <= middle.height, let start = beforeLastStripStart, earlier != nil {
+            queue.append(WaitingSlice(earlier: earlier, middle: middle, following: following, from: from, to: to,
+                                      stripStart: start, movementBefore: movementBeforeLast, movementAfter: lastMovement,
+                                      newer: newer))
+        }
+        if !final, pinnedAccumulator.pairs < ScrollPinned.waitingPairs {
+            waiting = Array(queue.suffix(ScrollPinned.waitingPairs))
+            return
+        }
+        var total = ScrollPinned.Repair()
+        var mended = false
+        for slice in queue {
+            if let repair = mend(slice) {
+                total.add(repair)
+                mended = true
+            }
+        }
+        lastRepair = mended ? total : nil
+    }
+
+    /// Puts the page back under the elements in a slice of the image; nil when nothing was covered or put back.
+    private mutating func mend(_ slice: WaitingSlice) -> ScrollPinned.Repair? {
+        let region = pinnedAccumulator.region(of: slice.middle,
+                                              near: [slice.earlier, slice.following].compactMap { $0 })
+        guard !region.isEmpty, let index = strips.lastIndex(where: { $0.start == slice.stripStart }) else { return nil }
+        let strip = strips[index]
         let size = strip.frame.height
+        // The strip is as long as the rows the slice stands for: halved, to within a row.
+        guard isShrunk ? abs((slice.to - slice.from) / 2 - size) <= 1 : slice.to - slice.from == size else { return nil }
+        // A frame next to it gives the page nowhere that a pinned element stands in it.
+        let followingRegion = pinnedAccumulator.region(of: slice.following,
+                                                       near: [slice.middle, slice.newer].compactMap { $0 })
+        var neighbours = [ScrollPinned.Neighbour(frame: slice.following, region: followingRegion, offset: slice.movementAfter)]
+        if let earlier = slice.earlier {
+            let earlierRegion = pinnedAccumulator.region(of: earlier, near: [slice.middle])
+            neighbours.append(.init(frame: earlier, region: earlierRegion, offset: -slice.movementBefore))
+        }
+        let result = ScrollPinned.repairedSlice(frame: slice.middle, rows: slice.from..<slice.to, region: region,
+                                                neighbours: neighbours)
+        guard result.repair.blocks > 0 else { return nil }
         let mended: CaptureFrame
         if isShrunk {
-            guard let halved = Self.halved(result.slice, axis: axis, length: size) else { return }
+            guard let halved = Self.halved(result.slice, axis: axis, length: size) else { return nil }
             mended = halved
         } else {
-            guard result.slice.height == size else { return }
+            guard result.slice.height == size else { return nil }
             mended = result.slice
         }
-        strips[strips.count - 1] = CaptureStrip(frame: mended, start: strip.start)
-        lastRepair = result.repair
+        strips[index] = CaptureStrip(frame: mended, start: strip.start)
+        return result.repair
+    }
+
+    /// The end of the capture: the slice of the frame before the last, which waited for the frame two after it, is
+    /// mended with what there is. Only the slice of the last frame is left as it came.
+    mutating func settlePending() {
+        mendBeforeLast(next: nil, final: true)
     }
 
     /// The first frame's pixels below the first seam, kept to be laid over the image where a pinned element of the
@@ -943,7 +1016,14 @@ nonisolated struct ImageAssembler: Sendable {
         guard !region.isEmpty, firstSeamRow >= 0, firstSeamRow < first.height else { return }
         let rect = CGRect(x: 0, y: firstSeamRow, width: first.width, height: first.height - firstSeamRow)
         guard let rows = first.cropped(to: rect) else { return }
-        firstScreen = FirstScreen(region: region, rowStart: firstSeamRow, pixels: rows)
+        var screen = FirstScreen(region: region, rowStart: firstSeamRow, pixels: rows)
+        if isShrunk {
+            // The image is half size already: so is the first screen laid over it.
+            guard rows.height / 2 > 0, let halved = Self.halved(rows, axis: axis, length: rows.height / 2) else { return }
+            screen.pixels = halved
+            screen.halved = true
+        }
+        firstScreen = screen
     }
 
     /// Lays `frame` over the last frame laid, at the same place: the page did
@@ -953,9 +1033,7 @@ nonisolated struct ImageAssembler: Sendable {
     /// seam before the last frame left off (the rows above it are the earlier
     /// frame's and stay), so that it covers as much as it can; in the halved
     /// image the same, in its pixels. The next frame is laid against this one.
-    ///
-    /// `pinned`: the pinned blocks of the pair of the frame before the last and `frame`.
-    mutating func replaceLast(with frame: CaptureFrame, pinned: PinnedGrid? = nil) throws {
+    mutating func replaceLast(with frame: CaptureFrame) throws {
         guard lastFrame != nil, !strips.isEmpty,
               frame.width == viewportWidth, frame.height == viewportHeight
         else { throw FrameMatchError.noReliableMotion }
@@ -981,7 +1059,6 @@ nonisolated struct ImageAssembler: Sendable {
         lastSkip = floor
         lastSeam = nil
         lastRepair = nil
-        if tracksPinned { lastPair = pinned }
     }
 
     /// `frame` without its first `count` rows (columns, along a horizontal
@@ -1025,6 +1102,8 @@ nonisolated struct ImageAssembler: Sendable {
         strips = halved
         isShrunk = true
         lastStripStart = lastStripStart.map { $0 / 2 }
+        beforeLastStripStart = beforeLastStripStart.map { $0 / 2 }
+        for index in waiting.indices { waiting[index].stripStart /= 2 }
         if var screen = firstScreen, !screen.halved {
             if screen.pixels.height / 2 > 0,
                let pixels = Self.halved(screen.pixels, axis: axis, length: screen.pixels.height / 2) {
