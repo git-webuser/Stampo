@@ -161,6 +161,9 @@ nonisolated enum ScrollPinned {
     /// The last rows of a frame may show what the browser draws over the page — the address of the link under the
     /// pointer — and are not the page's: a neighbour gives nothing from them.
     static let edgeRows = 48
+    /// An element stands at the bottom of the frame when its region reaches the last `edgeRows` rows and not the
+    /// first, and is not most of the frame (a panel along the whole side is not one).
+    static let tallShare = 0.8
     /// Pieces stood one over the other in the same columns, with up to `joinGap` blocks between them, are one element
     /// — a menu whose lines changed in the middle — when the box round both is still compact. They are the same
     /// columns when the narrower is `joinOverlap` inside the wider.
@@ -315,6 +318,29 @@ nonisolated enum ScrollPinned {
                 cachedStable = stable
             }
             checkedPairs = pairs
+        }
+
+        /// The top, in pixels, of the highest element that stands at the bottom of the frame — its region reaches
+        /// the last `edgeRows` rows, not the first, and is under `tallShare` of the frame — nil when there is none
+        /// or fewer than `minimumPairs` pairs have been seen. `rows` is the frame's height in blocks. What stands
+        /// in most pairs counts, whether or not the frame has it now.
+        mutating func bottomAnchoredTop(rows frameRows: Int) -> Int? {
+            guard pairs >= ScrollPinned.minimumPairs, frameRows == rows, columns > 0 else { return nil }
+            refresh()
+            let edge = ScrollPinned.edgeRows / ScrollPinned.block
+            var top: Int?
+            for piece in cachedPieces {
+                var minRow = rows, maxRow = -1
+                for index in 0..<piece.cover.cells.count where piece.cover.cells[index] {
+                    let row = index / columns
+                    minRow = min(minRow, row)
+                    maxRow = max(maxRow, row)
+                }
+                guard maxRow >= rows - edge, minRow > edge,
+                      Double(maxRow - minRow + 1) < ScrollPinned.tallShare * Double(rows) else { continue }
+                top = min(top ?? Int.max, minRow * ScrollPinned.block)
+            }
+            return top
         }
 
         /// The cells that pinned elements cover in `frame`: the pieces of the stable blocks that the frame shows at

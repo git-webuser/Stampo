@@ -702,13 +702,24 @@ nonisolated enum ScrollStepPlanner {
     /// Lines for a target step in pixels: as many as reach it, at least one
     /// and at most ten, then fewer until the step is no more than three
     /// quarters of the frame — the frames must overlap or there is nothing to
-    /// stitch them on.
-    static func lines(target: Int, pixelsPerLine: Double, axisLength: Int) -> Int {
+    /// stitch them on — and no more than `ceiling`, when there is one.
+    static func lines(target: Int, pixelsPerLine: Double, axisLength: Int, ceiling: Int? = nil) -> Int {
         guard pixelsPerLine > 0 else { return 1 }
         var lines = min(maxLines, max(1, Int((Double(target) / pixelsPerLine).rounded())))
-        let limit = Double(axisLength) * 0.75
+        let limit = min(Double(axisLength) * 0.75, ceiling.map(Double.init) ?? .infinity)
         while lines > 1, Double(lines) * pixelsPerLine > limit { lines -= 1 }
         return lines
+    }
+
+    /// How short a step is cut for an element that stands at the bottom of the frame, as a share of the frame.
+    static let ceilingFloor = 0.4
+
+    /// The longest a step may be so that the page under an element at the bottom of the frame, whose top is at
+    /// `top`, comes up above it in the next frame: the element's top, but not under `ceilingFloor` of the frame
+    /// (a step that short costs more frames than the page behind the element is worth). Nil where there is no
+    /// such element: the step is as it was.
+    static func ceiling(top: Int?, axisLength: Int) -> Int? {
+        top.map { max($0, Int((Double(axisLength) * ceilingFloor).rounded())) }
     }
 
     /// The matcher's search bound for `lines` lines: half as far again as the
@@ -746,14 +757,14 @@ nonisolated enum ScrollStepPlanner {
     /// The step to take. Without a calibration — the probe could not be
     /// matched — it is the estimate from points that has always been used.
     static func plan(target: Int, pixelsPerLine: Double?, axisLength: Int,
-                     backingScale: CGFloat) -> Plan {
+                     backingScale: CGFloat, ceiling: Int? = nil) -> Plan {
         guard let pixelsPerLine else {
             return Plan(lines: ScrollDriver.lineDelta(for: target, backingScale: backingScale),
                         motionLimit: ScrollDriver.maximumLikelyMovement(pixelStep: target,
                                                                         backingScale: backingScale,
                                                                         viewportLength: axisLength))
         }
-        let lines = lines(target: target, pixelsPerLine: pixelsPerLine, axisLength: axisLength)
+        let lines = lines(target: target, pixelsPerLine: pixelsPerLine, axisLength: axisLength, ceiling: ceiling)
         return Plan(lines: Int32(lines),
                     motionLimit: motionLimit(lines: lines, pixelsPerLine: pixelsPerLine,
                                              axisLength: axisLength))

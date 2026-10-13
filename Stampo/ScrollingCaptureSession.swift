@@ -94,6 +94,9 @@ final class ScrollingCaptureSession {
     private var scrollContainer: AXUIElement?
     private var scale: CGFloat = 1
     private var assembler: ImageAssembler
+    /// What the pairs of frames say about what the page pins to the viewport, as they come, for planning the next
+    /// step: the assembler's own accumulator sees a pair only when it is laid.
+    private var planningPinned = ScrollPinned.Accumulator()
     private var previous: CaptureFrame?
     private var zeroMotionCount = 0
     /// The lines of the steps decided as stationary since the last frame was
@@ -507,9 +510,11 @@ final class ScrollingCaptureSession {
     /// there is no frame to compare with or the scroll goes the other way. `shift`: how far the page moved, when known.
     private func pinnedBlocks(from previous: CaptureFrame?, to frame: CaptureFrame, shift: Int?) async -> PinnedGrid? {
         guard axis == .vertical, let previous else { return nil }
-        return await Task.detached(priority: .userInitiated) {
+        let grid = await Task.detached(priority: .userInitiated) {
             ScrollPinned.pinnedBlocks(previous: previous, current: frame, shift: shift)
         }.value
+        if let grid { planningPinned.add(grid) }
+        return grid
     }
 
     /// Lays a frame that is `movement` pixels along from the last frame into the
@@ -669,6 +674,7 @@ final class ScrollingCaptureSession {
         pushCheck = nil
         temporary.discard()
         assembler.reset()
+        planningPinned = ScrollPinned.Accumulator()
     }
 
     private func ensureActive() throws {
@@ -894,6 +900,7 @@ final class ScrollingCaptureSession {
         guard let settled else { throw ScrollDriverError.noMovingContent }
         axis = settled.axis
         assembler = ImageAssembler(axis: axis, maxLength: lengthLimit, scale: scale)
+        planningPinned = ScrollPinned.Accumulator()
         let (first, probe) = (settled.outcome.first, settled.outcome.probe)
         let probeStep = settled.step
         let probeLines = settled.lines
@@ -980,12 +987,27 @@ final class ScrollingCaptureSession {
             guard let oldFrame = previous else { return }
             try checkWindowAndFocus()
             let currentStep = min(requestedStep, max(24, axisLength(of: oldFrame) * 3 / 4))
-            let plan = ScrollStepPlanner.plan(target: currentStep, pixelsPerLine: pixelsPerLine,
-                                              axisLength: axisLength(of: oldFrame), backingScale: scale)
             // A push is one wheel event of twice the lines, with the search as
             // wide as a step is ever matched: where the page ends up when it has
             // gone past a section that pins it is not a multiple of the lines.
             let isPush = ScrollPush.sendsPush(pushMode)
+            // An element pinned at the bottom of the frame covers the page that is under it: that page has to come
+            // up above it in the next frame, and it does if the step is no longer than where the element begins.
+            // Only along a vertical scroll, and not for a push.
+            let frameLength = axisLength(of: oldFrame)
+            let ceiling = !isPush && axis == .vertical
+                ? ScrollStepPlanner.ceiling(top: planningPinned.bottomAnchoredTop(rows: frameLength / ScrollPinned.block),
+                                            axisLength: frameLength)
+                : nil
+            let plan = ScrollStepPlanner.plan(target: currentStep, pixelsPerLine: pixelsPerLine,
+                                              axisLength: frameLength, backingScale: scale, ceiling: ceiling)
+            if let ceiling, pixelsPerLine != nil {
+                let free = ScrollStepPlanner.plan(target: currentStep, pixelsPerLine: pixelsPerLine,
+                                                  axisLength: frameLength, backingScale: scale)
+                if free.lines != plan.lines {
+                    dump?.step("   step limited to \(ceiling) px by the element at the bottom: \(free.lines) → \(plan.lines) lines")
+                }
+            }
             let sentLines: Int32 = isPush ? plan.lines * 2 : plan.lines
             let motionLimit = isPush ? max(plan.motionLimit, axisLength(of: oldFrame) * 3 / 4) : plan.motionLimit
             let point = currentScrollPoint()

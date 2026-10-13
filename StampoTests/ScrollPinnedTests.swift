@@ -261,6 +261,37 @@ nonisolated enum PinnedScenes {
         #expect(!region(gapRows: ScrollPinned.joinGap + 12)[5, 120 / 8 + 30])
     }
 
+    // MARK: The element at the bottom of the frame
+
+    /// The top of a card at the bottom of the frame, with its margin: the card's own top is 584 and the margin
+    /// five blocks.
+    @Test func theTopOfAnElementAtTheBottomIsWhereItsRegionBegins() {
+        var accumulator = accumulate(3)
+        let top = (Int(PinnedScenes.card.minY) / block - ScrollPinned.margin) * block
+        #expect(accumulator.bottomAnchoredTop(rows: 100) == top)
+        // Two of them: the higher one.
+        let panel: (Int, Int) -> UInt8? = { y, x in x < 96 && y >= 400 ? SeamScenes.panelPixel(y + 3_000, x) : nil }
+        var both = accumulate(3, extra: panel)
+        #expect(both.bottomAnchoredTop(rows: 100) == (400 / block - ScrollPinned.margin) * block)
+    }
+
+    /// Not an element at the bottom: nothing yet, a panel along the whole side, a bar at the top, a card
+    /// in the middle.
+    @Test func whatIsNotAtTheBottomSetsNoTop() {
+        var young = accumulate(1)
+        #expect(young.bottomAnchoredTop(rows: 100) == nil)
+        var side = accumulate(3, scene: Scene(card: false, panel: true))
+        #expect(side.bottomAnchoredTop(rows: 100) == nil)
+        let bar: (Int, Int) -> UInt8? = { y, x in y < 96 ? SeamScenes.panelPixel(y, x) : nil }
+        var top = accumulate(3, scene: Scene(card: false), extra: bar)
+        #expect(top.bottomAnchoredTop(rows: 100) == nil)
+        var middle = accumulate(3, scene: Scene(cardRect: CGRect(x: 296, y: 300, width: 160, height: 100)))
+        #expect(middle.bottomAnchoredTop(rows: 100) == nil)
+        // Not a frame of the grid it has learnt.
+        var other = accumulate(3)
+        #expect(other.bottomAnchoredTop(rows: 50) == nil)
+    }
+
     // MARK: Mending a slice
 
     private func uniform(_ value: UInt8) -> CaptureFrame {
