@@ -167,12 +167,29 @@ nonisolated enum ScrollQueueRelay {
         confidence >= firmConfidence
     }
 
+    /// A line that differs from the calibration by more than this is a new
+    /// calibration, not the old one a little off.
+    static let smallChange = 0.15
+
+    /// The tiles it takes to overturn a calibration: three are too few to say
+    /// that a line is not what the steps before it showed. Under this the queue
+    /// stays as it was laid, as it did before it could be laid again.
+    /// 2026-10-13-190147: three tiles against two moved a queue frame from 640 px
+    /// to 404 and the lines after it went by a line of 51 px where the page gives
+    /// 80; of the fourteen queues laid again in all the recordings, the others
+    /// had six tiles or more.
+    static let tilesToOverturn = 5
+
     /// Lay the queue again at the new distances when more tiles agree with
     /// them than with the old: strictly more, so that a tie leaves things as
-    /// they are. Near the end of a page the last step is short because the page
-    /// ended, not because a line is shorter, and the tiles then keep the old.
-    static func shouldRelay(tilesOld: Int, tilesNew: Int) -> Bool {
-        tilesNew > tilesOld
+    /// they are — and, when the new line is not the calibration a little off,
+    /// when at least `tilesToOverturn` of them do. Near the end of a page the
+    /// last step is short because the page ended, not because a line is
+    /// shorter, and the tiles then keep the old.
+    static func shouldRelay(tilesOld: Int, tilesNew: Int, newLine: Double, currentLine: Double?) -> Bool {
+        guard tilesNew > tilesOld else { return false }
+        guard let currentLine, currentLine > 0, abs(newLine / currentLine - 1) > smallChange else { return true }
+        return tilesNew >= tilesToOverturn
     }
 
     /// The distance of a step that came after steps decided as stationary, if

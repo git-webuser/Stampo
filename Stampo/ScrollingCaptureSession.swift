@@ -612,7 +612,8 @@ final class ScrollingCaptureSession {
             return (old: old, new: new, longerTaken: longerTaken, chosen: chosen)
         }.value
         try ensureActive()
-        if ScrollQueueRelay.shouldRelay(tilesOld: asked.old, tilesNew: asked.new) {
+        if ScrollQueueRelay.shouldRelay(tilesOld: asked.old, tilesNew: asked.new, newLine: perLine,
+                                        currentLine: pixelsPerLine) {
             var distances = moved
             for (index, distance) in asked.chosen { distances[index] = distance }
             let over = asked.longerTaken == 0 ? "" : ", \(asked.longerTaken) over a stand"

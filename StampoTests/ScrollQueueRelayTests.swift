@@ -8,14 +8,31 @@ import Testing
 @Suite struct ScrollQueueRelayTests {
     @Test func theQueueIsLaidAgainOnlyWhenStrictlyMoreTilesBearOutTheNewDistances() {
         // 2026-10-11-120023: 6 tiles for 552 px, 11 for 320.
-        #expect(ScrollQueueRelay.shouldRelay(tilesOld: 6, tilesNew: 11))
+        #expect(ScrollQueueRelay.shouldRelay(tilesOld: 6, tilesNew: 11, newLine: 80, currentLine: 138))
         // The end of a page: the last step is short because the page ended, and
         // the steps before it went all the way (2026-10-10-000138, 2026-10-08-223755).
-        #expect(!ScrollQueueRelay.shouldRelay(tilesOld: 4, tilesNew: 3))
-        #expect(!ScrollQueueRelay.shouldRelay(tilesOld: 10, tilesNew: 5))
+        #expect(!ScrollQueueRelay.shouldRelay(tilesOld: 4, tilesNew: 3, newLine: 80, currentLine: 138))
+        #expect(!ScrollQueueRelay.shouldRelay(tilesOld: 10, tilesNew: 5, newLine: 80, currentLine: 138))
         // A tie changes nothing.
-        #expect(!ScrollQueueRelay.shouldRelay(tilesOld: 5, tilesNew: 5))
-        #expect(!ScrollQueueRelay.shouldRelay(tilesOld: 0, tilesNew: 0))
+        #expect(!ScrollQueueRelay.shouldRelay(tilesOld: 5, tilesNew: 5, newLine: 80, currentLine: 138))
+        #expect(!ScrollQueueRelay.shouldRelay(tilesOld: 0, tilesNew: 0, newLine: 80, currentLine: 138))
+    }
+
+    /// Three tiles are too few to refute a calibration: 2026-10-13-190147 step 8 had three
+    /// against two for 51 px a line where the page gives 80, and it moved a queue frame
+    /// from 640 px to 404. The probe's 138 against 80 had six against five at the least.
+    @Test func aNewLineThatIsNotTheOldOneNeedsFiveTiles() {
+        // The one that was wrong: not laid again, the queue stays as it was.
+        #expect(!ScrollQueueRelay.shouldRelay(tilesOld: 2, tilesNew: 3, newLine: 51, currentLine: 80))
+        #expect(!ScrollQueueRelay.shouldRelay(tilesOld: 0, tilesNew: 4, newLine: 51, currentLine: 80))
+        // The correction of the probe, on the thinnest evidence that was right (2026-10-11-124606).
+        #expect(ScrollQueueRelay.shouldRelay(tilesOld: 5, tilesNew: 6, newLine: 80, currentLine: 138))
+        #expect(ScrollQueueRelay.shouldRelay(tilesOld: 0, tilesNew: 5, newLine: 80, currentLine: 138))
+        // The old line a little off (within 15 %) is not a new calibration: more tiles are enough.
+        #expect(ScrollQueueRelay.shouldRelay(tilesOld: 1, tilesNew: 3, newLine: 85, currentLine: 80))
+        #expect(!ScrollQueueRelay.shouldRelay(tilesOld: 1, tilesNew: 3, newLine: 95, currentLine: 80))
+        // No calibration to overturn.
+        #expect(ScrollQueueRelay.shouldRelay(tilesOld: 1, tilesNew: 3, newLine: 51, currentLine: nil))
     }
 
     /// 2026-10-10-001759 step 21: 0.73 with five regions, after a pause, on a
@@ -143,8 +160,8 @@ import Testing
                                            offset: 552, searchLimit: 672).consistent
         }
         #expect(at320 > at552, "320: \(at320), 552: \(at552)")
-        #expect(ScrollQueueRelay.shouldRelay(tilesOld: at552, tilesNew: at320))
-        #expect(!ScrollQueueRelay.shouldRelay(tilesOld: at320, tilesNew: at552))
+        #expect(ScrollQueueRelay.shouldRelay(tilesOld: at552, tilesNew: at320, newLine: 80, currentLine: 138))
+        #expect(!ScrollQueueRelay.shouldRelay(tilesOld: at320, tilesNew: at552, newLine: 138, currentLine: 80))
     }
 
     @Test func aSeamIsSaidInAFewWordsAndTheMiddleInOne() {
