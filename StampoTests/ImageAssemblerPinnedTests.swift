@@ -142,6 +142,33 @@ import Testing
         }
     }
 
+    /// A card taller than what the page leaves above it (its top at 300 of 800 rows, the step 400) covers a strip
+    /// of the page that no frame shows: the card's own blocks are flat there, and the margin round it — page — is
+    /// the frame's own.
+    @Test func aTallCardLeavesTheMarginOfItsGapAsThePage() throws {
+        let frames = 7
+        let tall = Scene(cardRect: CGRect(x: 296, y: 300, width: 160, height: 500))
+        let mended = try build(tall, frames: frames, pinned: true)
+        let clean = try build(Scene(card: false), frames: frames, pinned: false)
+        // The gap is frame rows 260 (the card's top less its margin) to 400, in the slice of frame 3.
+        let y = 3 * movement + 330
+        // The margin to the left of the card (columns 256 to 280, beyond the card's own reach): the page, the same
+        // as the clean image.
+        for x in stride(from: 258, to: 278, by: 3) {
+            #expect(mended.image[x, y, 0] == clean.image[x, y, 0], "column \(x)")
+        }
+        // The card's own blocks and the reach round them: one colour, not the page.
+        let flat = mended.image[330, y, 0]
+        var different = 0
+        for x in stride(from: 304, to: 448, by: 4) {
+            #expect(mended.image[x, y, 0] == flat, "column \(x)")
+            if clean.image[x, y, 0] != flat { different += 1 }
+        }
+        #expect(different > 20)
+        let built = try #require(mended.settled)
+        #expect(built.kept > 0 && built.filled > 0)
+    }
+
     @Test func aPageWithNothingPinnedIsLaidAsItAlwaysWasByteForByte() throws {
         let scene = Scene(card: false)
         let with = try build(scene, frames: 6, pinned: true)

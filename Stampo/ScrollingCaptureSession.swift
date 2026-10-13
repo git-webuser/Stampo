@@ -244,7 +244,7 @@ final class ScrollingCaptureSession {
         // The slice of the frame before the last waited for one more frame, which does not come.
         assembler.settlePending()
         if let repair = assembler.lastRepair {
-            dump?.step("   settled: fixed \(repair.blocks) blocks: \(repair.fromNeighbour) from neighbour, \(repair.filled) filled")
+            dump?.step("   settled: fixed \(repair.blocks) blocks: \(repair.fromNeighbour) from neighbour, \(repair.filled) filled, \(repair.kept) kept")
         }
         do {
             let image = try assembler.makeImage()
@@ -498,7 +498,8 @@ final class ScrollingCaptureSession {
             let blocks = repairs.reduce(0) { $0 + $1.blocks }
             guard blocks > 0 else { return "" }
             let copied = repairs.reduce(0) { $0 + $1.fromNeighbour }, filled = repairs.reduce(0) { $0 + $1.filled }
-            return " · fixed \(blocks) blocks: \(copied) from neighbour, \(filled) filled"
+            let kept = repairs.reduce(0) { $0 + $1.kept }
+            return " · fixed \(blocks) blocks: \(copied) from neighbour, \(filled) filled, \(kept) kept"
         }
     }
 

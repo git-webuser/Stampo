@@ -974,8 +974,8 @@ nonisolated struct ImageAssembler: Sendable {
 
     /// Puts the page back under the elements in a slice of the image; nil when nothing was covered or put back.
     private mutating func mend(_ slice: WaitingSlice) -> ScrollPinned.Repair? {
-        let region = pinnedAccumulator.region(of: slice.middle,
-                                              near: [slice.earlier, slice.following].compactMap { $0 })
+        let (region, core) = pinnedAccumulator.regionAndCore(of: slice.middle,
+                                                             near: [slice.earlier, slice.following].compactMap { $0 })
         guard !region.isEmpty, let index = strips.lastIndex(where: { $0.start == slice.stripStart }) else { return nil }
         let strip = strips[index]
         let size = strip.frame.height
@@ -990,7 +990,7 @@ nonisolated struct ImageAssembler: Sendable {
             neighbours.append(.init(frame: earlier, region: earlierRegion, offset: -slice.movementBefore))
         }
         let result = ScrollPinned.repairedSlice(frame: slice.middle, rows: slice.from..<slice.to, region: region,
-                                                neighbours: neighbours)
+                                                core: core, neighbours: neighbours)
         guard result.repair.blocks > 0 else { return nil }
         let mended: CaptureFrame
         if isShrunk {

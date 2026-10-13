@@ -14,6 +14,8 @@ nonisolated enum PinnedScenes {
 
     struct Scene {
         var card = true
+        /// Where the card is, when it is not the one of the scenes above.
+        var cardRect = PinnedScenes.card
         var panel = false
         /// The frames the card is in; all of them when nil.
         var cardFrames: Range<Int>?
@@ -27,7 +29,7 @@ nonisolated enum PinnedScenes {
             for x in 0..<width {
                 var value = scene.page(index * movement + y, x)
                 if let extra, let own = extra(y, x) { value = own }
-                if scene.card, scene.cardFrames?.contains(index) ?? true, card.contains(CGPoint(x: x, y: y)) {
+                if scene.card, scene.cardFrames?.contains(index) ?? true, scene.cardRect.contains(CGPoint(x: x, y: y)) {
                     value = SeamScenes.panelPixel(y, x)
                 }
                 if scene.panel, x < panelWidth { value = SeamScenes.panelPixel(y &+ 3_000, x) }
@@ -164,6 +166,31 @@ nonisolated enum PinnedScenes {
         #expect(region.count == (59 - (first - 5) + 1) * (99 - (top - 5) + 1))
     }
 
+    /// The core of the region is the card itself: its box, not the margin round it.
+    @Test func theCoreOfTheRegionIsTheCardWithoutItsMargin() {
+        var accumulator = accumulate(3)
+        let (frame, near) = around(2, of: Scene())
+        let (region, core) = accumulator.regionAndCore(of: frame, near: near)
+        let card = PinnedScenes.card
+        let first = Int(card.minX) / block, last = Int(card.maxX) / block - 1
+        let top = Int(card.minY) / block, bottom = Int(card.maxY) / block - 1
+        #expect(core[first, top] && core[last, bottom])
+        // It reaches `coreReach` blocks beyond the box of the card (a guide line, an indicator at its edge).
+        let reach = ScrollPinned.coreReach
+        #expect(core[first - reach, top] && core[first, top - reach])
+        #expect(!core[first - reach - 1, top] && !core[first, top - reach - 1])
+        // The card is 3 blocks from the right edge and 2 from the bottom one: closing the gaps of up to eight blocks
+        // takes the shape to the edges, as it did for the region.
+        #expect(core.count == (59 - (first - reach) + 1) * (99 - (top - reach) + 1))
+        // The margin beyond is in the region and not in the core.
+        #expect(region[first - 5, top] && !core[first - 5, top])
+        #expect(region == accumulator.region(of: frame, near: near))
+        // Before the evidence there is neither.
+        var young = accumulate(1)
+        let fromYoung = young.regionAndCore(of: frame, near: near)
+        #expect(fromYoung.region.isEmpty && fromYoung.core.isEmpty)
+    }
+
     /// Pinned elements are in most pairs. A card that is in two pairs out of five is one — the active item of a
     /// menu is in as many — and a frame that does not show it is not covered by it.
     @Test func aPieceNeedsTwoFifthsOfThePairsAndTheFrameNeedsToShowIt() {
@@ -211,6 +238,9 @@ nonisolated enum PinnedScenes {
         let region = accumulator.region(of: frame, near: near)
         #expect(region[30, 8] && region[3, 60])
         #expect(!region[30, 60])
+        // Such a piece has no margin to tell from itself: all it covers is the element's.
+        let both = accumulator.regionAndCore(of: frame, near: near)
+        #expect(both.core == both.region)
     }
 
     /// The lines of a menu that changed in the middle leave two pieces in the same columns, one over the other. They
@@ -286,6 +316,31 @@ nonisolated enum PinnedScenes {
             frame: drawn, rows: 100..<400, region: covered,
             neighbours: [.init(frame: uniform(0), region: covers, offset: 100), .init(frame: uniform(77), region: free, offset: 40)])
         #expect(second.repair.fromNeighbour == 100 && second.slice[240, 140, 0] == 77)
+    }
+
+    /// The margin round an element is page. A block of it that no neighbour shows is left as the frame has it;
+    /// only a block of the element itself is filled. A neighbour that shows the page serves both.
+    @Test func aBlockOfTheMarginNoNeighbourShowsStaysAsTheFrameHasIt() {
+        var scene = Scene(card: false)
+        scene.page = { _, _ in 120 }
+        // Noise over the whole region, the margin as well, in a field of 120.
+        let drawn = PinnedScenes.frame(1, of: scene) { y, x in (200..<280).contains(y) && (200..<280).contains(x) ? SeamScenes.page(y, x) : nil }
+        let covered = region(CGRect(x: 200, y: 200, width: 80, height: 80))
+        let core = region(CGRect(x: 224, y: 224, width: 32, height: 32))
+        let result = ScrollPinned.repairedSlice(frame: drawn, rows: 100..<400, region: covered, core: core, neighbours: [])
+        #expect(result.repair.blocks == 100 && result.repair.filled == 16 && result.repair.kept == 84)
+        #expect(result.repair.fromNeighbour == 0)
+        // The core is the colour of the ring, a block of the margin is the frame's own noise.
+        #expect(result.slice[240, 240 - 100, 0] == 120 && result.slice[228, 228 - 100, 1] == 120)
+        #expect(result.slice[204, 204 - 100, 0] == drawn[204, 204, 0] && result.slice[270, 270 - 100, 0] == drawn[270, 270, 0])
+        // With no core every block is the element's, as it was.
+        let all = ScrollPinned.repairedSlice(frame: drawn, rows: 100..<400, region: covered, neighbours: [])
+        #expect(all.repair.filled == 100 && all.repair.kept == 0)
+        // A neighbour that shows the page serves the margin and the core alike.
+        let free = PinnedGrid(columns: 60, rows: 100)
+        let served = ScrollPinned.repairedSlice(frame: drawn, rows: 100..<400, region: covered, core: core,
+                                                neighbours: [.init(frame: uniform(77), region: free, offset: 40)])
+        #expect(served.repair.fromNeighbour == 100 && served.repair.kept == 0 && served.slice[204, 204 - 100, 0] == 77)
     }
 
     /// The last rows of a frame may show what the browser draws over the page, the address of a link: a neighbour

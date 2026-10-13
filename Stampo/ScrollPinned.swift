@@ -154,6 +154,9 @@ nonisolated enum ScrollPinned {
     /// frame would join a header to the panels at the sides (MDN's pinned bar and its menus): such a piece is taken
     /// as it is, with the margin.
     static let margin = 5
+    /// The element itself reaches this many blocks beyond the box of its stable blocks: a guide line or an indicator
+    /// at its edge is not a stable block (a vertical line is not pinned content) and is the element's.
+    static let coreReach = 2
     static let compactShare = 0.35
     /// The last rows of a frame may show what the browser draws over the page — the address of the link under the
     /// pointer — and are not the page's: a neighbour gives nothing from them.
@@ -284,6 +287,9 @@ nonisolated enum ScrollPinned {
         private struct Piece {
             /// The cells the element covers: its box with the margin, or its closed shape with the margin.
             var cover: PinnedGrid
+            /// The cells of the element itself, without the margin: its box when it is one card; all it covers when it
+            /// is a bar joined to panels.
+            var core: PinnedGrid
             /// The stable blocks it was made from.
             var stable: [Int]
         }
@@ -316,11 +322,18 @@ nonisolated enum ScrollPinned {
         /// the same, to within `presenceTolerance`, in one of `neighbours` (the frames next to it in the capture).
         /// Empty before `minimumPairs` pairs have been seen.
         mutating func region(of frame: CaptureFrame, near neighbours: [CaptureFrame]) -> PinnedGrid {
+            regionAndCore(of: frame, near: neighbours).region
+        }
+
+        /// The region (what the elements cover, with their margin) and its core: the cells of the elements
+        /// themselves. The margin is page that the frame shows beside an element.
+        mutating func regionAndCore(of frame: CaptureFrame, near neighbours: [CaptureFrame]) -> (region: PinnedGrid, core: PinnedGrid) {
             let block = ScrollPinned.block
             var region = PinnedGrid(columns: frame.width / block, rows: frame.height / block)
-            guard pairs >= ScrollPinned.minimumPairs, region.columns == columns, region.rows == rows else { return region }
+            var core = region
+            guard pairs >= ScrollPinned.minimumPairs, region.columns == columns, region.rows == rows else { return (region, core) }
             refresh()
-            guard !cachedPieces.isEmpty else { return region }
+            guard !cachedPieces.isEmpty else { return (region, core) }
             let near = neighbours.filter { $0.width == frame.width && $0.height == frame.height }
             let width = frame.width
             let limit = Int(ScrollPinned.presenceTolerance * Double(block * block * 3))
@@ -350,10 +363,11 @@ nonisolated enum ScrollPinned {
                         }
                         guard Double(have) >= ScrollPinned.presenceShare * Double(seen) else { continue }
                         region = region.union(piece.cover)
+                        core = core.union(piece.core)
                     }
                 }
             }
-            return region
+            return (region, core)
         }
 
         private static func pieces(of stable: PinnedGrid) -> [Piece] {
@@ -407,19 +421,30 @@ nonisolated enum ScrollPinned {
             var out: [Piece] = []
             for candidate in candidates {
                 var cover: PinnedGrid
+                var core: PinnedGrid
                 if boxArea(candidate) <= ScrollPinned.compactShare * frameArea {
                     cover = PinnedGrid(columns: stable.columns, rows: stable.rows)
+                    core = PinnedGrid(columns: stable.columns, rows: stable.rows)
                     for row in max(0, candidate.minRow - ScrollPinned.margin)...min(stable.rows - 1, candidate.maxRow + ScrollPinned.margin) {
                         for column in max(0, candidate.minColumn - ScrollPinned.margin)...min(stable.columns - 1, candidate.maxColumn + ScrollPinned.margin) {
                             cover[column, row] = true
                         }
                     }
+                    for row in max(0, candidate.minRow - ScrollPinned.coreReach)...min(stable.rows - 1, candidate.maxRow + ScrollPinned.coreReach) {
+                        for column in max(0, candidate.minColumn - ScrollPinned.coreReach)...min(stable.columns - 1, candidate.maxColumn + ScrollPinned.coreReach) {
+                            core[column, row] = true
+                        }
+                    }
                 } else {
-                    var piece = PinnedGrid(columns: stable.columns, rows: stable.rows)
-                    for index in candidate.cells { piece.cells[index] = true }
-                    cover = piece.dilated(by: ScrollPinned.margin)
+                    // A bar joined to panels is not one card on a page: its shape does not say which of the blocks
+                    // round it are the page's (the guide lines of a menu are not stable blocks), so all it covers
+                    // is the element's.
+                    var shape = PinnedGrid(columns: stable.columns, rows: stable.rows)
+                    for index in candidate.cells { shape.cells[index] = true }
+                    cover = shape.dilated(by: ScrollPinned.margin)
+                    core = cover
                 }
-                out.append(Piece(cover: cover, stable: candidate.inside))
+                out.append(Piece(cover: cover, core: core, stable: candidate.inside))
             }
             return out
         }
@@ -439,9 +464,12 @@ nonisolated enum ScrollPinned {
     struct Repair: Equatable, Sendable {
         /// Blocks of the slice that a pinned element covered.
         var blocks = 0
-        /// Of them, taken from a neighbouring frame, and filled with the colour round the element.
+        /// Of them, taken from a neighbouring frame, filled with the colour round the element (the blocks of the
+        /// element itself that no neighbour shows the page behind), and left as the frame has them (the margin
+        /// round the element, which is page).
         var fromNeighbour = 0
         var filled = 0
+        var kept = 0
         /// How long the repair took.
         var milliseconds = 0.0
 
@@ -449,19 +477,23 @@ nonisolated enum ScrollPinned {
             blocks += other.blocks
             fromNeighbour += other.fromNeighbour
             filled += other.filled
+            kept += other.kept
             milliseconds += other.milliseconds
         }
 
         static func == (lhs: Repair, rhs: Repair) -> Bool {
             lhs.blocks == rhs.blocks && lhs.fromNeighbour == rhs.fromNeighbour && lhs.filled == rhs.filled
+                && lhs.kept == rhs.kept
         }
     }
 
     /// Rows `rows` of `frame` — the slice of it that goes into the image — with the blocks that `region` covers
     /// replaced: by the blocks of the first of `neighbours` that shows that place of the page where it is not
-    /// itself covered, and else by the median colour of a ring one block wide round the element. The slice is a
-    /// frame of its own, the width of `frame`.
-    static func repairedSlice(frame: CaptureFrame, rows: Range<Int>, region: PinnedGrid,
+    /// itself covered, and else, for a block of the element itself (`core`), by the median colour of a ring one
+    /// block wide round the element. A block of the margin that no neighbour shows is left as the frame has it:
+    /// it is page. With no `core` every block is the element's. The slice is a frame of its own, the width of
+    /// `frame`.
+    static func repairedSlice(frame: CaptureFrame, rows: Range<Int>, region: PinnedGrid, core: PinnedGrid? = nil,
                               neighbours: [Neighbour]) -> (slice: CaptureFrame, repair: Repair) {
         let started = ContinuousClock.now
         let width = frame.width, height = frame.height
@@ -470,10 +502,11 @@ nonisolated enum ScrollPinned {
         guard high > low else { return (frame, report) }
         var pixels = Array(frame.pixels[(low * width * 4)..<(high * width * 4)])
 
-        // Per row of blocks: how many there were, how many came from a neighbour, how many were filled.
+        // Per row of blocks: how many there were, how many came from a neighbour, how many were filled, how many
+        // were left as they were.
         let rowsOfBlocks = region.rows
-        let tally = UnsafeMutablePointer<Int>.allocate(capacity: rowsOfBlocks * 3)
-        tally.initialize(repeating: 0, count: rowsOfBlocks * 3)
+        let tally = UnsafeMutablePointer<Int>.allocate(capacity: rowsOfBlocks * 4)
+        tally.initialize(repeating: 0, count: rowsOfBlocks * 4)
         defer { tally.deallocate() }
         let tallyBox = Shared(value: tally)
         let columns = region.columns
@@ -490,7 +523,7 @@ nonisolated enum ScrollPinned {
                     let from = max(low, row * block), to = min(high, (row + 1) * block)
                     guard to > from else { return }
                     for column in 0..<columns where region[column, row] {
-                        tally[row * 3] += 1
+                        tally[row * 4] += 1
                         let x0 = column * block
                         guard x0 + block <= width else { continue }
                         var source: (Int, Int)?
@@ -504,14 +537,17 @@ nonisolated enum ScrollPinned {
                             }
                         }
                         if let (index, top) = source {
-                            tally[row * 3 + 1] += 1
+                            tally[row * 4 + 1] += 1
                             for y in from..<to {
                                 let t = ((y - low) * width + x0) * 4
                                 let o = ((top + y - row * block) * width + x0) * 4
                                 (target + t).update(from: sources[index] + o, count: block * 4)
                             }
+                        } else if let core, !core[column, row] {
+                            // The margin round the element: the page, as the frame shows it.
+                            tally[row * 4 + 3] += 1
                         } else if let colour = colourBox.value.colour(atCell: row * columns + column) {
-                            tally[row * 3 + 2] += 1
+                            tally[row * 4 + 2] += 1
                             for y in from..<to {
                                 var t = ((y - low) * width + x0) * 4
                                 for _ in 0..<block {
@@ -525,9 +561,10 @@ nonisolated enum ScrollPinned {
             }
         }
         for row in 0..<rowsOfBlocks {
-            report.blocks += tally[row * 3]
-            report.fromNeighbour += tally[row * 3 + 1]
-            report.filled += tally[row * 3 + 2]
+            report.blocks += tally[row * 4]
+            report.fromNeighbour += tally[row * 4 + 1]
+            report.filled += tally[row * 4 + 2]
+            report.kept += tally[row * 4 + 3]
         }
         let elapsed = started.duration(to: .now)
         report.milliseconds = Double(elapsed.components.seconds) * 1000 + Double(elapsed.components.attoseconds) / 1e15
