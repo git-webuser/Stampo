@@ -34,6 +34,123 @@ import Testing
         #expect(!ScrollQueueLaying.shortStepDue(waiting: 0, calibrationConfirmed: true, tried: false))
     }
 
+    // MARK: A full queue
+
+    private typealias Cost = ScrollQueueLaying.PairCost
+
+    /// 2026-10-13-205943, steps 17 to 25, over the pairs from the last frame laid: the fit at the 560 px of the
+    /// calibration and with none, over the tiles that are not pinned. Step 18 is the one the tiles did not confirm.
+    private let costs205943: [Cost?] = [
+        Cost(shifted: 39.0, still: 66.1), Cost(shifted: 79.3, still: 61.8), Cost(shifted: 9.1, still: 46.0),
+        Cost(shifted: 3.7, still: 30.2), Cost(shifted: 0.0, still: 9.7), Cost(shifted: 0.5, still: 9.8),
+        Cost(shifted: 1.0, still: 5.8), Cost(shifted: 2.6, still: 3.9), Cost(shifted: 2.9, still: 5.3)]
+    private let confirmed205943 = [true, false, true, true, true, true, true, true]
+
+    private func evidence(calibration: Bool = true, queue: [Bool], current: Bool = true, contradicted: Bool = false,
+                          pairs: [Cost?], laid: Bool = false) -> ScrollQueueLaying.QueueEvidence {
+        .init(calibrationConfirmed: calibration, queueConfirmed: queue, currentConfirmed: current,
+              contradicted: contradicted, pairs: pairs, laidSinceMatch: laid)
+    }
+
+    /// The queue of 205943 is laid: 7 of 8 and the current one confirmed, no contradiction, the page moved in every
+    /// pair that can be looked at (the pairs with step 18, which changed as a whole, are not looked at one by one).
+    @Test func theQueueOf205943IsLaidByTheCalibration() {
+        #expect(ScrollQueueLaying.shouldLay(evidence(queue: confirmed205943, pairs: costs205943)))
+    }
+
+    /// 2026-10-10-003948: confirmed eight of eight on a calibration that matched steps had borne out, but the page
+    /// stood while a pattern repeated: the frame is the same with no shift, and does not fit at 200.
+    @Test func aPageThatStoodWhileAPatternRepeatedIsNotLaid() {
+        let stood = [Cost?](repeating: Cost(shifted: 87.0, still: 0.0), count: 9)
+        #expect(!ScrollQueueLaying.shouldLay(evidence(queue: [Bool](repeating: true, count: 8), pairs: stood)))
+    }
+
+    /// 2026-10-11-185058 and 185700: the end of a page, the same frame again and again.
+    @Test func framesThatAreTheSameAreNotLaid() {
+        let same = [Cost?](repeating: Cost(shifted: 2.45, still: 0.0), count: 9)
+        #expect(!ScrollQueueLaying.shouldLay(evidence(queue: [Bool](repeating: false, count: 8), pairs: same)))
+        // One identical pair among pairs that moved is enough.
+        var one = costs205943
+        one[5] = Cost(shifted: 0.5, still: 0.2)
+        #expect(!ScrollQueueLaying.shouldLay(evidence(queue: confirmed205943, pairs: one)))
+    }
+
+    /// 2026-10-11-185309: a calibration of 16 px a line that no matched step had borne out, one step of eight confirmed.
+    @Test func aCalibrationNoMatchedStepHasBorneOutIsNotLaid() {
+        let queue = [true, false, false, false, false, false, false, false]
+        let costs: [Cost?] = [Cost(shifted: 72.9, still: 76.5), Cost(shifted: 25.2, still: 16.3), Cost(shifted: 26.5, still: 14.9),
+                              Cost(shifted: 81.4, still: 69.7), Cost(shifted: 38.5, still: 28.4), Cost(shifted: 26.3, still: 28.6),
+                              Cost(shifted: 10.9, still: 14.2), Cost(shifted: 8.3, still: 9.3), Cost(shifted: 3.9, still: 5.2)]
+        #expect(!ScrollQueueLaying.shouldLay(evidence(calibration: false, queue: queue, pairs: costs)))
+        // Nor with the calibration borne out, for the confirmed are too few.
+        #expect(!ScrollQueueLaying.shouldLay(evidence(queue: queue, pairs: costs205943)))
+    }
+
+    /// The other conditions: six of eight, the current step confirmed, nothing contradicted, once between two
+    /// steps the matcher placed, the pairs all there.
+    @Test func theOtherConditionsOfLayingAFullQueue() {
+        let five = [true, true, true, true, true, false, false, false]
+        #expect(!ScrollQueueLaying.shouldLay(evidence(queue: five, pairs: costs205943)))
+        // Six of eight, the two that are not confirmed being step 18 and the last waiting one.
+        let six = [true, false, true, true, true, true, true, false]
+        #expect(ScrollQueueLaying.shouldLay(evidence(queue: six, pairs: costs205943)))
+        #expect(!ScrollQueueLaying.shouldLay(evidence(queue: confirmed205943, current: false, pairs: costs205943)))
+        #expect(!ScrollQueueLaying.shouldLay(evidence(queue: confirmed205943, contradicted: true, pairs: costs205943)))
+        // The second full queue in a row, with no step placed between them.
+        #expect(!ScrollQueueLaying.shouldLay(evidence(queue: confirmed205943, pairs: costs205943, laid: true)))
+        // A pair that could not be looked at, or a count of pairs that does not fit.
+        var missing = costs205943
+        missing[3] = nil
+        #expect(!ScrollQueueLaying.shouldLay(evidence(queue: confirmed205943, pairs: missing)))
+        #expect(!ScrollQueueLaying.shouldLay(evidence(queue: confirmed205943, pairs: Array(costs205943.dropLast()))))
+    }
+
+    /// Over all the pairs the fit at the shifts has to be well under that with none, though each confirmed pair is better.
+    @Test func theFitAtTheShiftsHasToBeWellUnderTheFitWithNone() {
+        // Each pair a little better than none, the sum 0.95 of it: a page that may have moved, may not.
+        let weak = [Cost?](repeating: Cost(shifted: 9.5, still: 10.0), count: 9)
+        #expect(!ScrollQueueLaying.shouldLay(evidence(queue: [Bool](repeating: true, count: 8), pairs: weak)))
+        let clear = [Cost?](repeating: Cost(shifted: 4.0, still: 10.0), count: 9)
+        #expect(ScrollQueueLaying.shouldLay(evidence(queue: [Bool](repeating: true, count: 8), pairs: clear)))
+    }
+
+    /// The pairs themselves: a page of noise moved 560 rows fits at 560 and not with none; a frame the same as the
+    /// one before fits with none; and what is pinned does not decide it either way.
+    @Test func thePairCostSaysWhetherThePageMovedByTheShift() throws {
+        func page(_ offset: Int, card: Bool = false) -> CaptureFrame {
+            let width = 480, height = 800
+            var bytes = [UInt8](repeating: 255, count: width * height * 4)
+            for y in 0..<height {
+                for x in 0..<width {
+                    var value = SeamScenes.page(offset + y, x)
+                    // A card that stands where it is, in the tiles 13, 14, 18 and 19 (the lower right).
+                    if card, x >= 300, y >= 400 { value = SeamScenes.panelPixel(y, x) }
+                    let i = (y * width + x) * 4
+                    bytes[i] = value; bytes[i + 1] = value; bytes[i + 2] = value
+                }
+            }
+            return CaptureFrame(width: width, height: height, pixels: bytes)
+        }
+        let moved = ScrollQueueLaying.pairCost(previous: page(0), current: page(300), offset: 300, pinnedTiles: [])
+        let a = try #require(moved)
+        #expect(a.better && !a.identical && a.shifted < 1 && a.still > 20)
+        let stood = ScrollQueueLaying.pairCost(previous: page(0), current: page(0), offset: 300, pinnedTiles: [])
+        let b = try #require(stood)
+        #expect(b.identical && !b.better)
+        // The card stands, the page moves: with the card's tiles left out it still fits at the shift; with none left
+        // out the card, which stands, is compared with the page where the shift puts it.
+        let pinned: Set<Int> = [13, 14, 18, 19]
+        let withCard = ScrollQueueLaying.pairCost(previous: page(0, card: true), current: page(300, card: true),
+                                                  offset: 300, pinnedTiles: pinned)
+        let c = try #require(withCard)
+        #expect(c.better && c.shifted < 1)
+        // Too little left to compare: nil.
+        let all = Set(0..<20)
+        #expect(ScrollQueueLaying.pairCost(previous: page(0), current: page(300), offset: 300, pinnedTiles: all) == nil)
+        // No shift to look at.
+        #expect(ScrollQueueLaying.pairCost(previous: page(0), current: page(300), offset: 0, pinnedTiles: []) == nil)
+    }
+
     /// Three tiles are too few to refute a calibration: 2026-10-13-190147 step 8 had three
     /// against two for 51 px a line where the page gives 80, and it moved a queue frame
     /// from 640 px to 404. The probe's 138 against 80 had six against five at the least.

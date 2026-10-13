@@ -104,6 +104,105 @@ nonisolated enum ScrollQueueLaying {
     static func shortStepDue(waiting: Int, calibrationConfirmed: Bool, tried: Bool) -> Bool {
         waiting >= shortStepAfter && calibrationConfirmed && !tried
     }
+
+    // MARK: A full queue
+
+    /// How many of a full queue's steps must be confirmed by the tiles.
+    static let minimumConfirmed = 6
+    /// Two frames are the same when they differ, per channel, by less than this with no shift.
+    static let identicalBelow = 0.5
+    /// Over all the pairs of the queue, the difference at the shifts the calibration gives must be under this share of
+    /// the difference with none.
+    static let shiftedShare = 0.8
+    /// Fewer samples than this say nothing.
+    static let minimumSamples = 300
+
+    /// How well the frame `current` fits the frame `previous` shifted by `offset` along a vertical scroll, and how
+    /// well with no shift: the mean difference per channel over a sample of the pixels, leaving out the tiles that
+    /// are pinned in either frame (the card that stands still would otherwise be compared with the page where the
+    /// shift puts it). Nil when too little is left to compare.
+    struct PairCost: Equatable, Sendable {
+        let shifted: Double
+        let still: Double
+
+        var identical: Bool { still < ScrollQueueLaying.identicalBelow }
+        var better: Bool { shifted < still }
+    }
+
+    static func pairCost(previous: CaptureFrame, current: CaptureFrame, offset: Int,
+                         pinnedTiles: Set<Int>) -> PairCost? {
+        let h = previous.height, w = previous.width
+        guard current.width == w, current.height == h, offset > 0 else { return nil }
+        // The last rows may show what the browser draws over the page.
+        let limit = min(h - offset - 4, h - 56)
+        guard limit > 4, w > 8 else { return nil }
+        let tileRows = FrameMatcher.tileRows, tileColumns = FrameMatcher.tileColumns
+        var still = 0, shifted = 0, samples = 0
+        previous.pixels.withUnsafeBufferPointer { before in
+            current.pixels.withUnsafeBufferPointer { now in
+                for y in stride(from: 4, to: limit, by: 4) {
+                    let row = y * tileRows / h, sourceRow = (y + offset) * tileRows / h
+                    for x in stride(from: 4, to: w - 4, by: 6) {
+                        let column = x * tileColumns / w
+                        if pinnedTiles.contains(row * tileColumns + column)
+                            || pinnedTiles.contains(sourceRow * tileColumns + column) { continue }
+                        let i = (y * w + x) * 4, j = ((y + offset) * w + x) * 4
+                        for channel in 0..<3 {
+                            let value = Int(now[i + channel])
+                            still += abs(value - Int(before[i + channel]))
+                            shifted += abs(value - Int(before[j + channel]))
+                        }
+                        samples += 3
+                    }
+                }
+            }
+        }
+        guard samples >= minimumSamples else { return nil }
+        return PairCost(shifted: Double(shifted) / Double(samples), still: Double(still) / Double(samples))
+    }
+
+    /// What is known when the queue is full and the next step cannot be placed either.
+    struct QueueEvidence: Sendable {
+        /// Matched steps have borne out that lines move the page in proportion (`linearityConfirmed`).
+        var calibrationConfirmed: Bool
+        /// Which of the waiting steps the tiles confirmed.
+        var queueConfirmed: [Bool]
+        /// Whether the step that finds the queue full is confirmed, and whether the frames contradict its distance.
+        var currentConfirmed: Bool
+        var contradicted: Bool
+        /// One per pair of neighbouring frames, from the last frame laid through the waiting ones to the current:
+        /// `queueConfirmed.count + 1` of them.
+        var pairs: [PairCost?]
+        /// A queue was already laid by the calibration since the last step the matcher placed.
+        var laidSinceMatch: Bool
+    }
+
+    /// Whether to lay a full queue by the calibration and go on, rather than save what there is. It is: the
+    /// calibration is borne out by matched steps; at least `minimumConfirmed` of the waiting steps and the current
+    /// one are confirmed by the tiles and none is contradicted; the page moved in the queue; and no queue was laid
+    /// this way since the last step the matcher placed.
+    /// The page moved where that can be looked at: in no pair are the frames the same, in every pair of confirmed
+    /// frames the frames fit at the shift better than with none, and over all the pairs the fit at the shifts is
+    /// well under that with none. A frame that changed as a whole (the stage of a section) says nothing for or
+    /// against, and a pair with it is not looked at one by one. A page that stood while a pattern repeated
+    /// (2026-10-10-003948: the same frame, eight times) fails all of this.
+    static func shouldLay(_ evidence: QueueEvidence) -> Bool {
+        guard evidence.calibrationConfirmed, !evidence.laidSinceMatch, evidence.currentConfirmed,
+              !evidence.contradicted,
+              evidence.pairs.count == evidence.queueConfirmed.count + 1,
+              evidence.queueConfirmed.filter({ $0 }).count >= minimumConfirmed
+        else { return false }
+        // The last frame laid was placed by the matcher: confirmed.
+        let confirmed = [true] + evidence.queueConfirmed + [evidence.currentConfirmed]
+        var shifted = 0.0, still = 0.0
+        for (index, pair) in evidence.pairs.enumerated() {
+            guard let pair, !pair.identical else { return false }
+            if confirmed[index] && confirmed[index + 1] && !pair.better { return false }
+            shifted += pair.shifted
+            still += pair.still
+        }
+        return shifted < shiftedShare * still
+    }
 }
 
 /// Steps placed by the calibration alone, waiting for one the matcher places.

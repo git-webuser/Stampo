@@ -158,6 +158,8 @@ final class ScrollingCaptureSession {
     private var linearityConfirmed = false
     /// Whether the queue that is waiting has had its short step (`ScrollQueueLaying.shortStepDue`).
     private var shortStepTried = false
+    /// Whether a full queue was laid by the calibration since the last step the matcher placed.
+    private var queueLaidByCalibration = false
 
     init(selection: WindowPickerSelection, axis: ScrollAxis,
          excludeScrollbars: Bool = true,
@@ -948,6 +950,8 @@ final class ScrollingCaptureSession {
             try ensureActive()
             try assembler.append(probe, movement: match.offset, pinned: probeBlocks)
             notePinned(match.standing)
+            queueLaidByCalibration = false
+            shortStepTried = false
             pixelsPerLine = ScrollStepPlanner.pixelsPerLine(offset: match.offset, lines: Int(probeLines))
             if let pixelsPerLine {
                 let plan = ScrollStepPlanner.plan(target: requestedStep, pixelsPerLine: pixelsPerLine,
@@ -1093,6 +1097,7 @@ final class ScrollingCaptureSession {
                     return
                 }
                 notePinned(match.standing)
+                queueLaidByCalibration = false
                 if let relay, relay.movements != nil {
                     // The line is what this step shows. One step cannot confirm
                     // that lines move the page in proportion; that waits for
@@ -1309,9 +1314,51 @@ final class ScrollingCaptureSession {
                     requestedStep = max(24, Int(Double(axisLength(of: next)) * 0.60))
                     consecutiveFailures = 0
                 case .finish:
-                    recordStep("\(head) · \(error) · \(said) → saved: \(temporary.count) steps wait for a confirmation")
-                    finish()
-                    return
+                    // The queue is full and this step cannot be placed either. If the page moved in the queue, as
+                    // the calibration, borne out by matched steps, says, the queue is laid by it and the capture goes
+                    // on: a page that is whole to the end with seams that may be off is more than the page as far as
+                    // it was read (`ScrollQueueLaying.shouldLay`).
+                    var byCalibration = false
+                    if axis == .vertical, let expected, let last = assembler.lastFrame {
+                        let waiting = temporary.steps
+                        let chain = [last] + waiting.map(\.frame) + [next]
+                        let offsets = waiting.map(\.movement) + [expected]
+                        let tiles = pinnedTiles
+                        let costs = await Task.detached(priority: .userInitiated) {
+                            (0..<offsets.count).map {
+                                ScrollQueueLaying.pairCost(previous: chain[$0], current: chain[$0 + 1],
+                                                           offset: offsets[$0], pinnedTiles: tiles)
+                            }
+                        }.value
+                        try ensureActive()
+                        byCalibration = ScrollQueueLaying.shouldLay(.init(
+                            calibrationConfirmed: linearityConfirmed, queueConfirmed: waiting.map(\.confirmed),
+                            currentConfirmed: (evidence?.consistent ?? 0) >= required,
+                            contradicted: evidence?.contradicted ?? false, pairs: costs,
+                            laidSinceMatch: queueLaidByCalibration))
+                    }
+                    guard byCalibration, let expected else {
+                        recordStep("\(head) · \(error) · \(said) → saved: \(temporary.count) steps wait for a confirmation")
+                        finish()
+                        return
+                    }
+                    let blocks = await pinnedBlocks(from: oldFrame, to: next, shift: nil)
+                    try ensureActive()
+                    guard let laid = try lay(next, movement: expected, pinned: blocks) else {
+                        finish()
+                        return
+                    }
+                    queueLaidByCalibration = true
+                    recordStep("\(head) · \(error) · \(said) · \(standing) → queue laid by calibration: \(laid.waiting + 1) steps, none matched\(laid.fixed)")
+                    Log.capture.notice("scroll queue laid by calibration · \(laid.waiting + 1, privacy: .public) steps, none matched")
+                    previous = next
+                    zeroMotionCount = 0
+                    stationaryLines = 0
+                    lastStationaryFrame = nil
+                    stationaryAllReliable = true
+                    unmatchedScroll = 0
+                    requestedStep = max(24, Int(Double(axisLength(of: next)) * 0.60))
+                    consecutiveFailures = 0
                 case .retry:
                     consecutiveFailures += 1
                     guard consecutiveFailures <= 2 else {
