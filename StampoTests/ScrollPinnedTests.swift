@@ -16,6 +16,8 @@ nonisolated enum PinnedScenes {
         var card = true
         /// Where the card is, when it is not the one of the scenes above.
         var cardRect = PinnedScenes.card
+        /// How far the page moves from one frame to the next.
+        var step = PinnedScenes.movement
         var panel = false
         /// The frames the card is in; all of them when nil.
         var cardFrames: Range<Int>?
@@ -27,7 +29,7 @@ nonisolated enum PinnedScenes {
         var bytes = [UInt8](repeating: 255, count: width * height * 4)
         for y in 0..<height {
             for x in 0..<width {
-                var value = scene.page(index * movement + y, x)
+                var value = scene.page(index * scene.step + y, x)
                 if let extra, let own = extra(y, x) { value = own }
                 if scene.card, scene.cardFrames?.contains(index) ?? true, scene.cardRect.contains(CGPoint(x: x, y: y)) {
                     value = SeamScenes.panelPixel(y, x)
@@ -43,7 +45,7 @@ nonisolated enum PinnedScenes {
     /// The blocks of the pair of frames `index − 1` and `index`.
     static func pair(_ index: Int, of scene: Scene, extra: ((Int, Int) -> UInt8?)? = nil) -> PinnedGrid {
         ScrollPinned.pinnedBlocks(previous: frame(index - 1, of: scene, extra: extra),
-                                  current: frame(index, of: scene, extra: extra), shift: movement)!
+                                  current: frame(index, of: scene, extra: extra), shift: scene.step)!
     }
 }
 
@@ -372,6 +374,33 @@ nonisolated enum PinnedScenes {
         let served = ScrollPinned.repairedSlice(frame: drawn, rows: 100..<400, region: covered, core: core,
                                                 neighbours: [.init(frame: uniform(77), region: free, offset: 40)])
         #expect(served.repair.fromNeighbour == 100 && served.repair.kept == 0 && served.slice[204, 204 - 100, 0] == 77)
+    }
+
+    /// The page under an element that the frame after still has under it comes up above it in the one after that:
+    /// the neighbours are tried in the order next, after next, before.
+    @Test func theFrameAfterNextServesWhatTheNextOneStillHasUnderTheElement() {
+        var scene = Scene(card: false)
+        scene.page = { _, _ in 120 }
+        let drawn = PinnedScenes.frame(1, of: scene) { y, x in (200..<280).contains(y) && (200..<280).contains(x) ? SeamScenes.page(y, x) : nil }
+        let covered = region(CGRect(x: 200, y: 200, width: 80, height: 80))
+        let free = PinnedGrid(columns: 60, rows: 100)
+        // What the next frame has of that place (100 rows up in it) is covered; what the one after it has (200 up) is not.
+        let covers = region(CGRect(x: 200, y: 96, width: 80, height: 96))
+        let coversAfterNext = region(CGRect(x: 200, y: 0, width: 80, height: 96))
+        func repair(next: PinnedGrid, afterNext: PinnedGrid) -> (slice: CaptureFrame, repair: ScrollPinned.Repair) {
+            ScrollPinned.repairedSlice(frame: drawn, rows: 100..<400, region: covered, neighbours: [
+                .init(frame: uniform(77), region: next, offset: 100),
+                .init(frame: uniform(55), region: afterNext, offset: 200),
+                .init(frame: uniform(33), region: free, offset: -100)])
+        }
+        let second = repair(next: covers, afterNext: free)
+        #expect(second.repair.fromNeighbour == 100 && second.repair.filled == 0 && second.slice[240, 240 - 100, 0] == 55)
+        // The next frame first, when it has the page there.
+        let first = repair(next: free, afterNext: free)
+        #expect(first.slice[240, 240 - 100, 0] == 77)
+        // The frame before last, when neither of those has it.
+        let third = repair(next: covers, afterNext: coversAfterNext)
+        #expect(third.slice[240, 240 - 100, 0] == 33)
     }
 
     /// The last rows of a frame may show what the browser draws over the page, the address of a link: a neighbour

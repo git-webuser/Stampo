@@ -21,6 +21,7 @@ import Testing
     /// frame `index` is laid, replace it by a frame of the scene with these `extra` pixels.
     private func build(_ scene: Scene, frames: Int, pinned: Bool, shrinkBefore: Int? = nil, header: Int? = nil,
                        replace: (index: Int, extra: (Int, Int) -> UInt8?)? = nil) throws -> Built {
+        let movement = scene.step
         var assembler = ImageAssembler(axis: .vertical, maxLength: 100_000, scale: 1)
         var previous = PinnedScenes.frame(0, of: scene)
         assembler.begin(with: previous)
@@ -167,6 +168,25 @@ import Testing
         #expect(different > 20)
         let built = try #require(mended.settled)
         #expect(built.kept > 0 && built.filled > 0)
+    }
+
+    /// A card taller than the step is under the card still in the next frame for the lower part of the slice: the
+    /// frame after that shows it. The card begins at 280 of 800 rows, the step is 200: the slice is rows 300 to 500
+    /// and what is under the card in the next frame is from row 440. Without the frame after next it is flat.
+    @Test func thePageUnderATallCardComesFromTheFrameAfterNext() throws {
+        let frames = 7
+        let tall = Scene(cardRect: CGRect(x: 296, y: 280, width: 160, height: 520), step: 200)
+        let mended = try build(tall, frames: frames, pinned: true)
+        let clean = try build(Scene(card: false, step: 200), frames: frames, pinned: false)
+        // Frame 3 is at 600 in the image: its rows 440 to 500 are the lower part of its slice.
+        var checked = 0
+        for y in stride(from: 600 + 444, to: 600 + 496, by: 7) {
+            for x in stride(from: 304, to: 448, by: 8) {
+                #expect(mended.image[x, y, 0] == clean.image[x, y, 0], "row \(y) column \(x)")
+                checked += 1
+            }
+        }
+        #expect(checked > 100)
     }
 
     @Test func aPageWithNothingPinnedIsLaidAsItAlwaysWasByteForByte() throws {

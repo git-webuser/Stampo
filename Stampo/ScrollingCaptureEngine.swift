@@ -737,8 +737,9 @@ nonisolated struct ImageAssembler: Sendable {
         var stripStart: Int
         var movementBefore: Int
         var movementAfter: Int
-        /// The frame after `following`, when it has come.
+        /// The frame after `following`, when it has come, and how far it stands from it.
         var newer: CaptureFrame?
+        var movementNewer = 0
     }
 
     /// The first screen as the window showed it: the pixels of the first frame from `rowStart` on, where a pinned
@@ -927,7 +928,7 @@ nonisolated struct ImageAssembler: Sendable {
         pinnedAccumulator.add(pinned)
         // The first frame has no pair before it: its slice is the first screen, and where that ends is known now.
         if framesLaid == 1 { firstSeamRow = movement + skip }
-        mendBeforeLast(next: frame, final: false)
+        mendBeforeLast(next: frame, movement: movement, final: false)
     }
 
     /// Mends the slice that the frame before the last gives to the image: where pinned elements cover it, the page
@@ -937,7 +938,7 @@ nonisolated struct ImageAssembler: Sendable {
     /// sticks to the viewport only after the first scroll has shown itself in few pairs — the slices wait, to be
     /// mended together once `ScrollPinned.waitingPairs` pairs are in, or at the end (`final`).
     /// Mending the same slice again gives the same.
-    private mutating func mendBeforeLast(next newer: CaptureFrame?, final: Bool) {
+    private mutating func mendBeforeLast(next newer: CaptureFrame?, movement movementNewer: Int, final: Bool) {
         lastRepair = nil
         guard axis == .vertical, tracksPinned, let following = lastFrame, let middle = beforeLast else { return }
         let earlier = beforeBeforeLast
@@ -955,7 +956,7 @@ nonisolated struct ImageAssembler: Sendable {
         if from >= 0, to > from, to <= middle.height, let start = beforeLastStripStart, earlier != nil {
             queue.append(WaitingSlice(earlier: earlier, middle: middle, following: following, from: from, to: to,
                                       stripStart: start, movementBefore: movementBeforeLast, movementAfter: lastMovement,
-                                      newer: newer))
+                                      newer: newer, movementNewer: movementNewer))
         }
         if !final, pinnedAccumulator.pairs < ScrollPinned.waitingPairs {
             waiting = Array(queue.suffix(ScrollPinned.waitingPairs))
@@ -984,7 +985,13 @@ nonisolated struct ImageAssembler: Sendable {
         // A frame next to it gives the page nowhere that a pinned element stands in it.
         let followingRegion = pinnedAccumulator.region(of: slice.following,
                                                        near: [slice.middle, slice.newer].compactMap { $0 })
+        // The page under an element comes up above it in the frame after, and when that frame still has it under the
+        // element (the step is short next to the element's height), in the one after that.
         var neighbours = [ScrollPinned.Neighbour(frame: slice.following, region: followingRegion, offset: slice.movementAfter)]
+        if let newer = slice.newer {
+            let newerRegion = pinnedAccumulator.region(of: newer, near: [slice.following])
+            neighbours.append(.init(frame: newer, region: newerRegion, offset: slice.movementAfter + slice.movementNewer))
+        }
         if let earlier = slice.earlier {
             let earlierRegion = pinnedAccumulator.region(of: earlier, near: [slice.middle])
             neighbours.append(.init(frame: earlier, region: earlierRegion, offset: -slice.movementBefore))
@@ -1007,7 +1014,7 @@ nonisolated struct ImageAssembler: Sendable {
     /// The end of the capture: the slice of the frame before the last, which waited for the frame two after it, is
     /// mended with what there is. Only the slice of the last frame is left as it came.
     mutating func settlePending() {
-        mendBeforeLast(next: nil, final: true)
+        mendBeforeLast(next: nil, movement: 0, final: true)
     }
 
     /// The first frame's pixels below the first seam, kept to be laid over the image where a pinned element of the
