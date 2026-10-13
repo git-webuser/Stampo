@@ -18,6 +18,22 @@ import Testing
         #expect(!ScrollQueueRelay.shouldRelay(tilesOld: 0, tilesNew: 0, newLine: 80, currentLine: 138))
     }
 
+    /// 2026-10-13-205943: seven steps waited, none matched, and the capture ended; the second attempt matched at a
+    /// short step. Four waiting is where the short step comes, once for the queue, and only on a calibration the
+    /// matched steps have borne out.
+    @Test func aQueueOfFourGetsOneShortStepWhenTheCalibrationIsConfirmed() {
+        #expect(ScrollQueueLaying.shortStepAfter == 4)
+        #expect(!ScrollQueueLaying.shortStepDue(waiting: 3, calibrationConfirmed: true, tried: false))
+        #expect(ScrollQueueLaying.shortStepDue(waiting: 4, calibrationConfirmed: true, tried: false))
+        #expect(ScrollQueueLaying.shortStepDue(waiting: 7, calibrationConfirmed: true, tried: false))
+        // Not on a calibration that is one probe, possibly of a line.
+        #expect(!ScrollQueueLaying.shortStepDue(waiting: 4, calibrationConfirmed: false, tried: false))
+        // Once for the queue.
+        #expect(!ScrollQueueLaying.shortStepDue(waiting: 5, calibrationConfirmed: true, tried: true))
+        // No queue, no short step.
+        #expect(!ScrollQueueLaying.shortStepDue(waiting: 0, calibrationConfirmed: true, tried: false))
+    }
+
     /// Three tiles are too few to refute a calibration: 2026-10-13-190147 step 8 had three
     /// against two for 51 px a line where the page gives 80, and it moved a queue frame
     /// from 640 px to 404. The probe's 138 against 80 had six against five at the least.

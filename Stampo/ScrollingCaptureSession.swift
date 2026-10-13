@@ -156,6 +156,8 @@ final class ScrollingCaptureSession {
     /// Whether a full step has matched what the calibration says, so that lines
     /// are known to move the page in proportion.
     private var linearityConfirmed = false
+    /// Whether the queue that is waiting has had its short step (`ScrollQueueLaying.shortStepDue`).
+    private var shortStepTried = false
 
     init(selection: WindowPickerSelection, axis: ScrollAxis,
          excludeScrollbars: Bool = true,
@@ -986,11 +988,22 @@ final class ScrollingCaptureSession {
             }
             guard let oldFrame = previous else { return }
             try checkWindowAndFocus()
-            let currentStep = min(requestedStep, max(24, axisLength(of: oldFrame) * 3 / 4))
+            let longStep = min(requestedStep, max(24, axisLength(of: oldFrame) * 3 / 4))
             // A push is one wheel event of twice the lines, with the search as
             // wide as a step is ever matched: where the page ends up when it has
             // gone past a section that pins it is not a multiple of the lines.
             let isPush = ScrollPush.sendsPush(pushMode)
+            // Steps wait that the matcher could not place: one short step for the queue, which the frames may read
+            // where they did not read the long ones.
+            if temporary.isEmpty { shortStepTried = false }
+            let short = !isPush && ScrollQueueLaying.shortStepDue(waiting: temporary.count,
+                                                                  calibrationConfirmed: linearityConfirmed,
+                                                                  tried: shortStepTried)
+            let currentStep = short ? max(24, longStep / 2) : longStep
+            if short {
+                shortStepTried = true
+                dump?.step("   short step: \(temporary.count) steps wait, half the step (\(longStep) → \(currentStep) px)")
+            }
             // An element pinned at the bottom of the frame covers the page that is under it: that page has to come
             // up above it in the next frame, and it does if the step is no longer than where the element begins.
             // Only along a vertical scroll, and not for a push.

@@ -92,6 +92,20 @@ nonisolated enum ScrollStepDecision: Equatable {
     }
 }
 
+/// A queue that grows while the matcher places no step: what is tried before it fills up and the capture ends.
+nonisolated enum ScrollQueueLaying {
+    /// With this many steps waiting, the next step is a short one.
+    static let shortStepAfter = 4
+
+    /// Whether the next step is half as long as the others. Frames that the matcher cannot read at one distance
+    /// sometimes read at a shorter one (2026-10-13-210141 matched at 4 lines what 7 had not), and a short step costs
+    /// a few frames more, not the page. Once for a queue, and only when the calibration is confirmed: a short step
+    /// from a calibration that is not might be one the queue is laid by.
+    static func shortStepDue(waiting: Int, calibrationConfirmed: Bool, tried: Bool) -> Bool {
+        waiting >= shortStepAfter && calibrationConfirmed && !tried
+    }
+}
+
 /// Steps placed by the calibration alone, waiting for one the matcher places.
 /// The frames wait with the distance each moved the page; the last of them is
 /// where the next step is matched from. The first step the matcher places adds
