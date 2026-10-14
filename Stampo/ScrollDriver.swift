@@ -63,6 +63,54 @@ nonisolated enum ScrollWebPage {
     }
 }
 
+/// What moves in a scroll area that is not a page can be narrower across the scroll than the area: Finder's gallery
+/// is a large preview that stands still over a strip of thumbnails that scrolls sideways, and the area Accessibility
+/// gives is the whole of it. The strip is the first element from the pointer up that is as long as the area along
+/// the scroll and narrower across: its frame is the most that moves across.
+nonisolated enum ScrollStrip {
+    /// The cross-axis range of the first of `elements` (nearest the pointer first, then up to the area) whose
+    /// extent along `axis` is at least the area's and across it less than the area's, within the area; nil where
+    /// there is none. Only the frames and the axis are looked at, not the roles.
+    static func crossSpan(elements: [CGRect], area: CGRect, axis: ScrollAxis) -> ClosedRange<CGFloat>? {
+        func along(_ rect: CGRect) -> CGFloat { axis == .vertical ? rect.height : rect.width }
+        func across(_ rect: CGRect) -> CGFloat { axis == .vertical ? rect.width : rect.height }
+        func range(_ rect: CGRect) -> ClosedRange<CGFloat> {
+            axis == .vertical ? rect.minX...rect.maxX : rect.minY...rect.maxY
+        }
+        guard let element = elements.first(where: { along($0) >= along(area) && across($0) < across(area) })
+        else { return nil }
+        let low = max(range(element).lowerBound, range(area).lowerBound)
+        let high = min(range(element).upperBound, range(area).upperBound)
+        return low < high ? low...high : nil
+    }
+
+    /// `span`, which is in the points of the screen, as a range of the pixels of a crop of the window: `windowOrigin`
+    /// is where the window starts across the scroll (points), `cropOrigin` where the crop starts in the window's
+    /// pixels, `scale` the pixels of a point.
+    static func pixelLimit(of span: ClosedRange<CGFloat>?, windowOrigin: CGFloat, cropOrigin: CGFloat,
+                           scale: CGFloat) -> ClosedRange<CGFloat>? {
+        guard let span else { return nil }
+        let low = (span.lowerBound - windowOrigin) * scale - cropOrigin
+        let high = (span.upperBound - windowOrigin) * scale - cropOrigin
+        return low < high ? low...high : nil
+    }
+
+    /// `rect`, which is where the probe found the content that moves, no wider across the scroll than `limit`, in
+    /// the same pixels as `rect`: narrowed, never widened. Left as it is when nothing of it lies inside the limit or
+    /// what does is under `minimum` pixels.
+    static func narrowed(_ rect: CGRect, axis: ScrollAxis, to limit: ClosedRange<CGFloat>?,
+                         minimum: CGFloat = 8) -> CGRect {
+        guard let limit else { return rect }
+        let start = axis == .vertical ? rect.minX : rect.minY
+        let end = axis == .vertical ? rect.maxX : rect.maxY
+        let low = max(start, limit.lowerBound), high = min(end, limit.upperBound)
+        guard high - low >= minimum else { return rect }
+        return axis == .vertical
+            ? CGRect(x: low, y: rect.minY, width: high - low, height: rect.height)
+            : CGRect(x: rect.minX, y: low, width: rect.width, height: high - low)
+    }
+}
+
 nonisolated enum ScrollAncestorResolver {
     /// How many elements up from the one under the pointer the walk to the window and to the scroll area goes. A
     /// browser puts the window many boxes above a page: AXImage, seven AXGroup, AXWebArea, AXScrollArea and six
@@ -150,6 +198,9 @@ struct ScrollViewport: Equatable, Sendable {
     /// site, which is made to be scrolled and shown in the width of the browser's
     /// window.
     var webPage: ScrollWebPage.Kind?
+    /// Across the scroll, the part of the area that holds what moves, when what moves is narrower than the area (a
+    /// strip of thumbnails under a large preview): in Quartz points, as `windowRect` is. Nil where it is the area.
+    var crossSpan: ClosedRange<CGFloat>?
     var isWebPage: Bool { webPage != nil }
 
     func cropped(to pixelRect: CGRect, backingScale: CGFloat) -> ScrollViewport? {
@@ -161,7 +212,7 @@ struct ScrollViewport: Equatable, Sendable {
                                        width: pointRect.width, height: pointRect.height)
         return ScrollViewport(windowRect: croppedWindowRect,
                               relativeScrollPoint: relativeScrollPoint,
-                              windowBounds: windowBounds, webPage: webPage)
+                              windowBounds: windowBounds, webPage: webPage, crossSpan: crossSpan)
     }
 
     func insetWindowEdges(points: CGFloat) -> ScrollViewport? {
@@ -188,7 +239,7 @@ struct ScrollViewport: Equatable, Sendable {
                           height: windowRect.height - top - bottom)
         guard rect.width >= 40, rect.height >= 40 else { return nil }
         return ScrollViewport(windowRect: rect, relativeScrollPoint: relativeScrollPoint,
-                              windowBounds: windowBounds, webPage: webPage)
+                              windowBounds: windowBounds, webPage: webPage, crossSpan: crossSpan)
     }
 
     var cropRectInWindowPoints: CGRect {
@@ -442,11 +493,16 @@ enum ScrollDriver {
             childRoles: role == (kAXScrollAreaRole as String) ? childRoles(of: elements[index]) : nil,
             bundleIdentifier: NSRunningApplication(processIdentifier: selection.processID)?.bundleIdentifier,
             areaSize: rect.size, windowSize: selection.bounds.size)
-        Log.capture.notice("scroll viewport resolved · AXError \(result.rawValue, privacy: .public) · chain \(chain.joined(separator: " > "), privacy: .public) · viewport \(rect.debugDescription, privacy: .public)\(webPage.map { " · web page (\($0.rawValue))" } ?? "")")
+        // Not for a page: what moves in a site is the page, in the width of the window. In another area, the strip
+        // that moves may be narrower than the area.
+        let strip = webPage == nil
+            ? ScrollStrip.crossSpan(elements: candidates[0..<index].map(\.frame), area: rect, axis: axis) : nil
+        Log.capture.notice("scroll viewport resolved · AXError \(result.rawValue, privacy: .public) · chain \(chain.joined(separator: " > "), privacy: .public) · viewport \(rect.debugDescription, privacy: .public)\(webPage.map { " · web page (\($0.rawValue))" } ?? "")\(strip.map { " · strip \(Int($0.upperBound - $0.lowerBound)) pt" } ?? "")")
         return .accessibility(viewport: ScrollViewport(windowRect: rect,
                                                         relativeScrollPoint: CGPoint(x: selection.clickPoint.x - selection.bounds.minX,
                                                                                      y: selection.clickPoint.y - selection.bounds.minY),
-                                                        windowBounds: selection.bounds, webPage: webPage),
+                                                        windowBounds: selection.bounds, webPage: webPage,
+                                                        crossSpan: strip),
                               container: elements[index])
     }
 
