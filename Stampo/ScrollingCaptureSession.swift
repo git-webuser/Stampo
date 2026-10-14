@@ -25,7 +25,7 @@ final class ScrollingCaptureSession {
         case raiseWindow, resolveViewport, validateTarget, capture, probeMotion, match, save
     }
 
-    var onFinished: ((CGImage) -> Void)?
+    var onFinished: ((ScrollingCaptureResult) -> Void)?
     var onCancelled: (() -> Void)?
     var onStatus: ((ScrollCaptureStatus) -> Void)?
     /// Nothing could be collected, and the reason is none of the user's
@@ -257,8 +257,10 @@ final class ScrollingCaptureSession {
             let image = try assembler.makeImage()
             dump?.save(image, as: "final")
             dump?.step("final \(image.width)x\(image.height)")
+            // Before the buffers go: the assembler says whether the image was halved.
+            let pixelsPerPoint = ScrollImageDensity.pixelsPerPoint(scale: scale, shrunk: assembler.isShrunk)
             releaseCaptureBuffers()
-            onFinished?(image)
+            onFinished?(ScrollingCaptureResult(image: image, pixelsPerPoint: pixelsPerPoint))
         } catch {
             releaseCaptureBuffers()
             diagnosticStage = .save

@@ -91,10 +91,10 @@ final class ScreenshotService {
                                               })
         scrollingSession = session
         session.onStatus = { [weak self] status in self?.onScrollingStatus?(status) }
-        session.onFinished = { [weak self] image in
+        session.onFinished = { [weak self] result in
             guard let self else { return }
             self.scrollingSession = nil
-            self.saveScrollingImage(image, on: preferredScreen)
+            self.saveScrollingImage(result.image, pixelsPerPoint: result.pixelsPerPoint, on: preferredScreen)
         }
         session.onCancelled = { [weak self] in
             self?.scrollingSession = nil
@@ -115,7 +115,7 @@ final class ScreenshotService {
         return true
     }
 
-    private func saveScrollingImage(_ image: CGImage, on screen: NSScreen?) {
+    private func saveScrollingImage(_ image: CGImage, pixelsPerPoint: Double, on screen: NSScreen?) {
         let store = self.store
         let format = AppSettings.fileFormat
         let service = self
@@ -124,9 +124,7 @@ final class ScreenshotService {
         let displayID = screen?.displayID
         Task.detached(priority: .userInitiated) { [weak service] in
             do {
-                let rep = NSBitmapImageRep(cgImage: image)
-                let (type, properties) = ScreenshotFileStore.encoding(for: format)
-                guard let data = rep.representation(using: type, properties: properties) else {
+                guard let data = Self.scrollingImageData(image, pixelsPerPoint: pixelsPerPoint, format: format) else {
                     throw ScreenshotFileStore.SaveError.encodingFailed
                 }
                 let url = try store.saveEncodedImage(data, format: format)
@@ -141,6 +139,17 @@ final class ScreenshotService {
                 }
             }
         }
+    }
+
+    /// The scrolling image as the file will hold it, in `format` (png, jpg, tiff): its size in points says how many
+    /// of its pixels are a point of the screen (`ScrollImageDensity`), which the encoders write as the density — the
+    /// same as an ordinary capture's, which says 144 on a Retina screen.
+    nonisolated static func scrollingImageData(_ image: CGImage, pixelsPerPoint: Double, format: String) -> Data? {
+        let rep = NSBitmapImageRep(cgImage: image)
+        rep.size = ScrollImageDensity.pointSize(pixelsWide: image.width, pixelsHigh: image.height,
+                                                pixelsPerPoint: pixelsPerPoint)
+        let (type, properties) = ScreenshotFileStore.encoding(for: format)
+        return rep.representation(using: type, properties: properties)
     }
 
     static func scrollingSaveErrorKind(_ error: Error) -> UserFacingError.Kind {
