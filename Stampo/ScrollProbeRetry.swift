@@ -9,6 +9,19 @@ nonisolated enum ScrollProbeRetry {
     /// The pause before each attempt, in seconds.
     static let pause: TimeInterval = 1
 
+    /// The page that does not change on its own is not playing an intro: the frame taken at the same place before this
+    /// attempt and the one before the last differ by less than this (the mean difference of the viewport's crops,
+    /// the same still point `captureStableWindow` waits for).
+    static let stillBelow = 0.003
+
+    /// Whether the attempts go on after one that did not match, given how much the page changed between the last two
+    /// looks at it from the same place. An intro or a video does; a page that stands (a line of text) does not, and
+    /// one attempt is all the wait it costs. The page is not put back at exactly the same place, so a change that is
+    /// not the page's own only costs time.
+    static func keepsTrying(changeSinceLastLook: Double) -> Bool {
+        changeSinceLastLook >= stillBelow
+    }
+
     /// Whether an attempt may begin `elapsed` seconds after the first refusal.
     static func beginsAttempt(after elapsed: TimeInterval) -> Bool {
         elapsed < limit

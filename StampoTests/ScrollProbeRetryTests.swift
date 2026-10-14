@@ -18,6 +18,17 @@ import Testing
         #expect(!ScrollProbeRetry.beginsAttempt(after: 14.3))
     }
 
+    /// A page that does not change between two looks from the same place is not playing an intro: one attempt is
+    /// all the wait it costs. An intro or a video, which does change, goes on to the limit.
+    @Test func thePageThatDoesNotChangeEndsTheAttempts() {
+        #expect(ScrollProbeRetry.stillBelow == 0.003)
+        #expect(!ScrollProbeRetry.keepsTrying(changeSinceLastLook: 0))
+        #expect(!ScrollProbeRetry.keepsTrying(changeSinceLastLook: 0.002))
+        #expect(ScrollProbeRetry.keepsTrying(changeSinceLastLook: 0.003))
+        #expect(ScrollProbeRetry.keepsTrying(changeSinceLastLook: 0.004))
+        #expect(ScrollProbeRetry.keepsTrying(changeSinceLastLook: 0.4))
+    }
+
     /// With none matched the capture goes on from the last pair the probe moved something in, and from the first when
     /// the probe moved nothing in any attempt.
     @Test func theLastPairInWhichTheProbeMovedSomethingIsKept() {
