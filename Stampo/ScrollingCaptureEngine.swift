@@ -87,6 +87,14 @@ nonisolated struct FrameMatch: Equatable, Sendable {
     /// the rest moved: a bar fixed to the viewport, or a part of the page that
     /// does not scroll with the rest.
     var standing: Set<Int> = []
+    /// Tiles that put the page a little way off the offset found, neither for it
+    /// nor against it (`FrameMatcher.nearRange(of:)`).
+    var near = 0
+    /// Tiles of a part of the page that moved less than the rest and stopped — a
+    /// panel pinned to the viewport that was still on its way when the earlier
+    /// frame was taken (`FrameMatcher.isSticking`) — neither for the offset found
+    /// nor against it.
+    var sticking = 0
 }
 
 nonisolated enum FrameMatchError: Error, Equatable, LocalizedError {
@@ -252,13 +260,17 @@ nonisolated enum FrameMatcher {
             throw FrameMatchError.crossAxisMotion
         }
 
-        var agreeing = 0, decisive = 0, against = 0, tileMargin = 0.0
+        var agreeing = 0, decisive = 0, against = 0, near = 0, sticking = 0, tileMargin = 0.0
         for t in moving {
             let curve = tileCost[t]
             let atBest = curve[best]
             guard atBest.isFinite, let lowest = curve.filter(\.isFinite).min() else { continue }
             guard atBest - lowest <= tolerance else {
-                if uniqueBest(curve, tolerance: tolerance) != nil { against += 1 }
+                if let other = uniqueBest(curve, tolerance: tolerance) {
+                    if abs(other - best) <= nearRange(of: best) { near += 1 }
+                    else if isSticking(other, offset: best) { sticking += 1 }
+                    else { against += 1 }
+                }
                 continue
             }
             agreeing += 1
@@ -267,6 +279,13 @@ nonisolated enum FrameMatcher {
                 decisive += 1
                 tileMargin = max(tileMargin, (alternative - atBest) / max(alternative, 0.015))
             }
+        }
+        // Tiles that stuck are neutral beside tiles that are exact at the offset
+        // and nowhere else, and only if they are all that dissent; with fewer of
+        // those, or beside a tile that went further, they know better, as ever.
+        if decisive < stickingNeedsExact || against > 0 {
+            against += sticking
+            sticking = 0
         }
         let alternative = agg.enumerated().filter { abs($0.offset - best) > 2 }.map(\.element).filter(\.isFinite).min() ?? 1
         let frameMargin = (alternative - agg[best]) / max(alternative, 0.015)
@@ -297,7 +316,7 @@ nonisolated enum FrameMatcher {
         let confidence = min(1, (1 - agg[best]) * 0.55 + margin * 0.45)
         guard confidence >= minimumConfidence else { throw FrameMatchError.ambiguousMotion }
         return FrameMatch(offset: best, confidence: confidence, independentRegions: agreeing,
-                          standing: standingTiles(tiles))
+                          standing: standingTiles(tiles), near: near, sticking: sticking)
     }
 
     /// The tiles that stand still: they have something in them, and their one
@@ -317,6 +336,43 @@ nonisolated enum FrameMatcher {
     /// Tiles the sample grid is cut into: `tileRows` along the scroll, `tileColumns`
     /// across it, a tile's number being its row times `tileColumns` plus its column.
     static let tileRows = 4, tileColumns = 5
+    /// How far from an offset a tile's one best fit may lie and the tile still
+    /// be neither for the offset nor against it: `nearFraction` of the offset,
+    /// and two pixels at the least. Two columns of a page that the page's
+    /// script moves a little faster and a little slower than the rest — a
+    /// parallax of ±3.1 % on claude.com's use-case library, up to 3.7 % in
+    /// others — are each rigid and exact at their own offset, and a few of
+    /// their tiles are enough to refuse a step whose centre is exact; a pixel of
+    /// play between frames is the same thing at a smaller scale. Four percent
+    /// leaves a margin over the parallax and is far under the 12.5 % that a list
+    /// of lines 80 px apart makes of a step of 640, where a tile that knows
+    /// better is a different line of the list.
+    static let nearFraction = 0.04
+    static func nearRange(of offset: Int) -> Int {
+        max(2, Int((Double(offset) * nearFraction).rounded()))
+    }
+
+    /// A tile whose one best fit lies strictly between standing still and the
+    /// offset less its near range: that part of the page moved a little way and
+    /// stopped. A panel pinned to the viewport — Wikipedia's "Contents" and
+    /// "Appearance" — rides with the page until it reaches its place and stays
+    /// there; a frame taken before that and one taken after put it the rest of
+    /// the way apart, 38 px whatever the page did (2026-10-11-193039).
+    static func isSticking(_ best: Int, offset: Int) -> Bool {
+        best > 0 && best < offset - nearRange(of: offset)
+    }
+
+    /// Tiles that are exact at the offset and at no other — their one best fit
+    /// is the offset, to within two pixels — that a tile which stuck needs
+    /// beside it to be neither for the offset nor against it. Fewer, and the
+    /// tile that knows better is believed: a calibration that is wrong makes
+    /// its own offset, and tiles that fit it by the repeat of a list agree
+    /// with it in no way worth the name (2026-10-11-134734, 552 asked for the
+    /// 399 that two tiles found). Nor do they stick beside a tile that went
+    /// further than the offset: columns eight percent either way of a list's
+    /// line are a different line of it, not a panel that stopped.
+    static let stickingNeedsExact = 2
+
     /// How far a tile's cost may sit above its own best and still be said to
     /// agree with an offset, and the cost under which a tile fits at all.
     private static let tolerance = 0.005, fitThreshold = 0.03
@@ -439,6 +495,12 @@ nonisolated enum FrameMatcher {
         /// More tiles know better than a fifth of those that move, or the
         /// distance cannot be looked at: the frames contradict it.
         let contradicted: Bool
+        /// Tiles whose one best fit is near the distance asked about
+        /// (`nearRange(of:)`): not counted for it nor against it.
+        var near = 0
+        /// Tiles that stuck (`isSticking`) beside at least `stickingNeedsExact`
+        /// tiles exact at the distance: not counted for it nor against it.
+        var sticking = 0
     }
 
     /// One pass over the tiles of two frames the matcher could not place: which
@@ -455,7 +517,7 @@ nonisolated enum FrameMatcher {
             // The tile numbers are those of the band's grid, not the frame's:
             // as with a match on a band, nothing that stands is reported.
             return StepEvidence(standing: [], consistent: found.consistent, against: found.against,
-                                contradicted: found.contradicted)
+                                contradicted: found.contradicted, near: found.near, sticking: found.sticking)
         }
         return evidenceWhole(previous: previous, current: current, axis: axis,
                              offset: offset, searchLimit: searchLimit)
@@ -471,7 +533,7 @@ nonisolated enum FrameMatcher {
         let tiles = tileCurves(previous: previous, current: current, axis: axis, limit: limit)
         let standing = standingTiles(tiles)
         guard let offset else { return StepEvidence(standing: standing, consistent: 0, against: 0, contradicted: false) }
-        var consistent = 0, against = 0, moving = 0
+        var consistent = 0, against = 0, near = 0, sticking = 0, exact = 0, moving = 0
         for t in 0..<tiles.cost.count {
             let curve = tiles.cost[t]
             guard let lowest = curve.filter(\.isFinite).min(), lowest <= fitThreshold else { continue }
@@ -479,11 +541,32 @@ nonisolated enum FrameMatcher {
             if still - lowest <= tolerance { continue }
             moving += 1
             guard curve[offset].isFinite else { continue }
-            if curve[offset] - lowest <= tolerance { consistent += 1 }
-            else if uniqueBest(curve, tolerance: tolerance) != nil { against += 1 }
+            if curve[offset] - lowest <= tolerance {
+                consistent += 1
+                if let only = uniqueBest(curve, tolerance: tolerance), abs(only - offset) <= 2 { exact += 1 }
+            } else if let other = uniqueBest(curve, tolerance: tolerance) {
+                if abs(other - offset) <= nearRange(of: offset) { near += 1 }
+                else if isSticking(other, offset: offset) { sticking += 1 }
+                else { against += 1 }
+            }
+        }
+        if exact < stickingNeedsExact || against > 0 {
+            against += sticking
+            sticking = 0
+        }
+        // Tiles near the distance are neutral only beside a tile that is exact at
+        // it: the columns of a parallax are off by a little while the rest of the
+        // page is where it was asked. With none exact, nothing says the page
+        // moved by that distance, and tiles that are all a little off it are what
+        // a picture growing as the page scrolls looks like (2026-10-11-115436:
+        // one tile at 635 against the 640 asked, the rest changing by
+        // themselves). Then they are against, as they were.
+        if consistent == 0 {
+            against += near
+            near = 0
         }
         return StepEvidence(standing: standing, consistent: consistent, against: against,
-                            contradicted: against > max(0, moving / 5))
+                            contradicted: against > max(0, moving / 5), near: near, sticking: sticking)
     }
 
     /// Whether `offset` is consistent with the frames when they cannot pin it
@@ -600,10 +683,74 @@ nonisolated struct ImageAssembler: Sendable {
     private(set) var viewportHeight = 0
     /// The last frame laid, whole, and the rows of it the seam before it left
     /// to the frame before: what the next seam is chosen against.
-    private var lastFrame: CaptureFrame?
+    private(set) var lastFrame: CaptureFrame?
     private var lastSkip = 0
+    /// How far the last frame laid was from the one before it, and where the
+    /// seam before it fell in that one: together they say how much of the last
+    /// frame the one before it had already given (`replaceLast`).
+    private var lastMovement = 0
+    private var skipBeforeLast = 0
     /// The seam of the last frame laid, and why it fell there.
     private(set) var lastSeam: ScrollSeam.Choice?
+    /// What the viewport showed above the rows that scroll, once, at the top
+    /// of the image: a site's bar as the browser's window has it. It takes no
+    /// part in the matching and is laid at no seam; the frames begin below it.
+    /// In the image's own pixels, so it is halved with the strips.
+    private(set) var header: CaptureFrame?
+
+    // What a page pins to the viewport (`ScrollPinned`) is put back under once two frames after the one it is in
+    // have come: the slice of a frame is mended when the frame two after it is laid, from the frames next to it, so
+    // that the elements are known from one pair more than the first look would give.
+    private var pinnedAccumulator = ScrollPinned.Accumulator()
+    /// Whether pinned blocks have been given, which is when the frames before the last are kept.
+    private var tracksPinned = false
+    /// The frames before the last, and how far the frame before the last stands from the one before it.
+    private var beforeLast: CaptureFrame?
+    private var beforeBeforeLast: CaptureFrame?
+    private var movementBeforeLast = 0
+    private var framesLaid = 0
+    /// A slice that no element covered yet, with the frames it is mended from, waiting for evidence while the capture
+    /// is young (`ScrollPinned.waitingPairs`).
+    private var waiting: [WaitingSlice] = []
+    /// Where the strips of the last frame and of the one before it begin, in the image's pixels, to know they are
+    /// still there.
+    private var lastStripStart: Int?
+    private var beforeLastStripStart: Int?
+    /// The rows of the first frame that the first slice holds: from here to its end, the image has the rest from
+    /// the frames after it.
+    private var firstSeamRow = 0
+    private var firstScreen: FirstScreen?
+    /// The first two frames, kept until the first screen is made from them (`ScrollPinned.waitingPairs`).
+    private var firstFrame: CaptureFrame?
+    private var secondFrame: CaptureFrame?
+    /// What the last mending did for a slice: nil when nothing was covered.
+    private(set) var lastRepair: ScrollPinned.Repair?
+
+    /// A slice of a frame to be mended: its rows `from..<to`, the strip it is in, the frames next to it and how far
+    /// they stand along the scroll.
+    private struct WaitingSlice: Sendable {
+        var earlier: CaptureFrame?
+        var middle: CaptureFrame
+        var following: CaptureFrame
+        var from: Int
+        var to: Int
+        var stripStart: Int
+        var movementBefore: Int
+        var movementAfter: Int
+        /// The frame after `following`, when it has come, and how far it stands from it.
+        var newer: CaptureFrame?
+        var movementNewer = 0
+    }
+
+    /// The first screen as the window showed it: the pixels of the first frame from `rowStart` on, where a pinned
+    /// element of it lies (`region`), over what the frames after it have there. In the pixels of the image: halved
+    /// with it.
+    private struct FirstScreen: Sendable {
+        var region: PinnedGrid
+        var rowStart: Int
+        var pixels: CaptureFrame
+        var halved = false
+    }
 
     init(axis: ScrollAxis, maxLength: Int = ScrollLengthLimit.default, scale: CGFloat = 1) {
         self.axis = axis
@@ -624,9 +771,15 @@ nonisolated struct ImageAssembler: Sendable {
         ScrollLengthLimit.effectiveLimit(limit: maxLength, crossSize: outputCrossSize)
     }
 
+    /// The header's length along the scroll, in the image's own pixels.
+    var headerLength: Int {
+        guard let header else { return 0 }
+        return axis == .vertical ? header.height : header.width
+    }
+
     /// How long the image would be after `movement` more pixels of the frames.
     func lengthAfterAdding(_ movement: Int) -> Int {
-        isShrunk ? (fullLength + movement) / 2 : fullLength + movement
+        (isShrunk ? (fullLength + movement) / 2 : fullLength + movement) + headerLength
     }
 
     mutating func begin(with frame: CaptureFrame) {
@@ -639,7 +792,49 @@ nonisolated struct ImageAssembler: Sendable {
         fullLength = length
         lastFrame = frame
         lastSkip = 0
+        lastMovement = 0
+        skipBeforeLast = 0
         lastSeam = nil
+        header = nil
+        resetPinned()
+        framesLaid = 1
+        lastStripStart = 0
+    }
+
+    private mutating func resetPinned() {
+        pinnedAccumulator = ScrollPinned.Accumulator()
+        tracksPinned = false
+        beforeLast = nil
+        beforeBeforeLast = nil
+        movementBeforeLast = 0
+        framesLaid = 0
+        waiting = []
+        lastStripStart = nil
+        beforeLastStripStart = nil
+        firstSeamRow = 0
+        firstScreen = nil
+        firstFrame = nil
+        secondFrame = nil
+        lastRepair = nil
+    }
+
+    /// Puts `frame` once above the image, after `begin`. Its other side has to
+    /// be the frames' own. Returns whether it was taken; the image is as long
+    /// again as the header, which the limit counts.
+    @discardableResult
+    mutating func setHeader(_ frame: CaptureFrame) -> Bool {
+        guard header == nil, !strips.isEmpty else { return false }
+        let length = axis == .vertical ? frame.height : frame.width
+        let cross = axis == .vertical ? frame.width : frame.height
+        guard length > 0, cross == (axis == .vertical ? viewportWidth : viewportHeight) else { return false }
+        if isShrunk {
+            guard length / 2 > 0, let halved = Self.halved(frame, axis: axis, length: length / 2) else { return false }
+            header = halved
+        } else {
+            header = frame
+        }
+        totalLength += headerLength
+        return true
     }
 
     /// Adds a frame that is `movement` pixels further along than the last one.
@@ -660,7 +855,12 @@ nonisolated struct ImageAssembler: Sendable {
     ///
     /// Direction is normalized so the assembled document reads top-to-bottom /
     /// left-to-right.
-    mutating func append(_ frame: CaptureFrame, movement: Int) throws {
+    ///
+    /// `pinned`: the blocks of `frame` that stand where they stood in the frame before it although the page
+    /// moved (`ScrollPinned.pinnedBlocks`). Given, they tell what the page pins to the viewport, and the slice of
+    /// the frame before the last is mended by that now that this one is here; without them the image is laid as it
+    /// always was. The slice of the last frame laid waits for the next one (`settlePending`).
+    mutating func append(_ frame: CaptureFrame, movement: Int, pinned: PinnedGrid? = nil) throws {
         let frameLength = axis == .vertical ? frame.height : frame.width
         guard !strips.isEmpty, frame.width == viewportWidth, frame.height == viewportHeight,
               movement > 0, movement < frameLength
@@ -676,6 +876,11 @@ nonisolated struct ImageAssembler: Sendable {
         let skip = choice.skip
         let seam = fullLength - overlap + skip
         guard let rest = Self.dropping(skip, from: frame, axis: axis) else { throw FrameMatchError.noReliableMotion }
+        let stripStartBefore = lastStripStart
+        if pinned != nil, axis == .vertical {
+            if framesLaid == 1 { firstFrame = lastFrame }
+            if framesLaid == 2 { secondFrame = lastFrame }
+        }
         if isShrunk {
             // In the output's pixels, from the same floor as ever: the rest of
             // the frame begins at half of where it begins in its own, and ends
@@ -683,22 +888,184 @@ nonisolated struct ImageAssembler: Sendable {
             // exactly.
             let start = seam / 2, end = (fullLength + movement) / 2
             trim(to: start)
+            noteAndMend(next: frame, movement: movement, skip: skip, pinned: pinned)
             // A frame can round to nothing only in a degenerate case; the image
             // then simply ends where the cut left it, and the next begins there.
+            lastStripStart = nil
             if end > start, let halved = Self.halved(rest, axis: axis, length: end - start) {
                 strips.append(CaptureStrip(frame: halved, start: start))
+                lastStripStart = start
             }
             fullLength += movement
-            totalLength = fullLength / 2
+            totalLength = fullLength / 2 + headerLength
         } else {
             trim(to: seam)
+            noteAndMend(next: frame, movement: movement, skip: skip, pinned: pinned)
             strips.append(CaptureStrip(frame: rest, start: seam))
+            lastStripStart = seam
             totalLength += movement
             fullLength += movement
         }
+        if pinned != nil { tracksPinned = true }
+        if tracksPinned {
+            beforeBeforeLast = beforeLast
+            beforeLast = lastFrame
+        }
+        beforeLastStripStart = stripStartBefore
+        movementBeforeLast = lastMovement
+        framesLaid += 1
+        skipBeforeLast = lastSkip
+        lastMovement = movement
         lastFrame = frame
         lastSkip = skip
         lastSeam = choice
+    }
+
+    /// Takes in the pinned blocks of the pair this frame makes with the last, and mends what is ready to be mended.
+    private mutating func noteAndMend(next frame: CaptureFrame, movement: Int, skip: Int, pinned: PinnedGrid?) {
+        lastRepair = nil
+        guard axis == .vertical, let pinned else { return }
+        pinnedAccumulator.add(pinned)
+        // The first frame has no pair before it: its slice is the first screen, and where that ends is known now.
+        if framesLaid == 1 { firstSeamRow = movement + skip }
+        mendBeforeLast(next: frame, movement: movement, final: false)
+    }
+
+    /// Mends the slice that the frame before the last gives to the image: where pinned elements cover it, the page
+    /// comes from the frame after it or the one before it. Nothing happens for the first frame (the first screen is
+    /// as the window showed it, `firstScreen`), for the last frame laid (its slice waits for a neighbour and, if none
+    /// comes, stays as it is), or when no pinned blocks were given. While the capture is young — an element that
+    /// sticks to the viewport only after the first scroll has shown itself in few pairs — the slices wait, to be
+    /// mended together once `ScrollPinned.waitingPairs` pairs are in, or at the end (`final`).
+    /// Mending the same slice again gives the same.
+    private mutating func mendBeforeLast(next newer: CaptureFrame?, movement movementNewer: Int, final: Bool) {
+        lastRepair = nil
+        guard axis == .vertical, tracksPinned, let following = lastFrame, let middle = beforeLast else { return }
+        let earlier = beforeBeforeLast
+        // The first screen, once the accumulator has seen enough pairs to say what is pinned in the first frame.
+        if let first = firstFrame, final || pinnedAccumulator.pairs >= ScrollPinned.waitingPairs {
+            buildFirstScreen(from: first, region: pinnedAccumulator.region(of: first, near: [secondFrame].compactMap { $0 }))
+            firstFrame = nil
+            secondFrame = nil
+        }
+        // The slice of the frame before the last.
+        var queue = waiting
+        waiting = []
+        let from = skipBeforeLast, to = lastMovement + lastSkip
+        // The first frame has no slice to mend: what the window showed is the first screen.
+        if from >= 0, to > from, to <= middle.height, let start = beforeLastStripStart, earlier != nil {
+            queue.append(WaitingSlice(earlier: earlier, middle: middle, following: following, from: from, to: to,
+                                      stripStart: start, movementBefore: movementBeforeLast, movementAfter: lastMovement,
+                                      newer: newer, movementNewer: movementNewer))
+        }
+        if !final, pinnedAccumulator.pairs < ScrollPinned.waitingPairs {
+            waiting = Array(queue.suffix(ScrollPinned.waitingPairs))
+            return
+        }
+        var total = ScrollPinned.Repair()
+        var mended = false
+        for slice in queue {
+            if let repair = mend(slice) {
+                total.add(repair)
+                mended = true
+            }
+        }
+        lastRepair = mended ? total : nil
+    }
+
+    /// Puts the page back under the elements in a slice of the image; nil when nothing was covered or put back.
+    private mutating func mend(_ slice: WaitingSlice) -> ScrollPinned.Repair? {
+        let (region, core) = pinnedAccumulator.regionAndCore(of: slice.middle,
+                                                             near: [slice.earlier, slice.following].compactMap { $0 })
+        guard !region.isEmpty, let index = strips.lastIndex(where: { $0.start == slice.stripStart }) else { return nil }
+        let strip = strips[index]
+        let size = strip.frame.height
+        // The strip is as long as the rows the slice stands for: halved, to within a row.
+        guard isShrunk ? abs((slice.to - slice.from) / 2 - size) <= 1 : slice.to - slice.from == size else { return nil }
+        // A frame next to it gives the page nowhere that a pinned element stands in it.
+        let followingRegion = pinnedAccumulator.region(of: slice.following,
+                                                       near: [slice.middle, slice.newer].compactMap { $0 })
+        // The page under an element comes up above it in the frame after, and when that frame still has it under the
+        // element (the step is short next to the element's height), in the one after that.
+        var neighbours = [ScrollPinned.Neighbour(frame: slice.following, region: followingRegion, offset: slice.movementAfter)]
+        if let newer = slice.newer {
+            let newerRegion = pinnedAccumulator.region(of: newer, near: [slice.following])
+            neighbours.append(.init(frame: newer, region: newerRegion, offset: slice.movementAfter + slice.movementNewer))
+        }
+        if let earlier = slice.earlier {
+            let earlierRegion = pinnedAccumulator.region(of: earlier, near: [slice.middle])
+            neighbours.append(.init(frame: earlier, region: earlierRegion, offset: -slice.movementBefore))
+        }
+        let result = ScrollPinned.repairedSlice(frame: slice.middle, rows: slice.from..<slice.to, region: region,
+                                                core: core, neighbours: neighbours)
+        guard result.repair.blocks > 0 else { return nil }
+        let mended: CaptureFrame
+        if isShrunk {
+            guard let halved = Self.halved(result.slice, axis: axis, length: size) else { return nil }
+            mended = halved
+        } else {
+            guard result.slice.height == size else { return nil }
+            mended = result.slice
+        }
+        strips[index] = CaptureStrip(frame: mended, start: strip.start)
+        return result.repair
+    }
+
+    /// The end of the capture: the slice of the frame before the last, which waited for the frame two after it, is
+    /// mended with what there is. Only the slice of the last frame is left as it came.
+    mutating func settlePending() {
+        mendBeforeLast(next: nil, movement: 0, final: true)
+    }
+
+    /// The first frame's pixels below the first seam, kept to be laid over the image where a pinned element of the
+    /// first frame lies: the card that was whole on the first screen is whole there and not cut at the seam.
+    private mutating func buildFirstScreen(from first: CaptureFrame, region: PinnedGrid) {
+        guard !region.isEmpty, firstSeamRow >= 0, firstSeamRow < first.height else { return }
+        let rect = CGRect(x: 0, y: firstSeamRow, width: first.width, height: first.height - firstSeamRow)
+        guard let rows = first.cropped(to: rect) else { return }
+        var screen = FirstScreen(region: region, rowStart: firstSeamRow, pixels: rows)
+        if isShrunk {
+            // The image is half size already: so is the first screen laid over it.
+            guard rows.height / 2 > 0, let halved = Self.halved(rows, axis: axis, length: rows.height / 2) else { return }
+            screen.pixels = halved
+            screen.halved = true
+        }
+        firstScreen = screen
+    }
+
+    /// Lays `frame` over the last frame laid, at the same place: the page did
+    /// not move, something on it did — a section pinned to the viewport changed
+    /// its stage — and the image is to have it as it is now. The image is as
+    /// long as it was. The new frame gives everything from the floor, where the
+    /// seam before the last frame left off (the rows above it are the earlier
+    /// frame's and stay), so that it covers as much as it can; in the halved
+    /// image the same, in its pixels. The next frame is laid against this one.
+    mutating func replaceLast(with frame: CaptureFrame) throws {
+        guard lastFrame != nil, !strips.isEmpty,
+              frame.width == viewportWidth, frame.height == viewportHeight
+        else { throw FrameMatchError.noReliableMotion }
+        let frameLength = axis == .vertical ? frame.height : frame.width
+        let floor = max(0, skipBeforeLast - lastMovement)
+        let seam = fullLength - frameLength + floor
+        guard seam >= 0, let rest = Self.dropping(floor, from: frame, axis: axis)
+        else { throw FrameMatchError.noReliableMotion }
+        if isShrunk {
+            let start = seam / 2, end = fullLength / 2
+            trim(to: start)
+            lastStripStart = nil
+            if end > start, let halved = Self.halved(rest, axis: axis, length: end - start) {
+                strips.append(CaptureStrip(frame: halved, start: start))
+                lastStripStart = start
+            }
+        } else {
+            trim(to: seam)
+            strips.append(CaptureStrip(frame: rest, start: seam))
+            lastStripStart = seam
+        }
+        lastFrame = frame
+        lastSkip = floor
+        lastSeam = nil
+        lastRepair = nil
     }
 
     /// `frame` without its first `count` rows (columns, along a horizontal
@@ -741,7 +1108,24 @@ nonisolated struct ImageAssembler: Sendable {
         }
         strips = halved
         isShrunk = true
-        totalLength = fullLength / 2
+        lastStripStart = lastStripStart.map { $0 / 2 }
+        beforeLastStripStart = beforeLastStripStart.map { $0 / 2 }
+        for index in waiting.indices { waiting[index].stripStart /= 2 }
+        if var screen = firstScreen, !screen.halved {
+            if screen.pixels.height / 2 > 0,
+               let pixels = Self.halved(screen.pixels, axis: axis, length: screen.pixels.height / 2) {
+                screen.pixels = pixels
+                screen.halved = true
+                firstScreen = screen
+            } else {
+                firstScreen = nil
+            }
+        }
+        if let header {
+            let length = axis == .vertical ? header.height : header.width
+            self.header = length / 2 > 0 ? Self.halved(header, axis: axis, length: length / 2) : nil
+        }
+        totalLength = fullLength / 2 + headerLength
     }
 
     /// `frame` at half its size across the scroll and `length` pixels along it.
@@ -776,7 +1160,11 @@ nonisolated struct ImageAssembler: Sendable {
         viewportHeight = 0
         lastFrame = nil
         lastSkip = 0
+        lastMovement = 0
+        skipBeforeLast = 0
         lastSeam = nil
+        header = nil
+        resetPinned()
     }
 
     func makeImage(maxPixels: Int? = nil) throws -> CGImage {
@@ -797,15 +1185,36 @@ nonisolated struct ImageAssembler: Sendable {
         else { throw FrameMatchError.outputLimitExceeded }
         let output = data.assumingMemoryBound(to: UInt8.self)
         let outputRow = context.bytesPerRow
-        for strip in strips {
-            let rowBytes = strip.frame.width * 4
-            strip.frame.pixels.withUnsafeBufferPointer { source in
+        // The header at the top, the strips from below it.
+        let offset = headerLength
+        var layers = strips.map { ($0.frame, $0.start + offset) }
+        if let header { layers.insert((header, 0), at: 0) }
+        for (frame, start) in layers {
+            let rowBytes = frame.width * 4
+            frame.pixels.withUnsafeBufferPointer { source in
                 guard let base = source.baseAddress else { return }
-                for y in 0..<strip.frame.height {
+                for y in 0..<frame.height {
                     let target = axis == .vertical
-                        ? (strip.start + y) * outputRow
-                        : y * outputRow + strip.start * 4
+                        ? (start + y) * outputRow
+                        : y * outputRow + start * 4
                     (output + target).update(from: base + y * rowBytes, count: rowBytes)
+                }
+            }
+        }
+        // The first screen as the window showed it, over what the frames after the first have at those places.
+        if let screen = firstScreen, axis == .vertical {
+            let scale = screen.halved ? 2 : 1
+            let firstRow = screen.halved ? screen.rowStart / 2 : screen.rowStart
+            let blockSize = ScrollPinned.block
+            let columns = screen.pixels.width
+            screen.pixels.pixels.withUnsafeBufferPointer { source in
+                for row in 0..<screen.pixels.height {
+                    let y = offset + firstRow + row
+                    guard y < height else { break }
+                    let blockRow = (screen.rowStart + row * scale) / blockSize
+                    for x in 0..<columns where screen.region[(x * scale) / blockSize, blockRow] {
+                        (output + y * outputRow + x * 4).update(from: source.baseAddress! + (row * columns + x) * 4, count: 4)
+                    }
                 }
             }
         }

@@ -13,6 +13,56 @@ nonisolated struct ScrollAncestorCandidate<Identity: Equatable> {
     var hasHorizontalScrollBar = false
 }
 
+/// Whether the area Accessibility found is a web page — a site, made to be
+/// scrolled and shown in the width of the browser's window — and how it is known.
+nonisolated enum ScrollWebPage {
+    enum Kind: String, Equatable, Sendable {
+        /// The area is an `AXWebArea`: Safari, and Chromium with a whole tree.
+        case webArea = "web area"
+        /// The area is an `AXScrollArea` with an `AXWebArea` among its own children.
+        case childWebArea = "child web area"
+        /// The children could not be had, the window is a browser's and the area
+        /// takes at least half of it.
+        case browserWindow = "browser window"
+    }
+
+    /// The browsers, by bundle identifier, with their beta and nightly builds.
+    static let browserBundles: Set<String> = [
+        "com.apple.Safari", "com.apple.SafariTechnologyPreview",
+        "com.google.Chrome", "com.google.Chrome.beta", "com.google.Chrome.dev", "com.google.Chrome.canary",
+        "org.chromium.Chromium",
+        "com.brave.Browser", "com.brave.Browser.beta", "com.brave.Browser.nightly",
+        "com.microsoft.edgemac", "com.microsoft.edgemac.Beta", "com.microsoft.edgemac.Dev",
+        "com.microsoft.edgemac.Canary",
+        "company.thebrowser.Browser",
+        "ru.yandex.desktop.yandex-browser",
+        "com.operasoftware.Opera", "com.operasoftware.OperaGX",
+        "com.vivaldi.Vivaldi",
+        "org.mozilla.firefox", "org.mozilla.firefoxdeveloperedition", "org.mozilla.nightly",
+    ]
+
+    /// How the chosen area is a web page, or nil if it is not. `childRoles` are
+    /// the roles of the area's own children: nil when they could not be had.
+    /// Chromium with a partial tree gives an `AXScrollArea` and no `AXWebArea`
+    /// in the chain; the page is then the web area among the scroll area's
+    /// children, and when even those are not to be had, a browser window whose
+    /// area is most of it. A scroll area whose children are known and hold no web
+    /// area — the list of a Finder window — is not a page.
+    static func kind(role: String, childRoles: [String]?, bundleIdentifier: String?,
+                     areaSize: CGSize, windowSize: CGSize) -> Kind? {
+        if role == "AXWebArea" { return .webArea }
+        guard role == (kAXScrollAreaRole as String) else { return nil }
+        if let childRoles, !childRoles.isEmpty {
+            return childRoles.contains("AXWebArea") ? .childWebArea : nil
+        }
+        guard let bundleIdentifier, browserBundles.contains(bundleIdentifier),
+              windowSize.width > 0, windowSize.height > 0,
+              areaSize.width * areaSize.height * 2 >= windowSize.width * windowSize.height
+        else { return nil }
+        return .browserWindow
+    }
+}
+
 nonisolated enum ScrollAncestorResolver {
     static func isSuitable(role: String, frame: CGRect, windowBounds: CGRect) -> Bool {
         guard role == (kAXScrollAreaRole as String) || role == "AXWebArea" || role == "AXTable" else {
@@ -75,6 +125,11 @@ struct ScrollViewport: Equatable, Sendable {
     /// The hit point relative to the window, so moving the window can rebase it.
     let relativeScrollPoint: CGPoint
     let windowBounds: CGRect
+    /// The area Accessibility found is a web page, and how that is known: a
+    /// site, which is made to be scrolled and shown in the width of the browser's
+    /// window.
+    var webPage: ScrollWebPage.Kind?
+    var isWebPage: Bool { webPage != nil }
 
     func cropped(to pixelRect: CGRect, backingScale: CGFloat) -> ScrollViewport? {
         guard backingScale > 0, pixelRect.width >= 1, pixelRect.height >= 1 else { return nil }
@@ -85,7 +140,7 @@ struct ScrollViewport: Equatable, Sendable {
                                        width: pointRect.width, height: pointRect.height)
         return ScrollViewport(windowRect: croppedWindowRect,
                               relativeScrollPoint: relativeScrollPoint,
-                              windowBounds: windowBounds)
+                              windowBounds: windowBounds, webPage: webPage)
     }
 
     func insetWindowEdges(points: CGFloat) -> ScrollViewport? {
@@ -112,7 +167,7 @@ struct ScrollViewport: Equatable, Sendable {
                           height: windowRect.height - top - bottom)
         guard rect.width >= 40, rect.height >= 40 else { return nil }
         return ScrollViewport(windowRect: rect, relativeScrollPoint: relativeScrollPoint,
-                              windowBounds: windowBounds)
+                              windowBounds: windowBounds, webPage: webPage)
     }
 
     var cropRectInWindowPoints: CGRect {
@@ -353,11 +408,17 @@ enum ScrollDriver {
             Log.capture.notice("scroll viewport fallback · AXError \(result.rawValue, privacy: .public) · chain \(chain.joined(separator: " > "), privacy: .public)")
             return .window(viewport: windowViewport)
         }
-        Log.capture.notice("scroll viewport resolved · AXError \(result.rawValue, privacy: .public) · chain \(chain.joined(separator: " > "), privacy: .public) · viewport \(rect.debugDescription, privacy: .public)")
+        let role = candidates[index].role
+        let webPage = ScrollWebPage.kind(
+            role: role,
+            childRoles: role == (kAXScrollAreaRole as String) ? childRoles(of: elements[index]) : nil,
+            bundleIdentifier: NSRunningApplication(processIdentifier: selection.processID)?.bundleIdentifier,
+            areaSize: rect.size, windowSize: selection.bounds.size)
+        Log.capture.notice("scroll viewport resolved · AXError \(result.rawValue, privacy: .public) · chain \(chain.joined(separator: " > "), privacy: .public) · viewport \(rect.debugDescription, privacy: .public)\(webPage.map { " · web page (\($0.rawValue))" } ?? "")")
         return .accessibility(viewport: ScrollViewport(windowRect: rect,
                                                         relativeScrollPoint: CGPoint(x: selection.clickPoint.x - selection.bounds.minX,
                                                                                      y: selection.clickPoint.y - selection.bounds.minY),
-                                                        windowBounds: selection.bounds),
+                                                        windowBounds: selection.bounds, webPage: webPage),
                               container: elements[index])
     }
 
@@ -368,6 +429,44 @@ enum ScrollDriver {
         guard let event = scrollEvent(axis: axis, lines: lines, backwards: backwards, at: point)
         else { throw ScrollDriverError.eventUnavailable }
         event.post(tap: .cghidEventTap)
+    }
+
+    /// For the record of a capture: the Accessibility chain from the element
+    /// under `point` up to `container`, the area the capture found, as roles —
+    /// and whether a scroll area of its own lies between them, a box that turns
+    /// under the wheel before the page does. A chain that never reaches the
+    /// container says so; so does a container that is not known.
+    static func axChain(at point: CGPoint, upTo container: AXUIElement?) -> String {
+        let system = systemWideElement()
+        var hit: AXUIElement?
+        let result = AXUIElementCopyElementAtPosition(system, Float(point.x), Float(point.y), &hit)
+        guard result == .success, var current = hit else { return "no element (AXError \(result.rawValue))" }
+        var parts: [String] = []
+        var nested: [String] = []
+        var reached = false
+        for _ in 0..<24 {
+            let role = stringAttribute(current, kAXRoleAttribute as String) ?? "?"
+            if let container, CFEqual(current, container) {
+                parts.append("\(role)[area]")
+                reached = true
+                break
+            }
+            if role == (kAXScrollAreaRole as String) {
+                let geometry = frameOf(current).map { String(format: "%.0f,%.0f %.0fx%.0f", $0.minX, $0.minY, $0.width, $0.height) } ?? "?"
+                parts.append("\(role)@\(geometry)")
+                nested.append(geometry)
+            } else {
+                parts.append(role)
+            }
+            if role == (kAXWindowRole as String) { break }
+            var parent: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(current, kAXParentAttribute as CFString, &parent) == .success,
+                  let next = parent, CFGetTypeID(next) == AXUIElementGetTypeID() else { break }
+            current = (next as! AXUIElement)
+        }
+        let area = container == nil ? " · no area known" : (reached ? "" : " · area not in the chain")
+        let box = nested.isEmpty ? "no" : "yes (\(nested.count): \(nested.joined(separator: "; ")))"
+        return parts.joined(separator: " > ") + area + " · own scroll area between: " + box
     }
 
     /// The wheel event for `sendScroll`, marked as the capture's own so that
@@ -540,6 +639,15 @@ enum ScrollDriver {
         return system
     }
 
+    /// The roles of an element's own children, in one request; nil when they
+    /// could not be had.
+    private static func childRoles(of element: AXUIElement) -> [String]? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &value) == .success,
+              let children = value as? [AXUIElement] else { return nil }
+        return children.prefix(64).map { stringAttribute($0, kAXRoleAttribute as String) ?? "" }
+    }
+
     private static func stringAttribute(_ element: AXUIElement, _ key: String) -> String? {
         var value: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, key as CFString, &value) == .success else { return nil }
@@ -594,13 +702,24 @@ nonisolated enum ScrollStepPlanner {
     /// Lines for a target step in pixels: as many as reach it, at least one
     /// and at most ten, then fewer until the step is no more than three
     /// quarters of the frame — the frames must overlap or there is nothing to
-    /// stitch them on.
-    static func lines(target: Int, pixelsPerLine: Double, axisLength: Int) -> Int {
+    /// stitch them on — and no more than `ceiling`, when there is one.
+    static func lines(target: Int, pixelsPerLine: Double, axisLength: Int, ceiling: Int? = nil) -> Int {
         guard pixelsPerLine > 0 else { return 1 }
         var lines = min(maxLines, max(1, Int((Double(target) / pixelsPerLine).rounded())))
-        let limit = Double(axisLength) * 0.75
+        let limit = min(Double(axisLength) * 0.75, ceiling.map(Double.init) ?? .infinity)
         while lines > 1, Double(lines) * pixelsPerLine > limit { lines -= 1 }
         return lines
+    }
+
+    /// How short a step is cut for an element that stands at the bottom of the frame, as a share of the frame.
+    static let ceilingFloor = 0.4
+
+    /// The longest a step may be so that the page under an element at the bottom of the frame, whose top is at
+    /// `top`, comes up above it in the next frame: the element's top, but not under `ceilingFloor` of the frame
+    /// (a step that short costs more frames than the page behind the element is worth). Nil where there is no
+    /// such element: the step is as it was.
+    static func ceiling(top: Int?, axisLength: Int) -> Int? {
+        top.map { max($0, Int((Double(axisLength) * ceilingFloor).rounded())) }
     }
 
     /// The matcher's search bound for `lines` lines: half as far again as the
@@ -638,14 +757,14 @@ nonisolated enum ScrollStepPlanner {
     /// The step to take. Without a calibration — the probe could not be
     /// matched — it is the estimate from points that has always been used.
     static func plan(target: Int, pixelsPerLine: Double?, axisLength: Int,
-                     backingScale: CGFloat) -> Plan {
+                     backingScale: CGFloat, ceiling: Int? = nil) -> Plan {
         guard let pixelsPerLine else {
             return Plan(lines: ScrollDriver.lineDelta(for: target, backingScale: backingScale),
                         motionLimit: ScrollDriver.maximumLikelyMovement(pixelStep: target,
                                                                         backingScale: backingScale,
                                                                         viewportLength: axisLength))
         }
-        let lines = lines(target: target, pixelsPerLine: pixelsPerLine, axisLength: axisLength)
+        let lines = lines(target: target, pixelsPerLine: pixelsPerLine, axisLength: axisLength, ceiling: ceiling)
         return Plan(lines: Int32(lines),
                     motionLimit: motionLimit(lines: lines, pixelsPerLine: pixelsPerLine,
                                              axisLength: axisLength))

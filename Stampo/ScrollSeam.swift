@@ -21,16 +21,22 @@ nonisolated enum ScrollSeam {
         let skip: Int
         let reason: Reason
 
+        /// The seam in a few words: how far it rose, or that it stayed in the
+        /// middle and why not.
+        var summary: String {
+            switch reason {
+            case .middleAgrees: return "middle"
+            case .moved(let rows): return "−\(rows) px"
+            case .floor: return "middle (floor)"
+            case .noRun: return "middle (no run)"
+            case .details: return "middle (details)"
+            }
+        }
+
         /// For the log of a step. Nothing when the middle agreed, which is the
         /// usual seam.
         var note: String? {
-            switch reason {
-            case .middleAgrees: return nil
-            case .moved(let rows): return "seam −\(rows) px"
-            case .floor: return "seam middle (floor)"
-            case .noRun: return "seam middle (no run)"
-            case .details: return "seam middle (details)"
-            }
+            reason == .middleAgrees ? nil : "seam \(summary)"
         }
     }
 

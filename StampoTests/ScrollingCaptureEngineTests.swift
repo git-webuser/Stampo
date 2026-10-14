@@ -2218,6 +2218,32 @@ import Testing
         #expect(ScrollStepPlanner.lines(target: 5000, pixelsPerLine: 10, axisLength: 4000) == 10)
     }
 
+    /// 2026-10-13-190147: a card at the bottom of a 1101 px frame begins at 560. A step of 640 or more leaves a
+    /// strip of the page under it that no frame shows; one of 560 does not.
+    @Test func aCeilingKeepsTheStepWithinWhereTheElementAtTheBottomBegins() {
+        // 80 px a line: 660 asks for 8 lines (640); under a ceiling of 560, 7.
+        #expect(ScrollStepPlanner.lines(target: 660, pixelsPerLine: 80, axisLength: 1101) == 8)
+        #expect(ScrollStepPlanner.lines(target: 660, pixelsPerLine: 80, axisLength: 1101, ceiling: 560) == 7)
+        // The rounding does not take a step past the ceiling: 600 / 80 is 7.5, which rounds up to 8.
+        #expect(ScrollStepPlanner.lines(target: 800, pixelsPerLine: 80, axisLength: 1101, ceiling: 600) == 7)
+        // A ceiling under one line leaves one.
+        #expect(ScrollStepPlanner.lines(target: 660, pixelsPerLine: 80, axisLength: 1101, ceiling: 50) == 1)
+        // No ceiling: as it was.
+        #expect(ScrollStepPlanner.lines(target: 660, pixelsPerLine: 80, axisLength: 1101, ceiling: nil) == 8)
+        // The plan carries it, and the search bound follows the lines.
+        let plan = ScrollStepPlanner.plan(target: 660, pixelsPerLine: 80, axisLength: 1101, backingScale: 2, ceiling: 560)
+        #expect(plan.lines == 7)
+        #expect(plan.motionLimit == ScrollStepPlanner.motionLimit(lines: 7, pixelsPerLine: 80, axisLength: 1101))
+    }
+
+    /// The element's top, but not under 40 % of the frame; nothing where there is no element.
+    @Test func theCeilingIsTheTopOfTheElementButNotUnderFortyPercentOfTheFrame() {
+        #expect(ScrollStepPlanner.ceiling(top: nil, axisLength: 1101) == nil)
+        #expect(ScrollStepPlanner.ceiling(top: 560, axisLength: 1101) == 560)
+        #expect(ScrollStepPlanner.ceiling(top: 300, axisLength: 1101) == 440)
+        #expect(ScrollStepPlanner.ceiling(top: 440, axisLength: 1101) == 440)
+    }
+
     @Test func theSearchBoundIsHalfAgainAsFarAsTheLinesMoveAndNeverPastThreeQuarters() {
         #expect(ScrollStepPlanner.motionLimit(lines: 4, pixelsPerLine: 200, axisLength: 1366) == 1024)
         #expect(ScrollStepPlanner.motionLimit(lines: 5, pixelsPerLine: 40, axisLength: 1366) == 332)
