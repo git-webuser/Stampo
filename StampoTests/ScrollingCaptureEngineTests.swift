@@ -382,6 +382,35 @@ import Testing
                                                                   windowBounds: originalBounds))
     }
 
+    /// The chain of elements from the one under the pointer to the window: `length` of them, the window last.
+    private func chainOf(_ length: Int, window: Bool = true) -> [String] {
+        (0..<length).map { $0 == length - 1 && window ? "AXWindow" : "AXGroup\($0)" }
+    }
+
+    /// apple.com/iphone-18-pro in Brave (2026-10-14-194340): AXImage, seven AXGroup, AXWebArea, AXScrollArea and
+    /// six AXGroup before AXWindow, seventeen in all. A walk that stopped at sixteen never reached the window and the
+    /// site was taken for something else; the depth is a stop for a chain that never ends, not a size of the page.
+    @Test func theWalkToTheWindowReachesAChainOfSeventeenButNotOfForty_one() {
+        func climb(_ chain: [String], limit: Int = ScrollAncestorResolver.depth) -> (ancestors: [String], windowIndex: Int?) {
+            ScrollAncestorResolver.climb(from: chain[0], limit: limit, isWindow: { $0 == "AXWindow" },
+                                         parent: { element in chain.firstIndex(of: element).flatMap { $0 + 1 < chain.count ? chain[$0 + 1] : nil } })
+        }
+        #expect(ScrollAncestorResolver.depth == 40)
+        // Seventeen: the window is found, at the last place.
+        let seventeen = climb(chainOf(17))
+        #expect(seventeen.windowIndex == 16 && seventeen.ancestors.count == 17)
+        // The old limit of sixteen stops one short.
+        #expect(climb(chainOf(17), limit: 16).windowIndex == nil)
+        // Forty is the last that is found, forty-one is not.
+        #expect(climb(chainOf(40)).windowIndex == 39)
+        let tooDeep = climb(chainOf(41))
+        #expect(tooDeep.windowIndex == nil && tooDeep.ancestors.count == 40)
+        // The window under the pointer itself, and a chain that ends with no window.
+        #expect(climb(chainOf(1)).windowIndex == 0)
+        let none = climb(chainOf(5, window: false))
+        #expect(none.windowIndex == nil && none.ancestors.count == 5)
+    }
+
     @Test func appendsOnlyTheNewBottomBandForAnIncompleteFinalStep() throws {
         let first = texture(width: 120, height: 100)
         let last = texture(width: 120, height: 100, yOffset: 17)

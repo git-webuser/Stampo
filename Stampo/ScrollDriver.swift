@@ -64,6 +64,27 @@ nonisolated enum ScrollWebPage {
 }
 
 nonisolated enum ScrollAncestorResolver {
+    /// How many elements up from the one under the pointer the walk to the window and to the scroll area goes. A
+    /// browser puts the window many boxes above a page: AXImage, seven AXGroup, AXWebArea, AXScrollArea and six
+    /// AXGroup before AXWindow is seventeen (apple.com/iphone-18-pro in Brave), where the walk stopped at sixteen
+    /// and took the site for something that was not one. It is only a stop for a chain that never ends.
+    static let depth = 40
+
+    /// The elements from `start` up, nearest first, to the window (the first for which `isWindow` is true) or to
+    /// `limit` of them, and the place of the window among them, nil when the walk did not reach one.
+    static func climb<Element>(from start: Element, limit: Int, isWindow: (Element) -> Bool,
+                               parent: (Element) -> Element?) -> (ancestors: [Element], windowIndex: Int?) {
+        var ancestors: [Element] = []
+        var current = start
+        for _ in 0..<limit {
+            ancestors.append(current)
+            if isWindow(current) { return (ancestors, ancestors.count - 1) }
+            guard let next = parent(current) else { break }
+            current = next
+        }
+        return (ancestors, nil)
+    }
+
     static func isSuitable(role: String, frame: CGRect, windowBounds: CGRect) -> Bool {
         guard role == (kAXScrollAreaRole as String) || role == "AXWebArea" || role == "AXTable" else {
             return false
@@ -279,22 +300,28 @@ enum ScrollDriver {
         let system = systemWideElement()
         var hit: AXUIElement?
         guard AXUIElementCopyElementAtPosition(system, Float(point.x), Float(point.y), &hit) == .success,
-              var current = hit else { throw ScrollDriverError.scrollAreaUnavailable }
-        var ancestors: [AXUIElement] = []
-        var selectedWindowFrame: CGRect?
-        for _ in 0..<16 {
-            ancestors.append(current)
-            if stringAttribute(current, kAXRoleAttribute as String) == (kAXWindowRole as String) {
-                selectedWindowFrame = frameOf(current)
-                break
-            }
-            var parent: CFTypeRef?
-            guard AXUIElementCopyAttributeValue(current, kAXParentAttribute as CFString, &parent) == .success,
-                  let next = parent, CFGetTypeID(next) == AXUIElementGetTypeID() else { break }
-            current = (next as! AXUIElement)
+              let current = hit else { throw ScrollDriverError.scrollAreaUnavailable }
+        let (ancestors, windowIndex) = ScrollAncestorResolver.climb(
+            from: current, limit: ScrollAncestorResolver.depth,
+            isWindow: { stringAttribute($0, kAXRoleAttribute as String) == (kAXWindowRole as String) },
+            parent: { element in
+                var parent: CFTypeRef?
+                guard AXUIElementCopyAttributeValue(element, kAXParentAttribute as CFString, &parent) == .success,
+                      let next = parent, CFGetTypeID(next) == AXUIElementGetTypeID() else { return nil }
+                return (next as! AXUIElement)
+            })
+        // Why the check failed, in the log only: the one error says it was the target, not which of these it was.
+        guard let windowIndex else {
+            Log.capture.notice("scroll target check failed · window not reached in \(ancestors.count, privacy: .public) ancestors")
+            throw ScrollDriverError.scrollAreaUnavailable
         }
-        guard let selectedWindowFrame, sameWindowFrame(selectedWindowFrame, top.bounds),
-              let selectedIndex = ancestors.firstIndex(where: { CFEqual($0, container) }) else {
+        guard let selectedWindowFrame = frameOf(ancestors[windowIndex]),
+              sameWindowFrame(selectedWindowFrame, top.bounds) else {
+            Log.capture.notice("scroll target check failed · window frame differs")
+            throw ScrollDriverError.scrollAreaUnavailable
+        }
+        guard let selectedIndex = ancestors.firstIndex(where: { CFEqual($0, container) }) else {
+            Log.capture.notice("scroll target check failed · container not among \(ancestors.count, privacy: .public) ancestors")
             throw ScrollDriverError.scrollAreaUnavailable
         }
         let candidates = ancestors.enumerated().compactMap { index, element -> ScrollAncestorCandidate<Int>? in
@@ -308,6 +335,7 @@ enum ScrollDriver {
         }
         guard ScrollAncestorResolver.matchesSelectedIdentity(selectedIndex, in: candidates,
                                                               windowBounds: top.bounds, axis: axis) else {
+            Log.capture.notice("scroll target check failed · another area is the one chosen")
             throw ScrollDriverError.scrollAreaUnavailable
         }
     }
@@ -374,7 +402,7 @@ enum ScrollDriver {
         var elements: [AXUIElement] = []
         var candidates: [ScrollAncestorCandidate<Int>] = []
         var chain: [String] = []
-        for _ in 0..<14 {
+        for _ in 0..<ScrollAncestorResolver.depth {
             guard let element = current else { break }
             let role = stringAttribute(element, kAXRoleAttribute as String) ?? "<role-unavailable>"
             let frame = frameOf(element)
@@ -444,7 +472,7 @@ enum ScrollDriver {
         var parts: [String] = []
         var nested: [String] = []
         var reached = false
-        for _ in 0..<24 {
+        for _ in 0..<ScrollAncestorResolver.depth {
             let role = stringAttribute(current, kAXRoleAttribute as String) ?? "?"
             if let container, CFEqual(current, container) {
                 parts.append("\(role)[area]")
