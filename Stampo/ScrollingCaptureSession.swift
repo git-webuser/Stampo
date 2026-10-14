@@ -158,6 +158,10 @@ final class ScrollingCaptureSession {
     private var linearityConfirmed = false
     /// Whether the queue that is waiting has had its short step (`ScrollQueueLaying.shortStepDue`).
     private var shortStepTried = false
+    /// How long the last frame waited for the page to be still (`noteStillness`), as the line of a step says it.
+    private var stillnessNote = ""
+    /// When the capture began, for the length of it in the line `final`.
+    private var startedAt: Date?
     /// Whether a full queue was laid by the calibration since the last step the matcher placed.
     private var queueLaidByCalibration = false
 
@@ -256,7 +260,9 @@ final class ScrollingCaptureSession {
         do {
             let image = try assembler.makeImage()
             dump?.save(image, as: "final")
-            dump?.step("final \(image.width)x\(image.height)")
+            dump?.step("final \(image.width)x\(image.height)" + (startedAt.map {
+                " · \(Int(max(0, Date().timeIntervalSince($0) - idleSeconds).rounded())) s"
+            } ?? ""))
             // Before the buffers go: the assembler says whether the image was halved.
             let pixelsPerPoint = ScrollImageDensity.pixelsPerPoint(scale: scale, shrunk: assembler.isShrunk)
             releaseCaptureBuffers()
@@ -688,6 +694,7 @@ final class ScrollingCaptureSession {
     }
 
     func run() async {
+        if startedAt == nil { startedAt = Date() }
         await guarded {
             try await self.prepare()
             try await self.stepLoop()
@@ -863,6 +870,7 @@ final class ScrollingCaptureSession {
 
         var settled: (axis: ScrollAxis, viewport: ScrollViewport, outcome: ProbeOutcome,
                       step: Int, lines: Int32, motionLimit: Int)?
+        var settledStill = ""
         for candidate in Self.probeOrder(preferred: axis) {
             if candidate != areaAxis {
                 // The frames are of the whole window, so a different area needs
@@ -886,6 +894,7 @@ final class ScrollingCaptureSession {
             }
             try ensureActive()
             try checkWindowAndFocus()
+            let probeStill = stillnessNote
             if let outcome = Self.probeOutcome(before: before, after: after,
                                                viewportPixels: pixelRect(of: candidateViewport),
                                                axis: candidate,
@@ -896,6 +905,7 @@ final class ScrollingCaptureSession {
                     pixelStep: probeStep, backingScale: scale,
                     viewportLength: axisLength(of: initial, along: candidate))
                 settled = (candidate, candidateViewport, outcome, probeStep, probeLines, motionLimit)
+                settledStill = probeStill
                 break
             }
             // Nothing moved that way. The next axis starts from what the
@@ -904,7 +914,7 @@ final class ScrollingCaptureSession {
             before = after
         }
         guard let settled else { throw ScrollDriverError.noMovingContent }
-        let calibrated = try await startFromProbe(settled)
+        let calibrated = try await startFromProbe(settled, stillNote: settledStill)
         if !calibrated { try await retryProbe(after: settled, lookingAt: before) }
     }
 
@@ -920,7 +930,8 @@ final class ScrollingCaptureSession {
     /// is a retry (nil for the first look); `frameSuffix`: the retry's mark on the frames it keeps; `final`: no
     /// attempt is left.
     private func startFromProbe(_ settled: SettledProbe, matched: Result<FrameMatch, Error>? = nil,
-                                retry: String? = nil, frameSuffix: String = "", final: Bool = false) async throws -> Bool {
+                                retry: String? = nil, frameSuffix: String = "", final: Bool = false,
+                                stillNote: String = "") async throws -> Bool {
         axis = settled.axis
         assembler = ImageAssembler(axis: axis, maxLength: lengthLimit, scale: scale)
         planningPinned = ScrollPinned.Accumulator()
@@ -984,10 +995,10 @@ final class ScrollingCaptureSession {
                                                   axisLength: axisLength(of: first), backingScale: scale)
                 Log.capture.notice("scroll calibrated · \(Int(pixelsPerLine.rounded()), privacy: .public) px per line · \(plan.lines, privacy: .public) lines per step")
             }
-            recordStep(0, "\(said)lines=\(probeLines) maximumOffset=\(probeMotionLimit + 24) · match \(match.offset) px · confidence \(Self.percent(match.confidence)) · regions \(match.independentRegions)\(seamNote) → calibrated")
+            recordStep(0, "\(said)lines=\(probeLines) maximumOffset=\(probeMotionLimit + 24)\(stillNote) · match \(match.offset) px · confidence \(Self.percent(match.confidence)) · regions \(match.independentRegions)\(seamNote) → calibrated")
             return true
         } catch {
-            recordStep(0, "\(said)lines=\(probeLines) maximumOffset=\(probeMotionLimit + 24) · \(error) → probe not matched\(final ? ", going on without calibration" : "")")
+            recordStep(0, "\(said)lines=\(probeLines) maximumOffset=\(probeMotionLimit + 24)\(stillNote) · \(error) → probe not matched\(final ? ", going on without calibration" : "")")
             // The selected scroll view did not yield stable moving content
             // across the probe; keep the initial image for a partial save.
             previous = first
@@ -1013,6 +1024,7 @@ final class ScrollingCaptureSession {
         // Per attempt: the pair when the probe moved something, and why the matcher refused it.
         var pairs: [SettledProbe?] = []
         var errors: [Error?] = []
+        var stills: [String] = []
         attemptsLoop: while ScrollProbeRetry.beginsAttempt(after: Date().timeIntervalSince(began)) {
             try await Task.sleep(for: .seconds(ScrollProbeRetry.pause))
             try ensureActive()
@@ -1042,11 +1054,13 @@ final class ScrollingCaptureSession {
             }
             try ensureActive()
             try checkWindowAndFocus()
+            let stillNote = stillnessNote
+            stills.append(stillNote)
             guard let outcome = Self.probeOutcome(before: before, after: after,
                                                   viewportPixels: pixelRect(of: first.viewport), axis: first.axis,
                                                   preserveCrossAxis: scrollContainer != nil,
                                                   wholeWidth: first.viewport.isWebPage && first.axis == .vertical) else {
-                recordStep(0, "\(label) · lines=\(first.lines) · nothing moved → not matched\(goesOn ? "" : " · page did not change, stop")")
+                recordStep(0, "\(label) · lines=\(first.lines)\(stillNote) · nothing moved → not matched\(goesOn ? "" : " · page did not change, stop")")
                 pairs.append(nil)
                 errors.append(nil)
                 if goesOn { continue }
@@ -1064,11 +1078,11 @@ final class ScrollingCaptureSession {
             }
             switch found {
             case .success:
-                _ = try await startFromProbe(pair, matched: found, retry: label, frameSuffix: "-r\(attempts)")
+                _ = try await startFromProbe(pair, matched: found, retry: label, frameSuffix: "-r\(attempts)", stillNote: stillNote)
                 Log.capture.notice("scroll probe matched after \(attempts, privacy: .public) retries · \(String(format: "%.1f", Date().timeIntervalSince(began)), privacy: .public) s")
                 return
             case .failure(let error):
-                recordStep(0, "\(label) · lines=\(first.lines) maximumOffset=\(first.motionLimit + 24) · \(error) → not matched\(goesOn ? "" : " · page did not change, stop")")
+                recordStep(0, "\(label) · lines=\(first.lines) maximumOffset=\(first.motionLimit + 24)\(stillNote) · \(error) → not matched\(goesOn ? "" : " · page did not change, stop")")
                 pairs.append(pair)
                 errors.append(error)
                 if !goesOn { break attemptsLoop }
@@ -1079,7 +1093,7 @@ final class ScrollingCaptureSession {
         if let index = ScrollProbeRetry.attemptToKeep(moved: pairs.map { $0 != nil }),
            let pair = pairs[index], let error = errors[index] {
             _ = try await startFromProbe(pair, matched: .failure(error), retry: "retry: \(ended)",
-                                         frameSuffix: "-r\(index + 1)", final: true)
+                                         frameSuffix: "-r\(index + 1)", final: true, stillNote: stills[index])
         } else {
             recordStep(0, "retry: \(ended) → probe not matched, going on without calibration")
         }
@@ -1161,6 +1175,7 @@ final class ScrollingCaptureSession {
             try ensureActive()
             try checkWindowAndFocus()
             stepNumber += 1
+            let stillNote = stillnessNote
             dump?.save(next, as: String(format: "%02ld-step", stepNumber))
 
             /// Whether this is the first attempt at this step: an earlier
@@ -1170,7 +1185,7 @@ final class ScrollingCaptureSession {
             let maximumOffset = motionLimit + unmatchedScroll + 32
             let difference = meanDifference(oldFrame, next)
             let head = "lines=\(sentLines)\(isPush ? " push" : "") motionLimit=\(motionLimit) maximumOffset=\(maximumOffset)"
-                + " difference=\(String(format: "%.4f", difference))"
+                + " difference=\(String(format: "%.4f", difference))" + stillNote
             do {
                 diagnosticStage = .match
                 let axis = self.axis
@@ -1791,39 +1806,55 @@ final class ScrollingCaptureSession {
     /// the candidate viewport — the part that is going to be stitched — so a
     /// title bar or a fading scrollbar does not keep it waiting.
     private func captureStableWindow(viewport candidate: ScrollViewport) async throws -> CaptureFrame {
+        let started = Date()
         var latest = try await captureWindow()
         // Each frame is cropped once: the first on its first comparison, and
         // after that the crop that was made of it as the newer of a pair.
         var latestCrop: CaptureFrame?
-        let deadline = Date().addingTimeInterval(1.8)
+        let deadline = started.addingTimeInterval(ScrollStillness.limit)
         while Date() < deadline && !Task.isCancelled {
-            try await Task.sleep(for: .milliseconds(140))
+            try await Task.sleep(for: ScrollStillness.interval)
             let next = try await captureWindow()
             let before = try latestCrop ?? cropped(latest, to: candidate)
             let after = try cropped(next, to: candidate)
-            let change = meanDifference(before, after)
+            let still = ScrollStillness.isStill(before, after)
             latest = next
             latestCrop = after
-            if change < 0.003 { return latest }
+            if still {
+                noteStillness(since: started, still: true)
+                return latest
+            }
         }
+        noteStillness(since: started, still: false)
         return latest
     }
 
     private func captureStableViewport(reference: CaptureFrame) async throws -> CaptureFrame {
+        let started = Date()
         var latest = try await captureViewport()
         try ensureActive()
-        let deadline = Date().addingTimeInterval(1.8)
+        let deadline = started.addingTimeInterval(ScrollStillness.limit)
         while Date() < deadline && !Task.isCancelled {
-            try await Task.sleep(for: .milliseconds(140))
+            try await Task.sleep(for: ScrollStillness.interval)
             let next = try await captureViewport()
             try ensureActive()
-            let change = meanDifference(latest, next)
+            let still = ScrollStillness.isStill(latest, next)
             latest = next
-            if change < 0.003 { return latest }
+            if still {
+                noteStillness(since: started, still: true)
+                return latest
+            }
         }
         // Slow animations do not get to block a user indefinitely; the matcher
         // still has independent-region checks before it will append anything.
+        noteStillness(since: started, still: false)
         return latest
+    }
+
+    /// How long the last frame waited for the page to be still, for the line of the step: "still 0.3 s", or
+    /// "moving 1.8 s" when the limit came first.
+    private func noteStillness(since started: Date, still: Bool) {
+        stillnessNote = " · \(still ? "still" : "moving") \(String(format: "%.1f", Date().timeIntervalSince(started))) s"
     }
 
     private func checkWindowAndFocus() throws {
