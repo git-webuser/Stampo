@@ -87,6 +87,23 @@ func cgPrimaryDisplayHeight(fallback screen: NSScreen) -> CGFloat {
         ?? screen.frame.height
 }
 
+/// The same with no screen to fall back on: the first one, and without any, zero.
+func cgPrimaryDisplayHeight() -> CGFloat {
+    NSScreen.screens.first(where: { $0.frame.origin == .zero })?.frame.height
+        ?? NSScreen.screens.first?.frame.height ?? 0
+}
+
+/// A point in AppKit's screen space (origin bottom left, y up) in the window
+/// list's (origin top left of the primary display, y down).
+nonisolated func screenPointToCGPoint(_ point: CGPoint, primaryHeight: CGFloat) -> CGPoint {
+    CGPoint(x: point.x, y: primaryHeight - point.y)
+}
+
+/// A point from the window list in AppKit's screen space: the flip above, back.
+nonisolated func cgPointToScreenPoint(_ point: CGPoint, primaryHeight: CGFloat) -> CGPoint {
+    CGPoint(x: point.x, y: primaryHeight - point.y)
+}
+
 /// View/overlay rect (AppKit, y=0 at screen bottom) → global CG rect (y=0 at top of primary display).
 func viewRectToCGRect(_ rect: CGRect, screen: NSScreen) -> CGRect {
     viewRectToCGRect(rect, panelOrigin: screen.frame.origin, screen: screen)

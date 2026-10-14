@@ -88,12 +88,6 @@ nonisolated enum ScrollInputGuard {
     static func shouldWait(pointer: CGPoint, window: CGRect, overOwnUI: Bool) -> Bool {
         !window.contains(pointer) || overOwnUI
     }
-
-    /// A point in AppKit's screen space (origin bottom left, y up) as the window
-    /// list has it (origin top left of the primary display, y down).
-    static func quartzPoint(fromAppKit point: NSPoint, primaryHeight: CGFloat) -> CGPoint {
-        CGPoint(x: point.x, y: primaryHeight - point.y)
-    }
 }
 
 /// What the user did to the page while the capture was paused: the wheel,
@@ -130,10 +124,12 @@ nonisolated struct UserScrollLedger: Equatable {
 
     /// How far the page moved toward its end, in the captured pixels: the
     /// wheel's points at the display's scale, its lines at what a line was
-    /// measured to be (or a plain 80 points a line without a measure). Zero
-    /// when only keys and clicks were pressed — those move it by an unknown amount.
+    /// measured to be (or `ScrollStepPlanner.uncalibratedLinePoints` without a
+    /// measure). Zero when only keys and clicks were pressed — those move it by
+    /// an unknown amount.
     func pageMovement(scale: CGFloat, pixelsPerLine: Double?) -> Int {
-        let towardStart = precise * Double(scale) + lines * (pixelsPerLine ?? 80 * Double(scale))
+        let line = pixelsPerLine ?? Double(ScrollStepPlanner.uncalibratedLinePoints) * Double(scale)
+        let towardStart = precise * Double(scale) + lines * line
         return Int((-towardStart).rounded())
     }
 }

@@ -1078,10 +1078,8 @@ final class NotchPanelController: NSObject {
         }
         screenshot.scrollingOwnUICovers = { [weak self] quartzPoint in
             guard let self, let panel = self.panel, panel.isVisible else { return false }
-            let primaryHeight = NSScreen.screens.first(where: { $0.frame.origin == .zero })?.frame.height
-                ?? NSScreen.screens.first?.frame.height ?? 0
-            return self.drawnContentRect.contains(Self.appKitPoint(fromQuartz: quartzPoint,
-                                                                   primaryHeight: primaryHeight))
+            return self.drawnContentRect.contains(cgPointToScreenPoint(quartzPoint,
+                                                                       primaryHeight: cgPrimaryDisplayHeight()))
         }
         screenshot.onThumbnailTapped = { [weak self] in
             guard let self else { return }
@@ -2170,12 +2168,6 @@ final class NotchPanelController: NSObject {
             * metrics.panelScale
         let h = min(f.height, max(0, drawn))
         return NSRect(x: f.minX, y: f.maxY - h, width: f.width, height: h)
-    }
-
-    /// A point from the window list (origin top left of the primary display,
-    /// y down) in AppKit's screen space (origin bottom left, y up).
-    static func appKitPoint(fromQuartz point: CGPoint, primaryHeight: CGFloat) -> NSPoint {
-        NSPoint(x: point.x, y: primaryHeight - point.y)
     }
 
     func isPointInsidePanel(_ point: NSPoint) -> Bool {

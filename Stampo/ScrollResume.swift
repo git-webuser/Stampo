@@ -98,9 +98,9 @@ nonisolated enum ScrollResume {
     }
 
     /// Wheel lines for a distance: as many as measured for a line, or, with no
-    /// measure, a line of 80 points.
+    /// measure, a line of `ScrollStepPlanner.uncalibratedLinePoints`.
     static func lines(forPixels pixels: Int, pixelsPerLine: Double?, scale: CGFloat) -> Int {
-        let line = pixelsPerLine ?? 80 * Double(scale)
+        let line = pixelsPerLine ?? Double(ScrollStepPlanner.uncalibratedLinePoints) * Double(scale)
         guard line > 0 else { return 0 }
         return Int((Double(abs(pixels)) / line).rounded())
     }

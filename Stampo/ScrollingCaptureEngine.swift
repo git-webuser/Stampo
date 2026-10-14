@@ -586,6 +586,9 @@ nonisolated struct ImageAssembler: Sendable {
     /// The longest the image may be along the scroll, in its own pixels. The
     /// most it may hold follows: this many by the frame's other side.
     let maxLength: Int
+    /// The frames' pixels to a point, which is how long a stretch of the seam's
+    /// search has to be (`ScrollSeam`).
+    let scale: CGFloat
     private(set) var strips: [CaptureStrip] = []
     /// Length of the image so far, in its own pixels — half of `fullLength`
     /// once shrunk. This is what the limit is compared with.
@@ -595,10 +598,17 @@ nonisolated struct ImageAssembler: Sendable {
     private(set) var isShrunk = false
     private(set) var viewportWidth = 0
     private(set) var viewportHeight = 0
+    /// The last frame laid, whole, and the rows of it the seam before it left
+    /// to the frame before: what the next seam is chosen against.
+    private var lastFrame: CaptureFrame?
+    private var lastSkip = 0
+    /// The seam of the last frame laid, and why it fell there.
+    private(set) var lastSeam: ScrollSeam.Choice?
 
-    init(axis: ScrollAxis, maxLength: Int = ScrollLengthLimit.default) {
+    init(axis: ScrollAxis, maxLength: Int = ScrollLengthLimit.default, scale: CGFloat = 1) {
         self.axis = axis
         self.maxLength = maxLength
+        self.scale = scale
     }
 
     /// The image's other side in its own pixels: the frame's, or half of it
@@ -627,6 +637,9 @@ nonisolated struct ImageAssembler: Sendable {
         strips.append(CaptureStrip(frame: frame, start: 0))
         totalLength = length
         fullLength = length
+        lastFrame = frame
+        lastSkip = 0
+        lastSeam = nil
     }
 
     /// Adds a frame that is `movement` pixels further along than the last one.
@@ -634,10 +647,12 @@ nonisolated struct ImageAssembler: Sendable {
     /// in the middle of that: the earlier frame keeps the first half, the later
     /// one gives the rest. What a page does as it scrolls into view (a heading
     /// sliding in, an image fading up) is finished in the later frame and
-    /// half-way in the earlier, so the later frame's half is the newer; and
-    /// what is fixed to an edge of the viewport — a site's bar at the top, a
-    /// banner at the bottom — and so repeats in every frame, is cut off the new
-    /// frame's top and off the collected image's end, as long as it is no
+    /// half-way in the earlier, so the later frame's half is the newer. One
+    /// that is still arriving across the middle is taken whole from the later
+    /// frame by moving the seam up to where the frames agree (`ScrollSeam`).
+    /// And what is fixed to an edge of the viewport — a site's bar at the top,
+    /// a banner at the bottom — and so repeats in every frame, is cut off the
+    /// new frame's top and off the collected image's end, as long as it is no
     /// deeper than half the overlap, instead of reappearing at every seam.
     /// The collected image is cut back to the seam and the rest of the frame
     /// laid from there, so at any time the image costs about its own size and
@@ -654,7 +669,11 @@ nonisolated struct ImageAssembler: Sendable {
         guard fullLength >= overlap else { throw FrameMatchError.noReliableMotion }
         // The rows of the new frame that the earlier one keeps, and where the
         // seam falls in the image, in the frames' pixels.
-        let skip = overlap / 2
+        let choice = lastFrame.map {
+            ScrollSeam.choose(frame: frame, after: $0, axis: axis, movement: movement,
+                              previousSkip: lastSkip, scale: scale)
+        } ?? ScrollSeam.Choice(skip: overlap / 2, reason: .middleAgrees)
+        let skip = choice.skip
         let seam = fullLength - overlap + skip
         guard let rest = Self.dropping(skip, from: frame, axis: axis) else { throw FrameMatchError.noReliableMotion }
         if isShrunk {
@@ -677,6 +696,9 @@ nonisolated struct ImageAssembler: Sendable {
             totalLength += movement
             fullLength += movement
         }
+        lastFrame = frame
+        lastSkip = skip
+        lastSeam = choice
     }
 
     /// `frame` without its first `count` rows (columns, along a horizontal
@@ -752,6 +774,9 @@ nonisolated struct ImageAssembler: Sendable {
         isShrunk = false
         viewportWidth = 0
         viewportHeight = 0
+        lastFrame = nil
+        lastSkip = 0
+        lastSeam = nil
     }
 
     func makeImage(maxPixels: Int? = nil) throws -> CGImage {

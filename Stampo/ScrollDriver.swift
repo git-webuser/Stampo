@@ -395,11 +395,13 @@ enum ScrollDriver {
     /// twice as far per event and could outrun the overlap between frames.
     nonisolated static func lineDelta(for pixelStep: Int, backingScale: CGFloat) -> Int32 {
         let points = Int((CGFloat(pixelStep) / max(1, backingScale)).rounded(.up))
-        return Int32(min(10, max(1, (points + 99) / 100)))
+        let line = ScrollStepPlanner.uncalibratedLinePoints
+        return Int32(min(10, max(1, (points + line - 1) / line)))
     }
 
     nonisolated static func maximumLikelyMovement(pixelStep: Int, backingScale: CGFloat, viewportLength: Int) -> Int {
-        let estimate = Int(CGFloat(lineDelta(for: pixelStep, backingScale: backingScale)) * 90 * backingScale)
+        let lines = CGFloat(lineDelta(for: pixelStep, backingScale: backingScale))
+        let estimate = Int(lines * CGFloat(ScrollStepPlanner.uncalibratedLinePoints) * backingScale)
         return min(max(1, viewportLength * 3 / 4), estimate)
     }
 
@@ -560,13 +562,21 @@ enum ScrollDriver {
 
 /// How many wheel lines to send for a step, and how far to look for the result.
 ///
-/// A line is not a fixed distance: Safari moves about as far as the guess
-/// behind `ScrollDriver.lineDelta`, Chromium about 40 points where that guess
-/// says 100 — a step meant as 60% of the screen came out as 30%, and twice as
-/// many of them. So the probe, which sends a known number of lines and has its
-/// movement measured by the matcher, calibrates the page: pixels per line.
+/// A line is not a fixed distance. Over 55 recorded captures a probe of one
+/// line moved the page 10 to 40 points: web pages 40, Finder's columns 19,
+/// its gallery 10. So the probe, which sends a known number of lines and has
+/// its movement measured by the matcher, calibrates the page: pixels per line.
 nonisolated enum ScrollStepPlanner {
     static let maxLines = 10
+
+    /// A line in points when there is no calibration — the probe could not be
+    /// matched — until the first step that is. Deliberately longer than any
+    /// line measured: a step planned on it comes out shorter than asked, and
+    /// the frames overlap more. The matcher's search bound is drawn from the
+    /// same line, so it is never shorter than the real movement. The ledger of
+    /// the user's input and the return after a pause convert lines by this
+    /// one value too, so the user's wheel lines are undone exactly.
+    static let uncalibratedLinePoints = 100
 
     struct Plan: Equatable {
         let lines: Int32

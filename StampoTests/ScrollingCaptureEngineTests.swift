@@ -1300,9 +1300,9 @@ import Testing
         #expect(ScrollDriver.lineDelta(for: 101, backingScale: 1) == 2)
         #expect(ScrollDriver.lineDelta(for: 24, backingScale: 2) == 1)
         #expect(ScrollDriver.lineDelta(for: 5000, backingScale: 1) == 10)
-        // The search bound is in pixels again: lines × 90 points × scale.
-        #expect(ScrollDriver.maximumLikelyMovement(pixelStep: 1080, backingScale: 2, viewportLength: 3000) == 6 * 90 * 2)
-        #expect(ScrollDriver.maximumLikelyMovement(pixelStep: 540, backingScale: 1, viewportLength: 3000) == 6 * 90)
+        // The search bound is in pixels again: lines × the same 100-point line × scale.
+        #expect(ScrollDriver.maximumLikelyMovement(pixelStep: 1080, backingScale: 2, viewportLength: 3000) == 6 * 100 * 2)
+        #expect(ScrollDriver.maximumLikelyMovement(pixelStep: 540, backingScale: 1, viewportLength: 3000) == 6 * 100)
     }
 
     // MARK: Length limit and shrink to fit
@@ -2380,10 +2380,10 @@ import Testing
         var sideways = UserScrollLedger()
         sideways.record(Event(kind: .scrollWheel, preciseX: -10, preciseY: 400), axis: .horizontal)
         #expect(sideways.pageMovement(scale: 1, pixelsPerLine: nil) == 10)
-        // Without a measure a line is 80 points.
+        // Without a measure a line is 100 points.
         var lined = UserScrollLedger()
         lined.record(Event(kind: .scrollWheel, lineY: -2), axis: .vertical)
-        #expect(lined.pageMovement(scale: 2, pixelsPerLine: nil) == 320)
+        #expect(lined.pageMovement(scale: 2, pixelsPerLine: nil) == 400)
 
         // A key or a click may have moved it by an unknown amount; Esc is not one.
         var keyed = UserScrollLedger()
@@ -2474,7 +2474,7 @@ import Testing
         #expect(Resume.action(finding: .unknown, userMovement: 900, undone: true) == .giveUp)
         // Nothing known of what the user did — a key, a click — and nothing from the frames.
         #expect(Resume.action(finding: .unknown, userMovement: 0, undone: false) == .giveUp)
-        // A distance in lines: as measured, or 80 points to the line.
+        // A distance in lines: as measured, or 100 points to the line.
         #expect(Resume.lines(forPixels: 800, pixelsPerLine: 80, scale: 2) == 10)
         #expect(Resume.lines(forPixels: -800, pixelsPerLine: 80, scale: 2) == 10)
         #expect(Resume.lines(forPixels: 320, pixelsPerLine: nil, scale: 2) == 2)
@@ -2521,8 +2521,8 @@ import Testing
 
     @Test func theMonitorsPointerIsInTheWindowListsSpace() {
         // The top of the primary display is y 0 in the window list, its bottom y = height.
-        #expect(ScrollInputGuard.quartzPoint(fromAppKit: NSPoint(x: 5, y: 832), primaryHeight: 832) == CGPoint(x: 5, y: 0))
-        #expect(ScrollInputGuard.quartzPoint(fromAppKit: NSPoint(x: 5, y: 0), primaryHeight: 832) == CGPoint(x: 5, y: 832))
+        #expect(screenPointToCGPoint(NSPoint(x: 5, y: 832), primaryHeight: 832) == CGPoint(x: 5, y: 0))
+        #expect(screenPointToCGPoint(NSPoint(x: 5, y: 0), primaryHeight: 832) == CGPoint(x: 5, y: 832))
     }
 
     /// The button in the arc's place: a turning ring with the pause sign while
@@ -2863,9 +2863,9 @@ import Testing
     @Test @MainActor func aWindowListPointKeepsItsPlaceInAppKitSpace() {
         // The top-left corner of the primary display is its top-left whichever
         // way y runs, and a point 10 below it is 10 under the top edge.
-        let top = NotchPanelController.appKitPoint(fromQuartz: CGPoint(x: 5, y: 0), primaryHeight: 900)
+        let top = cgPointToScreenPoint(CGPoint(x: 5, y: 0), primaryHeight: 900)
         #expect(top == NSPoint(x: 5, y: 900))
-        let below = NotchPanelController.appKitPoint(fromQuartz: CGPoint(x: 5, y: 10), primaryHeight: 900)
+        let below = cgPointToScreenPoint(CGPoint(x: 5, y: 10), primaryHeight: 900)
         #expect(below == NSPoint(x: 5, y: 890))
     }
 

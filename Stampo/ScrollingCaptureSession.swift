@@ -456,15 +456,16 @@ final class ScrollingCaptureSession {
 
     /// The pointer is off the page or on the strip: hold the next step.
     private func pointerIsAway() -> Bool {
-        let primaryHeight = NSScreen.screens.first(where: { $0.frame.origin == .zero })?.frame.height
-            ?? NSScreen.screens.first?.frame.height ?? 0
-        let pointer = ScrollInputGuard.quartzPoint(fromAppKit: NSEvent.mouseLocation, primaryHeight: primaryHeight)
+        let pointer = screenPointToCGPoint(NSEvent.mouseLocation, primaryHeight: cgPrimaryDisplayHeight())
         let window = ScrollDriver.currentWindowBounds(selection.windowID) ?? selection.bounds
         return ScrollInputGuard.shouldWait(pointer: pointer, window: window, overOwnUI: ownUICovers(pointer))
     }
 
     /// Holds still while the pointer is away. The time does not count towards the
-    /// seconds without progress.
+    /// seconds without progress. There is no limit on the wait, on purpose: the
+    /// pointer away is a hiccup like any other and is waited out, nothing
+    /// collected is lost, and the strip with Save, pause and stop stays in view
+    /// all along.
     private func waitForPointer() async throws {
         guard pointerIsAway() else { return }
         let began = Date()
@@ -511,14 +512,19 @@ final class ScrollingCaptureSession {
     /// doing and not a failure: a pause cancels the task, and the step in it
     /// may fail on its way out — and, run late after a resume, would pause the
     /// new task or end the capture in a screenshot.
+    ///
+    /// A hiccup that passes is the loop's next turn, not a call within this
+    /// one: however many a capture waits out, they nest no deeper.
     func guarded(_ body: () async throws -> Void) async {
-        do {
-            try await body()
-        } catch is CancellationError {
-            return
-        } catch {
-            if Task.isCancelled { return }
-            if !stopped {
+        var afterHiccup = false
+        while true {
+            do {
+                if afterHiccup { try await continueFromHere() } else { try await body() }
+                return
+            } catch is CancellationError {
+                return
+            } catch {
+                if Task.isCancelled || stopped { return }
                 logFailure(error)
                 guard !assembler.strips.isEmpty else {
                     failBeforeTheFirstFrame(error)
@@ -534,14 +540,15 @@ final class ScrollingCaptureSession {
                     do { cleared = try await waitOut(interference) } catch { return }
                     if cleared {
                         pauseLedger = UserScrollLedger()
-                        await guarded { try await self.continueFromHere() }
-                        return
+                        afterHiccup = true
+                        continue
                     }
                 }
                 // Whatever it was — the window sent to the back, the scroll area
                 // replaced, a hiccup that did not pass — the log has it; the
                 // toast only says the capture stopped.
                 pause(announce: true)
+                return
             }
         }
     }
@@ -705,7 +712,7 @@ final class ScrollingCaptureSession {
         }
         guard let settled else { throw ScrollDriverError.noMovingContent }
         axis = settled.axis
-        assembler = ImageAssembler(axis: axis, maxLength: lengthLimit)
+        assembler = ImageAssembler(axis: axis, maxLength: lengthLimit, scale: scale)
         let (first, probe) = (settled.outcome.first, settled.outcome.probe)
         let probeStep = settled.step
         let probeLines = settled.lines
@@ -738,7 +745,7 @@ final class ScrollingCaptureSession {
                                                   axisLength: axisLength(of: first), backingScale: scale)
                 Log.capture.notice("scroll calibrated · \(Int(pixelsPerLine.rounded()), privacy: .public) px per line · \(plan.lines, privacy: .public) lines per step")
             }
-            recordStep(0, "lines=\(probeLines) maximumOffset=\(probeMotionLimit + 24) · match \(match.offset) px · confidence \(Self.percent(match.confidence)) · regions \(match.independentRegions) → calibrated")
+            recordStep(0, "lines=\(probeLines) maximumOffset=\(probeMotionLimit + 24) · match \(match.offset) px · confidence \(Self.percent(match.confidence)) · regions \(match.independentRegions)\(seamNote) → calibrated")
         } catch {
             recordStep(0, "lines=\(probeLines) maximumOffset=\(probeMotionLimit + 24) · \(error) → probe not matched")
             // The selected scroll view did not yield stable moving content
@@ -832,7 +839,7 @@ final class ScrollingCaptureSession {
                     Log.capture.notice("scroll calibrated late · \(Int(late.rounded()), privacy: .public) px per line · \(latePlan.lines, privacy: .public) lines per step")
                 }
                 let queue = waiting == 0 ? "" : " · queue appended \(waiting)"
-                recordStep("\(head) · match \(match.offset) px · confidence \(Self.percent(match.confidence)) · regions \(match.independentRegions)\(queue) → added")
+                recordStep("\(head) · match \(match.offset) px · confidence \(Self.percent(match.confidence)) · regions \(match.independentRegions)\(queue)\(seamNote) → added")
                 previous = next
                 zeroMotionCount = 0
                 unmatchedScroll = 0
@@ -1011,6 +1018,13 @@ final class ScrollingCaptureSession {
         dump?.step("   pinned tiles \(tiles)")
     }
 
+    /// What the last frame laid says about its seam, for the line of its step:
+    /// nothing when the seam is in the middle of the overlap, as it nearly
+    /// always is.
+    private var seamNote: String {
+        assembler.lastSeam?.note.map { " · \($0)" } ?? ""
+    }
+
     /// One line about an attempt at a step, for the log — `.notice`, which
     /// macOS keeps; `.info` is gone in minutes — and for `steps.txt` of a dump.
     private func recordStep(_ details: String) {
@@ -1121,12 +1135,18 @@ final class ScrollingCaptureSession {
     /// title bar or a fading scrollbar does not keep it waiting.
     private func captureStableWindow(viewport candidate: ScrollViewport) async throws -> CaptureFrame {
         var latest = try await captureWindow()
+        // Each frame is cropped once: the first on its first comparison, and
+        // after that the crop that was made of it as the newer of a pair.
+        var latestCrop: CaptureFrame?
         let deadline = Date().addingTimeInterval(1.8)
         while Date() < deadline && !Task.isCancelled {
             try await Task.sleep(for: .milliseconds(140))
             let next = try await captureWindow()
-            let change = meanDifference(try cropped(latest, to: candidate), try cropped(next, to: candidate))
+            let before = try latestCrop ?? cropped(latest, to: candidate)
+            let after = try cropped(next, to: candidate)
+            let change = meanDifference(before, after)
             latest = next
+            latestCrop = after
             if change < 0.003 { return latest }
         }
         return latest
