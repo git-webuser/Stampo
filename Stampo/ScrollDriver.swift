@@ -7,10 +7,10 @@ nonisolated struct ScrollAncestorCandidate<Identity: Equatable> {
     let identity: Identity
     let role: String
     let frame: CGRect
-    /// Whether the element has a horizontal scroll bar — looked for only on
-    /// the elements that could be the scroll area, and only for a capture that
-    /// goes sideways.
+    /// Horizontal captures prefer an ancestor with this bar: Finder's column
+    /// scrolls down while the browser around its columns scrolls sideways.
     var hasHorizontalScrollBar = false
+    var hasVerticalScrollBar = false
 }
 
 /// Whether the area Accessibility found is a web page — a site, made to be
@@ -279,13 +279,13 @@ enum ScrollDriverError: Error, LocalizedError {
 
 enum ScrollViewportResolution {
     case accessibility(viewport: ScrollViewport, container: AXUIElement)
-    case window(viewport: ScrollViewport)
+    case window(viewport: ScrollViewport, axTree: [String] = [])
 }
 
 /// Accessibility is used only to find the scrollable viewport. Scrolling is
 /// sent as a Core Graphics wheel event at the user's exact click location.
 enum ScrollDriver {
-    /// AX calls run on the main thread; a hung target app must not stall it
+    /// Capture setup queries AX on the main thread; a hung target app must not stall it
     /// for the default six seconds.
     private static let messagingTimeout: Float = 1.0
 
@@ -434,11 +434,104 @@ enum ScrollDriver {
         return CFGetTypeID(value) == AXUIElementGetTypeID()
     }
 
+    /// The axes supported by suitable ancestors, rather than proof of overflow.
+    /// Hit-test the application because a system-wide query finds our overlay.
+    /// The picker calls this off the main thread: AX IPC can stall even with a
+    /// deadline, and must not hold up pointer tracking or direction changes.
+    nonisolated static func possibleAxes(processID: pid_t, point: CGPoint, windowBounds: CGRect) -> Set<ScrollAxis>? {
+        let began = ContinuousClock.now
+        let bundleIdentifier = NSRunningApplication(processIdentifier: processID)?.bundleIdentifier
+        let usesAccessibility = ScrollDirectionHint.usesAccessibility(bundleIdentifier: bundleIdentifier)
+        var outcome = usesAccessibility ? "no element" : "browser, by setting"
+        var chain: [String] = []
+        defer {
+            let elapsed = began.duration(to: .now)
+            let milliseconds = Int(Double(elapsed.components.seconds) * 1000
+                + Double(elapsed.components.attoseconds) / 1e15)
+            let timing = usesAccessibility ? " · \(milliseconds) ms" : ""
+            let detail = chain.isEmpty ? "" : chain.joined(separator: " > ") + " → "
+            Log.capture.notice("picker hint · \(bundleIdentifier ?? "<unknown bundle>", privacy: .public) · \(detail + outcome + timing, privacy: .public)")
+        }
+        guard usesAccessibility else { return nil }
+        guard AXIsProcessTrusted() else { outcome = "not trusted"; return nil }
+        let deadline = began + .milliseconds(150)
+        var failed = false
+        // Every reference has its own timeout. Share one deadline across the
+        // hit test and all attributes, so a chain cannot multiply the wait.
+        func setTimeout(_ element: AXUIElement) -> Bool {
+            guard !failed else { return false }
+            let remaining = ContinuousClock.now.duration(to: deadline)
+            guard remaining > .zero else { failed = true; outcome = "timeout"; return false }
+            let seconds = Double(remaining.components.seconds) + Double(remaining.components.attoseconds) / 1e18
+            guard AXUIElementSetMessagingTimeout(element, Float(seconds)) == .success else {
+                failed = true
+                return false
+            }
+            return true
+        }
+        func attribute(_ element: AXUIElement, _ key: String) -> CFTypeRef? {
+            guard setTimeout(element) else { return nil }
+            var value: CFTypeRef?
+            let result = AXUIElementCopyAttributeValue(element, key as CFString, &value)
+            if result != .success && result != .attributeUnsupported && result != .noValue {
+                failed = true
+                outcome = result == .cannotComplete ? "timeout" : "no element"
+            }
+            return result == .success ? value : nil
+        }
+        let app = AXUIElementCreateApplication(processID)
+        guard setTimeout(app) else { return nil }
+        var hit: AXUIElement?
+        let result = AXUIElementCopyElementAtPosition(app, Float(point.x), Float(point.y), &hit)
+        guard result == .success, let hit else {
+            outcome = result == .cannotComplete ? "timeout" : "no element"
+            return nil
+        }
+        let (ancestors, _) = ScrollAncestorResolver.climb(
+            from: hit, limit: ScrollAncestorResolver.depth,
+            isWindow: { attribute($0, kAXRoleAttribute as String) as? String == (kAXWindowRole as String) },
+            parent: { element in
+                guard let value = attribute(element, kAXParentAttribute as String),
+                      CFGetTypeID(value) == AXUIElementGetTypeID() else { return nil }
+                return (value as! AXUIElement)
+            })
+        var candidates: [ScrollAncestorCandidate<Int>] = []
+        for (index, element) in ancestors.enumerated() {
+            guard !failed else { return nil }
+            guard let role = attribute(element, kAXRoleAttribute as String) as? String else { return nil }
+            // Window and grouping nodes often have no geometry and cannot add an axis.
+            guard role == "AXScrollArea" || role == "AXWebArea" || role == "AXTable" else { continue }
+            guard let p = attribute(element, kAXPositionAttribute as String),
+                  let s = attribute(element, kAXSizeAttribute as String),
+                  CFGetTypeID(p) == AXValueGetTypeID(), CFGetTypeID(s) == AXValueGetTypeID() else { return nil }
+            var position = CGPoint.zero, size = CGSize.zero
+            guard AXValueGetValue(p as! AXValue, .cgPoint, &position),
+                  AXValueGetValue(s as! AXValue, .cgSize, &size) else { return nil }
+            let frame = CGRect(origin: position, size: size)
+            guard ScrollAncestorResolver.isSuitable(role: role, frame: frame, windowBounds: windowBounds) else { continue }
+            let horizontal = attribute(element, kAXHorizontalScrollBarAttribute as String)
+            let vertical = attribute(element, kAXVerticalScrollBarAttribute as String)
+            let hasHorizontal = horizontal.map { CFGetTypeID($0) == AXUIElementGetTypeID() } ?? false
+            let hasVertical = vertical.map { CFGetTypeID($0) == AXUIElementGetTypeID() } ?? false
+            let geometry = String(format: "%.0f,%.0f %.0fx%.0f", frame.minX, frame.minY, frame.width, frame.height)
+            chain.append("\(role)@\(geometry)\(hasHorizontal ? "+hbar" : "")\(hasVertical ? "+vbar" : "")")
+            candidates.append(ScrollAncestorCandidate(identity: index, role: role, frame: frame,
+                hasHorizontalScrollBar: hasHorizontal, hasVerticalScrollBar: hasVertical))
+        }
+        guard !failed else { return nil }
+        guard ContinuousClock.now < deadline else { outcome = "timeout"; return nil }
+        let axes = ScrollDirectionHint.possibleAxes(ancestors: candidates, windowBounds: windowBounds)
+        let names = [ScrollAxis.vertical, .horizontal].filter { axes.contains($0) }.map(\.rawValue)
+        outcome = "axes [\(names.joined(separator: ", "))]"
+        return axes
+    }
+
     /// The scroll area under the click, for a capture along `axis`. Up the
     /// elements from the click, the first area that could scroll (a scroll
     /// area, a web area, a table); for a capture sideways, the first of them
     /// with a horizontal scroll bar, and if there is none, the first as before.
-    static func viewport(selection: WindowPickerSelection, axis: ScrollAxis = .vertical) throws -> ScrollViewportResolution {
+    static func viewport(selection: WindowPickerSelection, axis: ScrollAxis = .vertical,
+                         recordAXTree: Bool = true) throws -> ScrollViewportResolution {
         guard AXIsProcessTrusted() else { throw ScrollDriverError.accessibilityDenied }
         let system = systemWideElement()
         var hit: AXUIElement?
@@ -453,8 +546,10 @@ enum ScrollDriver {
         var elements: [AXUIElement] = []
         var candidates: [ScrollAncestorCandidate<Int>] = []
         var chain: [String] = []
+        var lastElement = hit
         for _ in 0..<ScrollAncestorResolver.depth {
             guard let element = current else { break }
+            lastElement = element
             let role = stringAttribute(element, kAXRoleAttribute as String) ?? "<role-unavailable>"
             let frame = frameOf(element)
             let geometry = frame.map { String(format: "%.0f,%.0f %.0fx%.0f", $0.minX, $0.minY, $0.width, $0.height) } ?? "<frame-unavailable>"
@@ -472,6 +567,7 @@ enum ScrollDriver {
             } else {
                 chain.append("\(role)@\(geometry)")
             }
+            if role == (kAXWindowRole as String) { break }
             var parent: CFTypeRef?
             guard AXUIElementCopyAttributeValue(element, kAXParentAttribute as CFString, &parent) == .success,
                   let next = parent, CFGetTypeID(next) == AXUIElementGetTypeID() else { break }
@@ -480,12 +576,12 @@ enum ScrollDriver {
         guard let index = ScrollAncestorResolver.chosenIdentity(in: candidates, windowBounds: selection.bounds,
                                                                 axis: axis) else {
             Log.capture.notice("scroll viewport fallback · AXError \(result.rawValue, privacy: .public) · chain \(chain.joined(separator: " > "), privacy: .public)")
-            return .window(viewport: windowViewport)
+            return .window(viewport: windowViewport, axTree: recordAXTree ? fallbackWindowTree(hit: hit, last: lastElement, axis: axis) : [])
         }
         let rect = candidates[index].frame.intersection(selection.bounds)
         guard rect.width >= 80, rect.height >= 80 else {
             Log.capture.notice("scroll viewport fallback · AXError \(result.rawValue, privacy: .public) · chain \(chain.joined(separator: " > "), privacy: .public)")
-            return .window(viewport: windowViewport)
+            return .window(viewport: windowViewport, axTree: recordAXTree ? fallbackWindowTree(hit: hit, last: lastElement, axis: axis) : [])
         }
         let role = candidates[index].role
         let webPage = ScrollWebPage.kind(
@@ -504,6 +600,63 @@ enum ScrollDriver {
                                                         windowBounds: selection.bounds, webPage: webPage,
                                                         crossSpan: strip),
                               container: elements[index])
+    }
+
+    private static func fallbackWindowTree(hit: AXUIElement, last: AXUIElement, axis: ScrollAxis) -> [String] {
+        guard ScrollFrameDump.isEnabled else { return [] }
+        let deadline = ContinuousClock.now + .milliseconds(150)
+        // Give every IPC only the budget left, rather than letting a hung app spend
+        // a full timeout on each of hundreds of nodes.
+        func attribute(_ element: AXUIElement, _ key: String) -> CFTypeRef? {
+            let remaining = ContinuousClock.now.duration(to: deadline)
+            guard remaining > .zero else { return nil }
+            let seconds = Double(remaining.components.seconds) + Double(remaining.components.attoseconds) / 1e18
+            AXUIElementSetMessagingTimeout(element, Float(seconds))
+            var value: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(element, key as CFString, &value) == .success else { return nil }
+            return value
+        }
+        func frame(_ element: AXUIElement) -> CGRect? {
+            guard let p = attribute(element, kAXPositionAttribute as String),
+                  let s = attribute(element, kAXSizeAttribute as String),
+                  CFGetTypeID(p) == AXValueGetTypeID(), CFGetTypeID(s) == AXValueGetTypeID() else { return nil }
+            var point = CGPoint.zero, size = CGSize.zero
+            guard AXValueGetValue(p as! AXValue, .cgPoint, &point),
+                  AXValueGetValue(s as! AXValue, .cgSize, &size) else { return nil }
+            return CGRect(origin: point, size: size)
+        }
+        let window: AXUIElement?
+        if attribute(last, kAXRoleAttribute as String) as? String == (kAXWindowRole as String) {
+            window = last
+        } else if let value = attribute(hit, kAXWindowAttribute as String), CFGetTypeID(value) == AXUIElementGetTypeID() {
+            window = (value as! AXUIElement)
+        } else {
+            window = nil
+        }
+        let lines = window.map { root in
+            ScrollAXTree.breadthFirst(from: root, shouldContinue: { ContinuousClock.now < deadline },
+                describe: { element, depth in
+                    let role = attribute(element, kAXRoleAttribute as String) as? String ?? "<role-unavailable>"
+                    let rect = frame(element)
+                    let horizontal = attribute(element, kAXHorizontalScrollBarAttribute as String)
+                    let vertical = attribute(element, kAXVerticalScrollBarAttribute as String)
+                    return ScrollAXTree.line(depth: depth, role: role, frame: rect,
+                        horizontal: horizontal.map { CFGetTypeID($0) == AXUIElementGetTypeID() } ?? false,
+                        vertical: vertical.map { CFGetTypeID($0) == AXUIElementGetTypeID() } ?? false)
+                }, children: { element, remaining in
+                    let duration = ContinuousClock.now.duration(to: deadline)
+                    guard duration > .zero else { return [] }
+                    AXUIElementSetMessagingTimeout(element, Float(Double(duration.components.seconds)
+                        + Double(duration.components.attoseconds) / 1e18))
+                    var values: CFArray?
+                    guard AXUIElementCopyAttributeValues(element, kAXChildrenAttribute as CFString,
+                                                         0, remaining, &values) == .success else { return [] }
+                    return values as? [AXUIElement] ?? []
+                })
+        } ?? []
+        Log.capture.notice("area not found · window tree \(lines.count, privacy: .public) elements")
+        let reason = ScrollAXTree.stopReason(count: lines.count, timedOut: ContinuousClock.now >= deadline)
+        return [ScrollAXTree.header(axis: axis, count: lines.count, stoppedBy: reason)] + lines
     }
 
     /// One wheel event of `lines` lines, forward or `backwards` — up, or left.

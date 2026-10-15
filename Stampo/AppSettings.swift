@@ -476,7 +476,7 @@ enum ScrollDirection: String, CaseIterable, Equatable, Sendable {
 
     /// The other of the two. ⇥ and ⇧⇥ both land here: with two directions
     /// "next" and "previous" are the same step.
-    var other: ScrollDirection { self == .down ? .right : .down }
+    nonisolated var other: ScrollDirection { self == .down ? .right : .down }
 
     /// Lines of text with an arrow through them, rather than an arrow to a
     /// line, which reads as "download". Both ship with macOS 13.

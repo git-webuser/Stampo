@@ -39,8 +39,16 @@ final class WindowPickerOverlay {
     /// ⇥ and ⇧⇥ while a scrolling picker is up — see `claimDirectionKeys`.
     private var tabToken: UUID?
     private var shiftTabToken: UUID?
+    private var possibleAxes: Set<ScrollAxis>?
+    private var directionChosenByUser = false
+    private var hintSelection: WindowPickerSelection?
+    private var hintRevision = 0
+    private var hintDebounce: Task<Void, Never>?
+    private var hintRequestInFlight = false
+    private var hintReady = false
 
     isolated deinit {
+        hintDebounce?.cancel()
         resetCursorState()
     }
 
@@ -58,8 +66,15 @@ final class WindowPickerOverlay {
         let view = WindowPickerView(frame: NSRect(origin: .zero, size: frame.size))
         view.targetScreen = screen
         view.wpcCursor = wpcCursor          // view uses same cursor instance for cursor-rects
-        view.badge = scrollDirection.map(Self.badge(for:))
+        view.badge = scrollDirection.map { Self.badge(for: $0) }
+        if scrollDirection != nil {
+            view.onHoverChanged = { [weak self] selection in self?.updateHint(for: selection) }
+        }
         view.onSelected = { [weak self] selection in
+            if selection != nil, let self, let direction = self.scrollDirection {
+                AppSettings.scrollDirection = ScrollDirectionHint.displayed(
+                    chosenByUser: self.directionChosenByUser, possible: self.possibleAxes, setting: direction)
+            }
             self?.dismiss()
             if let selection {
                 if let onSelectedWindow = self?.onSelectedWindow {
@@ -142,11 +157,76 @@ final class WindowPickerOverlay {
     private func turnDirection(view: WindowPickerView?) {
         guard let current = scrollDirection else { return }
         let next = current.other
+        directionChosenByUser = true
         scrollDirection = next
         // The same setting the panel reads: one answer to "which way?".
         AppSettings.scrollDirection = next
         view?.badge = Self.badge(for: next)
         view?.needsDisplay = true
+    }
+
+    private func refreshHint() {
+        guard let direction = scrollDirection else { return }
+        view?.badge = Self.badge(for: ScrollDirectionHint.displayed(
+            chosenByUser: directionChosenByUser, possible: possibleAxes, setting: direction))
+        view?.needsDisplay = true
+    }
+
+    private func updateHint(for selection: WindowPickerSelection?) {
+        guard scrollDirection != nil else { return }
+        if let old = hintSelection, let selection,
+           old.windowID == selection.windowID, old.processID == selection.processID,
+           old.clickPoint == selection.clickPoint, old.bounds == selection.bounds { return }
+        hintRevision += 1
+        hintDebounce?.cancel()
+        hintReady = false
+        if selection?.windowID != hintSelection?.windowID { directionChosenByUser = false }
+        if selection?.windowID != hintSelection?.windowID || selection?.processID != hintSelection?.processID
+            || selection?.bounds != hintSelection?.bounds || selection == nil {
+            possibleAxes = nil
+            refreshHint()
+        }
+        hintSelection = selection
+        guard selection != nil else { return }
+        hintDebounce = Task { [weak self] in
+            do { try await Task.sleep(for: .milliseconds(80)) } catch { return }
+            guard !Task.isCancelled else { return }
+            guard let self else { return }
+            self.hintReady = true
+            self.requestHintIfReady()
+        }
+    }
+
+    private func requestHintIfReady() {
+        guard hintReady, !hintRequestInFlight, let selection = hintSelection,
+              scrollDirection != nil, panel != nil else { return }
+        hintReady = false
+        hintRequestInFlight = true
+        let revision = hintRevision
+        Task { [weak self] in
+            let possible = await Task.detached(priority: .userInitiated) {
+                ScrollDriver.possibleAxes(processID: selection.processID, point: selection.clickPoint,
+                                          windowBounds: selection.bounds)
+            }.value
+            guard let self else { return }
+            self.hintRequestInFlight = false
+            if self.hintRevision == revision, self.panel != nil, self.scrollDirection != nil {
+                self.possibleAxes = possible
+                self.refreshHint()
+            }
+            // A newer hover may have finished its debounce while the old IPC was in flight.
+            self.requestHintIfReady()
+        }
+    }
+
+    private func clearHint() {
+        hintRevision += 1
+        hintDebounce?.cancel()
+        hintDebounce = nil
+        hintSelection = nil
+        possibleAxes = nil
+        directionChosenByUser = false
+        hintReady = false
     }
 
     func cancel() {
@@ -158,6 +238,7 @@ final class WindowPickerOverlay {
     /// dismiss() was already called). Called defensively from
     /// finishCountdown / captureNowFromCountdown in NotchPanelCapture.
     func resetCursorState() {
+        clearHint()
         releaseDirectionKeys()
         removeCursorObservers()
         if cursorPushed {
@@ -171,6 +252,7 @@ final class WindowPickerOverlay {
     }
 
     private func dismiss() {
+        clearHint()
         guard panel != nil else { return }
         releaseDirectionKeys()
         removeCursorObservers()
@@ -292,6 +374,7 @@ private final class WindowPickerView: NSView {
     var wpcCursor: NSCursor = .arrow      // set by WindowPickerOverlay before display
     var onSelected: ((WindowPickerSelection?) -> Void)?
     var onCancelled: (() -> Void)?
+    var onHoverChanged: ((WindowPickerSelection?) -> Void)?
     var badge: ScanModeBadge?
 
     private var hoveredSelection: WindowPickerSelection?
@@ -343,15 +426,19 @@ private final class WindowPickerView: NSView {
     func followPointerToNewScreen() {
         hoveredSelection = nil
         hoveredViewRect = nil
-        seedHover()
-        if let hoverPoint { updateHover(at: hoverPoint) }
+        if let window {
+            hoverPoint = convert(window.mouseLocationOutsideOfEventStream, from: nil)
+            if let hoverPoint { updateHover(at: hoverPoint) }
+        }
         needsDisplay = true
     }
 
-    /// Takes the pointer's place as it is now, with no event to read it from.
+    /// Seed only the hint: the highlight still waits for the first mouse move.
     func seedHover() {
-        guard let window else { return }
-        hoverPoint = convert(window.mouseLocationOutsideOfEventStream, from: nil)
+        guard let window, let screen = targetScreen else { return }
+        let point = convert(window.mouseLocationOutsideOfEventStream, from: nil)
+        hoverPoint = point
+        onHoverChanged?(windowAtViewPoint(point, screen: screen)?.0)
         needsDisplay = true
     }
 
@@ -369,6 +456,7 @@ private final class WindowPickerView: NSView {
         let result = windowAtViewPoint(viewPt, screen: screen)
         hoveredSelection = result?.0
         hoveredViewRect = result?.1
+        onHoverChanged?(hoveredSelection)
         needsDisplay = true
     }
 

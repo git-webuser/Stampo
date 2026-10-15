@@ -26,11 +26,14 @@ nonisolated final class ScrollFrameDump: Sendable {
         self.directory = directory
     }
 
+    @MainActor
+    static var isEnabled: Bool { AppSettings.store.bool(forKey: defaultsKey) }
+
     /// A dump for a capture starting now, or nil when the flag is off or the
     /// folder cannot be made.
     @MainActor
     static func begin() -> ScrollFrameDump? {
-        guard AppSettings.store.bool(forKey: defaultsKey),
+        guard isEnabled,
               let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
         else { return nil }
         let bundle = Bundle.main.bundleIdentifier ?? "com.hex000.Stampo"
@@ -110,6 +113,8 @@ private extension CaptureFrame {
 #else
 /// Release builds write nothing: see the Debug one.
 nonisolated final class ScrollFrameDump: Sendable {
+    @MainActor
+    static var isEnabled: Bool { false }
     @MainActor
     static func begin() -> ScrollFrameDump? { nil }
     func save(_ frame: CaptureFrame, as name: String) {}
