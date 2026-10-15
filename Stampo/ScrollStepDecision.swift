@@ -581,6 +581,37 @@ nonisolated enum ScrollPush {
         mode == .push && haveStationaryFrame
     }
 
+    /// The tiles of the grid (`ScrollStillness`) that changed: the ones whose difference between two frames is
+    /// `ScrollStillness.stillBelow` or more. Nothing when the frames could not be told apart tile by tile.
+    static func changedTiles(_ tileDifferences: [Double]?) -> Set<Int> {
+        guard let tileDifferences else { return [] }
+        return Set(tileDifferences.indices.filter { tileDifferences[$0] >= ScrollStillness.stillBelow })
+    }
+
+    /// How many tiles outside `ownMotion` have changed.
+    static func tilesChanged(outside ownMotion: Set<Int>, in tileDifferences: [Double]) -> Int {
+        tileDifferences.indices.filter { !ownMotion.contains($0) && tileDifferences[$0] >= ScrollStillness.stillBelow }.count
+    }
+
+    /// Whether a push changed the frame anywhere but in the tiles that change by themselves, `ownMotion` — a
+    /// small animation at the end of a list (an animated WebP in the preview column of Finder) differs from the
+    /// frame that stood by a little each time, with no push. A section's stage changes more than that: the
+    /// heading, the mark of the hour, the colour of a card. Nil when the tiles cannot say: there are no
+    /// differences, or half of the frame and more moves by itself (a video, an animation across the frame), and
+    /// the frame as a whole is judged as before. Otherwise, yes when a tile outside `ownMotion` has changed, or
+    /// the frame outside it differs by `changedFrom` on the mean (a change that is spread thin).
+    static func changedBesidesOwnMotion(push tileDifferences: [Double]?, ownMotion: Set<Int>) -> Bool? {
+        guard let tileDifferences, ownMotion.count <= ScrollStillness.grid * ScrollStillness.grid / 2 else { return nil }
+        var total = 0.0, outside = 0
+        for (tile, difference) in tileDifferences.enumerated() where !ownMotion.contains(tile) {
+            if difference >= ScrollStillness.stillBelow { return true }
+            total += difference
+            outside += 1
+        }
+        guard outside > 0 else { return false }
+        return isChanged(total / Double(outside))
+    }
+
     /// How many pushes a section has had so far.
     static func pushes(in mode: Mode) -> Int {
         switch mode {
@@ -593,6 +624,31 @@ nonisolated enum ScrollPush {
     static func isExhausted(_ mode: Mode) -> Bool {
         if case .section(let pushes) = mode { return pushes >= limit }
         return false
+    }
+}
+
+/// The last frame decided as stationary since a frame was kept, with the tiles of the frame that changed while
+/// the page stood (its own motion): what a push is compared with (`ScrollPush.changedBesidesOwnMotion`). One value,
+/// so that the motion goes where the frame does, and the places that forget the frame forget it too.
+nonisolated struct StationaryFrame: Sendable {
+    let frame: CaptureFrame
+    /// The tiles of the grid that changed between the frames of the steps decided as stationary.
+    let ownMotion: Set<Int>
+
+    init(frame: CaptureFrame, ownMotion: Set<Int> = []) {
+        self.frame = frame
+        self.ownMotion = ownMotion
+    }
+
+    /// What stands after a step decided as stationary: `next`, and the tiles that changed in it from the frame
+    /// kept and from the frame that stood, added to the motion of the steps before.
+    static func after(step next: CaptureFrame, kept: CaptureFrame, previous: StationaryFrame?) -> StationaryFrame {
+        var motion = previous?.ownMotion ?? []
+        motion.formUnion(ScrollPush.changedTiles(ScrollStillness.tileDifferences(kept, next)))
+        if let previous {
+            motion.formUnion(ScrollPush.changedTiles(ScrollStillness.tileDifferences(previous.frame, next)))
+        }
+        return StationaryFrame(frame: next, ownMotion: motion)
     }
 }
 
