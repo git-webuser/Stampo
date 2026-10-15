@@ -158,6 +158,10 @@ final class ScrollingCaptureSession {
     private var linearityConfirmed = false
     /// Whether the queue that is waiting has had its short step (`ScrollQueueLaying.shortStepDue`).
     private var shortStepTried = false
+    /// When the last wheel event was sent, and whether the capture waits after it for an overlay scroll bar to go
+    /// (`ScrollOverlayScroller`).
+    private var lastWheelAt = Date.distantPast
+    private var overlayScrollerWait = false
     /// How long the last frame waited for the page to be still (`noteStillness`), as the line of a step says it.
     private var stillnessNote = ""
     /// When the capture began, for the length of it in the line `final`.
@@ -493,7 +497,7 @@ final class ScrollingCaptureSession {
             diagnosticStage = .validateTarget
             try validateCurrentScrollTarget(at: point)
             let lines = min(remaining, Int(ScrollResume.linesPerEvent))
-            try ScrollDriver.sendScroll(axis: axis, lines: Int32(lines), backwards: !forward, at: point)
+            try sendWheel(axis: axis, lines: Int32(lines), backwards: !forward, at: point)
             remaining -= lines
             try await Task.sleep(for: .milliseconds(60))
         }
@@ -687,6 +691,20 @@ final class ScrollingCaptureSession {
         temporary.discard()
         assembler.reset()
         planningPinned = ScrollPinned.Accumulator()
+    }
+
+    /// A wheel event of the capture's own, with the time it was sent, for the wait that an overlay scroll bar asks.
+    private func sendWheel(axis: ScrollAxis, lines: Int32, backwards: Bool = false, at point: CGPoint) throws {
+        try ScrollDriver.sendScroll(axis: axis, lines: lines, backwards: backwards, at: point)
+        lastWheelAt = Date()
+    }
+
+    /// Before the first look at a page after a wheel event: while an overlay scroll bar may still be shown, no
+    /// sooner than `ScrollOverlayScroller.minimumDelay` after the event. The time counts in the wait for stillness.
+    private func waitForOverlayScroller() async throws {
+        guard overlayScrollerWait else { return }
+        let remaining = ScrollOverlayScroller.remainingWait(sinceWheel: Date().timeIntervalSince(lastWheelAt))
+        if remaining > 0 { try await Task.sleep(for: .seconds(remaining)) }
     }
 
     private func ensureActive() throws {
@@ -888,7 +906,7 @@ final class ScrollingCaptureSession {
             // it, and the direction asked for has not settled yet.
             try validateCurrentScrollTarget(at: probePoint, axis: candidate)
             let probeLines = ScrollDriver.lineDelta(for: probeStep, backingScale: scale)
-            try ScrollDriver.sendScroll(axis: candidate, lines: probeLines, at: probePoint)
+            try sendWheel(axis: candidate, lines: probeLines, at: probePoint)
             let after = try await ScrollCaptureCancellationBoundary.awaitActive {
                 try await self.captureStableWindow(viewport: candidateViewport)
             }
@@ -899,7 +917,9 @@ final class ScrollingCaptureSession {
                                                viewportPixels: pixelRect(of: candidateViewport),
                                                axis: candidate,
                                                preserveCrossAxis: scrollContainer != nil,
-                                               wholeWidth: candidateViewport.isWebPage && candidate == .vertical) {
+                                               wholeWidth: candidateViewport.isWebPage && candidate == .vertical,
+                                               crossLimit: crossLimit(of: candidateViewport, axis: candidate),
+                                               extendToTrailingEdge: !candidateViewport.isWebPage) {
                 dump?.save(after, as: "00-probe-window")
                 let motionLimit = ScrollDriver.maximumLikelyMovement(
                     pixelStep: probeStep, backingScale: scale,
@@ -955,7 +975,9 @@ final class ScrollingCaptureSession {
         previous = probe
         dump?.step((retry == nil ? "area: " : "   area of the retry: ") + (settled.viewport.webPage.map {
             "web page (\($0.rawValue))" + (settled.axis == .vertical ? ", whole width" : ", the strip that moves")
-        } ?? "not a web page") + headerNote)
+        } ?? "not a web page") + headerNote
+            + (settled.viewport.crossSpan.map { " · strip \(Int($0.upperBound - $0.lowerBound)) pt" } ?? "")
+            + (overlayScrollerWait ? " · overlay scroller: not cut, waits ≥ \(ScrollOverlayScroller.minimumDelay) s" : ""))
         dump?.save(probe, as: "00-probe\(frameSuffix)")
         Log.capture.notice("scroll probe settled · \(self.axis == .vertical ? "vertical" : "horizontal", privacy: .public) · \(probeLines, privacy: .public) lines · limit \(probeMotionLimit, privacy: .public) px · scale \(self.scale, privacy: .public)")
         requestedStep = max(24, Int(Double(axisLength(of: first)) * 0.60))
@@ -1035,7 +1057,7 @@ final class ScrollingCaptureSession {
             diagnosticStage = .validateTarget
             try validateCurrentScrollTarget(at: point, axis: first.axis)
             // Back to the lines of the probe, and a new look from there.
-            try ScrollDriver.sendScroll(axis: first.axis, lines: first.lines, backwards: true, at: point)
+            try sendWheel(axis: first.axis, lines: first.lines, backwards: true, at: point)
             diagnosticStage = .capture
             let before = try await ScrollCaptureCancellationBoundary.awaitActive {
                 try await self.captureStableWindow(viewport: first.viewport)
@@ -1048,7 +1070,7 @@ final class ScrollingCaptureSession {
             lastLook = before
             let goesOn = ScrollProbeRetry.keepsTrying(changeSinceLastLook: change)
             diagnosticStage = .probeMotion
-            try ScrollDriver.sendScroll(axis: first.axis, lines: first.lines, at: point)
+            try sendWheel(axis: first.axis, lines: first.lines, at: point)
             let after = try await ScrollCaptureCancellationBoundary.awaitActive {
                 try await self.captureStableWindow(viewport: first.viewport)
             }
@@ -1059,7 +1081,9 @@ final class ScrollingCaptureSession {
             guard let outcome = Self.probeOutcome(before: before, after: after,
                                                   viewportPixels: pixelRect(of: first.viewport), axis: first.axis,
                                                   preserveCrossAxis: scrollContainer != nil,
-                                                  wholeWidth: first.viewport.isWebPage && first.axis == .vertical) else {
+                                                  wholeWidth: first.viewport.isWebPage && first.axis == .vertical,
+                                                  crossLimit: crossLimit(of: first.viewport, axis: first.axis),
+                                                  extendToTrailingEdge: !first.viewport.isWebPage) else {
                 recordStep(0, "\(label) · lines=\(first.lines)\(stillNote) · nothing moved → not matched\(goesOn ? "" : " · page did not change, stop")")
                 pairs.append(nil)
                 errors.append(nil)
@@ -1167,7 +1191,7 @@ final class ScrollingCaptureSession {
             try validateCurrentScrollTarget(at: point)
             stepInFlight = true
             inFlightLines = sentLines
-            try ScrollDriver.sendScroll(axis: axis, lines: sentLines, at: point)
+            try sendWheel(axis: axis, lines: sentLines, at: point)
             diagnosticStage = .capture
             let next = try await ScrollCaptureCancellationBoundary.awaitActive {
                 try await self.captureStableViewport(reference: oldFrame)
@@ -1580,7 +1604,7 @@ final class ScrollingCaptureSession {
         try ensureActive()
         diagnosticStage = .validateTarget
         try validateCurrentScrollTarget(at: point)
-        try ScrollDriver.sendScroll(axis: axis, lines: lines, backwards: true, at: point)
+        try sendWheel(axis: axis, lines: lines, backwards: true, at: point)
         diagnosticStage = .capture
         // Settled before the next step is sent, so that the two do not run
         // into each other while the page still glides back.
@@ -1789,17 +1813,45 @@ final class ScrollingCaptureSession {
     /// The viewport for one direction. The scrollbar to leave out is the one
     /// along that direction's edge, so it depends on the axis being tried.
     private func viewport(for axis: ScrollAxis, within base: ScrollViewport) throws -> ScrollViewport {
+        overlayScrollerWait = false
         guard excludeScrollbars else { return base }
         let axScrollbarInset = ScrollDriver.scrollbarInsetPoints(container: scrollContainer,
                                                                   viewport: base.windowRect,
                                                                   axis: axis)
-        let reservedPoints = axScrollbarInset ?? Geometry.fallbackScrollbarInsetPoints
-        guard let adjusted = base.excludingScrollbar(axis: axis, insetPoints: reservedPoints) else {
-            throw ScrollDriverError.scrollAreaUnavailable
+        switch ScrollOverlayScroller.decision(excludeScrollbars: excludeScrollbars, isWebPage: base.isWebPage,
+                                              overlayStyle: NSScroller.preferredScrollerStyle == .overlay,
+                                              axisScrollbarInset: axScrollbarInset,
+                                              overMovingStrip: axScrollbarInset.map {
+                                                  ScrollOverlayScroller.barLiesOver(strip: base.crossSpan,
+                                                                                    area: base.windowRect,
+                                                                                    axis: axis, inset: $0)
+                                              } ?? true,
+                                              fallbackPoints: Geometry.fallbackScrollbarInsetPoints) {
+        case .leave:
+            return base
+        case .wait:
+            // The bar is over the content and goes by itself: the edge is whole, and the frames wait for the bar.
+            overlayScrollerWait = true
+            Log.capture.notice("scrollbar edge not cut · overlay scroller over the content · frames wait \(ScrollOverlayScroller.minimumDelay, privacy: .public) s after a wheel event")
+            return base
+        case .cut(let reservedPoints):
+            guard let adjusted = base.excludingScrollbar(axis: axis, insetPoints: reservedPoints) else {
+                throw ScrollDriverError.scrollAreaUnavailable
+            }
+            let origin = axScrollbarInset == nil ? "fixed edge reserve" : "AX scrollbar geometry"
+            Log.capture.notice("scrollbar edge excluded · \(reservedPoints, privacy: .public) points · \(origin, privacy: .public)")
+            return adjusted
         }
-        let origin = axScrollbarInset == nil ? "fixed edge reserve" : "AX scrollbar geometry"
-        Log.capture.notice("scrollbar edge excluded · \(reservedPoints, privacy: .public) points · \(origin, privacy: .public)")
-        return adjusted
+    }
+
+    /// Where the strip that moves lies across the scroll, in the pixels of the viewport's crop, when what moves is
+    /// narrower than the area (`ScrollStrip`).
+    private func crossLimit(of viewport: ScrollViewport, axis: ScrollAxis) -> ClosedRange<CGFloat>? {
+        let rect = pixelRect(of: viewport)
+        return ScrollStrip.pixelLimit(of: viewport.crossSpan,
+                                      windowOrigin: axis == .vertical ? viewport.windowBounds.minX
+                                                                      : viewport.windowBounds.minY,
+                                      cropOrigin: axis == .vertical ? rect.minX : rect.minY, scale: scale)
     }
 
     /// The probe's second look, still the whole window. Settled is judged on
@@ -1807,11 +1859,13 @@ final class ScrollingCaptureSession {
     /// title bar or a fading scrollbar does not keep it waiting.
     private func captureStableWindow(viewport candidate: ScrollViewport) async throws -> CaptureFrame {
         let started = Date()
+        try await waitForOverlayScroller()
+        let waited = Date()   // The limit for stillness counts from here, after the wait for an overlay scroll bar.
         var latest = try await captureWindow()
         // Each frame is cropped once: the first on its first comparison, and
         // after that the crop that was made of it as the newer of a pair.
         var latestCrop: CaptureFrame?
-        let deadline = started.addingTimeInterval(ScrollStillness.limit)
+        let deadline = waited.addingTimeInterval(ScrollStillness.limit)
         while Date() < deadline && !Task.isCancelled {
             try await Task.sleep(for: ScrollStillness.interval)
             let next = try await captureWindow()
@@ -1831,9 +1885,11 @@ final class ScrollingCaptureSession {
 
     private func captureStableViewport(reference: CaptureFrame) async throws -> CaptureFrame {
         let started = Date()
+        try await waitForOverlayScroller()
+        let waited = Date()   // The limit for stillness counts from here, after the wait for an overlay scroll bar.
         var latest = try await captureViewport()
         try ensureActive()
-        let deadline = started.addingTimeInterval(ScrollStillness.limit)
+        let deadline = waited.addingTimeInterval(ScrollStillness.limit)
         while Date() < deadline && !Task.isCancelled {
             try await Task.sleep(for: ScrollStillness.interval)
             let next = try await captureViewport()
@@ -1971,12 +2027,17 @@ final class ScrollingCaptureSession {
     /// whole-window frames is what lets one starting frame serve either axis.
     nonisolated static func probeOutcome(before: CaptureFrame, after: CaptureFrame,
                                           viewportPixels: CGRect, axis: ScrollAxis,
-                                          preserveCrossAxis: Bool, wholeWidth: Bool = false) -> ProbeOutcome? {
+                                          preserveCrossAxis: Bool, wholeWidth: Bool = false,
+                                          crossLimit: ClosedRange<CGFloat>? = nil,
+                                          extendToTrailingEdge: Bool = false) -> ProbeOutcome? {
         guard let initial = before.cropped(to: viewportPixels),
               let moved = after.cropped(to: viewportPixels),
-              let movingRect = movingContentRect(before: initial, after: moved, axis: axis,
-                                                 preserveCrossAxis: preserveCrossAxis,
-                                                 wholeWidth: wholeWidth),
+              let found = movingContentRect(before: initial, after: moved, axis: axis,
+                                            preserveCrossAxis: preserveCrossAxis,
+                                            wholeWidth: wholeWidth,
+                                            extendToTrailingEdge: extendToTrailingEdge,
+                                            crossLimit: crossLimit),
+              case let movingRect = found,
               let first = initial.cropped(to: movingRect),
               let probe = moved.cropped(to: movingRect)
         else { return nil }
@@ -2016,9 +2077,20 @@ final class ScrollingCaptureSession {
     /// nothing for it. Without it, what stands still above and
     /// below the moving rows does not narrow the box: only the lines that go into
     /// the frames are looked at.
+    ///
+    /// With `extendToTrailingEdge` — an area that is not a page — the box runs on to the edge the content comes
+    /// from (the right edge of a capture sideways, the bottom of one down) over the lines across the scroll that
+    /// hold nothing, or something that changed between the frames; it stops where a run of more than
+    /// `shortStaticRun` lines that hold something standing still begins. Where the probe ends, the content that
+    /// is still to arrive can be an almost empty strip (the last column of Finder, with one line in it), too faint
+    /// to count as moving, and a box that ended there would cut the column off when it came in. The leading edge
+    /// stays where the probe found it. `crossLimit` (`ScrollStrip`) narrows the box across the scroll before the
+    /// lines of the edge are looked at: what lies outside it is not in the frames.
     nonisolated static func movingContentRect(before: CaptureFrame, after: CaptureFrame,
                                                axis: ScrollAxis, preserveCrossAxis: Bool = false,
-                                               wholeWidth: Bool = false) -> CGRect? {
+                                               wholeWidth: Bool = false,
+                                               extendToTrailingEdge: Bool = false,
+                                               crossLimit: ClosedRange<CGFloat>? = nil) -> CGRect? {
         guard before.width == after.width, before.height == after.height else { return nil }
         let primaryLength = axis == .vertical ? before.height : before.width
         let crossLength = axis == .vertical ? before.width : before.height
@@ -2066,7 +2138,8 @@ final class ScrollingCaptureSession {
         // frame: where the rows stopped changing at the probe — an empty
         // background under the content — is not where the page ends.
         let p1 = wholeWidth && axis == .vertical ? primaryLength : movingEnd
-        /// Whether a line across the scroll holds something that stays where it is:
+        /// Whether a line (the samples `pixel` gives, at every `step` of `range`) holds
+        /// something that stays where it is:
         /// it has something in it — brightness that varies along the line, in
         /// either frame — and not one sample of it changed between the frames, to
         /// within `stillTolerance`. A margin is blank; a picture or a panel of
@@ -2074,14 +2147,11 @@ final class ScrollingCaptureSession {
         /// crosses a pale band running the width of the page — a menu, a banner,
         /// the grey background of a section — has something in it, and is not
         /// still: the band's edge moved with the page.
-        func lineIsStillContent(_ position: Int) -> Bool {
-            let step = max(1, primaryLength / 700)
+        func stillContent(_ range: Range<Int>, step: Int, pixel: (Int) -> Int) -> Bool {
             var hasContent = false
             var sums = (0.0, 0.0), squares = (0.0, 0.0), count = 0.0
-            for along in stride(from: p0, to: p1, by: step) {
-                let x = axis == .vertical ? position : along
-                let y = axis == .vertical ? along : position
-                let i = (y * before.width + x) * 4
+            for along in stride(from: range.lowerBound, to: range.upperBound, by: step) {
+                let i = pixel(along) * 4
                 let was = Int(before.pixels[i]) + Int(before.pixels[i + 1]) + Int(before.pixels[i + 2])
                 let now = Int(after.pixels[i]) + Int(after.pixels[i + 1]) + Int(after.pixels[i + 2])
                 // One sample that changed is enough: not still.
@@ -2091,6 +2161,7 @@ final class ScrollingCaptureSession {
                 squares.0 += a * a; squares.1 += b * b
                 count += 1
             }
+            guard count > 0 else { return false }
             for (sum, square) in [(sums.0, squares.0), (sums.1, squares.1)] {
                 let mean = sum / count
                 if max(0, square / count - mean * mean).squareRoot() >= FrameMatcher.contentSpread {
@@ -2099,8 +2170,16 @@ final class ScrollingCaptureSession {
             }
             return hasContent
         }
+        /// The line at `position` across the scroll's cross axis, along the rows that move.
+        func lineIsStillContent(_ position: Int) -> Bool {
+            stillContent(p0..<p1, step: max(1, primaryLength / 700)) { along in
+                let x = axis == .vertical ? position : along
+                let y = axis == .vertical ? along : position
+                return y * before.width + x
+            }
+        }
 
-        let c0: Int, c1: Int
+        var c0: Int, c1: Int
         if wholeWidth, axis == .vertical {
             c0 = 0
             c1 = crossLength
@@ -2150,9 +2229,39 @@ final class ScrollingCaptureSession {
             c0 = activeStart
             c1 = activeEnd
         }
+        if let crossLimit {
+            let across = axis == .vertical
+                ? CGRect(x: c0, y: 0, width: c1 - c0, height: 1) : CGRect(x: 0, y: c0, width: 1, height: c1 - c0)
+            let limited = ScrollStrip.narrowed(across, axis: axis, to: crossLimit)
+            (c0, c1) = axis == .vertical ? (Int(limited.minX), Int(limited.maxX)) : (Int(limited.minY), Int(limited.maxY))
+        }
+        // The box ends where the probe's moving rows ended, or, with `extendToTrailingEdge`, where a run of lines
+        // across the scroll that hold something standing still begins, or at the edge of the area. A line is looked at
+        // over the cross range of the box: a margin of the window beyond it is not what the frames take. Only a run
+        // longer than `shortStaticRun` stops it, as in the widening above: the lines of a band that is wider than the
+        // step (the selected row of a column) are the same in both frames wherever the band is, and between the
+        // letters of its text.
+        var end = p1
+        if extendToTrailingEdge, p1 < primaryLength {
+            end = primaryLength
+            let step = max(1, crossLength / 700)
+            var run = 0
+            for position in p1..<primaryLength {
+                let holdsStillContent = stillContent(c0..<c1, step: step) { across in
+                    let x = axis == .vertical ? across : position
+                    let y = axis == .vertical ? position : across
+                    return y * before.width + x
+                }
+                run = holdsStillContent ? run + 1 : 0
+                if run > ScrollingCaptureSession.shortStaticRun {
+                    end = position - run + 1
+                    break
+                }
+            }
+        }
         return axis == .vertical
-            ? CGRect(x: c0, y: p0, width: c1 - c0, height: p1 - p0)
-            : CGRect(x: p0, y: c0, width: p1 - p0, height: c1 - c0)
+            ? CGRect(x: c0, y: p0, width: c1 - c0, height: end - p0)
+            : CGRect(x: p0, y: c0, width: end - p0, height: c1 - c0)
     }
 
     private static func backingScale(for bounds: CGRect) -> CGFloat {
