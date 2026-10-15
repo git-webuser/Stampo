@@ -25,7 +25,7 @@ final class ScrollingCaptureSession {
         case raiseWindow, resolveViewport, validateTarget, capture, probeMotion, match, save
     }
 
-    var onFinished: ((CGImage) -> Void)?
+    var onFinished: ((ScrollingCaptureResult) -> Void)?
     var onCancelled: (() -> Void)?
     var onStatus: ((ScrollCaptureStatus) -> Void)?
     /// Nothing could be collected, and the reason is none of the user's
@@ -257,8 +257,10 @@ final class ScrollingCaptureSession {
             let image = try assembler.makeImage()
             dump?.save(image, as: "final")
             dump?.step("final \(image.width)x\(image.height)")
+            // Before the buffers go: the assembler says whether the image was halved.
+            let pixelsPerPoint = ScrollImageDensity.pixelsPerPoint(scale: scale, shrunk: assembler.isShrunk)
             releaseCaptureBuffers()
-            onFinished?(image)
+            onFinished?(ScrollingCaptureResult(image: image, pixelsPerPoint: pixelsPerPoint))
         } catch {
             releaseCaptureBuffers()
             diagnosticStage = .save
@@ -902,6 +904,23 @@ final class ScrollingCaptureSession {
             before = after
         }
         guard let settled else { throw ScrollDriverError.noMovingContent }
+        let calibrated = try await startFromProbe(settled)
+        if !calibrated { try await retryProbe(after: settled, lookingAt: before) }
+    }
+
+    /// What a probe settled on: the axis, its area, the pair of frames, and the step it was.
+    private typealias SettledProbe = (axis: ScrollAxis, viewport: ScrollViewport, outcome: ProbeOutcome,
+                                      step: Int, lines: Int32, motionLimit: Int)
+
+    /// The capture begins from a pair of probe frames: the assembler with the first, and the probe matched against
+    /// it, which calibrates the lines. True when it did. When the matcher refuses the pair, the capture is set up as
+    /// it has always been after a refusal (the frame of the pair is the one the steps are compared with) and false
+    /// comes back, for `retryProbe`.
+    /// `matched`: a match already made, which a retry brings; nil makes it. `retry`: how the line of the step says it
+    /// is a retry (nil for the first look); `frameSuffix`: the retry's mark on the frames it keeps; `final`: no
+    /// attempt is left.
+    private func startFromProbe(_ settled: SettledProbe, matched: Result<FrameMatch, Error>? = nil,
+                                retry: String? = nil, frameSuffix: String = "", final: Bool = false) async throws -> Bool {
         axis = settled.axis
         assembler = ImageAssembler(axis: axis, maxLength: lengthLimit, scale: scale)
         planningPinned = ScrollPinned.Accumulator()
@@ -919,14 +938,14 @@ final class ScrollingCaptureSession {
         var headerNote = ""
         if let header = settled.outcome.header, assembler.setHeader(header) {
             headerNote = " · header \(assembler.headerLength) px"
-            dump?.save(header, as: "00-header")
+            dump?.save(header, as: "00-header\(frameSuffix)")
         }
         noteProgress()
         previous = probe
-        dump?.step("area: " + (settled.viewport.webPage.map {
+        dump?.step((retry == nil ? "area: " : "   area of the retry: ") + (settled.viewport.webPage.map {
             "web page (\($0.rawValue))" + (settled.axis == .vertical ? ", whole width" : ", the strip that moves")
         } ?? "not a web page") + headerNote)
-        dump?.save(probe, as: "00-probe")
+        dump?.save(probe, as: "00-probe\(frameSuffix)")
         Log.capture.notice("scroll probe settled · \(self.axis == .vertical ? "vertical" : "horizontal", privacy: .public) · \(probeLines, privacy: .public) lines · limit \(probeMotionLimit, privacy: .public) px · scale \(self.scale, privacy: .public)")
         requestedStep = max(24, Int(Double(axisLength(of: first)) * 0.60))
         unmatchedScroll = 0
@@ -940,11 +959,17 @@ final class ScrollingCaptureSession {
         pushCheck = nil
         pushesAllowed = true
         rememberedLine = nil
+        let said = retry.map { "\($0) · " } ?? ""
 
         do {
             diagnosticStage = .match
-            let match = try FrameMatcher.match(previous: first, current: probe, axis: axis,
+            let match: FrameMatch
+            if let matched {
+                match = try matched.get()
+            } else {
+                match = try FrameMatcher.match(previous: first, current: probe, axis: axis,
                                                maximumOffset: probeMotionLimit + 24)
+            }
             try ensureActive()
             let probeBlocks = await pinnedBlocks(from: first, to: probe, shift: match.offset)
             try ensureActive()
@@ -952,21 +977,113 @@ final class ScrollingCaptureSession {
             notePinned(match.standing)
             queueLaidByCalibration = false
             shortStepTried = false
+            consecutiveFailures = 0
             pixelsPerLine = ScrollStepPlanner.pixelsPerLine(offset: match.offset, lines: Int(probeLines))
             if let pixelsPerLine {
                 let plan = ScrollStepPlanner.plan(target: requestedStep, pixelsPerLine: pixelsPerLine,
                                                   axisLength: axisLength(of: first), backingScale: scale)
                 Log.capture.notice("scroll calibrated · \(Int(pixelsPerLine.rounded()), privacy: .public) px per line · \(plan.lines, privacy: .public) lines per step")
             }
-            recordStep(0, "lines=\(probeLines) maximumOffset=\(probeMotionLimit + 24) · match \(match.offset) px · confidence \(Self.percent(match.confidence)) · regions \(match.independentRegions)\(seamNote) → calibrated")
+            recordStep(0, "\(said)lines=\(probeLines) maximumOffset=\(probeMotionLimit + 24) · match \(match.offset) px · confidence \(Self.percent(match.confidence)) · regions \(match.independentRegions)\(seamNote) → calibrated")
+            return true
         } catch {
-            recordStep(0, "lines=\(probeLines) maximumOffset=\(probeMotionLimit + 24) · \(error) → probe not matched")
+            recordStep(0, "\(said)lines=\(probeLines) maximumOffset=\(probeMotionLimit + 24) · \(error) → probe not matched\(final ? ", going on without calibration" : "")")
             // The selected scroll view did not yield stable moving content
             // across the probe; keep the initial image for a partial save.
             previous = first
             unmatchedScroll = probeStep
             consecutiveFailures = 1
+            return false
         }
+    }
+
+    /// The matcher refused the probe. A page can play an intro of its own, with nothing to scroll, as apple.com does for
+    /// its products: the frame taken before the probe and the one after it are of different moments of it, and no
+    /// steps compared with the first can ever match. The page goes back to where the probe began and the probe is
+    /// taken again, about once a second, until it matches, for no longer than `ScrollProbeRetry.limit` from the
+    /// first refusal; the capture then begins from the page as it is after the intro. Where it never matches the
+    /// capture goes on as it always did after a refusal, from the last pair the probe moved something in.
+    /// `firstLook`: the frame taken before the first probe, which the frame taken before each attempt, from the same
+    /// place, is compared with: a page that did not change between two looks (`ScrollProbeRetry.keepsTrying`) is not
+    /// playing an intro, and the attempts end.
+    private func retryProbe(after first: SettledProbe, lookingAt firstLook: CaptureFrame) async throws {
+        let began = Date()
+        var lastLook = firstLook
+        var attempts = 0
+        // Per attempt: the pair when the probe moved something, and why the matcher refused it.
+        var pairs: [SettledProbe?] = []
+        var errors: [Error?] = []
+        attemptsLoop: while ScrollProbeRetry.beginsAttempt(after: Date().timeIntervalSince(began)) {
+            try await Task.sleep(for: .seconds(ScrollProbeRetry.pause))
+            try ensureActive()
+            try checkWindowAndFocus()
+            attempts += 1
+            let label = "retry \(attempts) after \(String(format: "%.1f", Date().timeIntervalSince(began))) s"
+            let point = currentScrollPoint()
+            diagnosticStage = .validateTarget
+            try validateCurrentScrollTarget(at: point, axis: first.axis)
+            // Back to the lines of the probe, and a new look from there.
+            try ScrollDriver.sendScroll(axis: first.axis, lines: first.lines, backwards: true, at: point)
+            diagnosticStage = .capture
+            let before = try await ScrollCaptureCancellationBoundary.awaitActive {
+                try await self.captureStableWindow(viewport: first.viewport)
+            }
+            try ensureActive()
+            try checkWindowAndFocus()
+            dump?.save(before, as: "00-before-r\(attempts)")
+            // Whether the page changed on its own since the last look from this place.
+            let change = meanDifference(try cropped(lastLook, to: first.viewport), try cropped(before, to: first.viewport))
+            lastLook = before
+            let goesOn = ScrollProbeRetry.keepsTrying(changeSinceLastLook: change)
+            diagnosticStage = .probeMotion
+            try ScrollDriver.sendScroll(axis: first.axis, lines: first.lines, at: point)
+            let after = try await ScrollCaptureCancellationBoundary.awaitActive {
+                try await self.captureStableWindow(viewport: first.viewport)
+            }
+            try ensureActive()
+            try checkWindowAndFocus()
+            guard let outcome = Self.probeOutcome(before: before, after: after,
+                                                  viewportPixels: pixelRect(of: first.viewport), axis: first.axis,
+                                                  preserveCrossAxis: scrollContainer != nil,
+                                                  wholeWidth: first.viewport.isWebPage && first.axis == .vertical) else {
+                recordStep(0, "\(label) · lines=\(first.lines) · nothing moved → not matched\(goesOn ? "" : " · page did not change, stop")")
+                pairs.append(nil)
+                errors.append(nil)
+                if goesOn { continue }
+                break attemptsLoop
+            }
+            dump?.save(after, as: "00-probe-window-r\(attempts)")
+            let pair: SettledProbe = (first.axis, first.viewport, outcome, first.step, first.lines, first.motionLimit)
+            diagnosticStage = .match
+            let found: Result<FrameMatch, Error>
+            do {
+                found = .success(try FrameMatcher.match(previous: outcome.first, current: outcome.probe, axis: first.axis,
+                                                        maximumOffset: first.motionLimit + 24))
+            } catch {
+                found = .failure(error)
+            }
+            switch found {
+            case .success:
+                _ = try await startFromProbe(pair, matched: found, retry: label, frameSuffix: "-r\(attempts)")
+                Log.capture.notice("scroll probe matched after \(attempts, privacy: .public) retries · \(String(format: "%.1f", Date().timeIntervalSince(began)), privacy: .public) s")
+                return
+            case .failure(let error):
+                recordStep(0, "\(label) · lines=\(first.lines) maximumOffset=\(first.motionLimit + 24) · \(error) → not matched\(goesOn ? "" : " · page did not change, stop")")
+                pairs.append(pair)
+                errors.append(error)
+                if !goesOn { break attemptsLoop }
+            }
+        }
+        Log.capture.notice("scroll probe not matched in \(attempts, privacy: .public) retries · \(String(format: "%.1f", Date().timeIntervalSince(began)), privacy: .public) s")
+        let ended = ScrollProbeRetry.beginsAttempt(after: Date().timeIntervalSince(began)) ? "page did not change" : "\(Int(ScrollProbeRetry.limit)) s over"
+        if let index = ScrollProbeRetry.attemptToKeep(moved: pairs.map { $0 != nil }),
+           let pair = pairs[index], let error = errors[index] {
+            _ = try await startFromProbe(pair, matched: .failure(error), retry: "retry: \(ended)",
+                                         frameSuffix: "-r\(index + 1)", final: true)
+        } else {
+            recordStep(0, "retry: \(ended) → probe not matched, going on without calibration")
+        }
+        noteProgress()
     }
 
     /// The steps, one after the other, until the end of the page, a limit, or a
