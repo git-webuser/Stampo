@@ -40,3 +40,9 @@ Docs/*
 # excludes file, which does not travel with the repo.
 **/.claude/settings.local.json
 **/.claude/worktrees/
+
+# Files the lead session and the coding agent leave each other (a report, notes).
+# Under Docs/Stampo they are covered by Docs/* above; this is for a copy that
+# lands in the root of a worktree when the agent cannot write outside it.
+codex-step*-report.md
+codex-step*-guidance.md
