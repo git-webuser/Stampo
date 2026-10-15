@@ -16,9 +16,9 @@ import Testing
                 == [.vertical, .horizontal])
     }
 
-    @Test func aWebAreaContributesVerticalEvenWithoutAScrollbar() {
+    @Test func aWebAreaContributesBothAxesEvenWithoutAScrollbar() {
         let web = ScrollAncestorCandidate(identity: 0, role: "AXWebArea", frame: window)
-        #expect(ScrollDirectionHint.possibleAxes(ancestors: [web], windowBounds: window) == [.vertical])
+        #expect(ScrollDirectionHint.possibleAxes(ancestors: [web], windowBounds: window) == [.vertical, .horizontal])
         let wideWeb = ScrollAncestorCandidate(identity: 1, role: "AXWebArea", frame: window,
                                               hasHorizontalScrollBar: true)
         #expect(ScrollDirectionHint.possibleAxes(ancestors: [wideWeb], windowBounds: window)
@@ -52,11 +52,28 @@ import Testing
     }
 
     @Test(arguments: [ScrollDirection.down, .right])
-    func turnedKeepsTheSettingForASingleAxisAndOtherwiseTurnsIt(setting: ScrollDirection) {
-        #expect(ScrollDirectionHint.turned(setting: setting, possible: [.vertical]) == setting)
-        #expect(ScrollDirectionHint.turned(setting: setting, possible: [.horizontal]) == setting)
-        #expect(ScrollDirectionHint.turned(setting: setting, possible: [.vertical, .horizontal]) == setting.other)
-        #expect(ScrollDirectionHint.turned(setting: setting, possible: []) == setting.other)
-        #expect(ScrollDirectionHint.turned(setting: setting, possible: nil) == setting.other)
+    func aUserChoiceOverridesEveryPossibleAxisSet(setting: ScrollDirection) {
+        let possibilities: [Set<ScrollAxis>?] = [[.vertical], [.horizontal], [.vertical, .horizontal], [], nil]
+        for possible in possibilities {
+            #expect(ScrollDirectionHint.displayed(chosenByUser: true, possible: possible, setting: setting) == setting)
+        }
+    }
+
+    @Test(arguments: [ScrollDirection.down, .right])
+    func withoutAUserChoiceTheDisplayFollowsTheHint(setting: ScrollDirection) {
+        let possibilities: [Set<ScrollAxis>?] = [[.vertical], [.horizontal], [.vertical, .horizontal], [], nil]
+        for possible in possibilities {
+            #expect(ScrollDirectionHint.displayed(chosenByUser: false, possible: possible, setting: setting)
+                    == ScrollDirectionHint.shown(possible: possible, setting: setting))
+        }
+    }
+
+    @Test func browsersUseTheSettingAndOtherApplicationsUseAccessibility() {
+        for bundle in ScrollWebPage.browserBundles {
+            #expect(!ScrollDirectionHint.usesAccessibility(bundleIdentifier: bundle))
+        }
+        #expect(ScrollDirectionHint.usesAccessibility(bundleIdentifier: "com.apple.finder"))
+        #expect(ScrollDirectionHint.usesAccessibility(bundleIdentifier: "com.hex000.Stampo"))
+        #expect(ScrollDirectionHint.usesAccessibility(bundleIdentifier: nil))
     }
 }

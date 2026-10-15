@@ -54,7 +54,7 @@ final class ScrollingCaptureSession {
     /// direction; and whether the window — and, if one was found, that area —
     /// is where it should be at the click. Injected so that the choice of area
     /// per direction can be tested without a window server.
-    private let resolveViewport: @MainActor (WindowPickerSelection, ScrollAxis) throws -> ScrollViewportResolution
+    private let resolveViewport: (@MainActor (WindowPickerSelection, ScrollAxis) throws -> ScrollViewportResolution)?
     private let checkTarget: @MainActor (_ container: AXUIElement?, _ axis: ScrollAxis) throws -> Void
     private let source = WindowFrameSource()
     private var escapeToken: UUID?
@@ -134,6 +134,9 @@ final class ScrollingCaptureSession {
     /// to keep them (`ScrollFrameDump`), and which attempt at a step is being made.
     private var dump: ScrollFrameDump?
     private var pendingAXTree: [String] = []
+    /// Both probes use the same window, whose diagnostic tree needs only one
+    /// walk in this session, including when the first walk runs out of time.
+    private var didRecordAXTree = false
     private var stepNumber = 0
     /// Steps placed by the calibration alone, waiting for one the matcher places.
     private var temporary = TemporarySteps()
@@ -189,9 +192,7 @@ final class ScrollingCaptureSession {
         }
         self.ownUICovers = ownUICovers
         self.ignoredWindows = ignoredWindows
-        self.resolveViewport = resolveViewport ?? { selection, axis in
-            try ScrollDriver.viewport(selection: selection, axis: axis)
-        }
+        self.resolveViewport = resolveViewport
         self.checkTarget = checkTarget ?? { container, axis in
             if let container {
                 try ScrollDriver.validateScrollTarget(selection: selection, point: selection.clickPoint,
@@ -821,7 +822,9 @@ final class ScrollingCaptureSession {
     func resolveArea(for axis: ScrollAxis) throws -> ScrollViewport {
         diagnosticStage = .resolveViewport
         var area: ScrollViewport
-        switch try resolveViewport(selection, axis) {
+        let resolution = try resolveViewport?(selection, axis)
+            ?? ScrollDriver.viewport(selection: selection, axis: axis, recordAXTree: !didRecordAXTree)
+        switch resolution {
         case .accessibility(let resolved, let container):
             area = resolved
             scrollContainer = container
@@ -841,7 +844,8 @@ final class ScrollingCaptureSession {
             // before exposing a complete AXWebArea chain. Pixel probing
             // will reduce this to the region that actually moves.
             area = resolved
-            if !axTree.isEmpty {
+            if !axTree.isEmpty, !didRecordAXTree {
+                didRecordAXTree = true
                 if let dump { dump.step(axTree.joined(separator: "\n")) }
                 else { pendingAXTree = axTree }
             }

@@ -1,9 +1,24 @@
 import Foundation
 import CoreGraphics
 
+/// A bounded record of roles and geometry helps diagnose missing scroll areas
+/// without reading titles or values from the application's content.
 nonisolated enum ScrollAXTree {
     static let maximumDepth = 8
     static let maximumCount = 300
+
+    enum StopReason: String {
+        case time, count, end
+    }
+
+    static func stopReason(count: Int, timedOut: Bool) -> StopReason {
+        if timedOut { return .time }
+        return count >= maximumCount ? .count : .end
+    }
+
+    static func header(axis: ScrollAxis, count: Int, stoppedBy reason: StopReason) -> String {
+        "ax tree (area not found, \(axis.rawValue)): \(count) elements · stopped by \(reason.rawValue)"
+    }
 
     static func line(depth: Int, role: String, frame: CGRect?, horizontal: Bool, vertical: Bool) -> String {
         let geometry = frame.map {

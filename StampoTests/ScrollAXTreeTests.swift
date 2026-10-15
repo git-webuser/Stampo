@@ -3,6 +3,19 @@ import Testing
 @testable import Stampo
 
 @Suite struct ScrollAXTreeTests {
+    @Test func headersIdentifyTheProbeAxisAndWhyTheWalkStopped() {
+        #expect(ScrollAXTree.header(axis: .vertical, count: 12, stoppedBy: .end)
+                == "ax tree (area not found, vertical): 12 elements · stopped by end")
+        #expect(ScrollAXTree.header(axis: .horizontal, count: 300, stoppedBy: .count)
+                == "ax tree (area not found, horizontal): 300 elements · stopped by count")
+        #expect(ScrollAXTree.header(axis: .vertical, count: 0, stoppedBy: .time)
+                == "ax tree (area not found, vertical): 0 elements · stopped by time")
+        #expect(ScrollAXTree.stopReason(count: 12, timedOut: false) == .end)
+        #expect(ScrollAXTree.stopReason(count: 300, timedOut: false) == .count)
+        #expect(ScrollAXTree.stopReason(count: 0, timedOut: true) == .time)
+        #expect(ScrollAXTree.stopReason(count: 300, timedOut: true) == .time)
+    }
+
     @Test func aLineContainsOnlyDepthRoleGeometryAndScrollbarFlags() {
         let frame = CGRect(x: -20, y: 50, width: 800, height: 600)
         #expect(ScrollAXTree.line(depth: 2, role: "AXScrollArea", frame: frame,
