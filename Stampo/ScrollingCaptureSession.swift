@@ -133,6 +133,7 @@ final class ScrollingCaptureSession {
     /// The frames and steps of this capture on disk, when a Debug build is asked
     /// to keep them (`ScrollFrameDump`), and which attempt at a step is being made.
     private var dump: ScrollFrameDump?
+    private var pendingAXTree: [String] = []
     private var stepNumber = 0
     /// Steps placed by the calibration alone, waiting for one the matcher places.
     private var temporary = TemporarySteps()
@@ -835,11 +836,15 @@ final class ScrollingCaptureSession {
                 scrollContainer = nil
                 try checkTarget(nil, axis)
             }
-        case .window(let resolved):
+        case .window(let resolved, let axTree):
             // Chromium and other complex apps may provide a window capture
             // before exposing a complete AXWebArea chain. Pixel probing
             // will reduce this to the region that actually moves.
             area = resolved
+            if !axTree.isEmpty {
+                if let dump { dump.step(axTree.joined(separator: "\n")) }
+                else { pendingAXTree = axTree }
+            }
             scrollContainer = nil
             Log.capture.notice("scroll capture viewport fallback: AX hit did not resolve a suitable scroll container")
             diagnosticStage = .validateTarget
@@ -880,6 +885,10 @@ final class ScrollingCaptureSession {
         try ensureActive()
         try checkWindowAndFocus()
         dump = ScrollFrameDump.begin()
+        if !pendingAXTree.isEmpty {
+            dump?.step(pendingAXTree.joined(separator: "\n"))
+            pendingAXTree = []
+        }
         dump?.save(before, as: "00-before")
 
         // From here the capture scrolls on its own, and a hand on the page
