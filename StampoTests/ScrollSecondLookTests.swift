@@ -76,17 +76,21 @@ import Testing
                 && (x % 16 < 3 || py % 28 == seed % 11) && seed % 5 != 0
             let heading = x > 15 && x < 170 && y > 330 && y < 365 && (x % 12 < 4 || y % 11 < 3)
             let content = stripes ? py % 80 < 10 : text || heading
-            return UInt8(20 + y / 5 + (content ? 70 : 0))
+            // Mark the stripes by contrast so the matcher can identify the
+            // true repeat; the calibration gate, not ambiguity, must refuse it.
+            let ink = stripes ? 70 - (py / 80 % 3) * 25 : 70
+            return UInt8(20 + y / 5 + (content ? ink : 0))
         }
     }
 
     private func inspect(_ before: CaptureFrame, _ after: CaptureFrame, expected: Int? = 300,
-                         axis: ScrollAxis = .vertical, raw: FrameMatcher.StepEvidence? = nil) -> ScrollSecondLook.Result {
+                         axis: ScrollAxis = .vertical, raw: FrameMatcher.StepEvidence? = nil,
+                         frameChanged: Bool = true) -> ScrollSecondLook.Result {
         let evidence = raw ?? FrameMatcher.evidence(previous: before, current: after, axis: axis,
                                                     offset: expected, searchLimit: 450)
         return ScrollSecondLook.inspect(previous: before, current: after, axis: axis,
                                         maximumOffset: 450, searchLimit: 450, expected: expected,
-                                        radius: 8, raw: evidence)
+                                        radius: 8, raw: evidence, frameChanged: frameChanged)
     }
 
     @Test func movingTextOnAViewportGradientIsPlacedDespiteAFixedHeading() throws {
@@ -115,8 +119,10 @@ import Testing
         let source = page(0)
         let result = inspect(source, source)
         #expect(result.match == nil)
-        #expect(result.evidence.consistent == 0)
-        #expect(decide(result.evidence, frameUnchanged: true) == .stationary)
+        #expect(result.consistent == 0)
+        let raw = FrameMatcher.evidence(previous: source, current: source, axis: .vertical,
+                                        offset: 300, searchLimit: 450)
+        #expect(decide(raw, secondLookConsistent: result.consistent, frameUnchanged: false) == .stationary)
     }
 
     @Test func aMatchOutsideFourPercentOfTheCalibrationIsRefused() throws {
@@ -129,11 +135,30 @@ import Testing
         #expect(inspect(before, after, expected: 290).match != nil)
     }
 
-    @Test func repeatingStripesDoNotPlaceAStepOffTheirPeriod() {
+    @Test func repeatingStripesDoNotPlaceAStepOffTheirPeriod() throws {
         let before = page(0, stripes: true), after = page(220, stripes: true)
         #expect(before != after)
-        let result = inspect(before, after, expected: 210)
-        #expect(result.match == nil)
+        let filtered = try FrameMatcher.match(previous: ScrollBackgroundFilter.highPass(before, radius: 8),
+                                              current: ScrollBackgroundFilter.highPass(after, radius: 8),
+                                              axis: .vertical, maximumOffset: 450)
+        #expect(filtered.offset == 220)
+        for expected in [210, 140] {
+            let raw = FrameMatcher.evidence(previous: before, current: after, axis: .vertical,
+                                            offset: expected, searchLimit: 450)
+            #expect(raw.consistent == 0 && raw.against == 0)
+            #expect(ScrollSecondLook.isNeeded(axis: .vertical, expected: expected, raw: raw, frameChanged: true))
+            #expect(abs(filtered.offset - expected) > FrameMatcher.nearRange(of: expected))
+            #expect(inspect(before, after, expected: expected, raw: raw).match == nil)
+        }
+    }
+
+    @Test func anUnchangedFrameDoesNotNeedOrRunASecondLook() {
+        let source = page(0)
+        let raw = FrameMatcher.StepEvidence(standing: [6], consistent: 0, against: 0, contradicted: false)
+        #expect(ScrollSecondLook.isNeeded(axis: .vertical, expected: 300, raw: raw, frameChanged: true))
+        #expect(!ScrollSecondLook.isNeeded(axis: .vertical, expected: 300, raw: raw, frameChanged: false))
+        let result = inspect(source, source, raw: raw, frameChanged: false)
+        #expect(result.match == nil && result.consistent == 0 && result.note.isEmpty)
     }
 
     @Test func onlyVerticalCalibratedStepsWithSilentRawTilesGetASecondLook() {
@@ -148,29 +173,31 @@ import Testing
         }
     }
 
-    private func decide(_ evidence: FrameMatcher.StepEvidence, frameUnchanged: Bool = false) -> ScrollStepDecision {
+    private func decide(_ evidence: FrameMatcher.StepEvidence, secondLookConsistent: Int = 0,
+                        frameUnchanged: Bool = false) -> ScrollStepDecision {
         ScrollStepDecision.decide(.init(undecided: true, canExpect: true,
                                         consistent: evidence.consistent, against: evidence.against,
                                         contradicted: evidence.contradicted, required: 2,
-                                        unpinnedStanding: 1, queued: 0, frameUnchanged: frameUnchanged))
+                                        unpinnedStanding: 1, queued: 0, frameUnchanged: frameUnchanged,
+                                        secondLookConsistent: secondLookConsistent))
     }
 
     @Test func oneSupportingTilePreventsAStopAndFilteredOppositionDoesNotCauseARetry() {
         let raw = FrameMatcher.StepEvidence(standing: [6], consistent: 0, against: 0, contradicted: false, near: 2, sticking: 1)
         let filtered = FrameMatcher.StepEvidence(standing: [], consistent: 1, against: 1, contradicted: false)
         #expect(decide(raw) == .stationary)
-        let combined = ScrollSecondLook.addingSupport(from: filtered, to: raw)
-        #expect(combined == .init(standing: raw.standing, consistent: 1, against: 0, contradicted: false, near: 2, sticking: 1))
-        #expect(decide(combined) == .temporary(confirmed: false))
+        let supporting = ScrollSecondLook.addingSupport(from: filtered)
+        #expect(supporting == 1)
+        #expect(decide(raw, secondLookConsistent: supporting) == .temporary(confirmed: false))
         let opposing = FrameMatcher.StepEvidence(standing: [], consistent: 0, against: 5, contradicted: true)
-        #expect(ScrollSecondLook.addingSupport(from: opposing, to: raw) == raw)
+        #expect(ScrollSecondLook.addingSupport(from: opposing) == 0)
     }
 
     @Test func contradictoryFilteredEvidenceAddsNothingAndRawOppositionIsPreserved() {
-        let raw = FrameMatcher.StepEvidence(standing: [6], consistent: 2, against: 1, contradicted: true)
+        let raw = FrameMatcher.StepEvidence(standing: [6], consistent: 0, against: 1, contradicted: true)
         let filtered = FrameMatcher.StepEvidence(standing: [], consistent: 5, against: 9, contradicted: true)
-        #expect(ScrollSecondLook.addingSupport(from: filtered, to: raw) == raw)
+        #expect(ScrollSecondLook.addingSupport(from: filtered) == 0)
         let supportive = FrameMatcher.StepEvidence(standing: [], consistent: 1, against: 0, contradicted: false)
-        #expect(ScrollSecondLook.addingSupport(from: supportive, to: raw) == raw)
+        #expect(decide(raw, secondLookConsistent: ScrollSecondLook.addingSupport(from: supportive)) == .retry)
     }
 }

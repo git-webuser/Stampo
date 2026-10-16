@@ -1221,10 +1221,15 @@ final class ScrollingCaptureSession {
             let cleanStep = unmatchedScroll == 0
             let maximumOffset = motionLimit + unmatchedScroll + 32
             let difference = meanDifference(oldFrame, next)
+            let frameChanged = ScrollPush.isChanged(difference)
+            let expected: Int? = cleanStep && !isPush
+                ? pixelsPerLine.map { ScrollStepPlanner.predictedOffset(lines: Int(plan.lines), pixelsPerLine: $0) }
+                : nil
             let head = "lines=\(sentLines)\(isPush ? " push" : "") motionLimit=\(motionLimit) maximumOffset=\(maximumOffset)"
                 + " difference=\(String(format: "%.4f", difference))" + stillNote
             var refusedEvidence: FrameMatcher.StepEvidence?
             var secondLookNote = ""
+            var secondLookConsistent = 0
             do {
                 diagnosticStage = .match
                 let axis = self.axis
@@ -1238,24 +1243,26 @@ final class ScrollingCaptureSession {
                     }
                 } catch {
                     guard ScrollStepDecision.isUndecided(error) else { throw error }
-                    let expected = cleanStep && !isPush
-                        ? pixelsPerLine.map { ScrollStepPlanner.predictedOffset(lines: Int(plan.lines), pixelsPerLine: $0) }
-                        : nil
                     let searchLimit = motionLimit + 32
                     let radius = Int((8 * scale).rounded())
-                    let second = try await ScrollCaptureCancellationBoundary.awaitActive {
+                    let (raw, second) = try await ScrollCaptureCancellationBoundary.awaitActive {
                         await Task.detached(priority: .userInitiated) {
                             let raw = FrameMatcher.evidence(previous: oldFrame, current: next, axis: axis,
                                                             offset: expected, searchLimit: searchLimit)
-                            return ScrollSecondLook.inspect(previous: oldFrame, current: next, axis: axis,
-                                                            maximumOffset: maximumOffset, searchLimit: searchLimit,
-                                                            expected: expected, radius: radius, raw: raw)
+                            let second = ScrollSecondLook.inspect(previous: oldFrame, current: next, axis: axis,
+                                                                  maximumOffset: maximumOffset, searchLimit: searchLimit,
+                                                                  expected: expected, radius: radius, raw: raw,
+                                                                  frameChanged: frameChanged)
+                            return (raw, second)
                         }.value
                     }
                     try ensureActive()
-                    refusedEvidence = second.evidence
                     secondLookNote = second.note
-                    guard let found = second.match else { throw error }
+                    guard let found = second.match else {
+                        refusedEvidence = raw
+                        secondLookConsistent = second.consistent
+                        throw error
+                    }
                     match = found
                 }
                 try ensureActive()
@@ -1374,9 +1381,6 @@ final class ScrollingCaptureSession {
                 // the calibration says how far the page should have moved,
                 // which tiles bear that out.
                 let undecided = ScrollStepDecision.isUndecided(error)
-                let expected: Int? = undecided && cleanStep && !isPush
-                    ? pixelsPerLine.map { ScrollStepPlanner.predictedOffset(lines: Int(plan.lines), pixelsPerLine: $0) }
-                    : nil
                 var evidence = refusedEvidence
                 if undecided, evidence == nil {
                     let axis = self.axis
@@ -1395,7 +1399,7 @@ final class ScrollingCaptureSession {
                     consistent: evidence?.consistent ?? 0, against: evidence?.against ?? 0,
                     contradicted: evidence?.contradicted ?? false, required: required,
                     unpinnedStanding: unpinned, queued: temporary.count,
-                    frameUnchanged: !ScrollPush.isChanged(difference)))
+                    frameUnchanged: !frameChanged, secondLookConsistent: secondLookConsistent))
                 let said = (expected.map {
                     "expected \($0) px · \(evidence?.consistent ?? 0) tiles agree, \(evidence?.against ?? 0) against, \(required) needed"
                         + ((evidence?.near ?? 0) > 0 ? ", \(evidence?.near ?? 0) near" : "")
