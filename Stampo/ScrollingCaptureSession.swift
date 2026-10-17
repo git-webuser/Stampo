@@ -465,7 +465,7 @@ final class ScrollingCaptureSession {
                 try ensureActive()
                 guard acceptsFrame(now, head: "place after pause") else { return true }
                 temporary.add(now, movement: movement, confirmed: false, pinned: blocks)
-                repeatGuard.remember(now)
+                repeatGuard.rememberCheckedFrame()
                 noteProgress()
                 previous = now
                 stepInFlight = false
@@ -561,7 +561,7 @@ final class ScrollingCaptureSession {
         guard makeRoom(for: movement) else { return nil }
         try ensureActive()
         try assembler.append(frame, movement: movement, pinned: pinned)
-        repeatGuard.remember(frame)
+        repeatGuard.rememberCheckedFrame()
         if let repair = assembler.lastRepair { repairs.append(repair) }
         noteProgress()
         return Laid(waiting: waiting.count, queueSeams: seams, repairs: repairs)
@@ -570,7 +570,7 @@ final class ScrollingCaptureSession {
     /// A repeated position ends the capture before it can enter the queue or
     /// the image. finish() discards the waiting queue before making the image.
     private func acceptsFrame(_ frame: CaptureFrame, head: String) -> Bool {
-        guard !repeatGuard.isRepeat(frame, excluding: previous) else {
+        guard !repeatGuard.checkForRepeat(frame, excluding: previous) else {
             recordStep("\(head) → saved: the page is going round")
             finish()
             return false
@@ -1298,7 +1298,7 @@ final class ScrollingCaptureSession {
                     continue
                 }
                 guard try await layMatchedStep(next, from: oldFrame, match: match, lines: plan.lines,
-                                               cleanStep: cleanStep, isPush: isPush, motionLimit: motionLimit,
+                                               placement: .matched(cleanStep: cleanStep), isPush: isPush, motionLimit: motionLimit,
                                                head: head, secondLookNote: secondLookNote) else { return }
             } catch is CancellationError {
                 throw CancellationError()
@@ -1446,7 +1446,7 @@ final class ScrollingCaptureSession {
                     guard acceptsFrame(next, head: head) else { return }
                     temporary.add(next, movement: expected ?? 0, confirmed: confirmed, lines: sentLines,
                                   stationaryLines: stationaryLines, pinned: blocks)
-                    repeatGuard.remember(next)
+                    repeatGuard.rememberCheckedFrame()
                     noteProgress()
                     recordStep("\(head) · \(error) · \(said) · \(standing) → temporary (\(confirmed ? "confirmed" : "unconfirmed")), queue \(temporary.count)")
                     previous = next
@@ -1536,17 +1536,20 @@ final class ScrollingCaptureSession {
                                                   offset: went, searchLimit: searchLimit)
                         }.value
                         try ensureActive()
-                        if pixelsPerLine != nil, ScrollReturn.confirms(went: went, evidence: proof, required: required) {
+                        if ScrollReturn.canRecover(cleanStep: cleanStep, isPush: isPush, pixelsPerLine: pixelsPerLine,
+                                                   went: went, evidence: proof, required: required) {
                             let recovered = FrameMatch(offset: went, confidence: 1, independentRegions: proof.consistent,
                                                        standing: proof.standing)
                             guard try await layMatchedStep(next, from: oldFrame, match: recovered, lines: sentLines,
-                                                           cleanStep: cleanStep, isPush: false, motionLimit: motionLimit,
+                                                           placement: .recovered, isPush: false, motionLimit: motionLimit,
                                                            head: head,
                                                            landingNote: "· back landed \(pixels) px behind: the step went \(went) px · laid") else { return }
                             let forward = try await returnPage(by: sentLines, at: point, reference: next, backwards: false)
                             switch try await landReturn(forward, to: next, predicted: predicted) {
                             case .saved: return
-                            case .behind(let remaining): requestedStep += remaining
+                            case .behind(let remaining):
+                                requestedStep += remaining
+                                recordStep("· forward landed \(remaining) px behind: next step + \(remaining)")
                             case .ok: break
                             }
                             consecutiveFailures = 0
@@ -1564,15 +1567,17 @@ final class ScrollingCaptureSession {
     }
 
     /// A measured step, whether found directly or recovered from an overshot
-    /// return, uses the same queue, seam, and calibration bookkeeping.
+    /// return, uses the same queue and seam bookkeeping. Only matched steps
+    /// can change the calibration.
     private func layMatchedStep(_ next: CaptureFrame, from oldFrame: CaptureFrame, match: FrameMatch,
-                                lines: Int32, cleanStep: Bool, isPush: Bool, motionLimit: Int,
+                                lines: Int32, placement: ScrollStepPlacement, isPush: Bool, motionLimit: Int,
                                 head: String, secondLookNote: String = "",
                                 landingNote: String = "") async throws -> Bool {
         // Steps wait that the calibration placed, and this one, which
         // the matcher placed, is not where the calibration says it
         // should be: the calibration may be the wrong one. The tiles of
         // the waiting frames say which distances they bear out.
+        let cleanStep = placement.cleanStep
         var relay: QueueRelay?
         if cleanStep, let pixelsPerLine, !temporary.isEmpty, stationaryLines == 0,
            ScrollQueueRelay.isFirm(confidence: match.confidence),
@@ -1621,7 +1626,7 @@ final class ScrollingCaptureSession {
         var recalibrated = ""
         if relay?.movements != nil {
             rememberedLine = nil
-        } else {
+        } else if placement.updatesCalibration {
             let confirms = pixelsPerLine.map {
                 ScrollStepPlanner.confirmsLinearity(offset: match.offset, lines: Int(lines), pixelsPerLine: $0)
             } ?? false

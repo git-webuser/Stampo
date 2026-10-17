@@ -2,6 +2,36 @@ import Testing
 @testable import Stampo
 
 @Suite struct ScrollTailTests {
+    @Test func aRecoveredPlacementDoesNotRelayOrUpdateAnyCalibrationState() {
+        let placement = ScrollStepPlacement.recovered
+        // These are the gates used by layMatchedStep for relay, linearity,
+        // late calibration, and ScrollRecalibration (including forgetting).
+        #expect(!placement.cleanStep)
+        #expect(!placement.updatesCalibration)
+        #expect(ScrollStepPlacement.matched(cleanStep: true).cleanStep)
+        #expect(ScrollStepPlacement.matched(cleanStep: false).updatesCalibration)
+    }
+
+    @Test func recoveryRequiresACleanCalibratedStepThatIsNotAPush() {
+        let proof = FrameMatcher.StepEvidence(standing: [], consistent: 8, against: 0, contradicted: false)
+        for clean in [false, true] {
+            for push in [false, true] {
+                for calibration: Double? in [nil, 80] {
+                    #expect(ScrollReturn.canRecover(cleanStep: clean, isPush: push, pixelsPerLine: calibration,
+                                                    went: 205, evidence: proof, required: 2)
+                            == (clean && !push && calibration != nil))
+                }
+            }
+        }
+        let contradicted = FrameMatcher.StepEvidence(standing: [], consistent: 8, against: 9, contradicted: true)
+        #expect(!ScrollReturn.canRecover(cleanStep: true, isPush: false, pixelsPerLine: 80,
+                                        went: 205, evidence: contradicted, required: 2))
+        #expect(!ScrollReturn.canRecover(cleanStep: true, isPush: false, pixelsPerLine: 80,
+                                        went: 2, evidence: proof, required: 2))
+        #expect(!ScrollReturn.canRecover(cleanStep: true, isPush: false, pixelsPerLine: 80,
+                                        went: 205, evidence: proof, required: 9))
+    }
+
     @Test func aReverseLandingMustExceedTheCalibratedNoiseRange() {
         #expect(ScrollReturn.landing(difference: 0.1, forward: nil, behind: 355, predicted: 560) == .behind(355))
         #expect(ScrollReturn.landing(difference: 0.1, forward: nil, behind: 22, predicted: 560) == .elsewhere)

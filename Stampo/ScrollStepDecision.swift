@@ -656,6 +656,24 @@ nonisolated struct StationaryFrame: Sendable {
     }
 }
 
+/// Whether a laid step supplies independent evidence about the calibration.
+nonisolated enum ScrollStepPlacement {
+    case matched(cleanStep: Bool)
+    case recovered
+
+    var cleanStep: Bool {
+        if case .matched(let cleanStep) = self { return cleanStep }
+        return false
+    }
+
+    /// A distance inferred from an overshot return cannot calibrate a full
+    /// wheel step or invalidate a line remembered from a matched step.
+    var updatesCalibration: Bool {
+        if case .recovered = self { return false }
+        return true
+    }
+}
+
 /// Where the page is after it was sent back to a frame that is kept — a retry's
 /// half step, a push undone. The wheel back does not always bring it all the
 /// way: a section that pinned the page and let it go, a box with a scroll of its
@@ -710,6 +728,13 @@ nonisolated enum ScrollReturn {
     /// the end. Only the original tiles may confirm that shorter forward step.
     static func confirms(went: Int, evidence: FrameMatcher.StepEvidence, required: Int) -> Bool {
         went > FrameMatcher.nearRange(of: went) && evidence.consistent >= required && !evidence.contradicted
+    }
+
+    /// Unmatched motion would be part of the displacement from the frame
+    /// kept; a push has no predicted distance to subtract the overshoot from.
+    static func canRecover(cleanStep: Bool, isPush: Bool, pixelsPerLine: Double?,
+                           went: Int, evidence: FrameMatcher.StepEvidence, required: Int) -> Bool {
+        cleanStep && !isPush && pixelsPerLine != nil && confirms(went: went, evidence: evidence, required: required)
     }
 }
 
