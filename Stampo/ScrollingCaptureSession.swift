@@ -1381,6 +1381,7 @@ final class ScrollingCaptureSession {
                 // the calibration says how far the page should have moved,
                 // which tiles bear that out.
                 let undecided = ScrollStepDecision.isUndecided(error)
+                let expected = undecided ? expected : nil
                 var evidence = refusedEvidence
                 if undecided, evidence == nil {
                     let axis = self.axis

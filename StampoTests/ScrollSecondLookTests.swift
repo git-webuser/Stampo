@@ -135,7 +135,7 @@ import Testing
         #expect(inspect(before, after, expected: 290).match != nil)
     }
 
-    @Test func repeatingStripesDoNotPlaceAStepOffTheirPeriod() throws {
+    @Test func aStripeMatchOutsideFourPercentOfTheCalibrationIsRefused() throws {
         let before = page(0, stripes: true), after = page(220, stripes: true)
         #expect(before != after)
         let filtered = try FrameMatcher.match(previous: ScrollBackgroundFilter.highPass(before, radius: 8),
