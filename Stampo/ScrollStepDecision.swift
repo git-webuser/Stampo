@@ -44,6 +44,9 @@ nonisolated enum ScrollStepDecision: Equatable {
         var queued: Int
         /// The frame is the same as the one kept (`ScrollPush.changedFrom`).
         var frameUnchanged = false
+        /// Background-free tiles can prevent a false stop, but cannot confirm
+        /// a queued distance or decide that a section check moved the page.
+        var secondLookConsistent = 0
     }
 
     /// Whether the matcher's refusal is "cannot tell". All three are: the frames
@@ -84,7 +87,8 @@ nonisolated enum ScrollStepDecision: Equatable {
         // that stands, and are pinned — and a step that was queued in its place
         // would be laid down in the image at a distance the page did not go.
         if evidence.frameUnchanged { return .stationary }
-        if evidence.unpinnedStanding >= 1, evidence.consistent == 0 { return .stationary }
+        if evidence.unpinnedStanding >= 1, evidence.consistent == 0,
+           evidence.secondLookConsistent == 0 { return .stationary }
         guard evidence.canExpect, !evidence.contradicted else { return .retry }
         if evidence.queued >= TemporarySteps.limit { return .finish }
         if evidence.consistent >= evidence.required { return .temporary(confirmed: true) }

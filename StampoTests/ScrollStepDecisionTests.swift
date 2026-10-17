@@ -35,4 +35,15 @@ import Testing
         #expect(ScrollStepDecision.decide(evidence(contradicted: true)) == .retry)
         #expect(ScrollStepDecision.decide(evidence(canExpect: false)) == .retry)
     }
+
+    @Test func aSecondLookPreventsAStopButCannotConfirmEvenAtTheOneTileThreshold() {
+        var proof = evidence(consistent: 0, unpinnedStanding: 1)
+        #expect(proof.required == 1)
+        #expect(ScrollStepDecision.decide(proof) == .stationary)
+        proof.secondLookConsistent = 1
+        #expect(ScrollStepDecision.decide(proof) == .temporary(confirmed: false))
+        #expect(!ScrollPush.movesPage(placed: false, decision: ScrollStepDecision.decide(proof)))
+        proof.consistent = 1
+        #expect(ScrollStepDecision.decide(proof) == .temporary(confirmed: true))
+    }
 }

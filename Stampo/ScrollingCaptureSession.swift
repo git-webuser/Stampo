@@ -1221,16 +1221,49 @@ final class ScrollingCaptureSession {
             let cleanStep = unmatchedScroll == 0
             let maximumOffset = motionLimit + unmatchedScroll + 32
             let difference = meanDifference(oldFrame, next)
+            let frameChanged = ScrollPush.isChanged(difference)
+            let expected: Int? = cleanStep && !isPush
+                ? pixelsPerLine.map { ScrollStepPlanner.predictedOffset(lines: Int(plan.lines), pixelsPerLine: $0) }
+                : nil
             let head = "lines=\(sentLines)\(isPush ? " push" : "") motionLimit=\(motionLimit) maximumOffset=\(maximumOffset)"
                 + " difference=\(String(format: "%.4f", difference))" + stillNote
+            var refusedEvidence: FrameMatcher.StepEvidence?
+            var secondLookNote = ""
+            var secondLookConsistent = 0
             do {
                 diagnosticStage = .match
                 let axis = self.axis
-                let match = try await ScrollCaptureCancellationBoundary.awaitActive {
-                    try await Task.detached(priority: .userInitiated) {
-                        try FrameMatcher.match(previous: oldFrame, current: next, axis: axis,
-                                               maximumOffset: maximumOffset)
-                    }.value
+                let match: FrameMatch
+                do {
+                    match = try await ScrollCaptureCancellationBoundary.awaitActive {
+                        try await Task.detached(priority: .userInitiated) {
+                            try FrameMatcher.match(previous: oldFrame, current: next, axis: axis,
+                                                   maximumOffset: maximumOffset)
+                        }.value
+                    }
+                } catch {
+                    guard ScrollStepDecision.isUndecided(error) else { throw error }
+                    let searchLimit = motionLimit + 32
+                    let radius = Int((8 * scale).rounded())
+                    let (raw, second) = try await ScrollCaptureCancellationBoundary.awaitActive {
+                        await Task.detached(priority: .userInitiated) {
+                            let raw = FrameMatcher.evidence(previous: oldFrame, current: next, axis: axis,
+                                                            offset: expected, searchLimit: searchLimit)
+                            let second = ScrollSecondLook.inspect(previous: oldFrame, current: next, axis: axis,
+                                                                  maximumOffset: maximumOffset, searchLimit: searchLimit,
+                                                                  expected: expected, radius: radius, raw: raw,
+                                                                  frameChanged: frameChanged)
+                            return (raw, second)
+                        }.value
+                    }
+                    try ensureActive()
+                    secondLookNote = second.note
+                    guard let found = second.match else {
+                        refusedEvidence = raw
+                        secondLookConsistent = second.consistent
+                        throw error
+                    }
+                    match = found
                 }
                 try ensureActive()
                 if let check = pushCheck {
@@ -1238,7 +1271,7 @@ final class ScrollingCaptureSession {
                     // the page goes on as usual, and the push took it past
                     // content that no frame has. Nothing is laid or replaced;
                     // the page goes back to where the push began.
-                    recordStep("\(head) · match \(match.offset) px · confidence \(Self.percent(match.confidence)) · regions \(match.independentRegions) → check: page moves, push undone, back \(check.lines + sentLines) lines")
+                    recordStep("\(head) · match \(match.offset) px · confidence \(Self.percent(match.confidence)) · regions \(match.independentRegions)\(secondLookNote) → check: page moves, push undone, back \(check.lines + sentLines) lines")
                     guard try await undoPush(check, checkLines: sentLines, at: point) else { return }
                     stepInFlight = false
                     inFlightLines = nil
@@ -1328,7 +1361,7 @@ final class ScrollingCaptureSession {
                     + (relay.map { "\($0.note) · " } ?? "")
                     + "queue appended \(laid.waiting) (seams \(laid.queueSeams.map(\.summary).joined(separator: ", ")))"
                 let pushed = isPush ? " · push: placed" : ""
-                recordStep("\(head) · match \(match.offset) px · confidence \(Self.percent(match.confidence)) · regions \(match.independentRegions)\(match.near > 0 ? " · \(match.near) near" : "")\(match.sticking > 0 ? " · \(match.sticking) sticking" : "")\(queue)\(seamNote)\(laid.fixed)\(recalibrated)\(pushed) → added")
+                recordStep("\(head) · match \(match.offset) px · confidence \(Self.percent(match.confidence)) · regions \(match.independentRegions)\(match.near > 0 ? " · \(match.near) near" : "")\(match.sticking > 0 ? " · \(match.sticking) sticking" : "")\(secondLookNote)\(queue)\(seamNote)\(laid.fixed)\(recalibrated)\(pushed) → added")
                 pushMode = .none
                 previous = next
                 zeroMotionCount = 0
@@ -1348,11 +1381,9 @@ final class ScrollingCaptureSession {
                 // the calibration says how far the page should have moved,
                 // which tiles bear that out.
                 let undecided = ScrollStepDecision.isUndecided(error)
-                let expected: Int? = undecided && cleanStep && !isPush
-                    ? pixelsPerLine.map { ScrollStepPlanner.predictedOffset(lines: Int(plan.lines), pixelsPerLine: $0) }
-                    : nil
-                var evidence: FrameMatcher.StepEvidence?
-                if undecided {
+                let expected = undecided ? expected : nil
+                var evidence = refusedEvidence
+                if undecided, evidence == nil {
                     let axis = self.axis
                     let searchLimit = motionLimit + 32
                     evidence = await Task.detached(priority: .userInitiated) {
@@ -1369,8 +1400,8 @@ final class ScrollingCaptureSession {
                     consistent: evidence?.consistent ?? 0, against: evidence?.against ?? 0,
                     contradicted: evidence?.contradicted ?? false, required: required,
                     unpinnedStanding: unpinned, queued: temporary.count,
-                    frameUnchanged: !ScrollPush.isChanged(difference)))
-                let said = expected.map {
+                    frameUnchanged: !frameChanged, secondLookConsistent: secondLookConsistent))
+                let said = (expected.map {
                     "expected \($0) px · \(evidence?.consistent ?? 0) tiles agree, \(evidence?.against ?? 0) against, \(required) needed"
                         + ((evidence?.near ?? 0) > 0 ? ", \(evidence?.near ?? 0) near" : "")
                         + ((evidence?.sticking ?? 0) > 0 ? ", \(evidence?.sticking ?? 0) sticking" : "")
@@ -1378,7 +1409,7 @@ final class ScrollingCaptureSession {
                 } ?? (!undecided ? "not to be predicted"
                       : isPush ? "a push, no distance expected"
                       : pixelsPerLine == nil ? "no calibration"
-                      : "step not clean (\(unmatchedScroll) px unaccounted)")
+                      : "step not clean (\(unmatchedScroll) px unaccounted)")) + secondLookNote
                 if let check = pushCheck {
                     // Not placed. The tiles say whether it moves the page all
                     // the same; if they do not, the page stood and the section
