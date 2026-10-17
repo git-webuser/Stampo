@@ -660,17 +660,18 @@ nonisolated struct StationaryFrame: Sendable {
 nonisolated enum ScrollStepPlacement {
     case matched(cleanStep: Bool)
     case recovered
+    case parallax
 
     var cleanStep: Bool {
         if case .matched(let cleanStep) = self { return cleanStep }
         return false
     }
 
-    /// A distance inferred from an overshot return cannot calibrate a full
-    /// wheel step or invalidate a line remembered from a matched step.
+    /// Inferred distances cannot calibrate a full wheel step or invalidate
+    /// a line remembered from a matched step.
     var updatesCalibration: Bool {
-        if case .recovered = self { return false }
-        return true
+        if case .matched = self { return true }
+        return false
     }
 }
 

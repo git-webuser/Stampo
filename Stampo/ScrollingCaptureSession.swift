@@ -1506,6 +1506,32 @@ final class ScrollingCaptureSession {
                 case .retry:
                     consecutiveFailures += 1
                     guard consecutiveFailures <= 2 else {
+                        if ScrollParallax.canInspect(axis: axis, calibrationConfirmed: linearityConfirmed,
+                                                     cleanStep: cleanStep, isPush: isPush,
+                                                     expected: expected, frameChanged: frameChanged), let expected {
+                            let radius = Int((8 * scale).rounded())
+                            let pair = try await ScrollCaptureCancellationBoundary.awaitActive {
+                                await Task.detached(priority: .userInitiated) {
+                                    ScrollQueueLaying.pairCost(
+                                        previous: ScrollBackgroundFilter.highPass(oldFrame, radius: radius),
+                                        current: ScrollBackgroundFilter.highPass(next, radius: radius),
+                                        offset: expected, pinnedTiles: [])
+                                }.value
+                            }
+                            try ensureActive()
+                            if ScrollParallax.shouldLay(axis: axis, calibrationConfirmed: linearityConfirmed,
+                                                        cleanStep: cleanStep, isPush: isPush, expected: expected,
+                                                        frameChanged: frameChanged, pair: pair), let pair {
+                                // This distance comes from the calibration, so it
+                                // must not become independent evidence for it.
+                                let inferred = FrameMatch(offset: expected, confidence: 0, independentRegions: 0)
+                                guard try await layMatchedStep(next, from: oldFrame, match: inferred, lines: sentLines,
+                                                               placement: .parallax, isPush: false, motionLimit: motionLimit,
+                                                               head: head,
+                                                               landingNote: "· parallax: laid by the calibration (shifted \(String(format: "%.2f", pair.shifted)), still \(String(format: "%.2f", pair.still)))") else { return }
+                                break
+                            }
+                        }
                         // A video, an animation, a section that stays where
                         // it is: whatever it is, the steps will not line up,
                         // and what is collected is what there is. The user
