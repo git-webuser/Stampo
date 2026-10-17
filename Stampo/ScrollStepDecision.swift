@@ -672,22 +672,44 @@ nonisolated enum ScrollReturn {
         /// The matcher places it this many pixels further along than the frame
         /// returned to: real content, to be laid as a step of its own.
         case further(Int)
-        /// Anything else: it differs and is not placed, or is placed behind. As
-        /// before — the next step places itself from the frame kept. A page
-        /// behind the frame kept is within its reach, and of the 16 frames in
-        /// the recordings that differed and were not placed, 7 were followed by a
-        /// step the matcher placed all the same; a frame that differs by an
-        /// animation or a panel that moved is not a page that stayed away.
+        /// The return overshot the frame kept by this many pixels. A half step
+        /// from here may still end behind it, outside a forward-only search.
+        case behind(Int)
+        /// No measurable displacement beyond noise. An animation or a panel
+        /// that moved need not mean the page stayed away from the frame kept.
         case elsewhere
     }
 
     /// `forward`: the distance the matcher places the frame after the return
     /// further along than the frame returned to, nil when it does not place it
     /// (or places it behind).
-    static func landing(difference: Double, forward: Int?) -> Landing {
+    static func landing(difference: Double, forward: Int?, behind: Int? = nil,
+                        predicted: Int = 0) -> Landing {
         guard ScrollPush.isChanged(difference) else { return .same }
-        guard let forward, forward > 0 else { return .elsewhere }
-        return .further(forward)
+        if let forward, forward > 0 { return .further(forward) }
+        if let behind, behind > FrameMatcher.nearRange(of: predicted) { return .behind(behind) }
+        return .elsewhere
+    }
+
+    /// A return is a measurement, not a calibrated forward step. Only a match
+    /// on the filtered copies may help measure it; filtered votes prove nothing.
+    static func displacement(previous: CaptureFrame, current: CaptureFrame, axis: ScrollAxis,
+                             maximumOffset: Int, radius: Int) -> Int? {
+        do {
+            return try FrameMatcher.match(previous: previous, current: current, axis: axis,
+                                          maximumOffset: maximumOffset).offset
+        } catch {
+            guard axis == .vertical, ScrollStepDecision.isUndecided(error) else { return nil }
+            return (try? FrameMatcher.match(previous: ScrollBackgroundFilter.highPass(previous, radius: radius),
+                                             current: ScrollBackgroundFilter.highPass(current, radius: radius),
+                                             axis: axis, maximumOffset: maximumOffset))?.offset
+        }
+    }
+
+    /// The reverse landing measures how much of the predicted step was lost at
+    /// the end. Only the original tiles may confirm that shorter forward step.
+    static func confirms(went: Int, evidence: FrameMatcher.StepEvidence, required: Int) -> Bool {
+        went > FrameMatcher.nearRange(of: went) && evidence.consistent >= required && !evidence.contradicted
     }
 }
 
