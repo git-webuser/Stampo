@@ -141,6 +141,7 @@ final class ScrollingCaptureSession {
     /// Steps placed by the calibration alone, waiting for one the matcher places.
     private var temporary = TemporarySteps()
     private var repeatGuard = ScrollRepeatGuard()
+    private var sidewaysSection = ScrollSidewaysSection()
     /// Tiles seen standing still while the page moved: fixed to the viewport,
     /// and no proof, by standing, that the page has stopped.
     private var pinnedTiles = Set<Int>()
@@ -561,6 +562,7 @@ final class ScrollingCaptureSession {
         guard makeRoom(for: movement) else { return nil }
         try ensureActive()
         try assembler.append(frame, movement: movement, pinned: pinned)
+        if axis == .vertical { sidewaysSection.laidVerticalStep() }
         repeatGuard.rememberCheckedFrame()
         if let repair = assembler.lastRepair { repairs.append(repair) }
         noteProgress()
@@ -995,6 +997,7 @@ final class ScrollingCaptureSession {
         }
         self.viewport = croppedViewport
         assembler.begin(with: first)
+        sidewaysSection = ScrollSidewaysSection()
         repeatGuard = ScrollRepeatGuard()
         repeatGuard.remember(first)
         // The top of a site, as the window showed it, once above the first frame.
@@ -1338,6 +1341,24 @@ final class ScrollingCaptureSession {
                       : isPush ? "a push, no distance expected"
                       : pixelsPerLine == nil ? "no calibration"
                       : "step not clean (\(unmatchedScroll) px unaccounted)")) + secondLookNote
+                if ScrollSidewaysSection.isStage(axis: axis, verticalUndecided: undecided,
+                                                frameChanged: frameChanged, pushMode: pushMode,
+                                                checking: pushCheck != nil, queueIsEmpty: temporary.isEmpty,
+                                                sidewaysMatched: true) {
+                    let sideways = try await ScrollCaptureCancellationBoundary.awaitActive {
+                        await Task.detached(priority: .userInitiated) {
+                            try? FrameMatcher.match(previous: oldFrame, current: next, axis: .horizontal,
+                                                    maximumOffset: oldFrame.width * 3 / 4 + 32)
+                        }.value
+                    }
+                    try ensureActive()
+                    if let sideways {
+                        guard replaceSidewaysStage(next, offset: sideways.offset) else { return }
+                        stepInFlight = false
+                        inFlightLines = nil
+                        continue
+                    }
+                }
                 if let check = pushCheck {
                     // Not placed. The tiles say whether it moves the page all
                     // the same; if they do not, the page stood and the section
@@ -1828,6 +1849,35 @@ final class ScrollingCaptureSession {
         consecutiveFailures = 0
         requestedStep = max(24, Int(Double(axisLength(of: back)) * 0.60))
         return .ok
+    }
+
+    /// The gallery belongs in the image once, at its last position. An empty
+    /// queue is required by the caller: otherwise previous is not the last
+    /// frame laid and replacing it would overwrite a different position.
+    private func replaceSidewaysStage(_ next: CaptureFrame, offset: Int) -> Bool {
+        do {
+            try assembler.replaceLast(with: next)
+        } catch {
+            recordStep("· gallery: sideways \(offset) px · frame not replaced")
+            finish()
+            return false
+        }
+        sidewaysSection.replacedFrame()
+        previous = next
+        zeroMotionCount = 0
+        stationaryLines = 0
+        stationary = nil
+        stationaryAllReliable = true
+        unmatchedScroll = 0
+        consecutiveFailures = 0
+        noteProgress()
+        recordStep("· gallery: sideways \(offset) px · frame replaced (\(sidewaysSection.stages))")
+        if sidewaysSection.isExhausted {
+            recordStep("saved: the sideways section did not end (\(ScrollSidewaysSection.limit) stages)")
+            finish()
+            return false
+        }
+        return true
     }
 
     /// The step after a push that changed the frame, and the page did not move:
