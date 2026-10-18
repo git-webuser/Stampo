@@ -39,30 +39,47 @@ nonisolated struct ScrollSidewaysSection: Sendable {
             && frameChanged && pushMode == .none && !checking
     }
 
-    static func entry(queueIsEmpty: Bool, calibrationConfirmed: Bool, expected: Int?) -> Entry? {
+    func entry(queueIsEmpty: Bool, calibrationConfirmed: Bool, expected: Int?) -> Entry? {
+        if isActive { return .replace }
         guard calibrationConfirmed, let expected else { return nil }
         return queueIsEmpty ? .replace : .lay(expected)
+    }
+
+    /// Raw sideways matches can enter even beside vertical votes. The costly
+    /// filter is only needed without that support, or to keep a gallery latched.
+    func needsFilteredSearch(consistent: Int, required: Int) -> Bool {
+        isActive || consistent < required
     }
 
     /// A horizontal match measures its own displacement. Filter only after a
     /// raw refusal, at four physical pixels, leaving vertical second look alone.
     func inspect(previous: CaptureFrame, current: CaptureFrame, expected: Int?,
-                 consistent: Int, required: Int) -> Stage? {
+                 consistent: Int, required: Int, queuedHistory: CaptureFrame? = nil) -> Stage? {
         let limit = previous.width / 2
         if let match = try? FrameMatcher.match(previous: previous, current: current, axis: .horizontal,
                                                maximumOffset: limit) {
             return .sideways(match)
         }
-        if let match = try? FrameMatcher.match(previous: ScrollBackgroundFilter.highPass(previous, radius: 4),
+        if needsFilteredSearch(consistent: consistent, required: required),
+           let match = try? FrameMatcher.match(previous: ScrollBackgroundFilter.highPass(previous, radius: 4),
                                                current: ScrollBackgroundFilter.highPass(current, radius: 4),
                                                axis: .horizontal, maximumOffset: limit) {
             return .sideways(match)
         }
         // A profile is weaker than a sideways match: never enter with it or
         // overrule tiles that already support the calibrated vertical step.
-        if isActive, consistent < required, let expected, latest == previous, let history,
+        let history = queuedHistory ?? (latest == previous ? self.history : nil)
+        if isActive, consistent < required, let expected, let history,
            ScrollRowProfile.inspect(history: history, previous: previous, current: current,
                                     expected: expected)?.stands == true {
+            if queuedHistory != nil {
+                // Rows can stand again after the queued frames have left the
+                // gallery. They must still share its last laid vertical position.
+                guard let latest, let earlier = self.history,
+                      ScrollRowProfile.inspect(history: earlier, previous: latest, current: current,
+                                               expected: expected)?.zeroIsNearMinimum == true
+                else { return nil }
+            }
             return .standing
         }
         return nil
@@ -81,6 +98,29 @@ nonisolated struct ScrollSidewaysSection: Sendable {
         guard assembler.lastFrame == previous else { return false }
         try assembler.replaceLast(with: current)
         acceptedStage(previous: previous, current: current)
+        return true
+    }
+
+    /// The queued frames may be missed stages of the same pinned section.
+    /// Replace its laid position first; discard them only after that succeeds.
+    mutating func replaceQueuedStage(previous: CaptureFrame, current: CaptureFrame,
+                                     in assembler: inout ImageAssembler, queue: inout TemporarySteps,
+                                     consistent: Int, required: Int) throws -> Int? {
+        guard isActive else { return nil }
+        guard !releaseForVerticalSupport(consistent: consistent, required: required),
+              let latest, assembler.lastFrame == latest, queue.steps.last?.frame == previous
+        else { return nil }
+        try assembler.replaceLast(with: current)
+        acceptedStage(previous: previous, current: current)
+        return queue.discard()
+    }
+
+    /// A refused frame with supported downward motion must keep its queue;
+    /// a later sideways match cannot turn that exit into discarded stages.
+    @discardableResult
+    mutating func releaseForVerticalSupport(consistent: Int, required: Int) -> Bool {
+        guard isActive, consistent >= required else { return false }
+        self = Self()
         return true
     }
 

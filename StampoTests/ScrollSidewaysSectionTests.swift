@@ -28,18 +28,28 @@ import Testing
     }
 
     @Test func entryLaysOnlyAConfirmedQueuedPathAndOtherwiseReplaces() {
-        #expect(ScrollSidewaysSection.entry(queueIsEmpty: false, calibrationConfirmed: true,
+        #expect(ScrollSidewaysSection().entry(queueIsEmpty: false, calibrationConfirmed: true,
                                             expected: 90) == .lay(90))
-        #expect(ScrollSidewaysSection.entry(queueIsEmpty: true, calibrationConfirmed: true,
+        #expect(ScrollSidewaysSection().entry(queueIsEmpty: true, calibrationConfirmed: true,
                                             expected: 90) == .replace)
         for empty in [false, true] {
-            #expect(ScrollSidewaysSection.entry(queueIsEmpty: empty, calibrationConfirmed: false,
+            #expect(ScrollSidewaysSection().entry(queueIsEmpty: empty, calibrationConfirmed: false,
                                                 expected: 90) == nil)
-            #expect(ScrollSidewaysSection.entry(queueIsEmpty: empty, calibrationConfirmed: true,
+            #expect(ScrollSidewaysSection().entry(queueIsEmpty: empty, calibrationConfirmed: true,
                                                 expected: nil) == nil)
         }
         #expect(!ScrollStepPlacement.gallery.cleanStep)
         #expect(!ScrollStepPlacement.gallery.updatesCalibration)
+    }
+
+    @Test func filteredSearchRequiresUnresolvedMotionOrAnEstablishedGallery() {
+        var section = ScrollSidewaysSection()
+        #expect(!section.needsFilteredSearch(consistent: 1, required: 1))
+        #expect(!section.needsFilteredSearch(consistent: 3, required: 1))
+        #expect(section.needsFilteredSearch(consistent: 0, required: 1))
+        #expect(section.needsFilteredSearch(consistent: 1, required: 2))
+        section.acceptedStage(previous: cards(0), current: cards(80))
+        #expect(section.needsFilteredSearch(consistent: 1, required: 1))
     }
 
     @Test func theTwentyFourthReplacementEndsAnUnboundedSection() throws {
@@ -131,20 +141,6 @@ import Testing
     }
 
     @Test func rowsContinueOnlyAnEstablishedGalleryWithoutVerticalSupport() throws {
-        func video(_ rotation: Int) -> CaptureFrame {
-            let w = 120, h = 240
-            var pixels = [UInt8](repeating: 255, count: w * h * 4)
-            var seed: UInt32 = 0x12345678
-            for pixel in 0..<(w * h) {
-                var colors = [UInt8]()
-                for _ in 0..<3 {
-                    seed ^= seed << 13; seed ^= seed >> 17; seed ^= seed << 5
-                    colors.append(UInt8(truncatingIfNeeded: seed))
-                }
-                for channel in 0..<3 { pixels[pixel * 4 + channel] = colors[(channel + rotation) % 3] }
-            }
-            return CaptureFrame(width: w, height: h, pixels: pixels)
-        }
         let history = video(2), previous = video(0), current = video(1)
         var section = ScrollSidewaysSection()
         #expect(section.inspect(previous: previous, current: current, expected: 90, consistent: 0, required: 1) == nil)
@@ -153,6 +149,22 @@ import Testing
         #expect(section.inspect(previous: previous, current: current, expected: 90, consistent: 1, required: 1) == nil)
         #expect(section.inspect(previous: previous, current: current, expected: nil, consistent: 0, required: 1) == nil)
         #expect(section.inspect(previous: history, current: current, expected: 90, consistent: 0, required: 1) == nil)
+    }
+
+    private func video(_ rotation: Int) -> CaptureFrame {
+        let w = 120, h = 240
+        var pixels = [UInt8](repeating: 255, count: w * h * 4)
+        var seed: UInt32 = 0x12345678
+        let order = rotation == 3 ? [0, 2, 1] : (0..<3).map { ($0 + rotation) % 3 }
+        for pixel in 0..<(w * h) {
+            var colors = [UInt8]()
+            for _ in 0..<3 {
+                seed ^= seed << 13; seed ^= seed >> 17; seed ^= seed << 5
+                colors.append(UInt8(truncatingIfNeeded: seed))
+            }
+            for channel in 0..<3 { pixels[pixel * 4 + channel] = colors[order[channel]] }
+        }
+        return CaptureFrame(width: w, height: h, pixels: pixels)
     }
 
     private func cards(_ offset: Int, vertical: Int = 0) -> CaptureFrame {
@@ -211,20 +223,107 @@ import Testing
         let stage = try #require(section.inspect(previous: previous, current: entry, expected: 90,
                                                  consistent: 0, required: 1))
         if case .sideways = stage {} else { Issue.record("Entry must have a sideways match") }
-        #expect(ScrollSidewaysSection.entry(queueIsEmpty: waiting.isEmpty, calibrationConfirmed: true,
+        #expect(section.entry(queueIsEmpty: waiting.isEmpty, calibrationConfirmed: true,
                                             expected: 90) == .lay(90))
         for step in waiting.take() { try section.append(step.frame, movement: step.movement, to: &assembler) }
-        try section.append(entry, movement: 90, to: &assembler)
-        section.acceptedStage(previous: previous, current: entry)
+        #expect(try section.replaceLast(previous: previous, current: entry, in: &assembler))
         #expect(waiting.isEmpty)
         #expect(section.stages == 1)
-        #expect(assembler.fullLength == 960)
+        #expect(assembler.fullLength == 870)
         let last = cards(160, vertical: 270)
         #expect(try section.replaceLast(previous: entry, current: last, in: &assembler))
-        #expect(assembler.fullLength == 960)
+        #expect(assembler.fullLength == 870)
         #expect(section.stages == 2)
         let image = try #require(CaptureFrame(image: try assembler.makeImage()))
         #expect(image[17, image.height - 50, 0] == last[17, last.height - 50, 0])
         #expect(assembler.lastFrame == last)
+    }
+
+    @Test func queuedStagesAreDroppedWhenTheGalleryFindsItsNextStage() throws {
+        var assembler = ImageAssembler(axis: .vertical)
+        let first = cards(0), entry = cards(80)
+        assembler.begin(with: first)
+        var section = ScrollSidewaysSection()
+        #expect(try section.replaceLast(previous: first, current: entry, in: &assembler))
+        var waiting = TemporarySteps()
+        let a = cards(160), queued = cards(240)
+        // A refusal waits without releasing the already established gallery.
+        waiting.add(a, movement: 90, confirmed: false)
+        waiting.add(queued, movement: 90, confirmed: false)
+        #expect(section.isActive)
+        let next = cards(320)
+        #expect(section.inspect(previous: queued, current: next, expected: 90, consistent: 0, required: 1) != nil)
+        #expect(section.entry(queueIsEmpty: waiting.isEmpty, calibrationConfirmed: true,
+                                            expected: 90) == .replace)
+        #expect(section.entry(queueIsEmpty: true, calibrationConfirmed: false, expected: nil) == .replace)
+        #expect(section.entry(queueIsEmpty: false, calibrationConfirmed: false, expected: nil) == .replace)
+        #expect(try section.replaceQueuedStage(previous: queued, current: next, in: &assembler,
+                                               queue: &waiting, consistent: 0, required: 1) == 2)
+        #expect(waiting.isEmpty)
+        #expect(section.stages == 2)
+        #expect(assembler.fullLength == first.height)
+        let last = cards(400)
+        #expect(try section.replaceLast(previous: next, current: last, in: &assembler))
+        #expect(section.stages == 3)
+        #expect(assembler.fullLength == first.height)
+        #expect(assembler.lastFrame == last)
+    }
+
+    @Test func confirmedDownwardMotionKeepsTheQueueAndReleasesTheGallery() throws {
+        let first = cards(0), entry = cards(80), a = cards(160), b = cards(240)
+        var assembler = ImageAssembler(axis: .vertical)
+        assembler.begin(with: first)
+        var section = ScrollSidewaysSection(), waiting = TemporarySteps()
+        #expect(try section.replaceLast(previous: first, current: entry, in: &assembler))
+        waiting.add(a, movement: 90, confirmed: false)
+        waiting.add(b, movement: 90, confirmed: false)
+        #expect(try section.replaceQueuedStage(previous: b, current: cards(320, vertical: 90), in: &assembler,
+                                               queue: &waiting, consistent: 1, required: 1) == nil)
+        #expect(waiting.count == 2)
+        #expect(waiting.steps.last?.frame == b)
+        #expect(assembler.lastFrame == entry)
+        #expect(assembler.fullLength == first.height)
+        #expect(!section.isActive)
+    }
+
+    @Test func queuedRowHistoryCanRecognizeAStandingStageWithoutAHorizontalMatch() throws {
+        let laid = video(3), a = video(2), b = video(0), c = video(1)
+        var assembler = ImageAssembler(axis: .vertical)
+        assembler.begin(with: laid)
+        var section = ScrollSidewaysSection(), waiting = TemporarySteps()
+        section.acceptedStage(previous: a, current: laid)
+        waiting.add(a, movement: 90, confirmed: false)
+        waiting.add(b, movement: 90, confirmed: false)
+        #expect(section.inspect(previous: b, current: c, expected: 90, consistent: 0, required: 1) == nil)
+        #expect(section.inspect(previous: b, current: c, expected: 90, consistent: 0, required: 1,
+                                queuedHistory: a) == .standing)
+        #expect(try section.replaceQueuedStage(previous: b, current: c, in: &assembler,
+                                               queue: &waiting, consistent: 0, required: 1) == 2)
+        #expect(waiting.isEmpty)
+        #expect(section.stages == 2)
+        #expect(assembler.fullLength == laid.height)
+        #expect(assembler.lastFrame == c)
+    }
+
+    @Test func standingQueuedRowsCannotDiscardAnExitFromTheLaidGalleryPosition() throws {
+        func shifted(_ frame: CaptureFrame) -> CaptureFrame {
+            let split = 90 * frame.width * 4
+            return CaptureFrame(width: frame.width, height: frame.height,
+                                pixels: Array(frame.pixels[split...]) + Array(frame.pixels[..<split]))
+        }
+        let laid = video(3), a = shifted(video(2)), b = shifted(video(0)), c = shifted(video(1))
+        var assembler = ImageAssembler(axis: .vertical)
+        assembler.begin(with: laid)
+        var section = ScrollSidewaysSection(), waiting = TemporarySteps()
+        section.acceptedStage(previous: video(2), current: laid)
+        waiting.add(a, movement: 90, confirmed: false)
+        waiting.add(b, movement: 90, confirmed: false)
+        #expect(try #require(ScrollRowProfile.inspect(history: a, previous: b, current: c, expected: 90)).stands)
+        #expect(section.inspect(previous: b, current: c, expected: 90, consistent: 0, required: 1,
+                                queuedHistory: a) == nil)
+        #expect(assembler.lastFrame == laid)
+        #expect(assembler.fullLength == laid.height)
+        #expect(waiting.count == 2)
+        #expect(section.stages == 1)
     }
 }

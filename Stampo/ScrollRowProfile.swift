@@ -8,9 +8,13 @@ nonisolated enum ScrollRowProfile {
         let expected: Double
         let maskedRows: Int
 
+        var zeroIsNearMinimum: Bool {
+            zero.isFinite && minimum.isFinite && zero <= 1.25 * minimum
+        }
+
         var stands: Bool {
-            zero.isFinite && expected.isFinite && minimum.isFinite
-                && zero <= 1.25 * minimum && zero <= 0.6 * expected
+            zeroIsNearMinimum && expected.isFinite && expected > ScrollPush.changedFrom
+                && zero <= 0.6 * expected
         }
     }
 

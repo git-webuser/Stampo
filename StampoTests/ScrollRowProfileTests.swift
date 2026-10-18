@@ -68,4 +68,22 @@ import Testing
         #expect(!ScrollRowProfile.Result(best: 1, minimum: 0.7, zero: 1, expected: 2, maskedRows: 0).stands)
         #expect(!ScrollRowProfile.Result(best: 0, minimum: 1, zero: 1, expected: 1.5, maskedRows: 0).stands)
     }
+
+    @Test func aFlatProfileCannotProveThatThePageStands() throws {
+        #expect(!ScrollRowProfile.Result(best: 0, minimum: 0, zero: 0, expected: 0, maskedRows: 0).stands)
+        #expect(!ScrollRowProfile.Result(best: 0, minimum: 0, zero: 0,
+                                        expected: ScrollPush.changedFrom, maskedRows: 0).stands)
+        let flat = CaptureFrame(width: 120, height: 240, pixels: [UInt8](repeating: 255, count: 120 * 240 * 4))
+        let result = try #require(ScrollRowProfile.inspect(history: flat, previous: flat, current: flat, expected: 60))
+        #expect(result.maskedRows == 0)
+        #expect(!result.stands)
+        var pixels = flat.pixels
+        for x in 0..<flat.width {
+            for channel in 0..<3 { pixels[((flat.height - 1) * flat.width + x) * 4 + channel] = 0 }
+        }
+        let revealed = CaptureFrame(width: flat.width, height: flat.height, pixels: pixels)
+        #expect(ScrollPush.isChanged(1.0 / Double(flat.height)))
+        #expect(try #require(ScrollRowProfile.inspect(history: flat, previous: flat, current: revealed,
+                                                     expected: 60)).stands == false)
+    }
 }
