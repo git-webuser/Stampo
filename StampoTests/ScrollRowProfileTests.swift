@@ -86,4 +86,20 @@ import Testing
         #expect(try #require(ScrollRowProfile.inspect(history: flat, previous: flat, current: revealed,
                                                      expected: 60)).stands == false)
     }
+
+    @Test func flatRowsCannotShareAHeightWhatevertheirCostsLookLike() {
+        // Near the minimum, and the step would have shown: the same height.
+        #expect(ScrollRowProfile.Result(best: 0, minimum: 0.00686, zero: 0.00686, expected: 0.01105,
+                                        maskedRows: 3).sharesHeight)
+        // Near the minimum on noise: moving by the step would not have shown.
+        for expected in [0.0, ScrollPush.changedFrom, 0.0002, .nan, .infinity] {
+            #expect(!ScrollRowProfile.Result(best: 0, minimum: 0.0002, zero: 0.0002, expected: expected,
+                                             maskedRows: 0).sharesHeight)
+        }
+        // The step costs no more than standing still: nothing says it stood.
+        #expect(!ScrollRowProfile.Result(best: 0, minimum: 0.005, zero: 0.005, expected: 0.005,
+                                         maskedRows: 0).sharesHeight)
+        #expect(!ScrollRowProfile.Result(best: 60, minimum: 0.001, zero: 0.01, expected: 0.02,
+                                         maskedRows: 0).sharesHeight)
+    }
 }

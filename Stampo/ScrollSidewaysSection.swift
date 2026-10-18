@@ -99,19 +99,19 @@ nonisolated struct ScrollSidewaysSection: Sendable {
     private func sharesLaidRows(current: CaptureFrame, expected: Int) -> Bool {
         guard let latest, let earlier = history else { return false }
         return ScrollRowProfile.inspect(history: earlier, previous: latest, current: current,
-                                        expected: expected)?.zeroIsNearMinimum == true
+                                        expected: expected)?.sharesHeight == true
     }
 
     /// Missed stages of a gallery stand where it stood, frame after frame. A
     /// queue that went down with the page, even by one frame, is an exit: the
     /// pair of the laid stage and a later stage says nothing about it, for the
     /// cards of two stages hardly share a row profile.
-    private func queueStaysAtLaidStage(_ queued: [CaptureFrame], expected: Int?) -> Bool {
+    func queueStaysAtLaidStage(_ queued: [CaptureFrame], expected: Int?) -> Bool {
         guard let expected, let latest, var older = history else { return false }
         var before = latest
         for frame in queued {
             guard ScrollRowProfile.inspect(history: older, previous: before, current: frame,
-                                           expected: expected)?.zeroIsNearMinimum == true
+                                           expected: expected)?.sharesHeight == true
             else { return false }
             older = before
             before = frame

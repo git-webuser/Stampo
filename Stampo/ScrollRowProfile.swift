@@ -12,6 +12,14 @@ nonisolated enum ScrollRowProfile {
             zero.isFinite && minimum.isFinite && zero <= 1.25 * minimum
         }
 
+        /// The frames are at one height: zero is near the best alignment and
+        /// moving by `expected` would have shown. On flat rows (a dark page
+        /// with a few particles) every alignment costs about nothing, and being
+        /// near the minimum is noise.
+        var sharesHeight: Bool {
+            zeroIsNearMinimum && expected.isFinite && expected > ScrollPush.changedFrom && zero < expected
+        }
+
         var stands: Bool {
             zeroIsNearMinimum && expected.isFinite && expected > ScrollPush.changedFrom
                 && zero <= 0.6 * expected

@@ -411,6 +411,38 @@ import Testing
         #expect(other.stages == 1)
     }
 
+    /// A dark page with a few particles and one faint line of text: every row
+    /// has about the same small energy, so no alignment stands out.
+    private func darkFrame(seed: UInt32, textRow: Int) -> CaptureFrame {
+        let width = 480, height = 600
+        var pixels = [UInt8](repeating: 255, count: width * height * 4)
+        var state = seed &* 2654435761 &+ 1
+        for y in 0..<height {
+            for x in 0..<width {
+                state ^= state << 13; state ^= state >> 17; state ^= state << 5
+                var value = 12 + Int(state % 2)
+                if (textRow..<(textRow + 4)).contains(y), (100..<160).contains(x), (x / 2) % 2 == 0 { value += 4 }
+                for channel in 0..<3 { pixels[(y * width + x) * 4 + channel] = UInt8(value) }
+            }
+        }
+        return CaptureFrame(width: width, height: height, pixels: pixels)
+    }
+
+    @Test func aFlatFrameThatWentDownIsNotAtTheLaidStage() throws {
+        let laid = darkFrame(seed: 2, textRow: 400)
+        var section = ScrollSidewaysSection()
+        section.acceptedStage(previous: darkFrame(seed: 1, textRow: 400), current: laid)
+        // The page went down by the step: the line of text is 90 rows higher.
+        let gone = darkFrame(seed: 3, textRow: 310), stayed = darkFrame(seed: 3, textRow: 400)
+        let profile = try #require(ScrollRowProfile.inspect(history: darkFrame(seed: 1, textRow: 400),
+                                                           previous: laid, current: gone, expected: 90))
+        // Near the minimum, as flat rows are, yet the step costs nothing either.
+        #expect(profile.zeroIsNearMinimum)
+        #expect(profile.expected < ScrollPush.changedFrom)
+        #expect(!section.queueStaysAtLaidStage([gone], expected: 90))
+        #expect(!section.queueStaysAtLaidStage([stayed], expected: 90))
+    }
+
     @Test func aSidewaysMatchThatStaysAtTheLaidStageStillDropsTheQueue() throws {
         // Brave 212758: a missed stage waits, and the next stage matches it.
         for waitingOffsets in [[80], [80, 120]] {
