@@ -983,6 +983,14 @@ nonisolated enum ScrollStepPlanner {
         return abs(Double(offset) - expected) <= max(2, expected * 0.02)
     }
 
+    /// A close full matched step is enough to enter a sideways gallery, even
+    /// when probe rounding misses the stricter proof used for vertical laying.
+    static func agreesWithCalibration(offset: Int, lines: Int, pixelsPerLine: Double) -> Bool {
+        guard offset > 0, lines > 0, pixelsPerLine > 0, pixelsPerLine.isFinite else { return false }
+        let expected = (Double(lines) * pixelsPerLine).rounded()
+        return expected.isFinite && expected > 0 && abs(Double(offset) - expected) <= max(4, expected * 0.05)
+    }
+
     /// How many tiles of the frames must agree with a predicted distance. One
     /// is enough once a full step has shown that lines move the page in
     /// proportion; before that the calibration is one probe, possibly of a

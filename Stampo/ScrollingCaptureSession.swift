@@ -158,10 +158,20 @@ final class ScrollingCaptureSession {
     /// How far one wheel line moved the page, measured on the probe. Nil until
     /// a probe has been matched, and then the estimate from points is what
     /// steps are planned from.
-    private var pixelsPerLine: Double?
+    private var pixelsPerLine: Double? {
+        didSet { galleryCalibration.reset() }
+    }
     /// Whether a full step has matched what the calibration says, so that lines
     /// are known to move the page in proportion.
-    private var linearityConfirmed = false
+    private var linearityConfirmed = false {
+        didSet { if !linearityConfirmed { galleryCalibration.reset() } }
+    }
+    /// A close full step that matched, short of the proof `linearityConfirmed`
+    /// asks for. Whenever the calibration changes it has to be earned again.
+    private var galleryCalibration = ScrollGalleryCalibration()
+    /// The calibration is good enough to enter a sideways gallery with: the
+    /// stricter `linearityConfirmed` still rules vertical laying and parallax.
+    private var calibrationHeld: Bool { linearityConfirmed || galleryCalibration.held }
     /// Whether the queue that is waiting has had its short step (`ScrollQueueLaying.shortStepDue`).
     private var shortStepTried = false
     /// When the last wheel event was sent, and whether the capture waits after it for an overlay scroll bar to go
@@ -1352,25 +1362,22 @@ final class ScrollingCaptureSession {
                       : pixelsPerLine == nil ? "no calibration"
                       : "step not clean (\(unmatchedScroll) px unaccounted)")) + secondLookNote
                 let consistent = evidence?.consistent ?? 0
-                let queuedGalleryMovesDown = sidewaysSection.isActive && !temporary.isEmpty && consistent >= required
-                let galleryAllowed = !queuedGalleryMovesDown && (sidewaysSection.isActive
+                let galleryAllowed = sidewaysSection.isActive
                     ? sidewaysSection.canContinue(axis: axis, verticalUndecided: undecided, isPush: isPush,
                                                    frameChanged: frameChanged, pushMode: pushMode,
                                                    checking: pushCheck != nil)
                     : ScrollSidewaysSection.canInspect(axis: axis, verticalUndecided: undecided, isPush: isPush,
-                                                       expected: expected, calibrationConfirmed: linearityConfirmed,
+                                                       expected: expected, calibrationConfirmed: calibrationHeld,
                                                        frameChanged: frameChanged, contradicted: evidence?.contradicted ?? false,
-                                                       pushMode: pushMode, checking: pushCheck != nil))
+                                                       pushMode: pushMode, checking: pushCheck != nil)
                 if galleryAllowed {
                     let before = temporary.steps.last?.frame ?? oldFrame
                     let section = sidewaysSection
-                    let queue = temporary.steps
-                    let queuedHistory = queue.count > 1 ? queue[queue.count - 2].frame
-                        : queue.isEmpty ? nil : assembler.lastFrame
+                    let queued = temporary.steps.map(\.frame)
                     let stage = try await ScrollCaptureCancellationBoundary.awaitActive {
                         await Task.detached(priority: .userInitiated) {
                             section.inspect(previous: before, current: next, expected: expected,
-                                            consistent: consistent, required: required, queuedHistory: queuedHistory)
+                                            consistent: consistent, required: required, queued: queued)
                         }.value
                     }
                     try ensureActive()
@@ -1677,6 +1684,8 @@ final class ScrollingCaptureSession {
         }
         notePinned(match.standing)
         queueLaidByCalibration = false
+        galleryCalibration.matchedStep(offset: match.offset, lines: Int(lines), pixelsPerLine: pixelsPerLine,
+                                       placement: placement, isPush: isPush)
         if let relay, relay.movements != nil {
             // The line is what this step shows. One step cannot confirm
             // that lines move the page in proportion; that waits for
@@ -1896,7 +1905,7 @@ final class ScrollingCaptureSession {
                                      motionLimit: Int, consistent: Int, required: Int,
                                      head: String, line: String) async throws -> Bool? {
         guard let entry = sidewaysSection.entry(queueIsEmpty: temporary.isEmpty,
-                                                calibrationConfirmed: linearityConfirmed, expected: expected)
+                                                calibrationConfirmed: calibrationHeld, expected: expected)
         else { return nil }
         if case .lay(let movement) = entry {
             let steps = temporary.count + 1

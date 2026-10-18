@@ -296,7 +296,7 @@ import Testing
         waiting.add(b, movement: 90, confirmed: false)
         #expect(section.inspect(previous: b, current: c, expected: 90, consistent: 0, required: 1) == nil)
         #expect(section.inspect(previous: b, current: c, expected: 90, consistent: 0, required: 1,
-                                queuedHistory: a) == .standing)
+                                queued: [a, b]) == .standing)
         #expect(try section.replaceQueuedStage(previous: b, current: c, in: &assembler,
                                                queue: &waiting, consistent: 0, required: 1) == 2)
         #expect(waiting.isEmpty)
@@ -320,10 +320,196 @@ import Testing
         waiting.add(b, movement: 90, confirmed: false)
         #expect(try #require(ScrollRowProfile.inspect(history: a, previous: b, current: c, expected: 90)).stands)
         #expect(section.inspect(previous: b, current: c, expected: 90, consistent: 0, required: 1,
-                                queuedHistory: a) == nil)
+                                queued: [a, b]) == nil)
         #expect(assembler.lastFrame == laid)
         #expect(assembler.fullLength == laid.height)
         #expect(waiting.count == 2)
         #expect(section.stages == 1)
+    }
+
+    /// Gallery cards whose rows each carry an energy of their own, as the rows
+    /// of a real page do, wherever the cards are horizontally: the row profile
+    /// can then tell a gallery that moved sideways from one that went down.
+    private func rowCards(_ offset: Int, vertical: Int = 0) -> CaptureFrame {
+        let width = 480, height = 600
+        var pixels = [UInt8](repeating: 255, count: width * height * 4)
+        for y in 0..<height {
+            let py = y + vertical
+            let amplitude = 20 + (py * 37) % 120
+            for x in 0..<width {
+                let px = x + offset
+                let texture = (px * 73 + py * 31 + (px / 7) * (py / 11) * 17) % 220 + 15
+                let value = UInt8(30 + amplitude * texture / 255)
+                for channel in 0..<3 { pixels[(y * width + x) * 4 + channel] = value }
+            }
+        }
+        return CaptureFrame(width: width, height: height, pixels: pixels)
+    }
+
+    /// What the session does with a frame that waits behind a laid gallery:
+    /// the stage is judged off the main thread with the queue's frames, and
+    /// only a stage found there replaces the laid frame and drops the queue.
+    private func stageThroughQueue(_ section: inout ScrollSidewaysSection, current: CaptureFrame,
+                                   in assembler: inout ImageAssembler, queue: inout TemporarySteps,
+                                   consistent: Int = 0, required: Int = 1) throws -> Int? {
+        let queued = queue.steps.map(\.frame)
+        let previous = try #require(queued.last)
+        guard section.inspect(previous: previous, current: current, expected: 90, consistent: consistent,
+                              required: required, queued: queued) != nil
+        else { return nil }
+        return try section.replaceQueuedStage(previous: previous, current: current, in: &assembler,
+                                              queue: &queue, consistent: consistent, required: required)
+    }
+
+    /// A gallery laid at `rowCards(40)` with frames at `offsets` waiting behind it.
+    private func laidGallery(waiting offsets: [Int]) throws -> (ImageAssembler, ScrollSidewaysSection, TemporarySteps) {
+        let first = rowCards(0), laid = rowCards(40)
+        var assembler = ImageAssembler(axis: .vertical)
+        assembler.begin(with: first)
+        var section = ScrollSidewaysSection(), waiting = TemporarySteps()
+        #expect(try section.replaceLast(previous: first, current: laid, in: &assembler))
+        for offset in offsets { waiting.add(rowCards(offset), movement: 90, confirmed: false) }
+        return (assembler, section, waiting)
+    }
+
+    @Test func aSidewaysMatchAtTheQueueEndCannotDiscardADownwardExit() throws {
+        // The gallery is laid; the page then goes down in two unconfirmed steps
+        // and a section below it moves sideways, matching the queue's end.
+        let a = rowCards(40, vertical: 90), b = rowCards(40, vertical: 180)
+        let current = rowCards(120, vertical: 180)
+        #expect(try FrameMatcher.match(previous: b, current: current, axis: .horizontal,
+                                       maximumOffset: b.width / 2).offset == 80)
+        var (assembler, section, waiting) = try laidGallery(waiting: [])
+        let laid = try #require(assembler.lastFrame), length = assembler.fullLength
+        waiting.add(a, movement: 90, confirmed: false)
+        waiting.add(b, movement: 90, confirmed: false)
+        #expect(try stageThroughQueue(&section, current: current, in: &assembler, queue: &waiting) == nil)
+        #expect(waiting.count == 2)
+        #expect(waiting.steps.last?.frame == b)
+        #expect(assembler.lastFrame == laid)
+        #expect(assembler.fullLength == length)
+        #expect(section.stages == 1)
+        #expect(section.isActive)
+        // The same frame beside a queue that is not there is an ordinary stage.
+        #expect(section.inspect(previous: b, current: current, expected: 90, consistent: 0, required: 1) != nil)
+    }
+
+    @Test func everyQueuedFrameMustStandWhereTheLaidStageStood() throws {
+        // The first link catches a queue that left the gallery's height and
+        // then moved sideways, whose last pair alone looks like a gallery.
+        var (assembler, section, waiting) = try laidGallery(waiting: [])
+        waiting.add(rowCards(80, vertical: 90), movement: 90, confirmed: false)
+        waiting.add(rowCards(120, vertical: 90), movement: 90, confirmed: false)
+        #expect(try stageThroughQueue(&section, current: rowCards(160, vertical: 90),
+                                      in: &assembler, queue: &waiting) == nil)
+        #expect(waiting.count == 2)
+        // The last link catches a queue that began at the gallery's height.
+        var (second, other, tail) = try laidGallery(waiting: [80])
+        tail.add(rowCards(120, vertical: 90), movement: 90, confirmed: false)
+        #expect(try stageThroughQueue(&other, current: rowCards(160, vertical: 90), in: &second, queue: &tail) == nil)
+        #expect(tail.count == 2)
+        #expect(other.stages == 1)
+    }
+
+    @Test func aSidewaysMatchThatStaysAtTheLaidStageStillDropsTheQueue() throws {
+        // Brave 212758: a missed stage waits, and the next stage matches it.
+        for waitingOffsets in [[80], [80, 120]] {
+            var (assembler, section, waiting) = try laidGallery(waiting: waitingOffsets)
+            let length = assembler.fullLength, current = rowCards(waitingOffsets.last! + 40)
+            #expect(try stageThroughQueue(&section, current: current, in: &assembler,
+                                          queue: &waiting) == waitingOffsets.count)
+            #expect(waiting.isEmpty)
+            #expect(section.stages == 2)
+            #expect(assembler.fullLength == length)
+            #expect(assembler.lastFrame == current)
+        }
+    }
+
+    @Test func aGalleryCannotDropMoreThanTwoQueuedFrames() throws {
+        #expect(ScrollSidewaysSection.queuedStageLimit == 2)
+        var (assembler, section, waiting) = try laidGallery(waiting: [80, 120, 160])
+        let length = assembler.fullLength, laid = rowCards(40)
+        let previous = rowCards(160), current = rowCards(200)
+        #expect(section.inspect(previous: previous, current: current, expected: 90, consistent: 0, required: 1,
+                                queued: waiting.steps.map(\.frame)) == nil)
+        #expect(try section.replaceQueuedStage(previous: previous, current: current, in: &assembler,
+                                               queue: &waiting, consistent: 0, required: 1) == nil)
+        #expect(waiting.count == 3)
+        #expect(assembler.lastFrame == laid)
+        #expect(assembler.fullLength == length)
+        #expect(section.stages == 1)
+        // Without the limit the same pair is a stage, so the limit is what refused it.
+        let twoLeft = waiting.steps.suffix(2).map(\.frame)
+        #expect(section.inspect(previous: previous, current: current, expected: 90, consistent: 0, required: 1,
+                                queued: twoLeft) != nil)
+    }
+
+    @Test func queueingFramesNeverReleasesTheLatchButSupportedDownMotionDoes() throws {
+        var section = ScrollSidewaysSection(), waiting = TemporarySteps()
+        section.acceptedStage(previous: cards(0), current: cards(80))
+        for offset in [160, 240] {
+            // A frame that waits has no vertical support behind it.
+            waiting.add(cards(offset), movement: 90, confirmed: false)
+            let none = section.releaseForVerticalSupport(consistent: 0, required: 1)
+            let short = section.releaseForVerticalSupport(consistent: 1, required: 2)
+            #expect(!none && !short)
+            #expect(section.isActive)
+        }
+        let released = section.releaseForVerticalSupport(consistent: 1, required: 1)
+        #expect(released)
+        #expect(!section.isActive)
+        #expect(section.stages == 0)
+        let again = section.releaseForVerticalSupport(consistent: 3, required: 1)
+        #expect(!again)
+        #expect(waiting.count == 2)
+    }
+
+    @Test func inspectRejectsQueuedVerticalSupportBeforeSearchingSideways() throws {
+        let previous = rowCards(80), current = rowCards(120)
+        var section = ScrollSidewaysSection()
+        section.acceptedStage(previous: rowCards(0), current: rowCards(40))
+        #expect(section.inspect(previous: previous, current: current, expected: 90, consistent: 1, required: 1,
+                                queued: [previous]) == nil)
+        #expect(section.inspect(previous: previous, current: current, expected: 90, consistent: 1, required: 1) != nil)
+        #expect(section.inspect(previous: previous, current: current, expected: 90, consistent: 0, required: 1,
+                                queued: [previous]) != nil)
+    }
+
+    private func filteredCards(_ offset: Int) -> CaptureFrame {
+        let width = 240, height = 160
+        var pixels = [UInt8](repeating: 255, count: width * height * 4)
+        for y in 0..<height {
+            for x in 0..<width {
+                let px = x + offset
+                let detail = (px * 73 + y * 31 + (px / 7) * (y / 11) * 17) % 40
+                let value = UInt8(20 + x / 2 + detail)
+                for channel in 0..<3 { pixels[(y * width + x) * 4 + channel] = value }
+            }
+        }
+        return CaptureFrame(width: width, height: height, pixels: pixels)
+    }
+
+    @Test func inspectSkipsAnHPOnlyEntryWhenRawTilesSupportVerticalMotion() throws {
+        let previous = filteredCards(0), current = filteredCards(48)
+        #expect(throws: (any Error).self) {
+            try FrameMatcher.match(previous: previous, current: current, axis: .horizontal,
+                                   maximumOffset: previous.width / 2)
+        }
+        let filtered = try FrameMatcher.match(previous: ScrollBackgroundFilter.highPass(previous, radius: 4),
+                                              current: ScrollBackgroundFilter.highPass(current, radius: 4),
+                                              axis: .horizontal, maximumOffset: previous.width / 2)
+        #expect(filtered.offset == 48)
+        var section = ScrollSidewaysSection()
+        for supporting in [1, 3] {
+            #expect(section.inspect(previous: previous, current: current, expected: 90,
+                                    consistent: supporting, required: 1) == nil)
+        }
+        let entry = try #require(section.inspect(previous: previous, current: current, expected: 90,
+                                                consistent: 0, required: 1))
+        if case .sideways(let match) = entry { #expect(match.offset == 48) }
+        else { Issue.record("Expected the filtered sideways displacement") }
+        section.acceptedStage(previous: previous, current: current)
+        #expect(section.inspect(previous: previous, current: current, expected: 90,
+                                consistent: 1, required: 1) != nil)
     }
 }
