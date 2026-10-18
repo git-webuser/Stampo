@@ -62,6 +62,12 @@ nonisolated struct ScrollRepeatGuard {
         }
     }
 
+    /// Whether two frames show the same page, as the guard sees it. A flat
+    /// frame is the same as another flat one: this is no test for going round.
+    static func isSamePage(_ a: CaptureFrame, _ b: CaptureFrame) -> Bool {
+        Fingerprint(a).matches(Fingerprint(b))
+    }
+
     private var fingerprints: [Fingerprint] = []
     private var checked: Fingerprint?
 

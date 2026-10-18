@@ -126,6 +126,9 @@ final class ScrollingCaptureSession {
     /// Whether a push may be sent: not after a check has found the page going
     /// on under one, until a frame is laid.
     private var pushesAllowed = true
+    /// Stretches of the page that no step could read, met by this capture, and
+    /// the jerks that go on from the last of them (`ScrollUnreadableStretch`).
+    private var unreadable = ScrollUnreadableStretch()
     /// The line of the last step that was placed firmly and that the calibration
     /// did not predict, kept to see whether the next such step agrees with it
     /// (`ScrollRecalibration`).
@@ -1207,7 +1210,9 @@ final class ScrollingCaptureSession {
             // A push is one wheel event of twice the lines, with the search as
             // wide as a step is ever matched: where the page ends up when it has
             // gone past a section that pins it is not a multiple of the lines.
-            let isPush = ScrollPush.sendsPush(pushMode)
+            // After a stretch that could not be read, every step is a jerk, until one is placed.
+            let isJerk = unreadable.isJerking
+            let isPush = ScrollPush.sendsPush(pushMode) || isJerk
             // Steps wait that the matcher could not place: one short step for the queue, which the frames may read
             // where they did not read the long ones.
             if temporary.isEmpty { shortStepTried = false }
@@ -1320,13 +1325,29 @@ final class ScrollingCaptureSession {
                     inFlightLines = nil
                     continue
                 }
+                let jerkNumber = unreadable.jerks + 1
                 guard try await layMatchedStep(next, from: oldFrame, match: match, lines: plan.lines,
                                                placement: .matched(cleanStep: cleanStep), isPush: isPush, motionLimit: motionLimit,
                                                head: head, secondLookNote: secondLookNote) else { return }
+                if isJerk {
+                    unreadable.placed()
+                    recordStep("· unreadable stretch: jerk \(jerkNumber) placed, ordinary steps go on")
+                }
             } catch is CancellationError {
                 throw CancellationError()
             } catch {
                 rememberedLine = nil
+                if isJerk {
+                    // Whatever the frames say, a jerk that is not placed lays nothing and waits for nothing: the
+                    // page may still be in the section, or past where the last frame laid reaches.
+                    unreadable.jerkNotPlaced()
+                    consecutiveFailures = 0
+                    recordStep("\(head) · \(error) → unreadable stretch: jerk \(unreadable.jerks) of \(ScrollUnreadableStretch.jerkLimit) not placed"
+                               + (unreadable.isJerking ? "" : ", ordinary steps go on"))
+                    stepInFlight = false
+                    inFlightLines = nil
+                    continue
+                }
                 // The matcher cannot place the step. Why is a question for
                 // the frames, asked once: which tiles stand still, and, when
                 // the calibration says how far the page should have moved,
@@ -1482,6 +1503,15 @@ final class ScrollingCaptureSession {
                     consecutiveFailures = 0
                     recordStep("\(head) · \(error) · \(said) → stop: \(standing), page not moving \(zeroMotionCount) of 3")
                     if zeroMotionCount >= 3 {
+                        // Steps wait that nothing placed, and the page seems to stand: a section that plays its own
+                        // motion. That is no end of the content, and the third step would drop them.
+                        if !temporary.isEmpty {
+                            let stretch = try meetUnreadableStretch(
+                                next: next, trigger: .standing(count: zeroMotionCount, queued: temporary.count),
+                                line: head)
+                            if stretch == .ended { return }
+                            if stretch == .laid { break }
+                        }
                         // Three steps in a row proved without movement: the
                         // end of the content.
                         finish()
@@ -1539,6 +1569,12 @@ final class ScrollingCaptureSession {
                             laidSinceMatch: queueLaidByCalibration))
                     }
                     guard byCalibration, let expected else {
+                        // The calibration cannot lay them, and nothing reads them: a stretch that goes on in jerks
+                        // is more than the capture that ends here.
+                        let stretch = try meetUnreadableStretch(
+                            next: next, trigger: .queueFull(queued: temporary.count), line: "\(head) · \(error) · \(said)")
+                        if stretch == .ended { return }
+                        if stretch == .laid { break }
                         recordStep("\(head) · \(error) · \(said) → saved: \(temporary.count) steps wait for a confirmation")
                         finish()
                         return
@@ -1647,6 +1683,76 @@ final class ScrollingCaptureSession {
             stepInFlight = false
             inFlightLines = nil
         }
+    }
+
+    private enum StretchOutcome {
+        /// A series is laid, and the next steps are jerks.
+        case laid
+        /// Not a stretch: the capture ends as it would have.
+        case declined
+        /// The capture is over.
+        case ended
+    }
+
+    /// The capture would end with steps waiting that nothing read. Frames of
+    /// them — up to three, with the current one — are laid edge to edge, and
+    /// the queue is dropped: what lies between them is lost, and a section
+    /// longer than the queue may be shown more than once. The steps that
+    /// follow are jerks, as through a pinned section (`ScrollPush`), until the
+    /// matcher places one. `line` is what the step has said so far.
+    private func meetUnreadableStretch(next: CaptureFrame, trigger: ScrollUnreadableStretch.Trigger,
+                                       line: String) throws -> StretchOutcome {
+        guard let laid = assembler.lastFrame else { return .declined }
+        let situation = ScrollUnreadableStretch.Situation(
+            trigger: trigger, isVertical: axis == .vertical, galleryActive: sidewaysSection.isActive,
+            pushing: pushMode != .none || pushCheck != nil,
+            framesChange: ScrollUnreadableStretch.isAnotherScreen(difference: meanDifference(laid, next)),
+            isRepeat: repeatGuard.checkForRepeat(next, excluding: previous))
+        switch unreadable.decide(situation) {
+        case .save:
+            return .declined
+        case .tooMany:
+            recordStep("\(line) → saved: the capture met too many stretches it could not read")
+            Log.capture.notice("scroll too many unreadable stretches · saved what was collected")
+            finish()
+            return .ended
+        case .series:
+            break
+        }
+        let frames = temporary.steps.map(\.frame) + [next]
+        let chosen = ScrollUnreadableStretch.series(count: frames.count) { a, b in
+            ScrollRepeatGuard.isSamePage(a < 0 ? laid : frames[a], frames[b])
+        }
+        guard let last = chosen.last else { return .declined }
+        for index in chosen {
+            let frame = frames[index]
+            guard makeRoom(for: axisLength(of: frame)) else {
+                Log.capture.notice("scroll unreadable stretch only partly laid · the image is full")
+                finish()
+                return .ended
+            }
+            try assembler.appendEdgeToEdge(frame)
+        }
+        // The queue's frames were remembered when they were queued; the current one is new.
+        if last == frames.count - 1 { repeatGuard.rememberCheckedFrame() }
+        let steps = frames.count
+        temporary.discard()
+        noteProgress()
+        previous = frames[last]
+        zeroMotionCount = 0
+        stationaryLines = 0
+        stationary = nil
+        stationaryAllReliable = true
+        pushMode = .none
+        pushAfterReliableSteps = 0
+        rememberedLine = nil
+        unmatchedScroll = 0
+        consecutiveFailures = 0
+        requestedStep = max(24, Int(Double(axisLength(of: frames[last])) * 0.60))
+        unreadable.begin()
+        recordStep("\(line) → unreadable stretch: \(steps) steps, \(chosen.count) frames laid edge to edge")
+        Log.capture.notice("scroll unreadable stretch · \(steps, privacy: .public) steps, \(chosen.count, privacy: .public) frames laid edge to edge")
+        return .laid
     }
 
     /// A measured step, whether found directly or recovered from an overshot
