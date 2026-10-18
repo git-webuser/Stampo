@@ -9,16 +9,22 @@ import Testing
                                  isPush: push, expected: expected, frameChanged: changed, pair: pair)
     }
 
+    /// An explicit pair, not `.init(…)` inside `#expect(!lays(…))`: Xcode 26.6
+    /// expands that form into an unused call and the expectation fails.
+    private func cost(_ shifted: Double, _ still: Double) -> ScrollQueueLaying.PairCost {
+        ScrollQueueLaying.PairCost(shifted: shifted, still: still)
+    }
+
     @Test func onlyAClearImprovementAtTheCalibratedDistanceIsLaid() {
-        #expect(lays(.init(shifted: 7.4, still: 10)))
-        #expect(!lays(.init(shifted: 8.85, still: 10)))
-        #expect(!lays(.init(shifted: 8, still: 10)))
+        #expect(lays(cost(7.4, 10)))
+        #expect(!lays(cost(8.85, 10)))
+        #expect(!lays(cost(8, 10)))
         #expect(!lays(nil))
     }
 
     @Test func anIdenticalPairOrTheEndOfThePageCannotBeLaid() {
-        #expect(!lays(.init(shifted: 0.1, still: 0.4)))
-        #expect(!lays(.init(shifted: 10, still: 0)))
+        #expect(!lays(cost(0.1, 0.4)))
+        #expect(!lays(cost(10, 0)))
     }
 
     @Test func everyPrerequisiteIsRequired() {
