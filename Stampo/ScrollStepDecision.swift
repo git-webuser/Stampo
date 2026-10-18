@@ -661,6 +661,7 @@ nonisolated enum ScrollStepPlacement {
     case matched(cleanStep: Bool)
     case recovered
     case parallax
+    case gallery
 
     var cleanStep: Bool {
         if case .matched(let cleanStep) = self { return cleanStep }

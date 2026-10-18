@@ -555,14 +555,13 @@ final class ScrollingCaptureSession {
                 Log.capture.notice("scroll queue only partly laid · the image is full")
                 return nil
             }
-            try assembler.append(step.frame, movement: moved, pinned: step.pinned)
+            try sidewaysSection.append(step.frame, movement: moved, to: &assembler, pinned: step.pinned)
             if let seam = assembler.lastSeam { seams.append(seam) }
             if let repair = assembler.lastRepair { repairs.append(repair) }
         }
         guard makeRoom(for: movement) else { return nil }
         try ensureActive()
-        try assembler.append(frame, movement: movement, pinned: pinned)
-        if axis == .vertical { sidewaysSection.laidVerticalStep() }
+        try sidewaysSection.append(frame, movement: movement, to: &assembler, pinned: pinned)
         repeatGuard.rememberCheckedFrame()
         if let repair = assembler.lastRepair { repairs.append(repair) }
         noteProgress()
@@ -710,6 +709,7 @@ final class ScrollingCaptureSession {
         pushCheck = nil
         temporary.discard()
         assembler.reset()
+        sidewaysSection = ScrollSidewaysSection()
         repeatGuard = ScrollRepeatGuard()
         planningPinned = ScrollPinned.Accumulator()
     }
@@ -1341,19 +1341,29 @@ final class ScrollingCaptureSession {
                       : isPush ? "a push, no distance expected"
                       : pixelsPerLine == nil ? "no calibration"
                       : "step not clean (\(unmatchedScroll) px unaccounted)")) + secondLookNote
-                if ScrollSidewaysSection.isStage(axis: axis, verticalUndecided: undecided,
-                                                frameChanged: frameChanged, pushMode: pushMode,
-                                                checking: pushCheck != nil, queueIsEmpty: temporary.isEmpty,
-                                                sidewaysMatched: true) {
-                    let sideways = try await ScrollCaptureCancellationBoundary.awaitActive {
+                let galleryAllowed = sidewaysSection.isActive
+                    ? sidewaysSection.canContinue(axis: axis, verticalUndecided: undecided, isPush: isPush,
+                                                   frameChanged: frameChanged, pushMode: pushMode,
+                                                   checking: pushCheck != nil)
+                    : ScrollSidewaysSection.canInspect(axis: axis, verticalUndecided: undecided, isPush: isPush,
+                                                       expected: expected, calibrationConfirmed: linearityConfirmed,
+                                                       frameChanged: frameChanged, contradicted: evidence?.contradicted ?? false,
+                                                       pushMode: pushMode, checking: pushCheck != nil)
+                if galleryAllowed {
+                    let before = temporary.steps.last?.frame ?? oldFrame
+                    let section = sidewaysSection
+                    let consistent = evidence?.consistent ?? 0
+                    let stage = try await ScrollCaptureCancellationBoundary.awaitActive {
                         await Task.detached(priority: .userInitiated) {
-                            try? FrameMatcher.match(previous: oldFrame, current: next, axis: .horizontal,
-                                                    maximumOffset: oldFrame.width * 3 / 4 + 32)
+                            section.inspect(previous: before, current: next, expected: expected,
+                                            consistent: consistent, required: required)
                         }.value
                     }
                     try ensureActive()
-                    if let sideways {
-                        guard replaceSidewaysStage(next, offset: sideways.offset) else { return }
+                    if let stage, let handled = try await acceptSidewaysStage(
+                        next, from: before, stage: stage, expected: expected, lines: sentLines,
+                        motionLimit: motionLimit, head: head, line: "\(head) · \(error) · \(said)") {
+                        guard handled else { return }
                         stepInFlight = false
                         inFlightLines = nil
                         continue
@@ -1453,7 +1463,7 @@ final class ScrollingCaptureSession {
                     }
                     // Two in a row, and nothing waiting: the third is a push, in
                     // case the page snaps back to where it was after a short step.
-                    if ScrollPush.startsPush(zeroMotionCount: zeroMotionCount, queueIsEmpty: temporary.isEmpty,
+                    if !sidewaysSection.isActive, ScrollPush.startsPush(zeroMotionCount: zeroMotionCount, queueIsEmpty: temporary.isEmpty,
                                              allowed: pushesAllowed) {
                         pushMode = .push
                         pushAfterReliableSteps = stationaryAllReliable ? zeroMotionCount : 0
@@ -1851,18 +1861,41 @@ final class ScrollingCaptureSession {
         return .ok
     }
 
-    /// The gallery belongs in the image once, at its last position. An empty
-    /// queue is required by the caller: otherwise previous is not the last
-    /// frame laid and replacing it would overwrite a different position.
-    private func replaceSidewaysStage(_ next: CaptureFrame, offset: Int) -> Bool {
+    /// The first sideways match may find the way into the section still in
+    /// the queue. Preserve that path once; subsequent stages replace its end.
+    /// Nil leaves a frame that is not the last laid to the ordinary refusal path.
+    private func acceptSidewaysStage(_ next: CaptureFrame, from oldFrame: CaptureFrame,
+                                     stage: ScrollSidewaysSection.Stage, expected: Int?, lines: Int32,
+                                     motionLimit: Int, head: String, line: String) async throws -> Bool? {
+        if !sidewaysSection.isActive {
+            guard let entry = ScrollSidewaysSection.entry(queueIsEmpty: temporary.isEmpty,
+                                                          calibrationConfirmed: linearityConfirmed, expected: expected)
+            else { return nil }
+            if case .lay(let movement) = entry {
+                let steps = temporary.count + 1
+                let inferred = FrameMatch(offset: movement, confidence: 0, independentRegions: 0)
+                guard try await layMatchedStep(next, from: oldFrame, match: inferred, lines: lines,
+                                               placement: .gallery, isPush: false, motionLimit: motionLimit,
+                                               head: head,
+                                               landingNote: "\(line) · gallery: way in laid by the calibration (\(steps) steps) · \(stage.note)")
+                else { return false }
+                // This queue still has no matched vertical step behind it.
+                queueLaidByCalibration = true
+                sidewaysSection.acceptedStage(previous: oldFrame, current: next)
+                return true
+            }
+        }
+        guard temporary.isEmpty, assembler.lastFrame == oldFrame else { return nil }
+        guard acceptsFrame(next, head: line) else { return false }
         do {
-            try assembler.replaceLast(with: next)
+            guard try sidewaysSection.replaceLast(previous: oldFrame, current: next, in: &assembler)
+            else { return nil }
         } catch {
-            recordStep("· gallery: sideways \(offset) px · frame not replaced")
+            recordStep("\(line) · gallery: \(stage.note) · frame not replaced")
             finish()
             return false
         }
-        sidewaysSection.replacedFrame()
+        repeatGuard.rememberCheckedFrame()
         previous = next
         zeroMotionCount = 0
         stationaryLines = 0
@@ -1871,9 +1904,9 @@ final class ScrollingCaptureSession {
         unmatchedScroll = 0
         consecutiveFailures = 0
         noteProgress()
-        recordStep("· gallery: sideways \(offset) px · frame replaced (\(sidewaysSection.stages))")
+        recordStep("\(line) · gallery: \(stage.note) · frame replaced (\(sidewaysSection.stages))")
         if sidewaysSection.isExhausted {
-            recordStep("saved: the sideways section did not end (\(ScrollSidewaysSection.limit) stages)")
+            recordStep("\(line) · saved: the sideways section did not end (\(ScrollSidewaysSection.limit) stages)")
             finish()
             return false
         }
