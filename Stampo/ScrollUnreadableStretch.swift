@@ -179,14 +179,36 @@ nonisolated struct ScrollUnreadableStretch: Sendable {
     /// A check that the matcher placed (`decision` nil) or did not, `decision`
     /// being what the tiles said of it. Moving is decided as after a push
     /// (`ScrollPush.movesPage`); a second look that placed the step is placed.
+    /// The proof that the page stood is the tiles of one pair, the jerk's frame
+    /// and the check's. When the jerk's frame is a page the capture has left
+    /// (`jerkRepeats`), the page may have moved, but the check cannot be laid
+    /// after it — the image ends in another frame — and the way goes on as if
+    /// it stood.
     @discardableResult
-    mutating func afterCheck(placed: Bool, decision: ScrollStepDecision?) -> AfterCheck {
-        let moves = ScrollPush.movesPage(placed: placed, decision: decision ?? .retry)
+    mutating func afterCheck(placed: Bool, decision: ScrollStepDecision?,
+                             jerkRepeats: Bool = false) -> AfterCheck {
+        let moves = ScrollPush.movesPage(placed: placed, decision: decision ?? .retry) && !jerkRepeats
         switch checked(movesPage: moves) {
         case .moves: return placed ? .jerkThenPlaced : .jerkThenConfirmed
         case .stands: return .nextJerk
         case .ceiling: return .ceiling
         }
+    }
+
+    /// What a jerk's frame is to the image, once a check has shown the page going on.
+    enum JerkFrame: Equatable, Sendable {
+        /// Another screen: it is laid edge to edge, and the check goes on after it.
+        case lay
+        /// What the last frame laid shows: nothing to lay, and the check goes on after that frame.
+        case thePageLaid
+        /// A page the capture has left: neither it nor the check can be laid, for the
+        /// check's distance is from a frame that the image does not end in.
+        case repeatsPageLeft
+    }
+
+    static func jerkFrame(anotherScreen: Bool, isRepeat: Bool) -> JerkFrame {
+        guard anotherScreen else { return .thePageLaid }
+        return isRepeat ? .repeatsPageLeft : .lay
     }
 
     /// A frame of a jerk or of the way after it goes into the image, edge to

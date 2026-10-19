@@ -1331,11 +1331,20 @@ final class ScrollingCaptureSession {
                 if isCheck {
                     // The page moves in the check, from the frame of the jerk that was not placed: that frame is
                     // the page too, and the check is placed after it. Its distance says nothing of the lines.
-                    let jerkLaid = layJerkFrame(oldFrame)
-                    guard jerkLaid != nil else { return }
-                    unreadable.afterCheck(placed: true, decision: nil)
-                    recordStep("\(head) · match \(match.offset) px → unreadable stretch: jerk \(jerkNumber) not placed · check: moves"
-                               + (jerkLaid == true ? " → jerk frame laid edge to edge" : ", jerk frame is the page laid"))
+                    let jerk = jerkFrameToLay(oldFrame)
+                    let after = unreadable.afterCheck(placed: true, decision: nil, jerkRepeats: jerk == .repeatsPageLeft)
+                    let line = "\(head) · match \(match.offset) px → unreadable stretch: jerk \(jerkNumber) not placed · check: moves"
+                    if after == .nextJerk || after == .ceiling {
+                        // The jerk's frame is a page already left: the check cannot be laid after it.
+                        guard meetStandingCheck(next: next, line: "\(head) · match \(match.offset) px", jerkNumber: jerkNumber,
+                                                ceiling: after == .ceiling, check: Self.repeatingJerkCheck) else { return }
+                        if frameChanged { noteProgress() }
+                        stepInFlight = false
+                        inFlightLines = nil
+                        continue
+                    }
+                    guard layJerkFrame(oldFrame, as: jerk) else { return }
+                    recordStep(line + (jerk == .lay ? " → jerk frame laid edge to edge" : ", jerk frame is the page laid"))
                 }
                 guard try await layMatchedStep(next, from: oldFrame, match: match, lines: plan.lines,
                                                placement: isCheck ? .stretch : .matched(cleanStep: cleanStep),
@@ -1402,16 +1411,17 @@ final class ScrollingCaptureSession {
                     // The check was not placed. The tiles say whether the page moved all the same, as after a push.
                     let jerkNumber = unreadable.jerks + 1
                     let line = "\(head) · \(error) · \(said)"
-                    let after = unreadable.afterCheck(placed: false, decision: decision)
-                    if after == .jerkThenConfirmed || after == .jerkThenPlaced {
-                        let jerkLaid = layJerkFrame(oldFrame)
-                        guard jerkLaid != nil else { return }
+                    let moves = ScrollPush.movesPage(placed: false, decision: decision)
+                    let jerk = moves ? jerkFrameToLay(oldFrame) : nil
+                    let after = unreadable.afterCheck(placed: false, decision: decision, jerkRepeats: jerk == .repeatsPageLeft)
+                    if let jerk, after == .jerkThenConfirmed {
+                        guard layJerkFrame(oldFrame, as: jerk) else { return }
                         recordStep("\(line) → unreadable stretch: jerk \(jerkNumber) not placed · check: moves"
-                                   + (jerkLaid == true ? " → jerk frame laid edge to edge" : ", jerk frame is the page laid"))
+                                   + (jerk == .lay ? " → jerk frame laid edge to edge" : ", jerk frame is the page laid"))
                         // The tiles bear out its distance: it waits as a step that was confirmed, below.
                     } else {
-                        guard meetStandingCheck(next: next, line: line, jerkNumber: jerkNumber,
-                                                ceiling: after == .ceiling) else { return }
+                        guard meetStandingCheck(next: next, line: line, jerkNumber: jerkNumber, ceiling: after == .ceiling,
+                                                check: jerk == .repeatsPageLeft ? Self.repeatingJerkCheck : "check: stands") else { return }
                         if frameChanged { noteProgress() }
                         stepInFlight = false
                         inFlightLines = nil
@@ -1721,6 +1731,9 @@ final class ScrollingCaptureSession {
         }
     }
 
+    /// What the log says of a check that shows the page going on after a jerk whose frame is a page already left.
+    private static let repeatingJerkCheck = "check: moves, but the jerk frame repeats a page already left → stands"
+
     private enum StretchOutcome {
         /// A series is laid, and the next steps are jerks.
         case laid
@@ -1815,32 +1828,44 @@ final class ScrollingCaptureSession {
             isRepeat: repeatGuard.checkForRepeat(frame, excluding: laid))
     }
 
-    /// The frame of a jerk that was not placed, after a check that shows the page
-    /// going on: it is laid edge to edge unless it shows what the image has
-    /// (true laid, false not laid, nil the capture is over).
-    private func layJerkFrame(_ frame: CaptureFrame) -> Bool? {
-        guard laysEdgeToEdge(frame) else { return false }
-        guard layEdgeToEdge(frame, line: "·") else { return nil }
+    /// What the frame of a jerk that was not placed is to the image, asked when
+    /// a check shows the page going on. Asking remembers the frame for
+    /// `rememberCheckedFrame`.
+    private func jerkFrameToLay(_ frame: CaptureFrame) -> ScrollUnreadableStretch.JerkFrame {
+        guard let laid = assembler.lastFrame else { return .thePageLaid }
+        return ScrollUnreadableStretch.jerkFrame(
+            anotherScreen: ScrollUnreadableStretch.isAnotherScreen(difference: meanDifference(laid, frame)),
+            isRepeat: repeatGuard.checkForRepeat(frame, excluding: laid))
+    }
+
+    /// The frame of a jerk, laid edge to edge when it is another screen. False
+    /// when the capture is over.
+    private func layJerkFrame(_ frame: CaptureFrame, as jerk: ScrollUnreadableStretch.JerkFrame) -> Bool {
+        guard jerk == .lay else { return true }
+        guard layEdgeToEdge(frame, line: "·") else { return false }
         repeatGuard.rememberCheckedFrame()
         noteProgress()
         return true
     }
 
     /// A check that shows the page standing: the jerk before it changed the
-    /// section's stage and is not laid. The next jerk goes from this frame; at
-    /// the fourth, the way goes on as usual from it, laid edge to edge if it is
-    /// another screen — the steps that follow are looked for from it, and the
-    /// page is already far from where they would otherwise begin. False when
-    /// the capture is over.
-    private func meetStandingCheck(next: CaptureFrame, line: String, jerkNumber: Int, ceiling: Bool) -> Bool {
+    /// section's stage and is not laid. The next jerk goes from this frame, not
+    /// from the last frame laid, and the proof that the page stood is the tiles
+    /// of the one pair, the jerk's frame and this. At the fourth, the way goes on
+    /// as usual from this frame, laid edge to edge if it is another screen — the
+    /// steps that follow are looked for from it, and the page is already far
+    /// from where they would otherwise begin. `check` is what the log says of
+    /// the check. False when the capture is over.
+    private func meetStandingCheck(next: CaptureFrame, line: String, jerkNumber: Int, ceiling: Bool,
+                                   check: String = "check: stands") -> Bool {
         previous = next
         unmatchedScroll = 0
         consecutiveFailures = 0
         guard ceiling else {
-            recordStep("\(line) → unreadable stretch: jerk \(jerkNumber) not placed · check: stands")
+            recordStep("\(line) → unreadable stretch: jerk \(jerkNumber) not placed · \(check)")
             return true
         }
-        let last = "jerk \(jerkNumber) of \(ScrollUnreadableStretch.jerkLimit) not placed"
+        let last = "jerk \(jerkNumber) of \(ScrollUnreadableStretch.jerkLimit) not placed · \(check)"
         guard laysEdgeToEdge(next) else {
             recordStep("\(line) → unreadable stretch: \(last), the page stands → saved")
             Log.capture.notice("scroll unreadable stretch · the page stood through the jerks · saved what was collected")

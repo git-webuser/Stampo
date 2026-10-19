@@ -245,6 +245,35 @@ import Testing
         #expect(moving.afterCheck(placed: true, decision: nil) == .jerkThenPlaced)
     }
 
+    @Test func aJerkFrameThatRepeatsAPageAlreadyLeftIsNeitherLaidNorAGroundForLayingTheCheck() {
+        #expect(ScrollUnreadableStretch.jerkFrame(anotherScreen: true, isRepeat: false) == .lay)
+        #expect(ScrollUnreadableStretch.jerkFrame(anotherScreen: true, isRepeat: true) == .repeatsPageLeft)
+        // Nearly the frame laid: nothing to lay, and the check goes on after that frame as it was.
+        #expect(ScrollUnreadableStretch.jerkFrame(anotherScreen: false, isRepeat: false) == .thePageLaid)
+        #expect(ScrollUnreadableStretch.jerkFrame(anotherScreen: false, isRepeat: true) == .thePageLaid)
+    }
+
+    @Test func aCheckThatMovesAfterARepeatingJerkFrameCountsAsThePageStanding() {
+        // Placed by the matcher, or only borne out by the tiles: the check is not laid and not queued.
+        let moving: [(Bool, ScrollStepDecision?)] = [(true, nil), (false, .temporary(confirmed: true))]
+        for (placed, decision) in moving {
+            var stretch = jerking()
+            #expect(stretch.afterCheck(placed: placed, decision: decision, jerkRepeats: true) == .nextJerk)
+            #expect(stretch.phase == .jerk && stretch.jerks == 1)
+        }
+        // It is counted: the fourth is the ceiling, as for a check that shows nothing moving.
+        var stretch = jerking()
+        for _ in 1..<ScrollUnreadableStretch.jerkLimit {
+            #expect(stretch.afterCheck(placed: true, decision: nil, jerkRepeats: true) == .nextJerk)
+            stretch.jerkNotPlaced()
+        }
+        #expect(stretch.afterCheck(placed: true, decision: nil, jerkRepeats: true) == .ceiling)
+        #expect(stretch.phase == .off)
+        // Without the repeat the same check moves the page.
+        var plain = jerking()
+        #expect(plain.afterCheck(placed: true, decision: nil, jerkRepeats: false) == .jerkThenPlaced)
+    }
+
     @Test func aFrameIsLaidOnlyWhenItIsAnotherScreenAndNotARepeat() {
         #expect(ScrollUnreadableStretch.laysFrame(anotherScreen: true, isRepeat: false))
         #expect(!ScrollUnreadableStretch.laysFrame(anotherScreen: false, isRepeat: false))
