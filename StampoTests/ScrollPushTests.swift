@@ -257,4 +257,51 @@ import Testing
         #expect(checked == Step(action: .undo, mode: .none))
         #expect(!ScrollPush.sendsPush(checked.mode))
     }
+
+    // MARK: A check that moves the page by a part of the step
+
+    private func decision(_ offset: Int, of expected: Int?, confidence: Double = 0.99,
+                          pushes: Int = 4) -> ScrollPush.MovingCheck {
+        ScrollPush.afterMovingCheck(offset: offset, expected: expected, confidence: confidence, mode: .check(pushes: pushes))
+    }
+
+    @Test func aFirmCheckThatMovesAPartOfTheStepKeepsThePush() {
+        // 2026-10-20-000209: 233 of 800, firm, after three stages of the section.
+        #expect(decision(233, of: 800) == .keepReplacingStage)
+        // The same on the first push after the page stood: no stage is laid yet.
+        #expect(decision(233, of: 800, pushes: 1) == .keepEdgeToEdge)
+        #expect(decision(233, of: 800, pushes: 2) == .keepReplacingStage)
+    }
+
+    @Test func aCheckThatMovesTheWholeStepOrIsNotFirmUndoesThePush() {
+        // claude.com: the page was free and the check went the whole step.
+        #expect(decision(720, of: 720, confidence: 0.98) == .undo)
+        #expect(decision(800, of: 800, confidence: 1.0) == .undo)
+        // Safari 2026-10-19-182251: 724 of 800, and not firm either.
+        #expect(decision(724, of: 800, confidence: 0.73) == .undo)
+        #expect(decision(724, of: 800, confidence: 0.99) == .undo)
+        // 2026-10-19-133530: 35 of 400 at 0.75 — a small share, but not firm.
+        #expect(decision(35, of: 400, confidence: 0.75) == .undo)
+    }
+
+    @Test func theShareAndTheFirmnessAreWhereTheyAreFixed() {
+        #expect(ScrollPush.sectionEndsInCheckBelow == 0.75)
+        #expect(ScrollQueueRelay.firmConfidence == 0.9)
+        // Three quarters of the step is not less than three quarters.
+        #expect(decision(599, of: 800) == .keepReplacingStage)
+        #expect(decision(600, of: 800) == .undo)
+        // Firm from 0.9.
+        #expect(decision(233, of: 800, confidence: 0.9) == .keepReplacingStage)
+        #expect(decision(233, of: 800, confidence: 0.899) == .undo)
+    }
+
+    @Test func withoutADistanceToJudgeByOrOutsideACheckThePushIsUndone() {
+        #expect(decision(233, of: nil) == .undo)
+        #expect(decision(233, of: 0) == .undo)
+        #expect(decision(0, of: 800) == .undo)
+        #expect(decision(-5, of: 800) == .undo)
+        for mode: ScrollPush.Mode in [.none, .push, .section(pushes: 3), .settle] {
+            #expect(ScrollPush.afterMovingCheck(offset: 233, expected: 800, confidence: 0.99, mode: mode) == .undo)
+        }
+    }
 }

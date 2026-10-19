@@ -523,6 +523,44 @@ nonisolated enum ScrollPush {
                          : Step(action: .replace, mode: .section(pushes: pushes))
     }
 
+    /// What a check the matcher placed does to the push before it.
+    enum MovingCheck: Equatable {
+        /// The push went past content that no frame has: the page goes back to where the push began.
+        case undo
+        /// The section held the page while the push was sent and let it go inside the check, so the push
+        /// moved nothing and its frame is the last stage of the section, which it replaces; the check is
+        /// placed after it, at its own distance.
+        case keepReplacingStage
+        /// The same, before any stage was laid (the first push after the page stood): the push's frame is laid
+        /// edge to edge, if it shows another screen, and the check is placed after it.
+        case keepEdgeToEdge
+    }
+
+    /// A check that moves the page by less than this share of the step it was sent for, placed firmly, is the
+    /// page being let go inside the check. A push is two steps of lines: when the page is free it goes the whole
+    /// of them and more, and the check goes a whole step (720 of 720, 800 of 800 in claude.com's recordings
+    /// 2026-10-11-235339, 2026-10-12-003204 … 003346, 2026-10-13-185618, 185900; 724 of 800 = 0.91 in Safari's
+    /// 2026-10-19-182251 and 2026-10-20-001536) and the push is undone, for it passed content. When the
+    /// section held the page for the push and let go in the check, the check goes a part (233 of 800 = 0.29
+    /// in Brave's 2026-10-19-181537, 2026-10-20-000209, 002138) and the push passed nothing: undone, the page
+    /// goes back into the section. The recordings leave the range from 0.29 to 0.91 empty; this is its middle.
+    static let sectionEndsInCheckBelow = 0.75
+
+    /// What the step after a push that changed the frame, which the matcher placed at `offset` with
+    /// `confidence`, does to the push. `expected` is the distance the check was sent for, nil when the
+    /// calibration does not say. The page is undone, as ever, unless the check is firm
+    /// (`ScrollQueueRelay.isFirm`) and under `sectionEndsInCheckBelow` of it. A check that only the tiles
+    /// bore out, as 2026-10-13-221958 and 2026-10-14-214829, is not placed, and is undone in `afterCheck`.
+    static func afterMovingCheck(offset: Int, expected: Int?, confidence: Double, mode: Mode) -> MovingCheck {
+        guard let expected, expected > 0, offset > 0, ScrollQueueRelay.isFirm(confidence: confidence),
+              Double(offset) < sectionEndsInCheckBelow * Double(expected)
+        else { return .undo }
+        switch mode {
+        case .check(let pushes): return pushes >= 2 ? .keepReplacingStage : .keepEdgeToEdge
+        case .none, .push, .section, .settle: return .undo
+        }
+    }
+
     /// Whether the step after a push shows the page going on: the matcher placed
     /// it, or the tiles of its frames bear out the distance it was sent for.
     /// Anything else — tiles standing, nothing agreeing, nothing against, no

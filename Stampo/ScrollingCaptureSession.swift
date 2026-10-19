@@ -1347,12 +1347,45 @@ final class ScrollingCaptureSession {
                 }
                 try ensureActive()
                 if let check = pushCheck {
-                    // The step after a push that changed the frame is placed:
-                    // the page goes on as usual, and the push took it past
-                    // content that no frame has. Nothing is laid or replaced;
-                    // the page goes back to where the push began.
-                    recordStep("\(head) · match \(match.offset) px · confidence \(Self.percent(match.confidence)) · regions \(match.independentRegions)\(secondLookNote) → check: page moves, push undone, back \(check.lines + sentLines) lines")
-                    guard try await undoPush(check, checkLines: sentLines, at: point) else { return }
+                    // The step after a push that changed the frame is placed: the page goes on as usual. Either
+                    // the push took it past content that no frame has — nothing is laid or replaced, and the
+                    // page goes back to where the push began — or the section let it go inside the check, and the
+                    // push passed nothing (`ScrollPush.afterMovingCheck`).
+                    var keep = ScrollPush.afterMovingCheck(offset: match.offset, expected: expected,
+                                                           confidence: match.confidence, mode: pushMode)
+                    var pushFrame = ScrollUnreadableStretch.JerkFrame.lay
+                    if keep == .keepEdgeToEdge {
+                        pushFrame = jerkFrameToLay(check.frame)
+                        // A page already left cannot be laid: the page goes back, as ever.
+                        if pushFrame == .repeatsPageLeft { keep = .undo }
+                    }
+                    guard keep != .undo else {
+                        recordStep("\(head) · match \(match.offset) px · confidence \(Self.percent(match.confidence)) · regions \(match.independentRegions)\(secondLookNote) → check: page moves, push undone, back \(check.lines + sentLines) lines")
+                        guard try await undoPush(check, checkLines: sentLines, at: point) else { return }
+                        stepInFlight = false
+                        inFlightLines = nil
+                        continue
+                    }
+                    if keep == .keepReplacingStage {
+                        do {
+                            try assembler.replaceLast(with: check.frame)
+                        } catch {
+                            recordStep("\(head) · match \(match.offset) px → check: section ends in the check, frame not replaced")
+                            finish()
+                            return
+                        }
+                    } else {
+                        guard layJerkFrame(check.frame, as: pushFrame) else { return }
+                    }
+                    pushCheck = nil
+                    pushMode = .none
+                    pushAfterReliableSteps = 0
+                    pushesAllowed = true
+                    stationary = nil
+                    guard try await layMatchedStep(
+                        next, from: check.frame, match: match, lines: plan.lines, placement: .stretch, isPush: false,
+                        motionLimit: motionLimit, head: head, secondLookNote: secondLookNote,
+                        landingNote: "\(head) · match \(match.offset) px · confidence \(Self.percent(match.confidence)) → check: page moves \(match.offset) of \(expected ?? 0) px · section ends in the check, push kept\(keep == .keepEdgeToEdge ? ", push frame laid edge to edge" : "")") else { return }
                     stepInFlight = false
                     inFlightLines = nil
                     continue
