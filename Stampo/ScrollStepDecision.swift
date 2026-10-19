@@ -678,6 +678,9 @@ nonisolated enum ScrollStepPlacement {
     case recovered
     case parallax
     case gallery
+    /// The check after a jerk that was not placed: the section may have let
+    /// the page go part of the way, so its distance says nothing of the lines.
+    case stretch
 
     var cleanStep: Bool {
         if case .matched(let cleanStep) = self { return cleanStep }

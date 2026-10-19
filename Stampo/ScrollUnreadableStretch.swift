@@ -5,6 +5,10 @@
 /// the page seeming to stand. The capture takes what it has instead — up to
 /// three of the frames waiting, laid edge to edge — and scrolls on in jerks,
 /// which pass a pinned section (`ScrollPush`), until a step can be placed.
+/// A jerk is longer than the matcher looks (three quarters of a frame), so one
+/// that is not placed is followed by an ordinary step, the check: if the page
+/// moves in it, the jerk's frame is laid edge to edge and the way goes on from
+/// the check's; if not, the jerk only changed the section's stage.
 /// Content between the frames, and the section itself, may be lost or shown
 /// twice: a screenshot that goes on is more than one that stops.
 nonisolated struct ScrollUnreadableStretch: Sendable {
@@ -13,8 +17,8 @@ nonisolated struct ScrollUnreadableStretch: Sendable {
     /// Stretches one capture meets, at most: past that the page is one this
     /// cannot get through.
     static let stretchLimit = 6
-    /// Jerks in a row after a stretch, at most, before ordinary steps go on from
-    /// the last frame laid.
+    /// Jerks in a row after a stretch whose check shows the page standing, at
+    /// most, before ordinary steps go on from the last check's frame.
     static let jerkLimit = 4
     /// The mean difference from the last frame laid from which a frame is
     /// another screen. A page that ends in its last frames, with a cursor or an
@@ -28,9 +32,23 @@ nonisolated struct ScrollUnreadableStretch: Sendable {
         difference >= differentFrom
     }
 
+    /// What the next step is.
+    enum Phase: Equatable, Sendable {
+        /// Ordinary steps.
+        case off
+        /// A jerk, from the last frame laid or the last check's.
+        case jerk
+        /// An ordinary step from the frame of a jerk that was not placed.
+        case check
+    }
+
     private(set) var stretches = 0
+    /// Jerks of this stretch whose check showed the page standing.
     private(set) var jerks = 0
-    private(set) var isJerking = false
+    private(set) var phase = Phase.off
+
+    var isJerking: Bool { phase == .jerk }
+    var isChecking: Bool { phase == .check }
 
     enum Trigger: Equatable, Sendable {
         /// The queue is full and the step cannot be placed either.
@@ -67,7 +85,7 @@ nonisolated struct ScrollUnreadableStretch: Sendable {
     }
 
     func decide(_ situation: Situation) -> Decision {
-        guard situation.isVertical, !situation.galleryActive, !situation.pushing, !isJerking,
+        guard situation.isVertical, !situation.galleryActive, !situation.pushing, phase == .off,
               situation.framesChange, !situation.isRepeat
         else { return .save }
         switch situation.trigger {
@@ -102,21 +120,85 @@ nonisolated struct ScrollUnreadableStretch: Sendable {
     mutating func begin() {
         stretches += 1
         jerks = 0
-        isJerking = true
+        phase = .jerk
     }
 
-    /// A jerk that the matcher could not place. Whether the jerks go on.
+    /// A jerk that the matcher could not place: the next step checks whether
+    /// the page moved in it.
+    mutating func jerkNotPlaced() {
+        guard phase == .jerk else { return }
+        phase = .check
+    }
+
+    enum Check: Equatable, Sendable {
+        /// The page went on: the jerk's frame is part of the page, and the way
+        /// goes on as usual.
+        case moves
+        /// The page stood: the jerk changed the section's stage. The next jerk
+        /// goes from the check's frame.
+        case stands
+        /// The page stood for `jerkLimit` jerks: the way goes on as usual from
+        /// the check's frame, which is laid if it is another screen.
+        case ceiling
+    }
+
+    /// What the check made of the jerk before it. `movesPage` as in a push's
+    /// check (`ScrollPush.movesPage`): the matcher placed the step, or the
+    /// tiles bore out its distance.
     @discardableResult
-    mutating func jerkNotPlaced() -> Bool {
-        guard isJerking else { return false }
+    mutating func checked(movesPage: Bool) -> Check {
+        guard phase == .check else { return .stands }
+        if movesPage {
+            phase = .off
+            jerks = 0
+            return .moves
+        }
         jerks += 1
-        if jerks >= Self.jerkLimit { isJerking = false }
-        return isJerking
+        if jerks >= Self.jerkLimit {
+            phase = .off
+            return .ceiling
+        }
+        phase = .jerk
+        return .stands
+    }
+
+    /// What follows a check, as `checked`, told by what the step came to.
+    enum AfterCheck: Equatable, Sendable {
+        /// The matcher placed it: the jerk's frame is laid, then the check at its distance.
+        case jerkThenPlaced
+        /// Only the tiles bore out its distance: the jerk's frame is laid, and
+        /// the check waits as a step that was confirmed.
+        case jerkThenConfirmed
+        /// The page stood: the next jerk goes from the check's frame.
+        case nextJerk
+        /// The page stood through the last jerk: the check's frame is where the
+        /// way goes on from.
+        case ceiling
+    }
+
+    /// A check that the matcher placed (`decision` nil) or did not, `decision`
+    /// being what the tiles said of it. Moving is decided as after a push
+    /// (`ScrollPush.movesPage`); a second look that placed the step is placed.
+    @discardableResult
+    mutating func afterCheck(placed: Bool, decision: ScrollStepDecision?) -> AfterCheck {
+        let moves = ScrollPush.movesPage(placed: placed, decision: decision ?? .retry)
+        switch checked(movesPage: moves) {
+        case .moves: return placed ? .jerkThenPlaced : .jerkThenConfirmed
+        case .stands: return .nextJerk
+        case .ceiling: return .ceiling
+        }
+    }
+
+    /// A frame of a jerk or of the way after it goes into the image, edge to
+    /// edge, only if it shows another screen than the last frame laid and no
+    /// page the capture has left: otherwise the page has not gone anywhere.
+    static func laysFrame(anotherScreen: Bool, isRepeat: Bool) -> Bool {
+        anotherScreen && !isRepeat
     }
 
     /// A step was placed: the page reads again, and the way goes on as usual.
     mutating func placed() {
-        isJerking = false
+        phase = .off
         jerks = 0
     }
 }

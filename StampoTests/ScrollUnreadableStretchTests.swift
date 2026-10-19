@@ -59,9 +59,11 @@ import Testing
         }
     }
 
-    @Test func jerksAreNotAStretchAndAreNotDecidedAtAll() {
+    @Test func jerksAndTheirChecksAreNotAStretchAndAreNotDecidedAtAll() {
         var stretch = ScrollUnreadableStretch()
         stretch.begin()
+        #expect(stretch.decide(situation()) == .save)
+        stretch.jerkNotPlaced()
         #expect(stretch.decide(situation()) == .save)
         stretch.placed()
         #expect(stretch.decide(situation()) == .series)
@@ -132,45 +134,127 @@ import Testing
         #expect(ScrollRepeatGuard.isSamePage(frame(0, flat: true), frame(1, flat: true)))
     }
 
-    // MARK: Jerks
+    // MARK: Jerks and their checks
 
-    @Test func fourJerksInARowThatAreNotPlacedEndTheJerks() {
+    @Test func aJerkThatIsNotPlacedIsFollowedByACheckAndNothingElseHasOne() {
         var stretch = ScrollUnreadableStretch()
-        #expect(!stretch.isJerking)
-        // Nothing to count before a stretch.
-        let idle = stretch.jerkNotPlaced()
-        #expect(!idle)
-        #expect(stretch.jerks == 0)
+        #expect(stretch.phase == .off)
+        stretch.jerkNotPlaced()
+        #expect(stretch.phase == .off)
         stretch.begin()
-        #expect(stretch.isJerking && stretch.jerks == 0 && stretch.stretches == 1)
+        #expect(stretch.phase == .jerk && stretch.isJerking && !stretch.isChecking)
+        #expect(stretch.jerks == 0 && stretch.stretches == 1)
+        stretch.jerkNotPlaced()
+        #expect(stretch.phase == .check && stretch.isChecking && !stretch.isJerking)
+        // A check is not a jerk, and a second not-placed jerk does not move it on.
+        stretch.jerkNotPlaced()
+        #expect(stretch.phase == .check)
+    }
+
+    @Test func aCheckThatMovesThePageEndsTheJerks() {
+        var stretch = ScrollUnreadableStretch()
+        stretch.begin()
+        stretch.jerkNotPlaced()
+        #expect(stretch.checked(movesPage: false) == .stands)
+        #expect(stretch.jerks == 1 && stretch.phase == .jerk)
+        stretch.jerkNotPlaced()
+        #expect(stretch.checked(movesPage: true) == .moves)
+        #expect(stretch.phase == .off && stretch.jerks == 0)
+        // Nothing waits for a check outside one.
+        #expect(stretch.checked(movesPage: true) == .stands)
+        #expect(stretch.phase == .off && stretch.jerks == 0)
+    }
+
+    @Test func fourChecksThatShowThePageStandingEndTheJerksAtTheLastOne() {
+        var stretch = ScrollUnreadableStretch()
         #expect(ScrollUnreadableStretch.jerkLimit == 4)
-        for sent in 1..<ScrollUnreadableStretch.jerkLimit {
-            let more = stretch.jerkNotPlaced()
-            #expect(more && stretch.jerks == sent && stretch.isJerking)
+        stretch.begin()
+        for standing in 1..<ScrollUnreadableStretch.jerkLimit {
+            stretch.jerkNotPlaced()
+            #expect(stretch.checked(movesPage: false) == .stands)
+            #expect(stretch.jerks == standing && stretch.isJerking)
         }
-        let more = stretch.jerkNotPlaced()
-        #expect(!more)
-        #expect(!stretch.isJerking && stretch.jerks == ScrollUnreadableStretch.jerkLimit)
+        stretch.jerkNotPlaced()
+        #expect(stretch.checked(movesPage: false) == .ceiling)
+        #expect(stretch.phase == .off && stretch.jerks == ScrollUnreadableStretch.jerkLimit)
         // Ordinary steps go on; the stretches met stay counted.
         #expect(stretch.stretches == 1)
     }
 
-    @Test func aPlacedStepEndsTheJerksAndAnotherStretchStartsThemAgain() {
+    @Test func aPlacedStepOrANewStretchStartsTheCountAgain() {
         var stretch = ScrollUnreadableStretch()
         stretch.begin()
         stretch.jerkNotPlaced()
+        stretch.checked(movesPage: false)
         stretch.jerkNotPlaced()
+        stretch.checked(movesPage: false)
         stretch.placed()
-        #expect(!stretch.isJerking && stretch.jerks == 0)
+        #expect(stretch.phase == .off && stretch.jerks == 0)
         stretch.begin()
         #expect(stretch.isJerking && stretch.jerks == 0 && stretch.stretches == 2)
         // The four are counted from the stretch, not from the capture.
         for _ in 1..<ScrollUnreadableStretch.jerkLimit {
-            let more = stretch.jerkNotPlaced()
-            #expect(more)
+            stretch.jerkNotPlaced()
+            #expect(stretch.checked(movesPage: false) == .stands)
         }
-        let last = stretch.jerkNotPlaced()
-        #expect(!last)
+        stretch.jerkNotPlaced()
+        #expect(stretch.checked(movesPage: false) == .ceiling)
+    }
+
+    private func jerking() -> ScrollUnreadableStretch {
+        var stretch = ScrollUnreadableStretch()
+        stretch.begin()
+        stretch.jerkNotPlaced()
+        return stretch
+    }
+
+    @Test func aCheckThatThePlacementOrTheTilesBearOutMovesThePage() {
+        // Placed by the matcher — a second look that matched counts as placed, as it does everywhere.
+        var placed = jerking()
+        #expect(placed.afterCheck(placed: true, decision: nil) == .jerkThenPlaced)
+        #expect(placed.phase == .off && placed.jerks == 0)
+        // Not placed, but the tiles bear out the distance of the step.
+        var confirmed = jerking()
+        #expect(confirmed.afterCheck(placed: false, decision: .temporary(confirmed: true)) == .jerkThenConfirmed)
+        #expect(confirmed.phase == .off && confirmed.jerks == 0)
+    }
+
+    @Test func everyOtherCheckShowsThePageStandingAndTheNextJerkGoesOn() {
+        let decisions: [ScrollStepDecision?] = [.temporary(confirmed: false), .stationary, .retry, .finish, nil]
+        for decision in decisions {
+            var stretch = jerking()
+            #expect(stretch.afterCheck(placed: false, decision: decision) == .nextJerk)
+            #expect(stretch.phase == .jerk && stretch.jerks == 1)
+        }
+    }
+
+    @Test func theFourthCheckThatShowsThePageStandingIsTheCeiling() {
+        var stretch = jerking()
+        for _ in 1..<ScrollUnreadableStretch.jerkLimit {
+            #expect(stretch.afterCheck(placed: false, decision: .stationary) == .nextJerk)
+            stretch.jerkNotPlaced()
+        }
+        #expect(stretch.afterCheck(placed: false, decision: .stationary) == .ceiling)
+        #expect(stretch.phase == .off)
+        // The page moving in the fourth is not the ceiling.
+        var moving = jerking()
+        for _ in 1..<ScrollUnreadableStretch.jerkLimit {
+            moving.afterCheck(placed: false, decision: .stationary)
+            moving.jerkNotPlaced()
+        }
+        #expect(moving.afterCheck(placed: true, decision: nil) == .jerkThenPlaced)
+    }
+
+    @Test func aFrameIsLaidOnlyWhenItIsAnotherScreenAndNotARepeat() {
+        #expect(ScrollUnreadableStretch.laysFrame(anotherScreen: true, isRepeat: false))
+        #expect(!ScrollUnreadableStretch.laysFrame(anotherScreen: false, isRepeat: false))
+        #expect(!ScrollUnreadableStretch.laysFrame(anotherScreen: true, isRepeat: true))
+        #expect(!ScrollUnreadableStretch.laysFrame(anotherScreen: false, isRepeat: true))
+    }
+
+    @Test func theCheckAfterAJerkIsNoEvidenceForTheCalibration() {
+        #expect(!ScrollStepPlacement.stretch.cleanStep)
+        #expect(!ScrollStepPlacement.stretch.updatesCalibration)
     }
 
     // MARK: Laid edge to edge

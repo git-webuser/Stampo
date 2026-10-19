@@ -121,7 +121,7 @@ import Testing
     }
 
     @Test func inferredUncleanAndPushStepsCannotHoldGalleryCalibration() {
-        for placement: ScrollStepPlacement in [.matched(cleanStep: false), .recovered, .parallax, .gallery] {
+        for placement: ScrollStepPlacement in [.matched(cleanStep: false), .recovered, .parallax, .gallery, .stretch] {
             var calibration = ScrollGalleryCalibration()
             calibration.matchedStep(offset: 798, lines: 10, pixelsPerLine: 78, placement: placement, isPush: false)
             #expect(!calibration.held)
