@@ -68,6 +68,15 @@ nonisolated struct ScrollRepeatGuard {
         Fingerprint(a).matches(Fingerprint(b))
     }
 
+    /// What `isSamePage` looks at, worked out once for a frame that is compared with several.
+    struct Signature: Sendable {
+        private let fingerprint: Fingerprint
+
+        init(_ frame: CaptureFrame) { fingerprint = Fingerprint(frame) }
+
+        func matches(_ other: Signature) -> Bool { fingerprint.matches(other.fingerprint) }
+    }
+
     private var fingerprints: [Fingerprint] = []
     private var checked: Fingerprint?
 

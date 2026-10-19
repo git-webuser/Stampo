@@ -235,6 +235,8 @@ nonisolated struct TemporarySteps {
         /// The pinned blocks of the pair of this frame and the one before it
         /// (`ScrollPinned`), worked out when it was kept; nil when they could not be.
         let pinned: PinnedGrid?
+        /// The number of the step in the log, 0 when it has none (a step taken while the capture was paused).
+        let step: Int
     }
 
     private(set) var steps: [Step] = []
@@ -243,9 +245,9 @@ nonisolated struct TemporarySteps {
     var isEmpty: Bool { steps.isEmpty }
 
     mutating func add(_ frame: CaptureFrame, movement: Int, confirmed: Bool, lines: Int32? = nil,
-                      stationaryLines: Int32 = 0, pinned: PinnedGrid? = nil) {
+                      stationaryLines: Int32 = 0, pinned: PinnedGrid? = nil, step: Int = 0) {
         steps.append(Step(frame: frame, movement: movement, confirmed: confirmed, lines: lines,
-                          stationaryLines: stationaryLines, pinned: pinned))
+                          stationaryLines: stationaryLines, pinned: pinned, step: step))
     }
 
     /// The waiting steps, in order, and none left waiting: they are about to

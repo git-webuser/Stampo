@@ -1552,7 +1552,7 @@ final class ScrollingCaptureSession {
                         // Steps wait that nothing placed, and the page seems to stand: a section that plays its own
                         // motion. That is no end of the content, and the third step would drop them.
                         if !temporary.isEmpty {
-                            let stretch = meetUnreadableStretch(
+                            let stretch = try await meetUnreadableStretch(
                                 next: next, trigger: .standing(count: zeroMotionCount, queued: temporary.count),
                                 line: head)
                             if stretch == .ended { return }
@@ -1578,7 +1578,7 @@ final class ScrollingCaptureSession {
                     try ensureActive()
                     guard acceptsFrame(next, head: head) else { return }
                     temporary.add(next, movement: expected ?? 0, confirmed: confirmed, lines: sentLines,
-                                  stationaryLines: stationaryLines, pinned: blocks)
+                                  stationaryLines: stationaryLines, pinned: blocks, step: stepNumber)
                     repeatGuard.rememberCheckedFrame()
                     noteProgress()
                     recordStep("\(head) · \(error) · \(said) · \(standing) → temporary (\(confirmed ? "confirmed" : "unconfirmed")), queue \(temporary.count)")
@@ -1617,7 +1617,7 @@ final class ScrollingCaptureSession {
                     guard byCalibration, let expected else {
                         // The calibration cannot lay them, and nothing reads them: a stretch that goes on in jerks
                         // is more than the capture that ends here.
-                        let stretch = meetUnreadableStretch(
+                        let stretch = try await meetUnreadableStretch(
                             next: next, trigger: .queueFull(queued: temporary.count), line: "\(head) · \(error) · \(said)")
                         if stretch == .ended { return }
                         if stretch == .laid { break }
@@ -1675,7 +1675,7 @@ final class ScrollingCaptureSession {
                         // plays its own motion, or a page that goes on in frames the matcher cannot read. What
                         // waits is another screen of the page, and the way on from it may read again.
                         if !temporary.isEmpty {
-                            let stretch = meetUnreadableStretch(
+                            let stretch = try await meetUnreadableStretch(
                                 next: next, trigger: .failed(queued: temporary.count),
                                 line: "\(head) · \(error) · \(said)")
                             if stretch == .ended { return }
@@ -1760,7 +1760,7 @@ final class ScrollingCaptureSession {
     /// follow are jerks, as through a pinned section (`ScrollPush`), until the
     /// matcher places one. `line` is what the step has said so far.
     private func meetUnreadableStretch(next: CaptureFrame, trigger: ScrollUnreadableStretch.Trigger,
-                                       line: String) -> StretchOutcome {
+                                       line: String) async throws -> StretchOutcome {
         guard let laid = assembler.lastFrame else {
             recordStep("\(line) → unreadable stretch declined: no frame laid")
             return .declined
@@ -1786,10 +1786,18 @@ final class ScrollingCaptureSession {
         case .series:
             break
         }
-        let frames = temporary.steps.map(\.frame) + [next]
-        let chosen = ScrollUnreadableStretch.series(count: frames.count) { a, b in
-            ScrollRepeatGuard.isSamePage(a < 0 ? laid : frames[a], frames[b])
+        let waiting = temporary.steps
+        let frames = waiting.map(\.frame) + [next]
+        let numbers = waiting.map(\.step) + [stepNumber]
+        // What the frames show, off the main thread: which are whole screens (`ScrollSeries`).
+        let analysis = try await ScrollCaptureCancellationBoundary.awaitActive {
+            await Task.detached(priority: .userInitiated) {
+                (frames.map(ScrollSeries.measure), ([laid] + frames).map(ScrollRepeatGuard.Signature.init))
+            }.value
         }
+        try ensureActive()
+        let selection = ScrollSeries.choose(analysis.0) { a, b in analysis.1[a + 1].matches(analysis.1[b + 1]) }
+        let chosen = selection.indices
         guard let last = chosen.last else {
             recordStep("\(line) → unreadable stretch declined: the frames show the page already laid")
             return .declined
@@ -1814,9 +1822,25 @@ final class ScrollingCaptureSession {
         consecutiveFailures = 0
         requestedStep = max(24, Int(Double(axisLength(of: frames[last])) * 0.60))
         unreadable.begin()
-        recordStep("\(line) → unreadable stretch: \(steps) steps, \(chosen.count) frames laid edge to edge")
+        recordStep("\(line) → unreadable stretch: \(steps) steps, \(chosen.count) frames laid edge to edge · "
+                   + Self.seriesNote(selection, numbers: numbers))
         Log.capture.notice("scroll unreadable stretch · \(steps, privacy: .public) steps, \(chosen.count, privacy: .public) frames laid edge to edge")
         return .laid
+    }
+
+    /// Which frames the series took and why, for the line of the stretch: `series: frames 27, 29, 31 of 26–34
+    /// (flat: 32, 33, 34 dropped)`. Frames are named by the number of their step, or by their place in the
+    /// queue (`#3`) when they have none.
+    private static func seriesNote(_ selection: ScrollSeries.Selection, numbers: [Int]) -> String {
+        func name(_ index: Int) -> String { numbers[index] > 0 ? "\(numbers[index])" : "#\(index)" }
+        func list(_ indices: [Int]) -> String { indices.map(name).joined(separator: ", ") }
+        var note = "series: frames \(list(selection.indices)) of \(name(0))–\(name(numbers.count - 1))"
+        var why: [String] = []
+        if !selection.fills.isEmpty { why.append("flat: \(list(selection.fills)) dropped") }
+        if !selection.cut.isEmpty { why.append("cut: \(list(selection.cut)) halved") }
+        if selection.byNumber { why.append("frames alike, by number") }
+        if !why.isEmpty { note += " (" + why.joined(separator: "; ") + ")" }
+        return note
     }
 
     /// A frame laid right after the last one, with no overlap. False when the
