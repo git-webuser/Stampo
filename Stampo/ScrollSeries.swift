@@ -60,15 +60,14 @@ nonisolated enum ScrollSeries {
         // checked subscripts of an array and the generic conversions between integer types cost seconds in these
         // loops for a stretch.
         var luminance = [Int32](repeating: 0, count: w * h)
-        frame.pixels.withUnsafeBufferPointer { pixels in
+        frame.pixels.withUnsafeBytes { raw in
             luminance.withUnsafeMutableBufferPointer { out in
-                guard let source = pixels.baseAddress, let target = out.baseAddress else { return }
-                let wide = UnsafeRawPointer(source).assumingMemoryBound(to: UInt32.self)
+                guard let target = out.baseAddress else { return }
                 var k = 0
                 let count = w &* h
                 while k < count {
-                    // A pixel is four bytes, red first.
-                    let pixel = wide[k]
+                    // A pixel is four bytes, red first, at a multiple of four: one aligned load.
+                    let pixel = raw.load(fromByteOffset: k &* 4, as: UInt32.self)
                     let red = pixel & 0xFF, green = (pixel &>> 8) & 0xFF, blue = (pixel &>> 16) & 0xFF
                     target[k] = Int32(bitPattern: (red &* 299 &+ green &* 587 &+ blue &* 114) / 1000)
                     k &+= 1
@@ -177,7 +176,7 @@ nonisolated enum ScrollSeries {
         let byNumber: Bool
         /// What was measured of each frame, for the log and for the tests.
         let frames: [Frame]
-        /// The frames that are no fills and score at least `closeToBest` of the best.
+        /// The whole frames, no fills and not cut, whose structure is at least `closeToBest` of the best whole one's.
         let close: [Int]
 
         struct Frame: Equatable, Sendable {
