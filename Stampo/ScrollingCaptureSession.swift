@@ -100,12 +100,20 @@ final class ScrollingCaptureSession {
     /// step: the assembler's own accumulator sees a pair only when it is laid.
     private var planningPinned = ScrollPinned.Accumulator()
     private var previous: CaptureFrame? {
-        didSet { previousIsNotLaid = false }
+        didSet {
+            previousIsNotLaid = false
+            baseWasLeftOutBySeries = false
+        }
     }
     /// After a stretch, `previous` is where the page is, and may be a frame that is not in the image: whatever is
     /// laid from it, or measured from it, goes after it (`layUnlaidBase`). Set after each assignment that leaves
     /// the page at a frame not laid; any other assignment clears it.
     private var previousIsNotLaid = false
+    /// The series chose against the frame the page is at (a fill, or a cut one): it stays out of the image, and
+    /// what is matched from it is laid whole, edge to edge, after the last frame laid (`layAfterLeftOutBase`).
+    private var baseWasLeftOutBySeries = false
+    /// A step has been laid since the last stretch began: the page has read on (`Situation.placedSince`).
+    private var laidSinceStretch = false
     private var zeroMotionCount = 0
     /// The lines of the steps decided as stationary since the last frame was
     /// kept. The page may have moved in them all the same, when the calibration
@@ -486,6 +494,9 @@ final class ScrollingCaptureSession {
                 let blocks = await pinnedBlocks(from: last, to: now, shift: nil)
                 try ensureActive()
                 guard acceptsFrame(now, head: "place after pause") else { return true }
+                // A pause in the jerks of a stretch: the frame is measured from the page's own frame, which goes
+                // in first when it is not in the image yet.
+                guard layUnlaidBase() else { return true }
                 temporary.add(now, movement: movement, confirmed: false, pinned: blocks)
                 repeatGuard.rememberCheckedFrame()
                 noteProgress()
@@ -569,7 +580,14 @@ final class ScrollingCaptureSession {
                      pinned: PinnedGrid? = nil, replacing previous: CaptureFrame? = nil,
                      head: String = "") throws -> Laid? {
         if let previous, (temporary.steps.last?.frame ?? assembler.lastFrame) != previous { return nil }
-        if previous == nil, !layUnlaidBase() { return nil }
+        if previous == nil {
+            // The series left the frame the page is at out of the image. Laid after it, at a distance from a frame
+            // that is not there, the step would put a seam on foreign rows.
+            if previousIsNotLaid, baseWasLeftOutBySeries, temporary.isEmpty {
+                return layAfterLeftOutBase(frame, head: head)
+            }
+            if !layUnlaidBase() { return nil }
+        }
         guard acceptsFrame(frame, head: head) else { return nil }
         let waiting = temporary.take()
         var seams: [ScrollSeam.Choice] = []
@@ -597,6 +615,7 @@ final class ScrollingCaptureSession {
         repeatGuard.rememberCheckedFrame()
         if let repair = assembler.lastRepair { repairs.append(repair) }
         noteProgress()
+        laidSinceStretch = true
         return Laid(waiting: waiting.count, queueSeams: seams, repairs: repairs)
     }
 
@@ -1781,7 +1800,8 @@ final class ScrollingCaptureSession {
             trigger: trigger, isVertical: axis == .vertical, galleryActive: sidewaysSection.isActive,
             pushing: pushMode != .none || pushCheck != nil,
             framesChange: ScrollUnreadableStretch.isAnotherScreen(difference: difference),
-            isRepeat: repeatGuard.checkForRepeat(next, excluding: previous))
+            isRepeat: repeatGuard.checkForRepeat(next, excluding: previous),
+            placedSince: laidSinceStretch || unreadable.stretches == 0)
         switch unreadable.decide(situation) {
         case .save:
             // The trigger fired and nothing is laid: the log says why, so that a capture that ends here can be read.
@@ -1830,6 +1850,8 @@ final class ScrollingCaptureSession {
         // current frame lays nothing.
         previous = next
         previousIsNotLaid = !ScrollUnreadableStretch.laysCurrentFrame(chosen: selection?.indices ?? [], count: frames.count)
+        baseWasLeftOutBySeries = previousIsNotLaid && selection != nil
+        laidSinceStretch = false
         zeroMotionCount = 0
         stationaryLines = 0
         stationary = nil
@@ -1884,6 +1906,20 @@ final class ScrollingCaptureSession {
             recordStep("· previous not laid: a page already left")
         }
         return true
+    }
+
+    /// The frame the page is at was left out of the image by the series, and a step the matcher placed from it
+    /// arrives: that step's own frame is laid whole, edge to edge, after the last frame laid. Nil when the capture
+    /// is over.
+    private func layAfterLeftOutBase(_ frame: CaptureFrame, head: String) -> Laid? {
+        guard acceptsFrame(frame, head: head), layEdgeToEdge(frame, line: head) else { return nil }
+        previousIsNotLaid = false
+        baseWasLeftOutBySeries = false
+        repeatGuard.rememberCheckedFrame()
+        noteProgress()
+        laidSinceStretch = true
+        recordStep("· previous left out by the series: the frame laid edge to edge")
+        return Laid(waiting: 0, queueSeams: [])
     }
 
     /// A frame laid right after the last one, with no overlap. False when the

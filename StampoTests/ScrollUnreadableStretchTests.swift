@@ -4,9 +4,10 @@ import Testing
 @Suite struct ScrollUnreadableStretchTests {
     private func situation(_ trigger: ScrollUnreadableStretch.Trigger = .queueFull(queued: 8),
                            vertical: Bool = true, gallery: Bool = false, pushing: Bool = false,
-                           changes: Bool = true, repeats: Bool = false) -> ScrollUnreadableStretch.Situation {
+                           changes: Bool = true, repeats: Bool = false,
+                           placed: Bool = true) -> ScrollUnreadableStretch.Situation {
         .init(trigger: trigger, isVertical: vertical, galleryActive: gallery, pushing: pushing,
-              framesChange: changes, isRepeat: repeats)
+              framesChange: changes, isRepeat: repeats, placedSince: placed)
     }
 
     // MARK: When
@@ -46,6 +47,11 @@ import Testing
         #expect(stretch.decide(situation(.failed(queued: 0), repeats: true)) == .save)
         #expect(stretch.refusal(situation(.failed(queued: 0), repeats: true)) == .repeatsPage)
         #expect(stretch.decide(situation(.failed(queued: 0), gallery: true)) == .save)
+        // Nothing waits and nothing was placed since the last stretch: the page's last screen playing, not a page
+        // that reads on. With steps waiting it is a stretch all the same.
+        #expect(stretch.decide(situation(.failed(queued: 0), placed: false)) == .save)
+        #expect(stretch.refusal(situation(.failed(queued: 0), placed: false)) == .nothingPlacedSince)
+        #expect(stretch.decide(situation(.failed(queued: 1), placed: false)) == .series)
         // The same conditions as for the other triggers.
         #expect(stretch.decide(situation(.failed(queued: 3), vertical: false)) == .save)
         #expect(stretch.decide(situation(.failed(queued: 3), pushing: true)) == .save)
@@ -132,11 +138,13 @@ import Testing
         #expect(stretch.refusal(situation(full, repeats: true)) == .repeatsPage)
         #expect(stretch.refusal(situation(.queueFull(queued: 7))) == .queueNotFull)
         #expect(stretch.refusal(situation(.standing(count: 2, queued: 3))) == .notStandingLongEnough)
+        #expect(stretch.refusal(situation(.failed(queued: 0), placed: false)) == .nothingPlacedSince)
         stretch.begin()
         #expect(stretch.refusal(situation(full)) == .underway)
         // The reasons are the words of the log.
         let notes = [ScrollUnreadableStretch.Refusal.notVertical, .galleryLatched, .pushing, .underway,
-                     .framesDoNotChange, .repeatsPage, .queueNotFull, .notStandingLongEnough].map(\.note)
+                     .framesDoNotChange, .repeatsPage, .queueNotFull, .notStandingLongEnough,
+                     .nothingPlacedSince].map(\.note)
         #expect(Set(notes).count == notes.count && !notes.contains(""))
         #expect(ScrollUnreadableStretch.Refusal.galleryLatched.note == "gallery latched")
     }

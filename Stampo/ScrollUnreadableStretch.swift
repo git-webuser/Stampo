@@ -85,6 +85,10 @@ nonisolated struct ScrollUnreadableStretch: Sendable {
         var framesChange: Bool
         /// The newest frame is one the capture has seen before and left.
         var isRepeat: Bool
+        /// The matcher has placed a step since the last stretch, or there was none. A capture that ends with nothing
+        /// waiting right after a stretch has read nothing since: at the end of a page with a video it would meet
+        /// stretch after stretch at the one last screen.
+        var placedSince: Bool = true
     }
 
     enum Decision: Equatable, Sendable {
@@ -106,6 +110,7 @@ nonisolated struct ScrollUnreadableStretch: Sendable {
         case repeatsPage
         case queueNotFull
         case notStandingLongEnough
+        case nothingPlacedSince
 
         var note: String {
             switch self {
@@ -117,6 +122,7 @@ nonisolated struct ScrollUnreadableStretch: Sendable {
             case .repeatsPage: return "repeats a page"
             case .queueNotFull: return "queue not full"
             case .notStandingLongEnough: return "page has not stood long enough"
+            case .nothingPlacedSince: return "nothing placed since the last stretch"
             }
         }
     }
@@ -138,10 +144,11 @@ nonisolated struct ScrollUnreadableStretch: Sendable {
             // may still go on: 2026-10-13-190147 step 11, 2026-10-14-194340
             // step 15, both read to the end.
             guard count >= Trigger.endingCount, queued >= 1 else { return .notStandingLongEnough }
-        case .failed:
+        case .failed(let queued):
             // With nothing waiting too: the last screen is the current frame, and the steps that follow may read
-            // again (2026-10-19-205034, step 56). An end that is no other screen has been refused above.
-            break
+            // again (2026-10-19-205034, step 56). An end that is no other screen has been refused above; one that
+            // follows a stretch with nothing placed between is the page's own last screen playing.
+            guard queued >= 1 || situation.placedSince else { return .nothingPlacedSince }
         }
         return nil
     }
