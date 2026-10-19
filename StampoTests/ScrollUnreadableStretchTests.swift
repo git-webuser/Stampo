@@ -39,9 +39,13 @@ import Testing
         for queued in [1, 3, TemporarySteps.limit] {
             #expect(stretch.decide(situation(.failed(queued: queued))) == .series)
         }
-        // Nothing waits: the end of the content, as ever.
-        #expect(stretch.decide(situation(.failed(queued: 0))) == .save)
-        #expect(stretch.refusal(situation(.failed(queued: 0))) == .queueEmpty)
+        // Nothing waits: the current frame is the screen that nothing read (2026-10-19-205034 step 56).
+        #expect(stretch.decide(situation(.failed(queued: 0))) == .series)
+        #expect(stretch.decide(situation(.failed(queued: 0), changes: false)) == .save)
+        #expect(stretch.refusal(situation(.failed(queued: 0), changes: false)) == .framesDoNotChange)
+        #expect(stretch.decide(situation(.failed(queued: 0), repeats: true)) == .save)
+        #expect(stretch.refusal(situation(.failed(queued: 0), repeats: true)) == .repeatsPage)
+        #expect(stretch.decide(situation(.failed(queued: 0), gallery: true)) == .save)
         // The same conditions as for the other triggers.
         #expect(stretch.decide(situation(.failed(queued: 3), vertical: false)) == .save)
         #expect(stretch.decide(situation(.failed(queued: 3), pushing: true)) == .save)
@@ -50,6 +54,16 @@ import Testing
         #expect(stretch.decide(situation(.failed(queued: 2), gallery: true)) == .save)
         #expect(stretch.decide(situation(.failed(queued: 3), gallery: true)) == .series)
         #expect(ScrollUnreadableStretch.Trigger.failed(queued: 3).queued == 3)
+    }
+
+    @Test func theCurrentFrameIsTheBaseWhenTheSeriesDidNotLayIt() {
+        // 2026-10-19-204156: series 27, 30, 33 of 27–36 — ten frames, the series the 1st, 4th and 7th: the page is at 36.
+        #expect(!ScrollUnreadableStretch.laysCurrentFrame(chosen: [0, 3, 6], count: 10))
+        #expect(ScrollUnreadableStretch.laysCurrentFrame(chosen: [0, 4, 9], count: 10))
+        #expect(ScrollUnreadableStretch.laysCurrentFrame(chosen: [0], count: 1))
+        // Nothing laid, as for steps that would not match with nothing waiting, and no frame at all.
+        #expect(!ScrollUnreadableStretch.laysCurrentFrame(chosen: [], count: 1))
+        #expect(!ScrollUnreadableStretch.laysCurrentFrame(chosen: [], count: 0))
     }
 
     @Test func theCeilingHoldsForEveryTrigger() {
@@ -118,12 +132,11 @@ import Testing
         #expect(stretch.refusal(situation(full, repeats: true)) == .repeatsPage)
         #expect(stretch.refusal(situation(.queueFull(queued: 7))) == .queueNotFull)
         #expect(stretch.refusal(situation(.standing(count: 2, queued: 3))) == .notStandingLongEnough)
-        #expect(stretch.refusal(situation(.failed(queued: 0))) == .queueEmpty)
         stretch.begin()
         #expect(stretch.refusal(situation(full)) == .underway)
         // The reasons are the words of the log.
         let notes = [ScrollUnreadableStretch.Refusal.notVertical, .galleryLatched, .pushing, .underway,
-                     .framesDoNotChange, .repeatsPage, .queueNotFull, .notStandingLongEnough, .queueEmpty].map(\.note)
+                     .framesDoNotChange, .repeatsPage, .queueNotFull, .notStandingLongEnough].map(\.note)
         #expect(Set(notes).count == notes.count && !notes.contains(""))
         #expect(ScrollUnreadableStretch.Refusal.galleryLatched.note == "gallery latched")
     }

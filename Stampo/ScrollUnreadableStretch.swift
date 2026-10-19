@@ -57,7 +57,7 @@ nonisolated struct ScrollUnreadableStretch: Sendable {
         /// steps waiting that nothing placed.
         case standing(count: Int, queued: Int)
         /// The steps would not match, and the retries are spent: the capture
-        /// would end with `queued` steps waiting that nothing placed.
+        /// would end with `queued` steps waiting that nothing placed, or none.
         case failed(queued: Int)
         /// The step on which a page that stands ends the capture.
         static let endingCount = 3
@@ -106,7 +106,6 @@ nonisolated struct ScrollUnreadableStretch: Sendable {
         case repeatsPage
         case queueNotFull
         case notStandingLongEnough
-        case queueEmpty
 
         var note: String {
             switch self {
@@ -118,7 +117,6 @@ nonisolated struct ScrollUnreadableStretch: Sendable {
             case .repeatsPage: return "repeats a page"
             case .queueNotFull: return "queue not full"
             case .notStandingLongEnough: return "page has not stood long enough"
-            case .queueEmpty: return "queue empty"
             }
         }
     }
@@ -140,9 +138,10 @@ nonisolated struct ScrollUnreadableStretch: Sendable {
             // may still go on: 2026-10-13-190147 step 11, 2026-10-14-194340
             // step 15, both read to the end.
             guard count >= Trigger.endingCount, queued >= 1 else { return .notStandingLongEnough }
-        case .failed(let queued):
-            // An end with nothing waiting is the end of the content.
-            guard queued >= 1 else { return .queueEmpty }
+        case .failed:
+            // With nothing waiting too: the last screen is the current frame, and the steps that follow may read
+            // again (2026-10-19-205034, step 56). An end that is no other screen has been refused above.
+            break
         }
         return nil
     }
@@ -268,6 +267,13 @@ nonisolated struct ScrollUnreadableStretch: Sendable {
     /// page the capture has left: otherwise the page has not gone anywhere.
     static func laysFrame(anotherScreen: Bool, isRepeat: Bool) -> Bool {
         anotherScreen && !isRepeat
+    }
+
+    /// Whether the current frame, the last of `count` frames, is among those a series laid. When it is not, the
+    /// page is at a frame that is not in the image, and the steps that follow are measured from it: it is the
+    /// base of what is laid next, and is laid first, if it shows another screen (`jerkFrame`).
+    static func laysCurrentFrame(chosen: [Int], count: Int) -> Bool {
+        count > 0 && chosen.last == count - 1
     }
 
     /// A step was placed: the page reads again, and the way goes on as usual.

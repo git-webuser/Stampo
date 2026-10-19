@@ -772,10 +772,13 @@ nonisolated enum ScrollReturn {
 /// paused, or waiting for the pointer, is not time without progress.
 nonisolated enum ScrollProgressTimeout {
     static let seconds: TimeInterval = 20
+    /// Steps without headway that the seconds must also have taken: a few slow steps (a Debug build, a page that
+    /// takes seconds to settle) are no page that goes nowhere, and a long step is as slow as it is.
+    static let minimumSteps = 4
 
-    /// Whether it is time to save: the seconds since the last headway, less
-    /// those spent paused or waiting for the pointer in between (`idle`).
-    static func isOver(lastProgress: Date, now: Date, idle: TimeInterval) -> Bool {
-        now.timeIntervalSince(lastProgress) - max(0, idle) >= seconds
+    /// Whether it is time to save: `seconds` since the last headway, less those spent paused or waiting for the
+    /// pointer in between (`idle`), and at least `minimumSteps` steps in that time (`steps`).
+    static func isOver(lastProgress: Date, now: Date, idle: TimeInterval, steps: Int) -> Bool {
+        now.timeIntervalSince(lastProgress) - max(0, idle) >= seconds && steps >= minimumSteps
     }
 }
