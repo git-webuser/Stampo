@@ -1671,6 +1671,16 @@ final class ScrollingCaptureSession {
                                 break
                             }
                         }
+                        // Steps wait that nothing placed, and the next will not match either: a section that
+                        // plays its own motion, or a page that goes on in frames the matcher cannot read. What
+                        // waits is another screen of the page, and the way on from it may read again.
+                        if !temporary.isEmpty {
+                            let stretch = meetUnreadableStretch(
+                                next: next, trigger: .failed(queued: temporary.count),
+                                line: "\(head) · \(error) · \(said)")
+                            if stretch == .ended { return }
+                            if stretch == .laid { break }
+                        }
                         // A video, an animation, a section that stays where
                         // it is: whatever it is, the steps will not line up,
                         // and what is collected is what there is. The user

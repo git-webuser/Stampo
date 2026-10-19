@@ -33,6 +33,37 @@ import Testing
         #expect(stretch.decide(situation(.standing(count: 3, queued: 0))) == .save)
     }
 
+    @Test func stepsThatWillNotMatchWithStepsWaitingAreAStretchAndWithoutThemTheEnd() {
+        let stretch = ScrollUnreadableStretch()
+        // 2026-10-19-134514 step 44: three steps waiting when "steps would not match" ended the capture.
+        for queued in [1, 3, TemporarySteps.limit] {
+            #expect(stretch.decide(situation(.failed(queued: queued))) == .series)
+        }
+        // Nothing waits: the end of the content, as ever.
+        #expect(stretch.decide(situation(.failed(queued: 0))) == .save)
+        #expect(stretch.refusal(situation(.failed(queued: 0))) == .queueEmpty)
+        // The same conditions as for the other triggers.
+        #expect(stretch.decide(situation(.failed(queued: 3), vertical: false)) == .save)
+        #expect(stretch.decide(situation(.failed(queued: 3), pushing: true)) == .save)
+        #expect(stretch.decide(situation(.failed(queued: 3), changes: false)) == .save)
+        #expect(stretch.decide(situation(.failed(queued: 3), repeats: true)) == .save)
+        #expect(stretch.decide(situation(.failed(queued: 2), gallery: true)) == .save)
+        #expect(stretch.decide(situation(.failed(queued: 3), gallery: true)) == .series)
+        #expect(ScrollUnreadableStretch.Trigger.failed(queued: 3).queued == 3)
+    }
+
+    @Test func theCeilingHoldsForEveryTrigger() {
+        var stretch = ScrollUnreadableStretch()
+        for _ in 1...ScrollUnreadableStretch.stretchLimit {
+            stretch.begin()
+            stretch.placed()
+        }
+        for trigger: ScrollUnreadableStretch.Trigger in [.queueFull(queued: 8), .standing(count: 3, queued: 2),
+                                                          .failed(queued: 1)] {
+            #expect(stretch.decide(situation(trigger)) == .tooMany)
+        }
+    }
+
     @Test func aFrameIsAnotherScreenFromFourHundredthsOfDifference() {
         #expect(ScrollUnreadableStretch.differentFrom == 0.04)
         // claude.com 2026-10-14-214945: the last frame of the page, 0.0062 from the one before;
@@ -87,11 +118,12 @@ import Testing
         #expect(stretch.refusal(situation(full, repeats: true)) == .repeatsPage)
         #expect(stretch.refusal(situation(.queueFull(queued: 7))) == .queueNotFull)
         #expect(stretch.refusal(situation(.standing(count: 2, queued: 3))) == .notStandingLongEnough)
+        #expect(stretch.refusal(situation(.failed(queued: 0))) == .queueEmpty)
         stretch.begin()
         #expect(stretch.refusal(situation(full)) == .underway)
         // The reasons are the words of the log.
         let notes = [ScrollUnreadableStretch.Refusal.notVertical, .galleryLatched, .pushing, .underway,
-                     .framesDoNotChange, .repeatsPage, .queueNotFull, .notStandingLongEnough].map(\.note)
+                     .framesDoNotChange, .repeatsPage, .queueNotFull, .notStandingLongEnough, .queueEmpty].map(\.note)
         #expect(Set(notes).count == notes.count && !notes.contains(""))
         #expect(ScrollUnreadableStretch.Refusal.galleryLatched.note == "gallery latched")
     }

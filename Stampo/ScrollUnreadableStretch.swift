@@ -56,12 +56,15 @@ nonisolated struct ScrollUnreadableStretch: Sendable {
         /// The page was decided to stand `count` steps in a row, with `queued`
         /// steps waiting that nothing placed.
         case standing(count: Int, queued: Int)
+        /// The steps would not match, and the retries are spent: the capture
+        /// would end with `queued` steps waiting that nothing placed.
+        case failed(queued: Int)
         /// The step on which a page that stands ends the capture.
         static let endingCount = 3
 
         var queued: Int {
             switch self {
-            case .queueFull(let queued), .standing(_, let queued): return queued
+            case .queueFull(let queued), .standing(_, let queued), .failed(let queued): return queued
             }
         }
     }
@@ -103,6 +106,7 @@ nonisolated struct ScrollUnreadableStretch: Sendable {
         case repeatsPage
         case queueNotFull
         case notStandingLongEnough
+        case queueEmpty
 
         var note: String {
             switch self {
@@ -114,6 +118,7 @@ nonisolated struct ScrollUnreadableStretch: Sendable {
             case .repeatsPage: return "repeats a page"
             case .queueNotFull: return "queue not full"
             case .notStandingLongEnough: return "page has not stood long enough"
+            case .queueEmpty: return "queue empty"
             }
         }
     }
@@ -135,6 +140,9 @@ nonisolated struct ScrollUnreadableStretch: Sendable {
             // may still go on: 2026-10-13-190147 step 11, 2026-10-14-194340
             // step 15, both read to the end.
             guard count >= Trigger.endingCount, queued >= 1 else { return .notStandingLongEnough }
+        case .failed(let queued):
+            // An end with nothing waiting is the end of the content.
+            guard queued >= 1 else { return .queueEmpty }
         }
         return nil
     }
