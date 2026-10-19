@@ -32,15 +32,15 @@ import Testing
             return Int((state >> 8) % UInt32(limit))
         }
         return (0..<count).map { _ in
-            Box(x: next(width - 12), y: top + next(height - top - bottom - 12), width: 3 + next(4), height: 6 + next(5),
+            Box(x: 16 + next(width - 44), y: top + next(height - top - bottom - 12), width: 3 + next(4), height: 6 + next(5),
                 value: ink)
         }
     }
 
-    /// A page that is one fill: a box of this colour over a third of the frame and more.
+    /// A page that is one fill: a box of this colour over the whole width and half the height.
     private func fill(background: UInt8, color: UInt8, seed: Int, ink: UInt8) -> CaptureFrame {
-        frame(background: background, [Box(x: 40, y: 30, width: 224, height: 100, value: color)]
-              + glyphs(6, seed: seed, ink: ink))
+        frame(background: background, [Box(x: 0, y: 32, width: width, height: 96, value: color)]
+              + glyphs(3, seed: seed, ink: ink))
     }
 
     private func notSame(_ a: Int, _ b: Int) -> Bool { false }
@@ -104,44 +104,118 @@ import Testing
         #expect(selection.indices == [0, 2])
     }
 
-    @Test func whenEveryFrameIsAFillTheLeastFlatOneIsTaken() {
-        let frames = [fill(background: 5, color: 235, seed: 40, ink: 230),
-                      frame(background: 5, [Box(x: 32, y: 32, width: 256, height: 96, value: 235)]),
-                      fill(background: 5, color: 235, seed: 41, ink: 230)]
+    /// A frame with a large flat card and a strip of text under it: flat, and yet a page's structure.
+    private func card(seed: Int) -> CaptureFrame {
+        frame(background: 5, [Box(x: 32, y: 32, width: 256, height: 96, value: 235)]
+              + glyphs(70, seed: seed, ink: 230, keepOff: 136))
+    }
+
+    @Test func whenFewerThanThreeAreNoFillsFlatFramesOfStructureMakeUpTheNumber() {
+        let frames = [frame(background: 5, glyphs(80, seed: 130, ink: 230)), card(seed: 131), card(seed: 132),
+                      frame(background: 5, glyphs(75, seed: 133, ink: 230)), card(seed: 134)]
         let selection = ScrollSeries.choose(frames.map(ScrollSeries.measure), same: notSame)
-        #expect(selection.fills == [0, 1, 2])
-        #expect(selection.indices.count == 1 && selection.indices != [1])
+        #expect(selection.indices.count == 3)
+        #expect(selection.indices.contains(0) && selection.indices.contains(3))
+        #expect(selection.toppedUp.count == 1 && selection.indices.contains(selection.toppedUp[0]))
+        #expect(selection.fills.count == 2 && Set(selection.fills + selection.toppedUp) == [1, 2, 4])
+        #expect(selection.indices == selection.indices.sorted())
+    }
+
+    @Test func framesOfTooLittleStructureAreNeverToppedUp() {
+        // The two letters grown past the frame have no structure to speak of: nothing makes up the number.
+        let frames = [frame(background: 5, glyphs(80, seed: 140, ink: 230)),
+                      fill(background: 5, color: 235, seed: 141, ink: 230),
+                      frame(background: 5, glyphs(75, seed: 142, ink: 230)),
+                      fill(background: 5, color: 235, seed: 143, ink: 230)]
+        let selection = ScrollSeries.choose(frames.map(ScrollSeries.measure), same: notSame)
+        #expect(selection.indices == [0, 2])
+        #expect(selection.toppedUp.isEmpty)
+        #expect(selection.fills == [1, 3])
+    }
+
+    @Test func whenEveryFrameIsFlatTheBestOfThemAreTaken() {
+        let frames = [card(seed: 150), card(seed: 151), card(seed: 152), card(seed: 153)]
+        let selection = ScrollSeries.choose(frames.map(ScrollSeries.measure), same: notSame)
+        #expect(selection.indices.count == 3)
+        #expect(selection.toppedUp == selection.indices)
+        #expect(selection.fills.count == 1)
+    }
+
+    @Test func threeFramesThatAreNoFillsAreNotToppedUp() {
+        let frames = [frame(background: 5, glyphs(80, seed: 160, ink: 230)), card(seed: 161),
+                      frame(background: 5, glyphs(75, seed: 162, ink: 230)),
+                      frame(background: 5, glyphs(78, seed: 163, ink: 230))]
+        let selection = ScrollSeries.choose(frames.map(ScrollSeries.measure), same: notSame)
+        #expect(selection.indices == [0, 2, 3])
+        #expect(selection.toppedUp.isEmpty)
+        #expect(selection.fills == [1])
+    }
+
+    @Test func theLastBlockOfARowAndOfAColumnIsMeasured() {
+        let measure = ScrollSeries.measure(frame(background: 5, []))
+        // 320 by 192: ten blocks of 32 across, six down.
+        #expect(measure.blockIsFlat.count == 60)
     }
 
     // MARK: Cut edges
 
-    @Test func aFrameCutAtTheEdgeCountsHalfAndWhatIsFixedToTheViewportCutsNothing() {
-        let ring = Box(x: 150, y: 2, width: 10, height: 6, value: 200)
-        // The same text in four frames; the third has a line that runs into the top edge.
-        func page(_ seed: Int, cut: Bool) -> CaptureFrame {
-            frame(background: 5, glyphs(60, seed: seed, ink: 230, keepOff: 14)
-                  + [ring] + (cut ? [Box(x: 20, y: 2, width: 200, height: 7, value: 230)] : []))
-        }
-        let measures = [page(50, cut: false), page(50, cut: false), page(50, cut: true), page(50, cut: false)]
-            .map(ScrollSeries.measure)
-        let selection = ScrollSeries.choose(measures, same: notSame)
-        #expect(selection.cut == [2])
-        #expect(selection.frames[2].score == selection.frames[2].edges / 2)
-        #expect(selection.frames[0].score == selection.frames[0].edges)
-        // The ring is in every frame: it is not why a frame is cut.
-        #expect(!selection.frames[0].isCut && !selection.frames[1].isCut && !selection.frames[3].isCut)
+    /// The same text in every frame, `extra` boxes in some, and a panel against the left edge and a ring against
+    /// the top one in all of them, which are fixed to the viewport.
+    private func cutPage(_ extra: [Box] = []) -> CaptureFrame {
+        frame(background: 5, glyphs(60, seed: 50, ink: 230)
+              + [Box(x: 0, y: 70, width: 5, height: 40, value: 200), Box(x: 150, y: 0, width: 10, height: 6, value: 200)]
+              + extra)
     }
 
-    @Test func aCutFrameLosesToAWholeOneOfAboutTheSameStructure() {
-        func page(_ seed: Int, cut: Bool) -> CaptureFrame {
-            frame(background: 5, glyphs(60, seed: seed, ink: 230) + (cut ? [Box(x: 20, y: 2, width: 200, height: 7, value: 230)] : []))
-        }
-        // Four frames, a cut one among them, no spread to speak of: but three of them are whole.
-        let measures = [page(60, cut: true), page(61, cut: false), page(62, cut: false), page(63, cut: false)]
+    @Test func inkThatRunsOffAnyOfTheFourEdgesCutsAFrameAndWhatIsFixedToTheViewportCutsNone() {
+        let measures = [cutPage(),
+                        cutPage([Box(x: 40, y: 0, width: 120, height: 8, value: 230)]),      // top
+                        cutPage([Box(x: 40, y: 184, width: 120, height: 8, value: 230)]),    // bottom
+                        cutPage([Box(x: 0, y: 20, width: 8, height: 100, value: 230)]),      // left
+                        cutPage([Box(x: 312, y: 20, width: 8, height: 100, value: 230)]),    // right
+                        cutPage()].map(ScrollSeries.measure)
+        let selection = ScrollSeries.choose(measures, same: { _, _ in false })
+        #expect(selection.frames.map(\.isCut) == [false, true, true, true, true, false])
+        #expect(selection.frames.filter(\.isCut).allSatisfy { $0.cut >= ScrollSeries.cutFrom })
+    }
+
+    @Test func aWordThatStopsShortOfTheEdgeIsNotCut() {
+        // The word is a few pixels from the left edge, and from the bottom one: whole.
+        let measures = [cutPage(),
+                        cutPage([Box(x: 8, y: 20, width: 40, height: 100, value: 230), Box(x: 40, y: 178, width: 120, height: 8, value: 230)]),
+                        cutPage()].map(ScrollSeries.measure)
+        let selection = ScrollSeries.choose(measures, same: { _, _ in false })
+        #expect(!selection.frames[1].isCut)
+    }
+
+    @Test func wholeFramesGoBeforeCutOnesWhateverTheirStructure() {
+        // The richest frame is cut at the left; three whole ones of less structure are there.
+        let measures = [cutPage([Box(x: 0, y: 10, width: 8, height: 120, value: 230)] + glyphs(40, seed: 51, ink: 230)),
+                        cutPage(), cutPage(glyphs(5, seed: 52, ink: 230)), cutPage(glyphs(8, seed: 53, ink: 230))]
             .map(ScrollSeries.measure)
-        let selection = ScrollSeries.choose(measures, same: notSame)
+        let selection = ScrollSeries.choose(measures, same: { _, _ in false })
+        #expect(selection.indices == [1, 2, 3])
         #expect(selection.cut == [0])
-        #expect(!selection.indices.contains(0))
+    }
+
+    @Test func whenFewerThanThreeAreWholeTheFramesCutTheLeastMakeUpTheNumber() {
+        let measures = [cutPage(),
+                        cutPage(glyphs(10, seed: 54, ink: 230)),
+                        cutPage([Box(x: 0, y: 40, width: 4, height: 20, value: 230)]),    // cut a little
+                        cutPage([Box(x: 0, y: 10, width: 8, height: 170, value: 230)])]   // cut a great deal
+            .map(ScrollSeries.measure)
+        let selection = ScrollSeries.choose(measures, same: { _, _ in false })
+        #expect(selection.indices == [0, 1, 2])
+        #expect(selection.cut == [2, 3])
+        #expect(selection.frames[2].cut < selection.frames[3].cut)
+    }
+
+    @Test func aFrameCutOnlyBecauseOthersLackWhatItHasIsStillCutAndOnlyIfNotInEveryFrame() {
+        // The same line at the top edge in every frame: it is fixed there, and no frame is cut by it.
+        let line = Box(x: 30, y: 0, width: 200, height: 6, value: 230)
+        let measures = (0..<4).map { _ in ScrollSeries.measure(cutPage([line])) }
+        let selection = ScrollSeries.choose(measures, same: { _, _ in false })
+        #expect(selection.cut.isEmpty)
     }
 
     // MARK: Choosing

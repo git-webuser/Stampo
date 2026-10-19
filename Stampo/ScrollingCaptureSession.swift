@@ -1837,7 +1837,8 @@ final class ScrollingCaptureSession {
         var note = "series: frames \(list(selection.indices)) of \(name(0))–\(name(numbers.count - 1))"
         var why: [String] = []
         if !selection.fills.isEmpty { why.append("flat: \(list(selection.fills)) dropped") }
-        if !selection.cut.isEmpty { why.append("cut: \(list(selection.cut)) halved") }
+        if !selection.toppedUp.isEmpty { why.append("topped up: \(list(selection.toppedUp))") }
+        if !selection.cut.isEmpty { why.append("cut: \(list(selection.cut)) behind whole ones") }
         if selection.byNumber { why.append("frames alike, by number") }
         if !why.isEmpty { note += " (" + why.joined(separator: "; ") + ")" }
         return note
