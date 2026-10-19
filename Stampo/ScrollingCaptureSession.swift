@@ -1751,14 +1751,22 @@ final class ScrollingCaptureSession {
     /// matcher places one. `line` is what the step has said so far.
     private func meetUnreadableStretch(next: CaptureFrame, trigger: ScrollUnreadableStretch.Trigger,
                                        line: String) -> StretchOutcome {
-        guard let laid = assembler.lastFrame else { return .declined }
+        guard let laid = assembler.lastFrame else {
+            recordStep("\(line) → unreadable stretch declined: no frame laid")
+            return .declined
+        }
+        let difference = meanDifference(laid, next)
         let situation = ScrollUnreadableStretch.Situation(
             trigger: trigger, isVertical: axis == .vertical, galleryActive: sidewaysSection.isActive,
             pushing: pushMode != .none || pushCheck != nil,
-            framesChange: ScrollUnreadableStretch.isAnotherScreen(difference: meanDifference(laid, next)),
+            framesChange: ScrollUnreadableStretch.isAnotherScreen(difference: difference),
             isRepeat: repeatGuard.checkForRepeat(next, excluding: previous))
         switch unreadable.decide(situation) {
         case .save:
+            // The trigger fired and nothing is laid: the log says why, so that a capture that ends here can be read.
+            let why = unreadable.refusal(situation)
+            recordStep("\(line) → unreadable stretch declined: \(why?.note ?? "")"
+                       + (why == .framesDoNotChange ? " (d=\(String(format: "%.4f", difference)))" : ""))
             return .declined
         case .tooMany:
             recordStep("\(line) → saved: the capture met too many stretches it could not read")
@@ -1772,7 +1780,10 @@ final class ScrollingCaptureSession {
         let chosen = ScrollUnreadableStretch.series(count: frames.count) { a, b in
             ScrollRepeatGuard.isSamePage(a < 0 ? laid : frames[a], frames[b])
         }
-        guard let last = chosen.last else { return .declined }
+        guard let last = chosen.last else {
+            recordStep("\(line) → unreadable stretch declined: the frames show the page already laid")
+            return .declined
+        }
         for index in chosen {
             guard layEdgeToEdge(frames[index], line: line) else { return .ended }
         }
@@ -1815,6 +1826,8 @@ final class ScrollingCaptureSession {
             finish()
             return false
         }
+        // A vertical placement, as any other: the gallery latch goes, and what follows is not a stage of it.
+        sidewaysSection = ScrollSidewaysSection()
         return true
     }
 

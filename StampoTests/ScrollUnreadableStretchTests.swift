@@ -50,13 +50,50 @@ import Testing
         let stretch = ScrollUnreadableStretch()
         for trigger: ScrollUnreadableStretch.Trigger in [.queueFull(queued: 8), .standing(count: 3, queued: 3)] {
             #expect(stretch.decide(situation(trigger, vertical: false)) == .save)
-            #expect(stretch.decide(situation(trigger, gallery: true)) == .save)
             #expect(stretch.decide(situation(trigger, pushing: true)) == .save)
             // The frames are the same as the last one laid: the page stands in them (003948, 185058, 185700).
             #expect(stretch.decide(situation(trigger, changes: false)) == .save)
             // A page that is going round shows what the capture has laid.
             #expect(stretch.decide(situation(trigger, repeats: true)) == .save)
         }
+    }
+
+    @Test func aLatchedGalleryBlocksOnlyAsLongAsItCouldStillTakeTheQueueAsStages() {
+        let stretch = ScrollUnreadableStretch()
+        #expect(ScrollSidewaysSection.queuedStageLimit == 2)
+        // Up to the frames a stage may drop, the gallery is looked at first.
+        for queued in 1...ScrollSidewaysSection.queuedStageLimit {
+            let standing = situation(.standing(count: 3, queued: queued), gallery: true)
+            #expect(stretch.decide(standing) == .save)
+            #expect(stretch.refusal(standing) == .galleryLatched)
+        }
+        // Past it no stage can be taken, and a latch that nothing releases (2026-10-19-131538 and
+        // 2026-10-19-131122: stages to step 26, then eight steps in the queue) is no reason to end.
+        let longer = ScrollSidewaysSection.queuedStageLimit + 1
+        #expect(stretch.decide(situation(.standing(count: 3, queued: longer), gallery: true)) == .series)
+        #expect(stretch.decide(situation(.queueFull(queued: TemporarySteps.limit), gallery: true)) == .series)
+        // Without the latch the queue's length does not matter beyond the trigger's own.
+        #expect(stretch.decide(situation(.standing(count: 3, queued: 1), gallery: false)) == .series)
+    }
+
+    @Test func everyRefusalSaysWhy() {
+        var stretch = ScrollUnreadableStretch()
+        let full = ScrollUnreadableStretch.Trigger.queueFull(queued: 8)
+        #expect(stretch.refusal(situation(full)) == nil)
+        #expect(stretch.refusal(situation(full, vertical: false)) == .notVertical)
+        #expect(stretch.refusal(situation(.standing(count: 3, queued: 2), gallery: true)) == .galleryLatched)
+        #expect(stretch.refusal(situation(full, pushing: true)) == .pushing)
+        #expect(stretch.refusal(situation(full, changes: false)) == .framesDoNotChange)
+        #expect(stretch.refusal(situation(full, repeats: true)) == .repeatsPage)
+        #expect(stretch.refusal(situation(.queueFull(queued: 7))) == .queueNotFull)
+        #expect(stretch.refusal(situation(.standing(count: 2, queued: 3))) == .notStandingLongEnough)
+        stretch.begin()
+        #expect(stretch.refusal(situation(full)) == .underway)
+        // The reasons are the words of the log.
+        let notes = [ScrollUnreadableStretch.Refusal.notVertical, .galleryLatched, .pushing, .underway,
+                     .framesDoNotChange, .repeatsPage, .queueNotFull, .notStandingLongEnough].map(\.note)
+        #expect(Set(notes).count == notes.count && !notes.contains(""))
+        #expect(ScrollUnreadableStretch.Refusal.galleryLatched.note == "gallery latched")
     }
 
     @Test func jerksAndTheirChecksAreNotAStretchAndAreNotDecidedAtAll() {

@@ -58,12 +58,21 @@ nonisolated struct ScrollUnreadableStretch: Sendable {
         case standing(count: Int, queued: Int)
         /// The step on which a page that stands ends the capture.
         static let endingCount = 3
+
+        var queued: Int {
+            switch self {
+            case .queueFull(let queued), .standing(_, let queued): return queued
+            }
+        }
     }
 
     struct Situation: Sendable {
         var trigger: Trigger
         var isVertical: Bool
-        /// A sideways gallery is latched: it has its own way out of a queue.
+        /// A sideways gallery is latched. It has its own way out of a queue, but
+        /// only for as many frames as it may drop (`queuedStageLimit`): with more
+        /// waiting it can take no further stage, and the latch, which only a
+        /// vertical append or vertical support releases, would hold forever.
         var galleryActive: Bool
         /// A push, or the check of one, is under way.
         var pushing: Bool
@@ -84,19 +93,54 @@ nonisolated struct ScrollUnreadableStretch: Sendable {
         case tooMany
     }
 
-    func decide(_ situation: Situation) -> Decision {
-        guard situation.isVertical, !situation.galleryActive, !situation.pushing, phase == .off,
-              situation.framesChange, !situation.isRepeat
-        else { return .save }
+    /// Why a stretch is not met, for the line of the step in the log.
+    enum Refusal: Equatable, Sendable {
+        case notVertical
+        case galleryLatched
+        case pushing
+        case underway
+        case framesDoNotChange
+        case repeatsPage
+        case queueNotFull
+        case notStandingLongEnough
+
+        var note: String {
+            switch self {
+            case .notVertical: return "not vertical"
+            case .galleryLatched: return "gallery latched"
+            case .pushing: return "pushing"
+            case .underway: return "a stretch is under way"
+            case .framesDoNotChange: return "frames do not change"
+            case .repeatsPage: return "repeats a page"
+            case .queueNotFull: return "queue not full"
+            case .notStandingLongEnough: return "page has not stood long enough"
+            }
+        }
+    }
+
+    func refusal(_ situation: Situation) -> Refusal? {
+        guard situation.isVertical else { return .notVertical }
+        if situation.galleryActive, situation.trigger.queued <= ScrollSidewaysSection.queuedStageLimit {
+            return .galleryLatched
+        }
+        guard !situation.pushing else { return .pushing }
+        guard phase == .off else { return .underway }
+        guard situation.framesChange else { return .framesDoNotChange }
+        guard !situation.isRepeat else { return .repeatsPage }
         switch situation.trigger {
         case .queueFull(let queued):
-            guard queued >= TemporarySteps.limit else { return .save }
+            guard queued >= TemporarySteps.limit else { return .queueNotFull }
         case .standing(let count, let queued):
             // Only the step that would end the capture. At the second the page
             // may still go on: 2026-10-13-190147 step 11, 2026-10-14-194340
             // step 15, both read to the end.
-            guard count >= Trigger.endingCount, queued >= 1 else { return .save }
+            guard count >= Trigger.endingCount, queued >= 1 else { return .notStandingLongEnough }
         }
+        return nil
+    }
+
+    func decide(_ situation: Situation) -> Decision {
+        guard refusal(situation) == nil else { return .save }
         return stretches >= Self.stretchLimit ? .tooMany : .series
     }
 
