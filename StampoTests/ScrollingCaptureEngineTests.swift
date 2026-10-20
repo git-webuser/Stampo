@@ -2593,13 +2593,13 @@ import Testing
         #expect(ScrollStripPhase.saving.pauseButtonKind == .busy)
     }
 
-    /// A capture is saved when it has made no headway for twenty seconds, not
+    /// A capture is saved when it has made no headway for twenty seconds and for four steps, not
     /// when it has run for a long time — and paused time, or time waiting for
     /// the pointer, is not time without headway.
     @Test func aCaptureIsSavedAfterTwentySecondsWithoutProgressNotAfterAnyTotal() {
         let t0 = Date(timeIntervalSinceReferenceDate: 1_000_000)
-        func over(after seconds: TimeInterval, idle: TimeInterval = 0) -> Bool {
-            ScrollProgressTimeout.isOver(lastProgress: t0, now: t0.addingTimeInterval(seconds), idle: idle)
+        func over(after seconds: TimeInterval, idle: TimeInterval = 0, steps: Int = 9) -> Bool {
+            ScrollProgressTimeout.isOver(lastProgress: t0, now: t0.addingTimeInterval(seconds), idle: idle, steps: steps)
         }
         #expect(ScrollProgressTimeout.seconds == 20)
         // Just made headway.
@@ -2616,9 +2616,25 @@ import Testing
         // A page that has taken ten minutes and is still going is not stopped:
         // headway keeps moving the last-progress time up.
         let later = t0.addingTimeInterval(590)
-        #expect(!ScrollProgressTimeout.isOver(lastProgress: later, now: t0.addingTimeInterval(600), idle: 0))
+        #expect(!ScrollProgressTimeout.isOver(lastProgress: later, now: t0.addingTimeInterval(600), idle: 0, steps: 9))
         // An idle sum larger than the time elapsed — a clock that stepped — is no reason to stop.
         #expect(!over(after: 5, idle: 50))
+    }
+
+    /// Slow steps are no page that goes nowhere: 2026-10-19-204156 was saved after two steps of ten seconds each
+    /// (a Debug build), with the jerk of Step 4 still to come.
+    @Test func twentySecondsAreNotEnoughWithoutFourSteps() {
+        let t0 = Date(timeIntervalSinceReferenceDate: 1_000_000)
+        func over(_ seconds: TimeInterval, _ steps: Int) -> Bool {
+            ScrollProgressTimeout.isOver(lastProgress: t0, now: t0.addingTimeInterval(seconds), idle: 0, steps: steps)
+        }
+        #expect(ScrollProgressTimeout.minimumSteps == 4)
+        #expect(!over(25, 3))
+        #expect(!over(20.3, 2))
+        #expect(over(21, 4))
+        #expect(over(20, 4))
+        #expect(!over(19, 9))
+        #expect(over(60, 5))
     }
 
     /// Which failures in the middle of a capture are hiccups to be waited out:

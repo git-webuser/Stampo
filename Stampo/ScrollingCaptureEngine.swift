@@ -870,9 +870,21 @@ nonisolated struct ImageAssembler: Sendable {
     /// the frame before the last is mended by that now that this one is here; without them the image is laid as it
     /// always was. The slice of the last frame laid waits for the next one (`settlePending`).
     mutating func append(_ frame: CaptureFrame, movement: Int, pinned: PinnedGrid? = nil) throws {
+        try append(frame, movement: movement, pinned: pinned, allowingNoOverlap: false)
+    }
+
+    /// A frame laid right after the last one, with no overlap: what the page
+    /// holds between them is not in the image, and the seam is a hard one.
+    mutating func appendEdgeToEdge(_ frame: CaptureFrame) throws {
+        try append(frame, movement: axis == .vertical ? frame.height : frame.width, pinned: nil,
+                   allowingNoOverlap: true)
+    }
+
+    private mutating func append(_ frame: CaptureFrame, movement: Int, pinned: PinnedGrid?,
+                                 allowingNoOverlap: Bool) throws {
         let frameLength = axis == .vertical ? frame.height : frame.width
         guard !strips.isEmpty, frame.width == viewportWidth, frame.height == viewportHeight,
-              movement > 0, movement < frameLength
+              movement > 0, movement < frameLength || (allowingNoOverlap && movement == frameLength)
         else { throw FrameMatchError.noReliableMotion }
         let overlap = frameLength - movement
         guard fullLength >= overlap else { throw FrameMatchError.noReliableMotion }

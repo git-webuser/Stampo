@@ -82,6 +82,8 @@ final class ScrollingCaptureSession {
     /// laid, a step put in the queue — and how much idle time there was by then.
     private var lastProgress = Date()
     private var idleAtProgress: TimeInterval = 0
+    /// The steps made since then (`ScrollProgressTimeout`).
+    private var stepsWithoutProgress = 0
     /// Hiccups waited out since the last headway (`ScrollInterference`), and
     /// whether the log has said that the scroll area is no longer found under
     /// the point.
@@ -97,8 +99,25 @@ final class ScrollingCaptureSession {
     /// What the pairs of frames say about what the page pins to the viewport, as they come, for planning the next
     /// step: the assembler's own accumulator sees a pair only when it is laid.
     private var planningPinned = ScrollPinned.Accumulator()
-    private var previous: CaptureFrame?
+    private var previous: CaptureFrame? {
+        didSet {
+            previousIsNotLaid = false
+            baseWasLeftOutBySeries = false
+        }
+    }
+    /// After a stretch, `previous` is where the page is, and may be a frame that is not in the image: whatever is
+    /// laid from it, or measured from it, goes after it (`layUnlaidBase`). Set after each assignment that leaves
+    /// the page at a frame not laid; any other assignment clears it.
+    private var previousIsNotLaid = false
+    /// The series chose against the frame the page is at (a fill, or a cut one): it stays out of the image, and
+    /// what is matched from it is laid whole, edge to edge, after the last frame laid (`layAfterLeftOutBase`).
+    private var baseWasLeftOutBySeries = false
+    /// A step has been laid since the last stretch began: the page has read on (`Situation.placedSince`).
+    private var laidSinceStretch = false
     private var zeroMotionCount = 0
+    /// An ordinary push may be undone before the page stands again. Only the confirming push spends this
+    /// attempt; it is renewed when the image grows, not when a stage is replaced or a frame enters the queue.
+    private var endConfirmation = ScrollPush.EndConfirmation()
     /// The lines of the steps decided as stationary since the last frame was
     /// kept. The page may have moved in them all the same, when the calibration
     /// they were judged by was wrong.
@@ -126,6 +145,9 @@ final class ScrollingCaptureSession {
     /// Whether a push may be sent: not after a check has found the page going
     /// on under one, until a frame is laid.
     private var pushesAllowed = true
+    /// Stretches of the page that no step could read, met by this capture, and
+    /// the jerks that go on from the last of them (`ScrollUnreadableStretch`).
+    private var unreadable = ScrollUnreadableStretch()
     /// The line of the last step that was placed firmly and that the calibration
     /// did not predict, kept to see whether the next such step agrees with it
     /// (`ScrollRecalibration`).
@@ -475,6 +497,9 @@ final class ScrollingCaptureSession {
                 let blocks = await pinnedBlocks(from: last, to: now, shift: nil)
                 try ensureActive()
                 guard acceptsFrame(now, head: "place after pause") else { return true }
+                // A pause in the jerks of a stretch: the frame is measured from the page's own frame, which goes
+                // in first when it is not in the image yet.
+                guard layUnlaidBase() else { return true }
                 temporary.add(now, movement: movement, confirmed: false, pinned: blocks)
                 repeatGuard.rememberCheckedFrame()
                 noteProgress()
@@ -558,6 +583,14 @@ final class ScrollingCaptureSession {
                      pinned: PinnedGrid? = nil, replacing previous: CaptureFrame? = nil,
                      head: String = "") throws -> Laid? {
         if let previous, (temporary.steps.last?.frame ?? assembler.lastFrame) != previous { return nil }
+        if previous == nil {
+            // The series left the frame the page is at out of the image. Laid after it, at a distance from a frame
+            // that is not there, the step would put a seam on foreign rows.
+            if previousIsNotLaid, baseWasLeftOutBySeries, temporary.isEmpty {
+                return layAfterLeftOutBase(frame, head: head)
+            }
+            if !layUnlaidBase() { return nil }
+        }
         guard acceptsFrame(frame, head: head) else { return nil }
         let waiting = temporary.take()
         var seams: [ScrollSeam.Choice] = []
@@ -585,6 +618,8 @@ final class ScrollingCaptureSession {
         repeatGuard.rememberCheckedFrame()
         if let repair = assembler.lastRepair { repairs.append(repair) }
         noteProgress()
+        laidSinceStretch = true
+        endConfirmation.placedFrame(previous == nil ? .append : .replace)
         return Laid(waiting: waiting.count, queueSeams: seams, repairs: repairs)
     }
 
@@ -689,6 +724,7 @@ final class ScrollingCaptureSession {
     private func noteProgress() {
         lastProgress = Date()
         idleAtProgress = idleSeconds
+        stepsWithoutProgress = 0
         recoveriesWithoutProgress = 0
     }
 
@@ -1017,6 +1053,7 @@ final class ScrollingCaptureSession {
         }
         self.viewport = croppedViewport
         assembler.begin(with: first)
+        endConfirmation.placedFrame(.append)
         sidewaysSection = ScrollSidewaysSection()
         repeatGuard = ScrollRepeatGuard()
         repeatGuard.remember(first)
@@ -1192,8 +1229,8 @@ final class ScrollingCaptureSession {
             // There is no limit on how long a capture takes, only on how long it
             // goes without headway; waiting and pauses are not time without it.
             guard !ScrollProgressTimeout.isOver(lastProgress: lastProgress, now: Date(),
-                                                idle: idleSeconds - idleAtProgress) else {
-                recordStep("saved: \(Int(ScrollProgressTimeout.seconds)) s without progress")
+                                                idle: idleSeconds - idleAtProgress, steps: stepsWithoutProgress) else {
+                recordStep("saved: \(Int(ScrollProgressTimeout.seconds)) s and \(stepsWithoutProgress) steps without progress")
                 finish()
                 return
             }
@@ -1207,7 +1244,11 @@ final class ScrollingCaptureSession {
             // A push is one wheel event of twice the lines, with the search as
             // wide as a step is ever matched: where the page ends up when it has
             // gone past a section that pins it is not a multiple of the lines.
-            let isPush = ScrollPush.sendsPush(pushMode)
+            // After a stretch that could not be read, steps are jerks, each one followed by a check, until one
+            // of them is placed or the check shows the page going on.
+            let isJerk = unreadable.isJerking
+            let isCheck = unreadable.isChecking
+            let isPush = ScrollPush.sendsPush(pushMode) || isJerk
             // Steps wait that the matcher could not place: one short step for the queue, which the frames may read
             // where they did not read the long ones.
             if temporary.isEmpty { shortStepTried = false }
@@ -1255,6 +1296,7 @@ final class ScrollingCaptureSession {
             try ensureActive()
             try checkWindowAndFocus()
             stepNumber += 1
+            stepsWithoutProgress += 1
             let stillNote = stillnessNote
             dump?.save(next, as: String(format: "%02ld-step", stepNumber))
 
@@ -1310,23 +1352,95 @@ final class ScrollingCaptureSession {
                 }
                 try ensureActive()
                 if let check = pushCheck {
-                    // The step after a push that changed the frame is placed:
-                    // the page goes on as usual, and the push took it past
-                    // content that no frame has. Nothing is laid or replaced;
-                    // the page goes back to where the push began.
-                    recordStep("\(head) · match \(match.offset) px · confidence \(Self.percent(match.confidence)) · regions \(match.independentRegions)\(secondLookNote) → check: page moves, push undone, back \(check.lines + sentLines) lines")
-                    guard try await undoPush(check, checkLines: sentLines, at: point) else { return }
+                    // The step after a push that changed the frame is placed: the page goes on as usual. Either
+                    // the push took it past content that no frame has — nothing is laid or replaced, and the
+                    // page goes back to where the push began — or the section let it go inside the check, and the
+                    // push passed nothing (`ScrollPush.afterMovingCheck`).
+                    var keep = ScrollPush.afterMovingCheck(offset: match.offset, expected: expected,
+                                                           confidence: match.confidence, mode: pushMode)
+                    var pushFrame = ScrollUnreadableStretch.JerkFrame.lay
+                    if keep == .keepEdgeToEdge {
+                        pushFrame = jerkFrameToLay(check.frame)
+                        // A page already left cannot be laid: the page goes back, as ever.
+                        if pushFrame == .repeatsPageLeft { keep = .undo }
+                    }
+                    guard keep != .undo else {
+                        recordStep("\(head) · match \(match.offset) px · confidence \(Self.percent(match.confidence)) · regions \(match.independentRegions)\(secondLookNote) → check: page moves, push undone, back \(check.lines + sentLines) lines")
+                        guard try await undoPush(check, checkLines: sentLines, at: point) else { return }
+                        stepInFlight = false
+                        inFlightLines = nil
+                        continue
+                    }
+                    if keep == .keepReplacingStage {
+                        do {
+                            try assembler.replaceLast(with: check.frame)
+                        } catch {
+                            recordStep("\(head) · match \(match.offset) px → check: section ends in the check, frame not replaced")
+                            finish()
+                            return
+                        }
+                    } else {
+                        guard layJerkFrame(check.frame, as: pushFrame) else { return }
+                    }
+                    pushCheck = nil
+                    pushMode = .none
+                    pushAfterReliableSteps = 0
+                    pushesAllowed = true
+                    stationary = nil
+                    guard try await layMatchedStep(
+                        next, from: check.frame, match: match, lines: plan.lines, placement: .stretch, isPush: false,
+                        motionLimit: motionLimit, head: head, secondLookNote: secondLookNote,
+                        landingNote: "\(head) · match \(match.offset) px · confidence \(Self.percent(match.confidence)) → check: page moves \(match.offset) of \(expected ?? 0) px · section ends in the check, push kept\(keep == .keepEdgeToEdge ? ", push frame laid edge to edge" : "")") else { return }
                     stepInFlight = false
                     inFlightLines = nil
                     continue
                 }
+                let jerkNumber = unreadable.jerks + 1
+                if isCheck {
+                    // The page moves in the check, from the frame of the jerk that was not placed: that frame is
+                    // the page too, and the check is placed after it. Its distance says nothing of the lines.
+                    let jerk = jerkFrameToLay(oldFrame)
+                    let after = unreadable.afterCheck(placed: true, decision: nil, jerkRepeats: jerk == .repeatsPageLeft)
+                    let line = "\(head) · match \(match.offset) px → unreadable stretch: jerk \(jerkNumber) not placed · check: moves"
+                    if after == .nextJerk || after == .ceiling {
+                        // The jerk's frame is a page already left: the check cannot be laid after it.
+                        guard meetStandingCheck(next: next, line: "\(head) · match \(match.offset) px", jerkNumber: jerkNumber,
+                                                ceiling: after == .ceiling, check: Self.repeatingJerkCheck) else { return }
+                        if frameChanged { noteProgress() }
+                        stepInFlight = false
+                        inFlightLines = nil
+                        continue
+                    }
+                    guard layJerkFrame(oldFrame, as: jerk) else { return }
+                    recordStep(line + (jerk == .lay ? " → jerk frame laid edge to edge" : ", jerk frame is the page laid"))
+                }
                 guard try await layMatchedStep(next, from: oldFrame, match: match, lines: plan.lines,
-                                               placement: .matched(cleanStep: cleanStep), isPush: isPush, motionLimit: motionLimit,
+                                               placement: isCheck ? .stretch : .matched(cleanStep: cleanStep),
+                                               isPush: isPush, motionLimit: motionLimit,
                                                head: head, secondLookNote: secondLookNote) else { return }
+                if isJerk {
+                    unreadable.placed()
+                    recordStep("· unreadable stretch: jerk \(jerkNumber) placed, ordinary steps go on")
+                }
             } catch is CancellationError {
                 throw CancellationError()
             } catch {
                 rememberedLine = nil
+                if isJerk {
+                    // A jerk is longer than the matcher looks. Whatever the frames say, it lays nothing and waits
+                    // for nothing: an ordinary step from its frame says whether the page went on in it.
+                    unreadable.jerkNotPlaced()
+                    consecutiveFailures = 0
+                    unmatchedScroll = 0
+                    previous = next
+                    previousIsNotLaid = true
+                    // A frame that changed is headway, so that the checks do not run into the timeout.
+                    if frameChanged { noteProgress() }
+                    recordStep("\(head) · \(error) → unreadable stretch: jerk \(unreadable.jerks + 1) not placed, checking")
+                    stepInFlight = false
+                    inFlightLines = nil
+                    continue
+                }
                 // The matcher cannot place the step. Why is a question for
                 // the frames, asked once: which tiles stand still, and, when
                 // the calibration says how far the page should have moved,
@@ -1362,14 +1476,36 @@ final class ScrollingCaptureSession {
                       : pixelsPerLine == nil ? "no calibration"
                       : "step not clean (\(unmatchedScroll) px unaccounted)")) + secondLookNote
                 let consistent = evidence?.consistent ?? 0
-                let galleryAllowed = sidewaysSection.isActive
+                if isCheck {
+                    // The check was not placed. The tiles say whether the page moved all the same, as after a push.
+                    let jerkNumber = unreadable.jerks + 1
+                    let line = "\(head) · \(error) · \(said)"
+                    let moves = ScrollPush.movesPage(placed: false, decision: decision)
+                    let jerk = moves ? jerkFrameToLay(oldFrame) : nil
+                    let after = unreadable.afterCheck(placed: false, decision: decision, jerkRepeats: jerk == .repeatsPageLeft)
+                    if let jerk, after == .jerkThenConfirmed {
+                        guard layJerkFrame(oldFrame, as: jerk) else { return }
+                        recordStep("\(line) → unreadable stretch: jerk \(jerkNumber) not placed · check: moves"
+                                   + (jerk == .lay ? " → jerk frame laid edge to edge" : ", jerk frame is the page laid"))
+                        // The tiles bear out its distance: it waits as a step that was confirmed, below.
+                    } else {
+                        guard meetStandingCheck(next: next, line: line, jerkNumber: jerkNumber, ceiling: after == .ceiling,
+                                                check: jerk == .repeatsPageLeft ? Self.repeatingJerkCheck : "check: stands") else { return }
+                        if frameChanged { noteProgress() }
+                        stepInFlight = false
+                        inFlightLines = nil
+                        continue
+                    }
+                }
+                // A check is no stage of a gallery: it goes on from the frame of a jerk.
+                let galleryAllowed = !isCheck && (sidewaysSection.isActive
                     ? sidewaysSection.canContinue(axis: axis, verticalUndecided: undecided, isPush: isPush,
                                                    frameChanged: frameChanged, pushMode: pushMode,
                                                    checking: pushCheck != nil)
                     : ScrollSidewaysSection.canInspect(axis: axis, verticalUndecided: undecided, isPush: isPush,
                                                        expected: expected, calibrationConfirmed: calibrationHeld,
                                                        frameChanged: frameChanged, contradicted: evidence?.contradicted ?? false,
-                                                       pushMode: pushMode, checking: pushCheck != nil)
+                                                       pushMode: pushMode, checking: pushCheck != nil))
                 if galleryAllowed {
                     let before = temporary.steps.last?.frame ?? oldFrame
                     let section = sidewaysSection
@@ -1466,6 +1602,8 @@ final class ScrollingCaptureSession {
                     // from this frame says which.
                     recordStep("\(head) · \(error) · \(said)\(pushed) → push: frame changed, checking")
                     pushCheck = PushCheck(before: oldFrame, frame: next, lines: sentLines)
+                    // The changed push is headway: 2026-10-20-193419 step 62 timed out before its check.
+                    noteProgress()
                     previous = next
                     unmatchedScroll = 0
                     consecutiveFailures = 0
@@ -1481,28 +1619,57 @@ final class ScrollingCaptureSession {
                         && ScrollPush.isReliableStep(difference: difference, unpinnedStanding: unpinned)
                     consecutiveFailures = 0
                     recordStep("\(head) · \(error) · \(said) → stop: \(standing), page not moving \(zeroMotionCount) of 3")
+                    var stretchRefusal: ScrollUnreadableStretch.Refusal?
                     if zeroMotionCount >= 3 {
-                        // Three steps in a row proved without movement: the
-                        // end of the content.
-                        finish()
-                        return
+                        // Steps wait that nothing placed, and the page seems to stand: a section that plays its own
+                        // motion. That is no end of the content, and the third step would drop them.
+                        if !temporary.isEmpty {
+                            let stretch = try await meetUnreadableStretch(
+                                next: next, trigger: .standing(count: zeroMotionCount, queued: temporary.count),
+                                line: head)
+                            if stretch == .ended { return }
+                            if stretch == .laid { break }
+                            if case .declined(let why) = stretch { stretchRefusal = why }
+                        }
                     }
-                    // Two in a row, and nothing waiting: the third is a push, in
-                    // case the page snaps back to where it was after a short step.
-                    if !sidewaysSection.isActive, ScrollPush.startsPush(zeroMotionCount: zeroMotionCount, queueIsEmpty: temporary.isEmpty,
-                                             allowed: pushesAllowed) {
+                    switch ScrollPush.afterStanding(zeroMotionCount: zeroMotionCount, queueIsEmpty: temporary.isEmpty,
+                                                    allowed: pushesAllowed, endPushUsed: endConfirmation.used,
+                                                    stretchRefusal: stretchRefusal, galleryActive: sidewaysSection.isActive) {
+                    case .confirmEnd:
+                        if !temporary.isEmpty {
+                            // T2 saw the page already laid (2026-10-20-004706, d=0.0381). The queue would be
+                            // dropped at the end anyway. The push is measured from this standing frame, whose
+                            // page is the laid one, so no queued distance reaches a section replacement or check.
+                            let dropped = temporary.discard()
+                            previous = next
+                            // Differences from the discarded queue are not the page's own motion: a new push
+                            // must not have those tiles masked out (2026-10-20-004706, 2026-10-14-214945).
+                            stationary = StationaryFrame(frame: next)
+                            recordStep("· confirming push: queue dropped \(dropped), frames do not change")
+                        }
+                        endConfirmation.start()
                         pushMode = .push
                         pushAfterReliableSteps = stationaryAllReliable ? zeroMotionCount : 0
+                        recordStep("· confirming push before end")
+                    case .finish:
+                        finish()
+                        return
+                    case .push:
+                        pushMode = .push
+                        pushAfterReliableSteps = stationaryAllReliable ? zeroMotionCount : 0
+                    case .wait:
+                        break
                     }
                 case .temporary(let confirmed):
                     // Not placed by the frames: placed where the calibration
                     // says, and kept apart until a step the matcher does
-                    // place carries it into the image.
+                    // place carries it into the image. After the frame it was measured from.
+                    guard layUnlaidBase() else { return }
                     let blocks = await pinnedBlocks(from: oldFrame, to: next, shift: nil)
                     try ensureActive()
                     guard acceptsFrame(next, head: head) else { return }
                     temporary.add(next, movement: expected ?? 0, confirmed: confirmed, lines: sentLines,
-                                  stationaryLines: stationaryLines, pinned: blocks)
+                                  stationaryLines: stationaryLines, pinned: blocks, step: stepNumber)
                     repeatGuard.rememberCheckedFrame()
                     noteProgress()
                     recordStep("\(head) · \(error) · \(said) · \(standing) → temporary (\(confirmed ? "confirmed" : "unconfirmed")), queue \(temporary.count)")
@@ -1539,6 +1706,12 @@ final class ScrollingCaptureSession {
                             laidSinceMatch: queueLaidByCalibration))
                     }
                     guard byCalibration, let expected else {
+                        // The calibration cannot lay them, and nothing reads them: a stretch that goes on in jerks
+                        // is more than the capture that ends here.
+                        let stretch = try await meetUnreadableStretch(
+                            next: next, trigger: .queueFull(queued: temporary.count), line: "\(head) · \(error) · \(said)")
+                        if stretch == .ended { return }
+                        if stretch == .laid { break }
                         recordStep("\(head) · \(error) · \(said) → saved: \(temporary.count) steps wait for a confirmation")
                         finish()
                         return
@@ -1589,6 +1762,14 @@ final class ScrollingCaptureSession {
                                 break
                             }
                         }
+                        // The next will not match either, with steps waiting that nothing placed or without: a section
+                        // that plays its own motion, or a page that goes on in frames the matcher cannot read. What
+                        // waits, and this frame, are other screens of the page, and the way on from here may read again.
+                        let stretch = try await meetUnreadableStretch(
+                            next: next, trigger: .failed(queued: temporary.count),
+                            line: "\(head) · \(error) · \(said)")
+                        if stretch == .ended { return }
+                        if stretch == .laid { break }
                         // A video, an animation, a section that stays where
                         // it is: whatever it is, the steps will not line up,
                         // and what is collected is what there is. The user
@@ -1647,6 +1828,245 @@ final class ScrollingCaptureSession {
             stepInFlight = false
             inFlightLines = nil
         }
+    }
+
+    /// What the log says of a check that shows the page going on after a jerk whose frame is a page already left.
+    private static let repeatingJerkCheck = "check: moves, but the jerk frame repeats a page already left → stands"
+
+    private enum StretchOutcome: Equatable {
+        /// A series is laid, and the next steps are jerks.
+        case laid
+        /// Not a stretch: the capture ends as it would have.
+        case declined(ScrollUnreadableStretch.Refusal?)
+        /// The capture is over.
+        case ended
+    }
+
+    /// The capture would end with steps waiting that nothing read. Frames of
+    /// them — up to three, with the current one — are laid edge to edge, and
+    /// the queue is dropped: what lies between them is lost, and a section
+    /// longer than the queue may be shown more than once. The steps that
+    /// follow are jerks, as through a pinned section (`ScrollPush`), until the
+    /// matcher places one. `line` is what the step has said so far.
+    private func meetUnreadableStretch(next: CaptureFrame, trigger: ScrollUnreadableStretch.Trigger,
+                                       line: String) async throws -> StretchOutcome {
+        guard let laid = assembler.lastFrame else {
+            recordStep("\(line) → unreadable stretch declined: no frame laid")
+            return .declined(nil)
+        }
+        let difference = meanDifference(laid, next)
+        let situation = ScrollUnreadableStretch.Situation(
+            trigger: trigger, isVertical: axis == .vertical, galleryActive: sidewaysSection.isActive,
+            pushing: pushMode != .none || pushCheck != nil,
+            framesChange: ScrollUnreadableStretch.isAnotherScreen(difference: difference),
+            isRepeat: repeatGuard.checkForRepeat(next, excluding: previous),
+            placedSince: laidSinceStretch || unreadable.stretches == 0)
+        switch unreadable.decide(situation) {
+        case .save:
+            // The trigger fired and nothing is laid: the log says why, so that a capture that ends here can be read.
+            let why = unreadable.refusal(situation)
+            recordStep("\(line) → unreadable stretch declined: \(why?.note ?? "")"
+                       + (why == .framesDoNotChange ? " (d=\(String(format: "%.4f", difference)))" : ""))
+            return .declined(why)
+        case .tooMany:
+            recordStep("\(line) → saved: the capture met too many stretches it could not read")
+            Log.capture.notice("scroll too many unreadable stretches · saved what was collected")
+            finish()
+            return .ended
+        case .series:
+            break
+        }
+        let waiting = temporary.steps
+        let frames = waiting.map(\.frame) + [next]
+        let numbers = waiting.map(\.step) + [stepNumber]
+        var selection: ScrollSeries.Selection?
+        if !waiting.isEmpty {
+            // What the frames show, off the main thread: which are whole screens (`ScrollSeries`).
+            let analysis = try await ScrollCaptureCancellationBoundary.awaitActive {
+                await Task.detached(priority: .userInitiated) {
+                    (frames.map(ScrollSeries.measure), ([laid] + frames).map(ScrollRepeatGuard.Signature.init))
+                }.value
+            }
+            try ensureActive()
+            let chosen = ScrollSeries.choose(analysis.0) { a, b in analysis.1[a + 1].matches(analysis.1[b + 1]) }
+            guard !chosen.indices.isEmpty else {
+                recordStep("\(line) → unreadable stretch declined: the frames show the page already laid")
+                return .declined(nil)
+            }
+            selection = chosen
+            for index in chosen.indices {
+                guard layEdgeToEdge(frames[index], line: line) else { return .ended }
+            }
+            // The queue's frames were remembered when they were queued; the current one is new.
+            if chosen.indices.last == frames.count - 1 { repeatGuard.rememberCheckedFrame() }
+        }
+        let chosenCount = selection?.indices.count ?? 0
+        let steps = frames.count
+        temporary.discard()
+        noteProgress()
+        // The page is at the current frame, whatever the series took: jerks and the steps after are measured from
+        // it, and it is laid first, when something goes after it (`layUnlaidBase`). A series of nothing but the
+        // current frame lays nothing.
+        previous = next
+        previousIsNotLaid = !ScrollUnreadableStretch.laysCurrentFrame(chosen: selection?.indices ?? [], count: frames.count)
+        baseWasLeftOutBySeries = previousIsNotLaid && selection != nil
+        laidSinceStretch = false
+        zeroMotionCount = 0
+        stationaryLines = 0
+        stationary = nil
+        stationaryAllReliable = true
+        pushMode = .none
+        pushAfterReliableSteps = 0
+        rememberedLine = nil
+        unmatchedScroll = 0
+        consecutiveFailures = 0
+        requestedStep = max(24, Int(Double(axisLength(of: next)) * 0.60))
+        unreadable.begin()
+        recordStep("\(line) → unreadable stretch: \(steps) steps, \(chosenCount) frames laid edge to edge"
+                   + (selection.map { " · " + Self.seriesNote($0, numbers: numbers) } ?? ""))
+        Log.capture.notice("scroll unreadable stretch · \(steps, privacy: .public) steps, \(chosenCount, privacy: .public) frames laid edge to edge")
+        return .laid
+    }
+
+    /// Which frames the series took and why, for the line of the stretch: `series: frames 27, 29, 31 of 26–34
+    /// (flat: 32, 33, 34 dropped)`. Frames are named by the number of their step, or by their place in the
+    /// queue (`#3`) when they have none.
+    private static func seriesNote(_ selection: ScrollSeries.Selection, numbers: [Int]) -> String {
+        func name(_ index: Int) -> String { numbers[index] > 0 ? "\(numbers[index])" : "#\(index)" }
+        func list(_ indices: [Int]) -> String { indices.map(name).joined(separator: ", ") }
+        var note = "series: frames \(list(selection.indices)) of \(name(0))–\(name(numbers.count - 1))"
+        var why: [String] = []
+        if !selection.fills.isEmpty { why.append("flat: \(list(selection.fills)) dropped") }
+        if !selection.toppedUp.isEmpty { why.append("topped up: \(list(selection.toppedUp))") }
+        if !selection.cut.isEmpty { why.append("cut: \(list(selection.cut)) behind whole ones") }
+        if selection.byNumber { why.append("frames alike, by number") }
+        if !why.isEmpty { note += " (" + why.joined(separator: "; ") + ")" }
+        return note
+    }
+
+    /// The frame the page is at (`previous`) is not in the image, and something is about to be laid from it or
+    /// queued after it: it goes in first, edge to edge, if it is another screen than the last frame laid and no
+    /// page the capture has left. What is measured from a frame belongs after that frame, and not after the
+    /// last one laid. False when the capture is over.
+    private func layUnlaidBase() -> Bool {
+        guard previousIsNotLaid, temporary.isEmpty, let base = previous else { return true }
+        switch jerkFrameToLay(base) {
+        case .lay:
+            guard layEdgeToEdge(base, line: "·") else { return false }
+            previousIsNotLaid = false
+            repeatGuard.rememberCheckedFrame()
+            noteProgress()
+            recordStep("· previous laid edge to edge")
+        case .thePageLaid:
+            previousIsNotLaid = false
+        case .repeatsPageLeft:
+            // It cannot be laid, and what follows is placed after the frame that is: the log says it.
+            previousIsNotLaid = false
+            recordStep("· previous not laid: a page already left")
+        }
+        return true
+    }
+
+    /// The frame the page is at was left out of the image by the series, and a step the matcher placed from it
+    /// arrives: that step's own frame is laid whole, edge to edge, after the last frame laid. Nil when the capture
+    /// is over.
+    private func layAfterLeftOutBase(_ frame: CaptureFrame, head: String) -> Laid? {
+        guard acceptsFrame(frame, head: head), layEdgeToEdge(frame, line: head) else { return nil }
+        previousIsNotLaid = false
+        baseWasLeftOutBySeries = false
+        repeatGuard.rememberCheckedFrame()
+        noteProgress()
+        laidSinceStretch = true
+        recordStep("· previous left out by the series: the frame laid edge to edge")
+        return Laid(waiting: 0, queueSeams: [])
+    }
+
+    /// A frame laid right after the last one, with no overlap. False when the
+    /// capture is over: the image is full, or the frame could not be laid. The
+    /// error stays here, in the log, and is not the step's.
+    private func layEdgeToEdge(_ frame: CaptureFrame, line: String) -> Bool {
+        guard makeRoom(for: axisLength(of: frame)) else {
+            Log.capture.notice("scroll unreadable stretch only partly laid · the image is full")
+            finish()
+            return false
+        }
+        do {
+            try assembler.appendEdgeToEdge(frame)
+        } catch {
+            recordStep("\(line) → unreadable stretch: frame not laid (\(error))")
+            Log.capture.notice("scroll unreadable stretch frame not laid · saved what was collected")
+            finish()
+            return false
+        }
+        // A vertical placement, as any other: the gallery latch goes, and what follows is not a stage of it.
+        sidewaysSection = ScrollSidewaysSection()
+        endConfirmation.placedFrame(.append)
+        return true
+    }
+
+    /// Whether a frame of the way after a stretch is to be laid: another screen
+    /// than the last frame laid, and not one the capture has left. Asking
+    /// remembers the frame for `rememberCheckedFrame`.
+    private func laysEdgeToEdge(_ frame: CaptureFrame) -> Bool {
+        guard let laid = assembler.lastFrame else { return false }
+        return ScrollUnreadableStretch.laysFrame(
+            anotherScreen: ScrollUnreadableStretch.isAnotherScreen(difference: meanDifference(laid, frame)),
+            isRepeat: repeatGuard.checkForRepeat(frame, excluding: laid))
+    }
+
+    /// What the frame of a jerk that was not placed is to the image, asked when
+    /// a check shows the page going on. Asking remembers the frame for
+    /// `rememberCheckedFrame`.
+    private func jerkFrameToLay(_ frame: CaptureFrame) -> ScrollUnreadableStretch.JerkFrame {
+        guard let laid = assembler.lastFrame else { return .thePageLaid }
+        return ScrollUnreadableStretch.jerkFrame(
+            anotherScreen: ScrollUnreadableStretch.isAnotherScreen(difference: meanDifference(laid, frame)),
+            isRepeat: repeatGuard.checkForRepeat(frame, excluding: laid))
+    }
+
+    /// The frame of a jerk, laid edge to edge when it is another screen. False
+    /// when the capture is over.
+    private func layJerkFrame(_ frame: CaptureFrame, as jerk: ScrollUnreadableStretch.JerkFrame) -> Bool {
+        guard jerk == .lay else { return true }
+        guard layEdgeToEdge(frame, line: "·") else { return false }
+        previousIsNotLaid = false
+        repeatGuard.rememberCheckedFrame()
+        noteProgress()
+        return true
+    }
+
+    /// A check that shows the page standing: the jerk before it changed the
+    /// section's stage and is not laid. The next jerk goes from this frame, not
+    /// from the last frame laid, and the proof that the page stood is the tiles
+    /// of the one pair, the jerk's frame and this. At the fourth, the way goes on
+    /// as usual from this frame, laid edge to edge if it is another screen — the
+    /// steps that follow are looked for from it, and the page is already far
+    /// from where they would otherwise begin. `check` is what the log says of
+    /// the check. False when the capture is over.
+    private func meetStandingCheck(next: CaptureFrame, line: String, jerkNumber: Int, ceiling: Bool,
+                                   check: String = "check: stands") -> Bool {
+        previous = next
+        previousIsNotLaid = true
+        unmatchedScroll = 0
+        consecutiveFailures = 0
+        guard ceiling else {
+            recordStep("\(line) → unreadable stretch: jerk \(jerkNumber) not placed · \(check)")
+            return true
+        }
+        let last = "jerk \(jerkNumber) of \(ScrollUnreadableStretch.jerkLimit) not placed · \(check)"
+        guard laysEdgeToEdge(next) else {
+            recordStep("\(line) → unreadable stretch: \(last), the page stands → saved")
+            Log.capture.notice("scroll unreadable stretch · the page stood through the jerks · saved what was collected")
+            finish()
+            return false
+        }
+        guard layEdgeToEdge(next, line: line) else { return false }
+        previousIsNotLaid = false
+        repeatGuard.rememberCheckedFrame()
+        noteProgress()
+        requestedStep = max(24, Int(Double(axisLength(of: next)) * 0.60))
+        recordStep("\(line) → unreadable stretch: \(last) → last check laid edge to edge, ordinary steps go on")
+        return true
     }
 
     /// A measured step, whether found directly or recovered from an overshot
