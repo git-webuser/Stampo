@@ -116,7 +116,7 @@ final class ScrollingCaptureSession {
     private var laidSinceStretch = false
     private var zeroMotionCount = 0
     /// An ordinary push may be undone before the page stands again. Only the confirming push spends this
-    /// attempt; it is renewed by a frame actually entering the image, not by one entering the queue.
+    /// attempt; it is renewed when the image grows, not when a stage is replaced or a frame enters the queue.
     private var endConfirmation = ScrollPush.EndConfirmation()
     /// The lines of the steps decided as stationary since the last frame was
     /// kept. The page may have moved in them all the same, when the calibration
@@ -619,7 +619,7 @@ final class ScrollingCaptureSession {
         if let repair = assembler.lastRepair { repairs.append(repair) }
         noteProgress()
         laidSinceStretch = true
-        endConfirmation.laidFrame()
+        endConfirmation.placedFrame(previous == nil ? .append : .replace)
         return Laid(waiting: waiting.count, queueSeams: seams, repairs: repairs)
     }
 
@@ -1053,7 +1053,7 @@ final class ScrollingCaptureSession {
         }
         self.viewport = croppedViewport
         assembler.begin(with: first)
-        endConfirmation.laidFrame()
+        endConfirmation.placedFrame(.append)
         sidewaysSection = ScrollSidewaysSection()
         repeatGuard = ScrollRepeatGuard()
         repeatGuard.remember(first)
@@ -1374,7 +1374,6 @@ final class ScrollingCaptureSession {
                     if keep == .keepReplacingStage {
                         do {
                             try assembler.replaceLast(with: check.frame)
-                            endConfirmation.laidFrame()
                         } catch {
                             recordStep("\(head) · match \(match.offset) px → check: section ends in the check, frame not replaced")
                             finish()
@@ -1633,7 +1632,7 @@ final class ScrollingCaptureSession {
                     }
                     switch ScrollPush.afterStanding(zeroMotionCount: zeroMotionCount, queueIsEmpty: temporary.isEmpty,
                                                     allowed: pushesAllowed, endPushUsed: endConfirmation.used,
-                                                    stretchRefusal: stretchRefusal) {
+                                                    stretchRefusal: stretchRefusal, galleryActive: sidewaysSection.isActive) {
                     case .confirmEnd:
                         if !temporary.isEmpty {
                             // T2 saw the page already laid (2026-10-20-004706, d=0.0381). The queue would be
@@ -1641,6 +1640,9 @@ final class ScrollingCaptureSession {
                             // page is the laid one, so no queued distance reaches a section replacement or check.
                             let dropped = temporary.discard()
                             previous = next
+                            // Differences from the discarded queue are not the page's own motion: a new push
+                            // must not have those tiles masked out (2026-10-20-004706, 2026-10-14-214945).
+                            stationary = StationaryFrame(frame: next)
                             recordStep("· confirming push: queue dropped \(dropped), frames do not change")
                         }
                         endConfirmation.start()
@@ -1650,10 +1652,10 @@ final class ScrollingCaptureSession {
                     case .finish:
                         finish()
                         return
-                    case .push where !sidewaysSection.isActive:
+                    case .push:
                         pushMode = .push
                         pushAfterReliableSteps = stationaryAllReliable ? zeroMotionCount : 0
-                    case .push, .wait:
+                    case .wait:
                         break
                     }
                 case .temporary(let confirmed):
@@ -1996,7 +1998,7 @@ final class ScrollingCaptureSession {
         }
         // A vertical placement, as any other: the gallery latch goes, and what follows is not a stage of it.
         sidewaysSection = ScrollSidewaysSection()
-        endConfirmation.laidFrame()
+        endConfirmation.placedFrame(.append)
         return true
     }
 
@@ -2354,7 +2356,6 @@ final class ScrollingCaptureSession {
             finish()
             return false
         }
-        endConfirmation.laidFrame()
         repeatGuard.rememberCheckedFrame()
         previous = next
         zeroMotionCount = 0
@@ -2388,7 +2389,6 @@ final class ScrollingCaptureSession {
             finish()
             return false
         }
-        endConfirmation.laidFrame()
         noteProgress()
         pushCheck = nil
         pushMode = step.mode

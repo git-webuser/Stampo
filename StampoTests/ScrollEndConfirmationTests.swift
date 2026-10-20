@@ -2,15 +2,15 @@ import Testing
 @testable import Stampo
 
 /// The last standing step may be a pinned section, including after an ordinary
-/// push was undone. Only a confirming push spends the attempt until a frame is laid.
+/// push was undone. Only a confirming push spends the attempt until the image grows.
 @Suite struct ScrollEndConfirmationTests {
     typealias Action = ScrollPush.StandingAction
     typealias Refusal = ScrollUnreadableStretch.Refusal
 
     private func action(_ count: Int, empty: Bool = true, allowed: Bool = true,
-                        used: Bool = false, refusal: Refusal? = nil) -> Action {
+                        used: Bool = false, refusal: Refusal? = nil, gallery: Bool = false) -> Action {
         ScrollPush.afterStanding(zeroMotionCount: count, queueIsEmpty: empty, allowed: allowed,
-                                 endPushUsed: used, stretchRefusal: refusal)
+                                 endPushUsed: used, stretchRefusal: refusal, galleryActive: gallery)
     }
 
     @Test func beforeTheSecondStandingStepNothingStarts() {
@@ -77,6 +77,21 @@ import Testing
         }
     }
 
+    @Test func anActiveGalleryKeepsBothPushesFromStarting() {
+        for empty in [false, true] {
+            for allowed in [false, true] {
+                for used in [false, true] {
+                    #expect(action(2, empty: empty, allowed: allowed, used: used,
+                                   refusal: .framesDoNotChange, gallery: true) == .wait)
+                    for count in [3, 4] {
+                        #expect(action(count, empty: empty, allowed: allowed, used: used,
+                                       refusal: .framesDoNotChange, gallery: true) == .finish)
+                    }
+                }
+            }
+        }
+    }
+
     /// 2026-10-19-133530, steps 12–16: an ordinary push was undone, leaving an
     /// empty queue and pushes forbidden. It must still get one confirmation.
     @Test func anOrdinaryPushAndItsUndoDoNotSpendTheConfirmation() {
@@ -109,7 +124,7 @@ import Testing
         }
     }
 
-    @Test func restartingTheStandingCountWithoutLayingAFrameDoesNotRenewTheAttempt() {
+    @Test func restartingTheStandingCountWithoutGrowingTheImageDoesNotRenewTheAttempt() {
         var confirmation = ScrollPush.EndConfirmation()
         confirmation.start()
         // A temporary step can reset the standing count without putting a frame into the image.
@@ -127,16 +142,39 @@ import Testing
         #expect(action(3, allowed: false, used: confirmation.used) == .finish)
     }
 
-    @Test func onlyLayingAFrameRenewsTheConfirmation() {
+    @Test func onlyAppendingAFrameRenewsTheConfirmation() {
+        let cases: [(ScrollPush.EndConfirmation.Placement, Bool, Bool)] = [
+            (.append, false, false), (.append, true, false),
+            (.replace, false, false), (.replace, true, true)
+        ]
+        for (placement, usedBefore, usedAfter) in cases {
+            var confirmation = ScrollPush.EndConfirmation()
+            if usedBefore { confirmation.start() }
+            confirmation.placedFrame(placement)
+            #expect(confirmation.used == usedAfter)
+            let expected: Action = usedAfter ? .finish : .confirmEnd
+            #expect(action(3, allowed: false, used: confirmation.used) == expected)
+        }
+    }
+
+    @Test func aSectionThatReplacesAStageAndReturnsWithoutGrowthCannotConfirmAgain() {
         var confirmation = ScrollPush.EndConfirmation()
-        confirmation.start()
-        #expect(action(3, used: confirmation.used) == .finish)
-        confirmation.laidFrame()
-        #expect(!confirmation.used)
-        #expect(action(0, used: confirmation.used) == .wait)
         #expect(action(3, allowed: false, used: confirmation.used) == .confirmEnd)
         confirmation.start()
+        let pushed = ScrollPush.next(mode: .push, outcome: .stationary(changed: true))
+        let replaced = ScrollPush.afterCheck(mode: pushed.mode, movesPage: false)
+        #expect(replaced == ScrollPush.Step(action: .replace, mode: .section(pushes: 1)))
+        confirmation.placedFrame(.replace)
+        #expect(confirmation.used)
+        let sectionPush = ScrollPush.next(mode: replaced.mode, outcome: .stationary(changed: true))
+        #expect(sectionPush == ScrollPush.Step(action: .check, mode: .check(pushes: 2)))
+        // A firm check moving a whole step undoes the push and returns into the section.
+        #expect(ScrollPush.afterMovingCheck(offset: 800, expected: 800, confidence: 0.98,
+                                           mode: sectionPush.mode) == .undo)
         #expect(action(3, allowed: false, used: confirmation.used) == .finish)
+        confirmation.placedFrame(.append)
+        #expect(!confirmation.used)
+        #expect(action(3, allowed: false, used: confirmation.used) == .confirmEnd)
     }
 
     @Test func aConfirmationUsesTheExistingQuietAndChangedPushOutcomes() {
@@ -169,5 +207,24 @@ import Testing
             #expect(action(2, empty: false) == .wait)
             #expect(action(3, empty: false, refusal: refusal) == .confirmEnd)
         }
+    }
+
+    /// A queued frame at another place can contaminate the old mask. This checks the clean stationary
+    /// value and push judgement; the private session assignment after discarding the queue is checked by review.
+    @Test func aFreshStandingFrameDoesNotMaskAChangeFromTheDiscardedQueue() throws {
+        let size = ScrollStillness.grid
+        let pixels = [UInt8](repeating: 100, count: size * size * 4)
+        let next = CaptureFrame(width: size, height: size, pixels: pixels)
+        var queuedPixels = pixels
+        for channel in 0..<3 { queuedPixels[15 * 4 + channel] = 105 }
+        let queued = CaptureFrame(width: size, height: size, pixels: queuedPixels)
+        let contaminated = StationaryFrame.after(step: next, kept: queued, previous: nil)
+        #expect(contaminated.ownMotion == [15])
+        let fresh = StationaryFrame(frame: next)
+        #expect(fresh.frame == next)
+        #expect(fresh.ownMotion.isEmpty)
+        let pushTiles = try #require(ScrollStillness.tileDifferences(next, queued))
+        #expect(ScrollPush.changedBesidesOwnMotion(push: pushTiles, ownMotion: contaminated.ownMotion) == false)
+        #expect(ScrollPush.changedBesidesOwnMotion(push: pushTiles, ownMotion: fresh.ownMotion) == true)
     }
 }

@@ -493,12 +493,19 @@ nonisolated enum ScrollPush {
 
     /// Only an end-confirming push spends this attempt. An ordinary push may have been undone before the
     /// third standing step (2026-10-19-133530); undoing the confirmation must not start that loop again.
-    /// Queuing a frame or meeting a stretch that lays nothing does not renew it.
+    /// Only an append renews it: replacing a section's stage can keep the capture in the same section through
+    /// another undo, without adding any page to the image. Queuing a frame does not renew it either.
     struct EndConfirmation {
         private(set) var used = false
 
+        enum Placement {
+            case append, replace
+        }
+
         mutating func start() { used = true }
-        mutating func laidFrame() { used = false }
+        mutating func placedFrame(_ placement: Placement) {
+            if placement == .append { used = false }
+        }
     }
 
     enum StandingAction: Equatable {
@@ -509,13 +516,16 @@ nonisolated enum ScrollPush {
     /// confirmation ignores `allowed`: the cancelled push in 2026-10-13-221958 is no proof of an end.
     /// A waiting queue gets the stretch's first refusal: only frames that show the page already laid may be
     /// dropped before confirming (2026-10-14-214945, d=0.0062; 2026-10-20-004706, d=0.0381). Other refusals
-    /// keep their old end, and a stretch that was laid never reaches this decision.
+    /// keep their old end, and a stretch that was laid never reaches this decision. A latched gallery keeps
+    /// its own stages: neither push may enter the ordinary section replacement path over them.
     static func afterStanding(zeroMotionCount: Int, queueIsEmpty: Bool, allowed: Bool,
-                              endPushUsed: Bool, stretchRefusal: ScrollUnreadableStretch.Refusal? = nil) -> StandingAction {
+                              endPushUsed: Bool, stretchRefusal: ScrollUnreadableStretch.Refusal? = nil,
+                              galleryActive: Bool = false) -> StandingAction {
         if zeroMotionCount >= 3 {
-            guard !endPushUsed, queueIsEmpty || stretchRefusal == .framesDoNotChange else { return .finish }
+            guard !galleryActive, !endPushUsed, queueIsEmpty || stretchRefusal == .framesDoNotChange else { return .finish }
             return .confirmEnd
         }
+        guard !galleryActive else { return .wait }
         return startsPush(zeroMotionCount: zeroMotionCount, queueIsEmpty: queueIsEmpty, allowed: allowed)
             ? .push : .wait
     }
