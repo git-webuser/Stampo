@@ -76,6 +76,7 @@ nonisolated struct ScrollUnreadableStretch: Sendable {
         /// only for as many frames as it may drop (`queuedStageLimit`): with more
         /// waiting it can take no further stage, and the latch, which only a
         /// vertical append or vertical support releases, would hold forever.
+        /// Exhausted retries do not wait for another gallery stage.
         var galleryActive: Bool
         /// A push, or the check of one, is under way.
         var pushing: Bool
@@ -130,7 +131,12 @@ nonisolated struct ScrollUnreadableStretch: Sendable {
     func refusal(_ situation: Situation) -> Refusal? {
         guard situation.isVertical else { return .notVertical }
         if situation.galleryActive, situation.trigger.queued <= ScrollSidewaysSection.queuedStageLimit {
-            return .galleryLatched
+            // 2026-10-20-201506 step 34: retries at smaller steps found no gallery stage. The latch must
+            // not end the capture there; the other stretch safeguards still decide whether it can go on.
+            switch situation.trigger {
+            case .failed: break
+            case .queueFull, .standing: return .galleryLatched
+            }
         }
         guard !situation.pushing else { return .pushing }
         guard phase == .off else { return .underway }

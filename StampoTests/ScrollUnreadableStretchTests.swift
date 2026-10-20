@@ -46,7 +46,7 @@ import Testing
         #expect(stretch.refusal(situation(.failed(queued: 0), changes: false)) == .framesDoNotChange)
         #expect(stretch.decide(situation(.failed(queued: 0), repeats: true)) == .save)
         #expect(stretch.refusal(situation(.failed(queued: 0), repeats: true)) == .repeatsPage)
-        #expect(stretch.decide(situation(.failed(queued: 0), gallery: true)) == .save)
+        #expect(stretch.decide(situation(.failed(queued: 0), gallery: true)) == .series)
         // Nothing waits and nothing was placed since the last stretch: the page's last screen playing, not a page
         // that reads on. With steps waiting it is a stretch all the same.
         #expect(stretch.decide(situation(.failed(queued: 0), placed: false)) == .save)
@@ -57,9 +57,56 @@ import Testing
         #expect(stretch.decide(situation(.failed(queued: 3), pushing: true)) == .save)
         #expect(stretch.decide(situation(.failed(queued: 3), changes: false)) == .save)
         #expect(stretch.decide(situation(.failed(queued: 3), repeats: true)) == .save)
-        #expect(stretch.decide(situation(.failed(queued: 2), gallery: true)) == .save)
+        #expect(stretch.decide(situation(.failed(queued: 2), gallery: true)) == .series)
         #expect(stretch.decide(situation(.failed(queued: 3), gallery: true)) == .series)
         #expect(ScrollUnreadableStretch.Trigger.failed(queued: 3).queued == 3)
+    }
+
+    /// 2026-10-20-201506 step 34: no stage followed the gallery, even after both retries.
+    @Test func exhaustedRetriesBypassTheGalleryLatchWithOrWithoutAQueue() {
+        let stretch = ScrollUnreadableStretch()
+        for queued in [0, 1, 2, 3] {
+            let failed = situation(.failed(queued: queued), gallery: true)
+            #expect(stretch.refusal(failed) == nil)
+            #expect(stretch.decide(failed) == .series)
+        }
+    }
+
+    @Test func bypassingTheGalleryLatchKeepsEveryOtherFailedStepSafeguard() {
+        var stretch = ScrollUnreadableStretch()
+        for queued in [0, 1, 2, 3] {
+            let trigger = ScrollUnreadableStretch.Trigger.failed(queued: queued)
+            let refused: [(ScrollUnreadableStretch.Situation, ScrollUnreadableStretch.Refusal)] = [
+                (situation(trigger, vertical: false, gallery: true), .notVertical),
+                (situation(trigger, gallery: true, pushing: true), .pushing),
+                (situation(trigger, gallery: true, changes: false), .framesDoNotChange),
+                (situation(trigger, gallery: true, repeats: true), .repeatsPage)
+            ]
+            for (failed, refusal) in refused {
+                #expect(stretch.refusal(failed) == refusal)
+                #expect(stretch.decide(failed) == .save)
+            }
+            let unplaced = situation(trigger, gallery: true, placed: false)
+            let refusal: ScrollUnreadableStretch.Refusal? = queued == 0 ? .nothingPlacedSince : nil
+            #expect(stretch.refusal(unplaced) == refusal)
+            #expect(stretch.decide(unplaced) == (queued == 0 ? .save : .series))
+        }
+        stretch.begin()
+        for queued in [0, 1, 2, 3] {
+            let failed = situation(.failed(queued: queued), gallery: true)
+            #expect(stretch.refusal(failed) == .underway)
+            #expect(stretch.decide(failed) == .save)
+        }
+        stretch.placed()
+        for _ in 1..<ScrollUnreadableStretch.stretchLimit {
+            stretch.begin()
+            stretch.placed()
+        }
+        for queued in [0, 1, 2, 3] {
+            let failed = situation(.failed(queued: queued), gallery: true)
+            #expect(stretch.refusal(failed) == nil)
+            #expect(stretch.decide(failed) == .tooMany)
+        }
     }
 
     @Test func theCurrentFrameIsTheBaseWhenTheSeriesDidNotLayIt() {
@@ -113,10 +160,13 @@ import Testing
         let stretch = ScrollUnreadableStretch()
         #expect(ScrollSidewaysSection.queuedStageLimit == 2)
         // Up to the frames a stage may drop, the gallery is looked at first.
-        for queued in 1...ScrollSidewaysSection.queuedStageLimit {
+        for queued in 0...ScrollSidewaysSection.queuedStageLimit {
             let standing = situation(.standing(count: 3, queued: queued), gallery: true)
             #expect(stretch.decide(standing) == .save)
             #expect(stretch.refusal(standing) == .galleryLatched)
+            let full = situation(.queueFull(queued: queued), gallery: true)
+            #expect(stretch.decide(full) == .save)
+            #expect(stretch.refusal(full) == .galleryLatched)
         }
         // Past it no stage can be taken, and a latch that nothing releases (2026-10-19-131538 and
         // 2026-10-19-131122: stages to step 26, then eight steps in the queue) is no reason to end.
