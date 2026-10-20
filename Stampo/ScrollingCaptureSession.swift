@@ -1602,6 +1602,8 @@ final class ScrollingCaptureSession {
                     // from this frame says which.
                     recordStep("\(head) · \(error) · \(said)\(pushed) → push: frame changed, checking")
                     pushCheck = PushCheck(before: oldFrame, frame: next, lines: sentLines)
+                    // The changed push is headway: 2026-10-20-193419 step 62 timed out before its check.
+                    noteProgress()
                     previous = next
                     unmatchedScroll = 0
                     consecutiveFailures = 0
