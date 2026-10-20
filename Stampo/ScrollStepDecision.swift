@@ -656,21 +656,39 @@ nonisolated struct StationaryFrame: Sendable {
     }
 }
 
+/// Weaker evidence belongs only to gallery entry, never to vertical queue
+/// laying or parallax. A changed calibration must earn it again.
+nonisolated struct ScrollGalleryCalibration: Sendable {
+    private(set) var held = false
+
+    mutating func matchedStep(offset: Int, lines: Int, pixelsPerLine: Double?,
+                              placement: ScrollStepPlacement, isPush: Bool) {
+        guard placement.cleanStep, !isPush, let pixelsPerLine,
+              ScrollStepPlanner.agreesWithCalibration(offset: offset, lines: lines, pixelsPerLine: pixelsPerLine)
+        else { return }
+        held = true
+    }
+
+    mutating func reset() { held = false }
+}
+
 /// Whether a laid step supplies independent evidence about the calibration.
 nonisolated enum ScrollStepPlacement {
     case matched(cleanStep: Bool)
     case recovered
+    case parallax
+    case gallery
 
     var cleanStep: Bool {
         if case .matched(let cleanStep) = self { return cleanStep }
         return false
     }
 
-    /// A distance inferred from an overshot return cannot calibrate a full
-    /// wheel step or invalidate a line remembered from a matched step.
+    /// Inferred distances cannot calibrate a full wheel step or invalidate
+    /// a line remembered from a matched step.
     var updatesCalibration: Bool {
-        if case .recovered = self { return false }
-        return true
+        if case .matched = self { return true }
+        return false
     }
 }
 

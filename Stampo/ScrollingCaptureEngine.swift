@@ -392,20 +392,26 @@ nonisolated enum FrameMatcher {
                                    alongPos: [Int], crossPos: [Int],
                                    tileRowOfAlong: [Int], tileOfCross: [Int],
                                    into accumulators: UnsafeMutablePointer<Double>) {
+        let source = before.baseAddress!, target = after.baseAddress!
         let fields = 6, stride = limit + 1
         let axisLength = axis == .vertical ? before.count / (w * 4) : w
-        for delta in 0...limit {
-            for ai in 0..<alongPos.count {
+        // Keep range-iterator and checked-buffer overhead out of this hot
+        // Debug loop. The frame geometry and sample positions bound each read.
+        var delta = 0
+        while delta <= limit {
+            var ai = 0
+            while ai < alongPos.count {
                 let cAxis = alongPos[ai]
-                guard cAxis + delta < axisLength else { continue }
+                guard cAxis + delta < axisLength else { ai += 1; continue }
                 let rowTile = tileRowOfAlong[ai] * tileColumns
-                for ci in 0..<crossPos.count {
+                var ci = 0
+                while ci < crossPos.count {
                     let cross = crossPos[ci]
                     let i: Int, j: Int
                     if axis == .vertical { i = ((cAxis + delta) * w + cross) * 4; j = (cAxis * w + cross) * 4 }
                     else { i = (cross * w + cAxis + delta) * 4; j = (cross * w + cAxis) * 4 }
-                    let p0 = Int(before[i]), p1 = Int(before[i + 1]), p2 = Int(before[i + 2])
-                    let c0 = Int(after[j]), c1 = Int(after[j + 1]), c2 = Int(after[j + 2])
+                    let p0 = Int(source[i]), p1 = Int(source[i + 1]), p2 = Int(source[i + 2])
+                    let c0 = Int(target[j]), c1 = Int(target[j + 1]), c2 = Int(target[j + 2])
                     let error = Double(abs(p0 - c0) + abs(p1 - c1) + abs(p2 - c2)) / 765.0
                     let was = Double(p0 + p1 + p2) / 765.0
                     let now = Double(c0 + c1 + c2) / 765.0
@@ -413,8 +419,11 @@ nonisolated enum FrameMatcher {
                     slot[0] += error; slot[1] += 1
                     slot[2] += was; slot[3] += was * was
                     slot[4] += now; slot[5] += now * now
+                    ci += 1
                 }
+                ai += 1
             }
+            delta += 1
         }
     }
 

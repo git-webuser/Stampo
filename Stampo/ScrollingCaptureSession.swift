@@ -141,6 +141,7 @@ final class ScrollingCaptureSession {
     /// Steps placed by the calibration alone, waiting for one the matcher places.
     private var temporary = TemporarySteps()
     private var repeatGuard = ScrollRepeatGuard()
+    private var sidewaysSection = ScrollSidewaysSection()
     /// Tiles seen standing still while the page moved: fixed to the viewport,
     /// and no proof, by standing, that the page has stopped.
     private var pinnedTiles = Set<Int>()
@@ -157,10 +158,20 @@ final class ScrollingCaptureSession {
     /// How far one wheel line moved the page, measured on the probe. Nil until
     /// a probe has been matched, and then the estimate from points is what
     /// steps are planned from.
-    private var pixelsPerLine: Double?
+    private var pixelsPerLine: Double? {
+        didSet { galleryCalibration.reset() }
+    }
     /// Whether a full step has matched what the calibration says, so that lines
     /// are known to move the page in proportion.
-    private var linearityConfirmed = false
+    private var linearityConfirmed = false {
+        didSet { if !linearityConfirmed { galleryCalibration.reset() } }
+    }
+    /// A close full step that matched, short of the proof `linearityConfirmed`
+    /// asks for. Whenever the calibration changes it has to be earned again.
+    private var galleryCalibration = ScrollGalleryCalibration()
+    /// The calibration is good enough to enter a sideways gallery with: the
+    /// stricter `linearityConfirmed` still rules vertical laying and parallax.
+    private var calibrationHeld: Bool { linearityConfirmed || galleryCalibration.held }
     /// Whether the queue that is waiting has had its short step (`ScrollQueueLaying.shortStepDue`).
     private var shortStepTried = false
     /// When the last wheel event was sent, and whether the capture waits after it for an overlay scroll bar to go
@@ -541,9 +552,12 @@ final class ScrollingCaptureSession {
     /// Lays a frame that is `movement` pixels along from the last frame into the
     /// image — first the steps that waited for one the matcher placed, at their
     /// own distances or, if the queue has been worked out again, at
-    /// `queueMovements`. Nil when the image has no room for them.
+    /// `queueMovements`. A gallery stage instead replaces the queue's last
+    /// position. Nil when the image has no room for them.
     private func lay(_ frame: CaptureFrame, movement: Int, queueMovements: [Int]? = nil,
-                     pinned: PinnedGrid? = nil, head: String = "") throws -> Laid? {
+                     pinned: PinnedGrid? = nil, replacing previous: CaptureFrame? = nil,
+                     head: String = "") throws -> Laid? {
+        if let previous, (temporary.steps.last?.frame ?? assembler.lastFrame) != previous { return nil }
         guard acceptsFrame(frame, head: head) else { return nil }
         let waiting = temporary.take()
         var seams: [ScrollSeam.Choice] = []
@@ -554,13 +568,20 @@ final class ScrollingCaptureSession {
                 Log.capture.notice("scroll queue only partly laid · the image is full")
                 return nil
             }
-            try assembler.append(step.frame, movement: moved, pinned: step.pinned)
+            try sidewaysSection.append(step.frame, movement: moved, to: &assembler, pinned: step.pinned)
             if let seam = assembler.lastSeam { seams.append(seam) }
             if let repair = assembler.lastRepair { repairs.append(repair) }
         }
-        guard makeRoom(for: movement) else { return nil }
         try ensureActive()
-        try assembler.append(frame, movement: movement, pinned: pinned)
+        if let previous {
+            // Sideways motion leaves the stage at the last queued position;
+            // adding its expected wheel distance would duplicate that position.
+            guard try sidewaysSection.replaceLast(previous: previous, current: frame, in: &assembler)
+            else { return nil }
+        } else {
+            guard makeRoom(for: movement) else { return nil }
+            try sidewaysSection.append(frame, movement: movement, to: &assembler, pinned: pinned)
+        }
         repeatGuard.rememberCheckedFrame()
         if let repair = assembler.lastRepair { repairs.append(repair) }
         noteProgress()
@@ -708,6 +729,7 @@ final class ScrollingCaptureSession {
         pushCheck = nil
         temporary.discard()
         assembler.reset()
+        sidewaysSection = ScrollSidewaysSection()
         repeatGuard = ScrollRepeatGuard()
         planningPinned = ScrollPinned.Accumulator()
     }
@@ -995,6 +1017,7 @@ final class ScrollingCaptureSession {
         }
         self.viewport = croppedViewport
         assembler.begin(with: first)
+        sidewaysSection = ScrollSidewaysSection()
         repeatGuard = ScrollRepeatGuard()
         repeatGuard.remember(first)
         // The top of a site, as the window showed it, once above the first frame.
@@ -1338,6 +1361,40 @@ final class ScrollingCaptureSession {
                       : isPush ? "a push, no distance expected"
                       : pixelsPerLine == nil ? "no calibration"
                       : "step not clean (\(unmatchedScroll) px unaccounted)")) + secondLookNote
+                let consistent = evidence?.consistent ?? 0
+                let galleryAllowed = sidewaysSection.isActive
+                    ? sidewaysSection.canContinue(axis: axis, verticalUndecided: undecided, isPush: isPush,
+                                                   frameChanged: frameChanged, pushMode: pushMode,
+                                                   checking: pushCheck != nil)
+                    : ScrollSidewaysSection.canInspect(axis: axis, verticalUndecided: undecided, isPush: isPush,
+                                                       expected: expected, calibrationConfirmed: calibrationHeld,
+                                                       frameChanged: frameChanged, contradicted: evidence?.contradicted ?? false,
+                                                       pushMode: pushMode, checking: pushCheck != nil)
+                if galleryAllowed {
+                    let before = temporary.steps.last?.frame ?? oldFrame
+                    let section = sidewaysSection
+                    let queued = temporary.steps.map(\.frame)
+                    let stage = try await ScrollCaptureCancellationBoundary.awaitActive {
+                        await Task.detached(priority: .userInitiated) {
+                            section.inspect(previous: before, current: next, expected: expected,
+                                            consistent: consistent, required: required, queued: queued)
+                        }.value
+                    }
+                    try ensureActive()
+                    if let stage, let handled = try await acceptSidewaysStage(
+                        next, from: before, stage: stage, expected: expected, lines: sentLines,
+                        motionLimit: motionLimit, consistent: consistent, required: required,
+                        head: head, line: "\(head) · \(error) · \(said)") {
+                        guard handled else { return }
+                        stepInFlight = false
+                        inFlightLines = nil
+                        continue
+                    }
+                }
+                // An empty queue keeps the existing stage recognition first.
+                // Once it fails, supported down motion releases the latch before
+                // the frame waits, so later stages cannot discard a real exit.
+                sidewaysSection.releaseForVerticalSupport(consistent: consistent, required: required)
                 if let check = pushCheck {
                     // Not placed. The tiles say whether it moves the page all
                     // the same; if they do not, the page stood and the section
@@ -1432,7 +1489,7 @@ final class ScrollingCaptureSession {
                     }
                     // Two in a row, and nothing waiting: the third is a push, in
                     // case the page snaps back to where it was after a short step.
-                    if ScrollPush.startsPush(zeroMotionCount: zeroMotionCount, queueIsEmpty: temporary.isEmpty,
+                    if !sidewaysSection.isActive, ScrollPush.startsPush(zeroMotionCount: zeroMotionCount, queueIsEmpty: temporary.isEmpty,
                                              allowed: pushesAllowed) {
                         pushMode = .push
                         pushAfterReliableSteps = stationaryAllReliable ? zeroMotionCount : 0
@@ -1506,6 +1563,32 @@ final class ScrollingCaptureSession {
                 case .retry:
                     consecutiveFailures += 1
                     guard consecutiveFailures <= 2 else {
+                        if ScrollParallax.canInspect(axis: axis, calibrationConfirmed: linearityConfirmed,
+                                                     cleanStep: cleanStep, isPush: isPush,
+                                                     expected: expected, frameChanged: frameChanged), let expected {
+                            let radius = Int((8 * scale).rounded())
+                            let pair = try await ScrollCaptureCancellationBoundary.awaitActive {
+                                await Task.detached(priority: .userInitiated) {
+                                    ScrollQueueLaying.pairCost(
+                                        previous: ScrollBackgroundFilter.highPass(oldFrame, radius: radius),
+                                        current: ScrollBackgroundFilter.highPass(next, radius: radius),
+                                        offset: expected, pinnedTiles: [])
+                                }.value
+                            }
+                            try ensureActive()
+                            if ScrollParallax.shouldLay(axis: axis, calibrationConfirmed: linearityConfirmed,
+                                                        cleanStep: cleanStep, isPush: isPush, expected: expected,
+                                                        frameChanged: frameChanged, pair: pair), let pair {
+                                // This distance comes from the calibration, so it
+                                // must not become independent evidence for it.
+                                let inferred = FrameMatch(offset: expected, confidence: 0, independentRegions: 0)
+                                guard try await layMatchedStep(next, from: oldFrame, match: inferred, lines: sentLines,
+                                                               placement: .parallax, isPush: false, motionLimit: motionLimit,
+                                                               head: head,
+                                                               landingNote: "· parallax: laid by the calibration (shifted \(String(format: "%.2f", pair.shifted)), still \(String(format: "%.2f", pair.still)))") else { return }
+                                break
+                            }
+                        }
                         // A video, an animation, a section that stays where
                         // it is: whatever it is, the steps will not line up,
                         // and what is collected is what there is. The user
@@ -1588,15 +1671,21 @@ final class ScrollingCaptureSession {
         }
         // The steps that waited for this one go into the image first.
         // The pinned blocks of the pair, off the main thread, before anything is taken from the queue.
-        let blocks = await pinnedBlocks(from: oldFrame, to: next, shift: match.offset)
+        let replacement: CaptureFrame?
+        if case .gallery = placement { replacement = oldFrame } else { replacement = nil }
+        let blocks: PinnedGrid?
+        if replacement == nil { blocks = await pinnedBlocks(from: oldFrame, to: next, shift: match.offset) }
+        else { blocks = nil }
         try ensureActive()
         guard let laid = try lay(next, movement: match.offset, queueMovements: relay?.movements,
-                                 pinned: blocks, head: head) else {
+                                 pinned: blocks, replacing: replacement, head: head) else {
             finish()
             return false
         }
         notePinned(match.standing)
         queueLaidByCalibration = false
+        galleryCalibration.matchedStep(offset: match.offset, lines: Int(lines), pixelsPerLine: pixelsPerLine,
+                                       placement: placement, isPush: isPush)
         if let relay, relay.movements != nil {
             // The line is what this step shows. One step cannot confirm
             // that lines move the page in proportion; that waits for
@@ -1658,8 +1747,12 @@ final class ScrollingCaptureSession {
             + (relay.map { "\($0.note) · " } ?? "")
             + "queue appended \(laid.waiting) (seams \(laid.queueSeams.map(\.summary).joined(separator: ", ")))"
         let pushed = isPush ? " · push: placed" : ""
-        if !landingNote.isEmpty { recordStep(landingNote) }
-        recordStep("\(head) · match \(match.offset) px · confidence \(Self.percent(match.confidence)) · regions \(match.independentRegions)\(match.near > 0 ? " · \(match.near) near" : "")\(match.sticking > 0 ? " · \(match.sticking) sticking" : "")\(secondLookNote)\(queue)\(seamNote)\(laid.fixed)\(recalibrated)\(pushed) → added")
+        if replacement != nil {
+            recordStep("\(landingNote)\(queue)\(laid.fixed)")
+        } else {
+            if !landingNote.isEmpty { recordStep(landingNote) }
+            recordStep("\(head) · match \(match.offset) px · confidence \(Self.percent(match.confidence)) · regions \(match.independentRegions)\(match.near > 0 ? " · \(match.near) near" : "")\(match.sticking > 0 ? " · \(match.sticking) sticking" : "")\(secondLookNote)\(queue)\(seamNote)\(laid.fixed)\(recalibrated)\(pushed) → added")
+        }
         pushMode = .none
         previous = next
         zeroMotionCount = 0
@@ -1802,6 +1895,66 @@ final class ScrollingCaptureSession {
         consecutiveFailures = 0
         requestedStep = max(24, Int(Double(axisLength(of: back)) * 0.60))
         return .ok
+    }
+
+    /// The first sideways match may find the way into the section still in
+    /// the queue. Preserve that path once; subsequent stages replace its end.
+    /// Nil leaves a frame that is not the last laid to the ordinary refusal path.
+    private func acceptSidewaysStage(_ next: CaptureFrame, from oldFrame: CaptureFrame,
+                                     stage: ScrollSidewaysSection.Stage, expected: Int?, lines: Int32,
+                                     motionLimit: Int, consistent: Int, required: Int,
+                                     head: String, line: String) async throws -> Bool? {
+        guard let entry = sidewaysSection.entry(queueIsEmpty: temporary.isEmpty,
+                                                calibrationConfirmed: calibrationHeld, expected: expected)
+        else { return nil }
+        if case .lay(let movement) = entry {
+            let steps = temporary.count + 1
+            let inferred = FrameMatch(offset: movement, confidence: 0, independentRegions: 0)
+            guard try await layMatchedStep(next, from: oldFrame, match: inferred, lines: lines,
+                                           placement: .gallery, isPush: false, motionLimit: motionLimit,
+                                           head: head,
+                                           landingNote: "\(line) · gallery: way in laid by the calibration (\(steps) steps) · \(stage.note)")
+            else { return false }
+            // This queue still has no matched vertical step behind it.
+            queueLaidByCalibration = true
+            return true
+        }
+        guard !temporary.isEmpty || assembler.lastFrame == oldFrame else { return nil }
+        guard acceptsFrame(next, head: line) else { return false }
+        var dropped = 0
+        do {
+            if temporary.isEmpty {
+                guard try sidewaysSection.replaceLast(previous: oldFrame, current: next, in: &assembler)
+                else { return nil }
+            } else {
+                guard let count = try sidewaysSection.replaceQueuedStage(previous: oldFrame, current: next,
+                                                                         in: &assembler, queue: &temporary,
+                                                                         consistent: consistent, required: required)
+                else { return nil }
+                dropped = count
+            }
+        } catch {
+            recordStep("\(line) · gallery: \(stage.note) · frame not replaced")
+            finish()
+            return false
+        }
+        repeatGuard.rememberCheckedFrame()
+        previous = next
+        zeroMotionCount = 0
+        stationaryLines = 0
+        stationary = nil
+        stationaryAllReliable = true
+        unmatchedScroll = 0
+        consecutiveFailures = 0
+        noteProgress()
+        recordStep("\(line) · gallery: \(stage.note) · frame replaced (\(sidewaysSection.stages))"
+                   + (dropped > 0 ? " · queue of \(dropped) dropped" : ""))
+        if sidewaysSection.isExhausted {
+            recordStep("\(line) · saved: the sideways section did not end (\(ScrollSidewaysSection.limit) stages)")
+            finish()
+            return false
+        }
+        return true
     }
 
     /// The step after a push that changed the frame, and the page did not move:

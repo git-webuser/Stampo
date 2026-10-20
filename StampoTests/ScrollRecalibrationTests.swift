@@ -83,4 +83,62 @@ import Testing
         #expect(next(80, offset: 320, lines: 0) == .forget)
         #expect(next(80, offset: 0, lines: 4) == .forget)
     }
+
+    @Test func galleryAgreementUsesFivePercentOrFourPixelsWithoutRelaxingLinearity() {
+        #expect(ScrollStepPlanner.agreesWithCalibration(offset: 798, lines: 10, pixelsPerLine: 78))
+        #expect(!ScrollStepPlanner.confirmsLinearity(offset: 798, lines: 10, pixelsPerLine: 78))
+        for offset in [741, 819] {
+            #expect(ScrollStepPlanner.agreesWithCalibration(offset: offset, lines: 10, pixelsPerLine: 78))
+        }
+        for offset in [740, 820] {
+            #expect(!ScrollStepPlanner.agreesWithCalibration(offset: offset, lines: 10, pixelsPerLine: 78))
+        }
+        for offset in [16, 24] {
+            #expect(ScrollStepPlanner.agreesWithCalibration(offset: offset, lines: 1, pixelsPerLine: 20))
+        }
+        for offset in [15, 25] {
+            #expect(!ScrollStepPlanner.agreesWithCalibration(offset: offset, lines: 1, pixelsPerLine: 20))
+        }
+        #expect(!ScrollStepPlanner.agreesWithCalibration(offset: 0, lines: 1, pixelsPerLine: 20))
+        #expect(!ScrollStepPlanner.agreesWithCalibration(offset: 20, lines: 0, pixelsPerLine: 20))
+        for line in [0.0, -1, .nan, .infinity] {
+            #expect(!ScrollStepPlanner.agreesWithCalibration(offset: 20, lines: 1, pixelsPerLine: line))
+        }
+    }
+
+    @Test func aCloseMatchedStepHoldsGalleryCalibrationUntilItIsReset() {
+        var calibration = ScrollGalleryCalibration()
+        #expect(!calibration.held)
+        calibration.matchedStep(offset: 798, lines: 10, pixelsPerLine: 78,
+                                placement: .matched(cleanStep: true), isPush: false)
+        #expect(calibration.held)
+        // A later stray match does not erase the earlier full-step evidence.
+        calibration.matchedStep(offset: 36, lines: 3, pixelsPerLine: 78,
+                                placement: .matched(cleanStep: true), isPush: false)
+        #expect(calibration.held)
+        calibration.reset()
+        #expect(!calibration.held)
+    }
+
+    @Test func inferredUncleanAndPushStepsCannotHoldGalleryCalibration() {
+        for placement: ScrollStepPlacement in [.matched(cleanStep: false), .recovered, .parallax, .gallery] {
+            var calibration = ScrollGalleryCalibration()
+            calibration.matchedStep(offset: 798, lines: 10, pixelsPerLine: 78, placement: placement, isPush: false)
+            #expect(!calibration.held)
+        }
+        var push = ScrollGalleryCalibration(), uncalibrated = ScrollGalleryCalibration()
+        push.matchedStep(offset: 798, lines: 10, pixelsPerLine: 78, placement: .matched(cleanStep: true), isPush: true)
+        uncalibrated.matchedStep(offset: 798, lines: 10, pixelsPerLine: nil,
+                                 placement: .matched(cleanStep: true), isPush: false)
+        #expect(!push.held && !uncalibrated.held)
+    }
+
+    @Test func aBadProbeOnTheClaudeHeroDoesNotOpenGalleryEntry() {
+        var calibration = ScrollGalleryCalibration()
+        for offset in [320, 323, 399, 320] {
+            calibration.matchedStep(offset: offset, lines: 4, pixelsPerLine: 138,
+                                    placement: .matched(cleanStep: true), isPush: false)
+            #expect(!calibration.held)
+        }
+    }
 }
