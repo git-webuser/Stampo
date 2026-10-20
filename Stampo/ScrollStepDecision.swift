@@ -426,7 +426,7 @@ nonisolated enum ScrollPush {
     enum Mode: Equatable {
         /// Ordinary steps.
         case none
-        /// Two steps in a row proved the page stood: the next step is a push.
+        /// Two steps in a row stood, or the third still needs its one end confirmation: the next step is a push.
         case push
         /// The frames of a pinned section are being replaced, `pushes` so far;
         /// the next step is a push too.
@@ -484,12 +484,40 @@ nonisolated enum ScrollPush {
         }
     }
 
-    /// The step after the second in a row that proved the page stood is a
-    /// push — with steps waiting, as ever, a third of those ends the capture.
+    /// The step after the second in a row that proved the page stood is an ordinary push.
     /// Not once a check has found the page going on under a push, until a frame
     /// is laid: `allowed`.
     static func startsPush(zeroMotionCount: Int, queueIsEmpty: Bool, allowed: Bool = true) -> Bool {
         zeroMotionCount == 2 && queueIsEmpty && allowed
+    }
+
+    /// Only an end-confirming push spends this attempt. An ordinary push may have been undone before the
+    /// third standing step (2026-10-19-133530); undoing the confirmation must not start that loop again.
+    /// Queuing a frame or meeting a stretch that lays nothing does not renew it.
+    struct EndConfirmation {
+        private(set) var used = false
+
+        mutating func start() { used = true }
+        mutating func laidFrame() { used = false }
+    }
+
+    enum StandingAction: Equatable {
+        case wait, push, confirmEnd, finish
+    }
+
+    /// The ordinary push keeps its old restrictions. Before a third standing step ends the capture, one
+    /// confirmation ignores `allowed`: the cancelled push in 2026-10-13-221958 is no proof of an end.
+    /// A waiting queue gets the stretch's first refusal: only frames that show the page already laid may be
+    /// dropped before confirming (2026-10-14-214945, d=0.0062; 2026-10-20-004706, d=0.0381). Other refusals
+    /// keep their old end, and a stretch that was laid never reaches this decision.
+    static func afterStanding(zeroMotionCount: Int, queueIsEmpty: Bool, allowed: Bool,
+                              endPushUsed: Bool, stretchRefusal: ScrollUnreadableStretch.Refusal? = nil) -> StandingAction {
+        if zeroMotionCount >= 3 {
+            guard !endPushUsed, queueIsEmpty || stretchRefusal == .framesDoNotChange else { return .finish }
+            return .confirmEnd
+        }
+        return startsPush(zeroMotionCount: zeroMotionCount, queueIsEmpty: queueIsEmpty, allowed: allowed)
+            ? .push : .wait
     }
 
     static func next(mode: Mode, outcome: Outcome) -> Step {

@@ -115,6 +115,9 @@ final class ScrollingCaptureSession {
     /// A step has been laid since the last stretch began: the page has read on (`Situation.placedSince`).
     private var laidSinceStretch = false
     private var zeroMotionCount = 0
+    /// An ordinary push may be undone before the page stands again. Only the confirming push spends this
+    /// attempt; it is renewed by a frame actually entering the image, not by one entering the queue.
+    private var endConfirmation = ScrollPush.EndConfirmation()
     /// The lines of the steps decided as stationary since the last frame was
     /// kept. The page may have moved in them all the same, when the calibration
     /// they were judged by was wrong.
@@ -616,6 +619,7 @@ final class ScrollingCaptureSession {
         if let repair = assembler.lastRepair { repairs.append(repair) }
         noteProgress()
         laidSinceStretch = true
+        endConfirmation.laidFrame()
         return Laid(waiting: waiting.count, queueSeams: seams, repairs: repairs)
     }
 
@@ -1049,6 +1053,7 @@ final class ScrollingCaptureSession {
         }
         self.viewport = croppedViewport
         assembler.begin(with: first)
+        endConfirmation.laidFrame()
         sidewaysSection = ScrollSidewaysSection()
         repeatGuard = ScrollRepeatGuard()
         repeatGuard.remember(first)
@@ -1369,6 +1374,7 @@ final class ScrollingCaptureSession {
                     if keep == .keepReplacingStage {
                         do {
                             try assembler.replaceLast(with: check.frame)
+                            endConfirmation.laidFrame()
                         } catch {
                             recordStep("\(head) · match \(match.offset) px → check: section ends in the check, frame not replaced")
                             finish()
@@ -1612,6 +1618,7 @@ final class ScrollingCaptureSession {
                         && ScrollPush.isReliableStep(difference: difference, unpinnedStanding: unpinned)
                     consecutiveFailures = 0
                     recordStep("\(head) · \(error) · \(said) → stop: \(standing), page not moving \(zeroMotionCount) of 3")
+                    var stretchRefusal: ScrollUnreadableStretch.Refusal?
                     if zeroMotionCount >= 3 {
                         // Steps wait that nothing placed, and the page seems to stand: a section that plays its own
                         // motion. That is no end of the content, and the third step would drop them.
@@ -1621,18 +1628,33 @@ final class ScrollingCaptureSession {
                                 line: head)
                             if stretch == .ended { return }
                             if stretch == .laid { break }
+                            if case .declined(let why) = stretch { stretchRefusal = why }
                         }
-                        // Three steps in a row proved without movement: the
-                        // end of the content.
-                        finish()
-                        return
                     }
-                    // Two in a row, and nothing waiting: the third is a push, in
-                    // case the page snaps back to where it was after a short step.
-                    if !sidewaysSection.isActive, ScrollPush.startsPush(zeroMotionCount: zeroMotionCount, queueIsEmpty: temporary.isEmpty,
-                                             allowed: pushesAllowed) {
+                    switch ScrollPush.afterStanding(zeroMotionCount: zeroMotionCount, queueIsEmpty: temporary.isEmpty,
+                                                    allowed: pushesAllowed, endPushUsed: endConfirmation.used,
+                                                    stretchRefusal: stretchRefusal) {
+                    case .confirmEnd:
+                        if !temporary.isEmpty {
+                            // T2 saw the page already laid (2026-10-20-004706, d=0.0381). The queue would be
+                            // dropped at the end anyway. The push is measured from this standing frame, whose
+                            // page is the laid one, so no queued distance reaches a section replacement or check.
+                            let dropped = temporary.discard()
+                            previous = next
+                            recordStep("· confirming push: queue dropped \(dropped), frames do not change")
+                        }
+                        endConfirmation.start()
                         pushMode = .push
                         pushAfterReliableSteps = stationaryAllReliable ? zeroMotionCount : 0
+                        recordStep("· confirming push before end")
+                    case .finish:
+                        finish()
+                        return
+                    case .push where !sidewaysSection.isActive:
+                        pushMode = .push
+                        pushAfterReliableSteps = stationaryAllReliable ? zeroMotionCount : 0
+                    case .push, .wait:
+                        break
                     }
                 case .temporary(let confirmed):
                     // Not placed by the frames: placed where the calibration
@@ -1807,11 +1829,11 @@ final class ScrollingCaptureSession {
     /// What the log says of a check that shows the page going on after a jerk whose frame is a page already left.
     private static let repeatingJerkCheck = "check: moves, but the jerk frame repeats a page already left → stands"
 
-    private enum StretchOutcome {
+    private enum StretchOutcome: Equatable {
         /// A series is laid, and the next steps are jerks.
         case laid
         /// Not a stretch: the capture ends as it would have.
-        case declined
+        case declined(ScrollUnreadableStretch.Refusal?)
         /// The capture is over.
         case ended
     }
@@ -1826,7 +1848,7 @@ final class ScrollingCaptureSession {
                                        line: String) async throws -> StretchOutcome {
         guard let laid = assembler.lastFrame else {
             recordStep("\(line) → unreadable stretch declined: no frame laid")
-            return .declined
+            return .declined(nil)
         }
         let difference = meanDifference(laid, next)
         let situation = ScrollUnreadableStretch.Situation(
@@ -1841,7 +1863,7 @@ final class ScrollingCaptureSession {
             let why = unreadable.refusal(situation)
             recordStep("\(line) → unreadable stretch declined: \(why?.note ?? "")"
                        + (why == .framesDoNotChange ? " (d=\(String(format: "%.4f", difference)))" : ""))
-            return .declined
+            return .declined(why)
         case .tooMany:
             recordStep("\(line) → saved: the capture met too many stretches it could not read")
             Log.capture.notice("scroll too many unreadable stretches · saved what was collected")
@@ -1865,7 +1887,7 @@ final class ScrollingCaptureSession {
             let chosen = ScrollSeries.choose(analysis.0) { a, b in analysis.1[a + 1].matches(analysis.1[b + 1]) }
             guard !chosen.indices.isEmpty else {
                 recordStep("\(line) → unreadable stretch declined: the frames show the page already laid")
-                return .declined
+                return .declined(nil)
             }
             selection = chosen
             for index in chosen.indices {
@@ -1974,6 +1996,7 @@ final class ScrollingCaptureSession {
         }
         // A vertical placement, as any other: the gallery latch goes, and what follows is not a stage of it.
         sidewaysSection = ScrollSidewaysSection()
+        endConfirmation.laidFrame()
         return true
     }
 
@@ -2331,6 +2354,7 @@ final class ScrollingCaptureSession {
             finish()
             return false
         }
+        endConfirmation.laidFrame()
         repeatGuard.rememberCheckedFrame()
         previous = next
         zeroMotionCount = 0
@@ -2364,6 +2388,7 @@ final class ScrollingCaptureSession {
             finish()
             return false
         }
+        endConfirmation.laidFrame()
         noteProgress()
         pushCheck = nil
         pushMode = step.mode
