@@ -681,6 +681,68 @@ import Testing
         print("ARC keyboard key=\(context.isKeyWindow()) annotationX=\(document.annotations[0].start.x) typed=F fieldReleased=\(hex.currentEditor() == nil)")
     }
 
+    /// The real card, at two widths: the colour control is one button while
+    /// the card is narrower than the widest line, the row of swatches once it
+    /// is wide enough. Found by what each draws: the button's tooltip is the
+    /// word "Color", a swatch's is its own colour's name.
+    @Test func arcColorControlFollowsTheCardWidth() async throws {
+        guard #available(macOS 26, *) else { return }
+        let restore = configureArc(true)
+        defer { restore() }
+        let document = EditorDocument(
+            baseImage: TestImages.make(width: 1600, height: 800),
+            sourceURL: URL(fileURLWithPath: "/tmp/editor-arc-color-control.png"))
+        let annotation = Annotation(kind: .rect, start: CGPoint(x: 20, y: 20),
+                                    end: CGPoint(x: 60, y: 60), color: .red, lineWidth: 4)
+        document.beginChange()
+        document.annotations.append(annotation)
+        document.commitChange()
+        document.selectedID = annotation.id
+
+        weak var editorWindow: NSWindow?
+        let context = EditorWindowContext(isKeyWindow: { editorWindow?.isKeyWindow == true },
+                                          overlayParent: { editorWindow })
+        let hosting = NSHostingController(rootView: EditorView(
+            document: document, windowContext: context, arcFrame: true).managedLocale())
+        hosting.sceneBridgingOptions = [.toolbars]
+        let window = NSWindow(contentViewController: hosting)
+        editorWindow = window
+        window.isReleasedWhenClosed = false
+        window.styleMask = [.titled, .closable, .resizable]
+        window.toolbarStyle = .unified
+        window.titleVisibility = .hidden
+        window.setContentSize(NSSize(width: 1140, height: 720))
+        window.makeKeyAndOrderFront(nil)
+        defer {
+            window.orderOut(nil)
+            window.contentViewController = nil
+            window.close()
+        }
+        await settle(window)
+        try pressDecor(in: window)
+        await settle(window)
+        let split = try #require(frameSplit(in: window))
+
+        let button = LocaleManager.shared.string("Color")
+        let names = Set(EditorView.annotationColorNames.map { LocaleManager.shared.string($0) })
+        func colorControl() -> (button: Int, swatches: Int) {
+            let tips = views(in: split.detailHosting.view)
+                .filter { !$0.isHiddenOrHasHiddenAncestor }.compactMap(\.toolTip)
+            return (tips.filter { $0 == button }.count, tips.filter { names.contains($0) }.count)
+        }
+
+        let card = split.detailHosting.view.bounds.width - ArcFrameLayout.frameGap
+        #expect(card == 804)
+        let narrow = colorControl()
+        #expect(narrow.button == 1 && narrow.swatches == 0, "a 804pt card must fold the colours into one button")
+
+        window.setContentSize(NSSize(width: 1280, height: 720))
+        await settle(window)
+        #expect(split.detailHosting.view.bounds.width - ArcFrameLayout.frameGap == 944)
+        let wide = colorControl()
+        #expect(wide.button == 0 && wide.swatches == names.count, "a 944pt card must keep the row of swatches")
+    }
+
     // MARK: Real-window harness
 
     private func configureArc(_ enabled: Bool) -> () -> Void {
