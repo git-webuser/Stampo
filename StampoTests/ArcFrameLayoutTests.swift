@@ -44,6 +44,47 @@ import Testing
         }
     }
 
+    @Test func settingsRowThresholdsKeepTheApprovedBand() {
+        #expect(ArcFrameLayout.settingsRowCompactBelow == 896)
+        #expect(ArcFrameLayout.settingsRowExpandAtOrAbove == 904)
+    }
+
+    /// The widest line is "Text" with its colours, 895.5pt wide plus 12pt
+    /// of margin each side. 896 is the first card width that is not folded.
+    @Test func settingsRowFoldsOnlyBelowTheThresholdFromTheOpenForm() {
+        let table: [(width: CGFloat, folded: Bool)] = [
+            (804, true), (895.9, true), (896, false), (904, false), (1124, false)
+        ]
+        for (width, folded) in table {
+            #expect(ArcFrameLayout.settingsRowIsCompact(cardWidth: width, wasCompact: false) == folded,
+                    "open form at \(width)")
+        }
+    }
+
+    @Test func settingsRowStaysFoldedUntilTheCardClearsTheBand() {
+        let table: [(width: CGFloat, folded: Bool)] = [
+            (804, true), (896, true), (903.9, true), (904, false), (1124, false)
+        ]
+        for (width, folded) in table {
+            #expect(ArcFrameLayout.settingsRowIsCompact(cardWidth: width, wasCompact: true) == folded,
+                    "folded form at \(width)")
+        }
+    }
+
+    /// A card dragged across the band: each width answers from the previous
+    /// answer, which is what the editor stores between layouts.
+    @Test func settingsRowDoesNotFlickerAlongTheThreshold() {
+        let widths: [CGFloat] = [910, 899, 895, 899, 903, 904, 899]
+        let expected = [false, false, true, true, true, false, false]
+        var folded = false
+        var seen: [Bool] = []
+        for width in widths {
+            folded = ArcFrameLayout.settingsRowIsCompact(cardWidth: width, wasCompact: folded)
+            seen.append(folded)
+        }
+        #expect(seen == expected)
+    }
+
     @Test func legacyEditorConstantsKeepTheirExistingSizes() {
         #expect(EditorView.minimumContentSize == CGSize(width: 900, height: 360))
         #expect(EditorView.presentationInspectorMinimumWidth == 320)
