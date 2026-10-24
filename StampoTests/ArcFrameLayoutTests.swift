@@ -1,24 +1,8 @@
-import CoreGraphics
+import AppKit
 import Testing
 @testable import Stampo
 
 @MainActor @Suite struct ArcFrameLayoutTests {
-    @Test func minimumWindowLeaves345PointsForThePanel() {
-        #expect(ArcFrameLayout.panelWidthLimit(windowWidth: 1140) == 345)
-    }
-
-    @Test func widerWindowAllowsTheFullPanel() {
-        #expect(ArcFrameLayout.panelWidthLimit(windowWidth: 1280) == 400)
-    }
-
-    @Test func fullPanelStartsAt1195Points() {
-        #expect(ArcFrameLayout.panelWidthLimit(windowWidth: 1195) == 400)
-    }
-
-    @Test func onePointBelowTheBoundaryLimitsThePanel() {
-        #expect(ArcFrameLayout.panelWidthLimit(windowWidth: 1194) == 399)
-    }
-
     @Test func wideScreenKeepsTheNormalWindowMinimum() {
         #expect(ArcFrameLayout.minimumContentWidth(visibleScreenWidth: 1470) == 1140)
     }
@@ -33,8 +17,31 @@ import Testing
         #expect(ArcFrameLayout.panelMinimumWidth == 320)
         #expect(ArcFrameLayout.panelMaximumWidth == 400)
         #expect(ArcFrameLayout.detailMinimumWidth == 787)
-        #expect(ArcFrameLayout.dividerThickness == 8)
+        #expect(ArcFrameLayout.frameGap == 8)
+        #expect(ArcFrameLayout.cardCornerRadius == 10)
         #expect(ArcFrameLayout.minimumWidth == 1140)
+    }
+
+    @Test func panelInsetsDoNotRepeatTheNativeToolbarGap() {
+        let insets = ArcFrameLayout.panelContentInsets
+        #expect(insets.top == 0)
+        #expect(insets.leading == 8)
+        #expect(insets.bottom == 8)
+        #expect(insets.trailing == 0)
+    }
+
+    @Test func frameColorChangesWithAppearance() throws {
+        let light = try resolved(ArcFrameLayout.frameColor, appearance: .aqua)
+        let dark = try resolved(ArcFrameLayout.frameColor, appearance: .darkAqua)
+        #expect(light != dark)
+    }
+
+    @Test func frameColorIsDifferentFromTheCardInBothAppearances() throws {
+        for appearance in [NSAppearance.Name.aqua, .darkAqua] {
+            let frame = try resolved(ArcFrameLayout.frameColor, appearance: appearance)
+            let card = try resolved(NSColor.textBackgroundColor, appearance: appearance)
+            #expect(frame != card)
+        }
     }
 
     @Test func legacyEditorConstantsKeepTheirExistingSizes() {
@@ -42,5 +49,14 @@ import Testing
         #expect(EditorView.presentationInspectorMinimumWidth == 320)
         #expect(EditorView.presentationInspectorIdealWidth == 360)
         #expect(EditorView.presentationInspectorMaximumWidth == 460)
+    }
+
+    private func resolved(_ color: NSColor, appearance name: NSAppearance.Name) throws -> NSColor {
+        let appearance = try #require(NSAppearance(named: name))
+        var result: NSColor?
+        appearance.performAsCurrentDrawingAppearance {
+            result = color.usingColorSpace(.sRGB)
+        }
+        return try #require(result)
     }
 }

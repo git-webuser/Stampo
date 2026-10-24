@@ -87,6 +87,10 @@ struct EditorView: View {
     }
     var arcFrame = EditorView.usesArcFrame
     @State var arcMinimumWidth: CGFloat = ArcFrameLayout.minimumWidth
+    /// The editor follows its own window's display, including when moved to
+    /// one narrower than the usual floor. Supplying the measurement also lets
+    /// the real window policy be exercised without substituting an NSScreen.
+    var visibleScreenWidth: (NSWindow) -> CGFloat? = { $0.screen?.visibleFrame.width }
 
     var body: some View {
         if #available(macOS 26, *), systemToolbar {
@@ -137,16 +141,28 @@ struct EditorView: View {
             if !arcFrame { presentationInspectorChanged?(presented) }
         }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didChangeScreenNotification)) { notification in
-            guard arcFrame, let window = notification.object as? NSWindow,
-                  window === windowContext.overlayParent(),
-                  let width = window.screen?.visibleFrame.width else { return }
-            arcMinimumWidth = ArcFrameLayout.minimumContentWidth(visibleScreenWidth: width)
+            updateArcMinimumWidth(for: notification)
         }
+    }
+
+    private func updateArcMinimumWidth(for notification: Notification) {
+        guard arcFrame, let window = notification.object as? NSWindow,
+              window === windowContext.overlayParent(),
+              let visibleWidth = visibleScreenWidth(window) else { return }
+        // SwiftUI's width floor and AppKit's minimum must change together;
+        // keeping either at 1140 prevents a narrower display from containing
+        // the editor. Panel visibility does not participate in this policy.
+        let minimumWidth = ArcFrameLayout.minimumContentWidth(visibleScreenWidth: visibleWidth)
+        arcMinimumWidth = minimumWidth
+        window.contentMinSize = NSSize(width: minimumWidth, height: Self.minimumContentSize.height)
     }
 
     @ViewBuilder private var editorContent: some View {
         if arcFrame {
-            FrameSplit(panel: PresentationInspector(document: document, colorShelf: colorShelf),
+            FrameSplit(panel: PresentationInspector(
+                document: document, colorShelf: colorShelf,
+                contentInsets: ArcFrameLayout.panelContentInsets)
+                .scrollContentBackground(.hidden),
                        detail: arcDetail, isPresented: $presentationInspectorPresented)
         } else {
             legacyEditor
@@ -154,14 +170,34 @@ struct EditorView: View {
     }
 
     private var arcDetail: some View {
-        VStack(spacing: 0) {
-            markupRow
-            Divider()
-            canvas
+        // One shape clips both the strip and the canvas. A card shadow would
+        // be cut by the hosting column and leave rectangular corner edges.
+        let shape = RoundedRectangle(cornerRadius: ArcFrameLayout.cardCornerRadius, style: .continuous)
+        return GeometryReader { geometry in
+            VStack(spacing: 0) {
+                markupRow
+                    .frame(width: geometry.size.width)
+                    .background(Color(nsColor: .textBackgroundColor))
+                Divider()
+                canvasContent
+            }
+            // A fixed-size tool row can exceed its proposal. The card keeps
+            // the column's size while its contents await width adaptation.
+            .frame(width: geometry.size.width, height: geometry.size.height)
+            .background(Color(nsColor: .textBackgroundColor))
+            .clipShape(shape)
+            .overlay(shape.strokeBorder(Color(nsColor: .separatorColor), lineWidth: 1))
         }
+        .padding(.trailing, ArcFrameLayout.frameGap)
+        .padding(.bottom, ArcFrameLayout.frameGap)
     }
 
     private var canvas: some View {
+        canvasContent
+            .background(Color(nsColor: .underPageBackgroundColor))
+    }
+
+    private var canvasContent: some View {
         EditorCanvasView(
             document: document,
             tool: $tool,
@@ -175,7 +211,6 @@ struct EditorView: View {
             imageScreenGeometry: $imageScreenGeometry,
             windowContext: windowContext
         )
-        .background(Color(nsColor: .underPageBackgroundColor))
     }
 
     private var legacyEditor: some View {
