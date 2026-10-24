@@ -164,7 +164,8 @@ struct EditorView: View {
         if arcFrame {
             FrameSplit(panel: PresentationInspector(
                 document: document, colorShelf: colorShelf,
-                contentInsets: ArcFrameLayout.panelContentInsets)
+                contentInsets: ArcFrameLayout.panelContentInsets,
+                showsScrollIndicators: false)
                 .scrollContentBackground(.hidden),
                        detail: arcDetail, isPresented: $presentationInspectorPresented)
         } else {
