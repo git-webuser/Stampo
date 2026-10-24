@@ -9,8 +9,13 @@ struct ArcFrameLayout {
     static let panelMaximumWidth: CGFloat = 400
     static let detailMinimumWidth: CGFloat = 787
     static let frameGap: CGFloat = 8
-    /// The native toolbar already leaves the top gap before content begins.
-    static let panelContentInsets = EdgeInsets(top: 0, leading: frameGap, bottom: frameGap, trailing: 0)
+    /// The native toolbar already leaves 8pt above the panel; this is what the
+    /// panel adds. It puts the centre of the first header (a 28pt frame) on
+    /// the axis of the second line, 20pt below the top, and the tile under it
+    /// on that line's divider, 40pt down. Set to 0 to go back to the toolbar's
+    /// gap alone.
+    static let panelTopInset: CGFloat = 6
+    static let panelContentInsets = EdgeInsets(top: panelTopInset, leading: frameGap, bottom: frameGap, trailing: 0)
     static let cardCornerRadius: CGFloat = 10
     static let minimumWidth: CGFloat = 1140
 

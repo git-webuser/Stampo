@@ -309,9 +309,10 @@ import Testing
                                 "the Arc inspector caller fell back to the legacy 16pt padding")
                         let top = try #require(evidence.headerTopInset)
                         let headerGap = try #require(evidence.capsuleToHeader)
-                        #expect(abs(top) <= 0.5, "the native toolbar gap must not be added a second time")
-                        #expect(abs(headerGap - 8) <= 2,
-                                "capsule to first inspector header must remain 8pt overall")
+                        #expect(abs(top - 6) <= 0.5,
+                                "the panel adds 6pt, not the toolbar's gap a second time and not 0")
+                        #expect(abs(headerGap - 14) <= 2,
+                                "capsule to first inspector header is the toolbar's 8pt plus the panel's 6")
                     }
                     let cardGap = try #require(evidence.capsuleToCard)
                     #expect(abs(cardGap - 8) <= 1)
@@ -783,6 +784,112 @@ import Testing
         for item in legacySplit.splitViewItems { #expect(item.titlebarSeparatorStyle == .automatic) }
         let legacyScroller = try #require(outerScroller(content))
         #expect(legacyScroller.hasVerticalScroller)
+    }
+
+    /// An Arc editor on a document of our own, so a test can select an
+    /// annotation and read the row it draws. Not the controller's window:
+    /// the controller keeps its document to itself.
+    private func hostedArcWindow(document: EditorDocument) -> NSWindow {
+        weak var editorWindow: NSWindow?
+        let context = EditorWindowContext(isKeyWindow: { editorWindow?.isKeyWindow == true },
+                                          overlayParent: { editorWindow })
+        let hosting = NSHostingController(rootView: EditorView(
+            document: document, windowContext: context, arcFrame: true).managedLocale())
+        hosting.sceneBridgingOptions = [.toolbars]
+        let window = NSWindow(contentViewController: hosting)
+        editorWindow = window
+        window.isReleasedWhenClosed = false
+        window.styleMask = [.titled, .closable, .resizable]
+        window.toolbarStyle = .unified
+        window.titleVisibility = .hidden
+        window.setContentSize(NSSize(width: 1140, height: 720))
+        window.makeKeyAndOrderFront(nil)
+        return window
+    }
+
+    /// The row's two axes, measured on the real panel and the real second
+    /// line: the first header's frame is centred on the line's axis (20pt
+    /// below the top, where the colour button is centred too), the tile under
+    /// it starts on the line's divider (40pt), and the compact colour button
+    /// and its dot have their approved size.
+    @Test func arcPanelHeaderAndColourButtonShareTheSecondLinesAxis() async throws {
+        guard #available(macOS 26, *) else { return }
+        let restore = configureArc(true)
+        defer { restore() }
+        let document = EditorDocument(
+            baseImage: TestImages.make(width: 1600, height: 800),
+            sourceURL: URL(fileURLWithPath: "/tmp/editor-arc-axis.png"))
+        let annotation = Annotation(kind: .rect, start: CGPoint(x: 20, y: 20),
+                                    end: CGPoint(x: 60, y: 60), color: .red, lineWidth: 4)
+        document.beginChange()
+        document.annotations.append(annotation)
+        document.commitChange()
+        document.selectedID = annotation.id
+        let window = hostedArcWindow(document: document)
+        defer {
+            window.orderOut(nil)
+            window.contentViewController = nil
+            window.close()
+        }
+        await settle(window)
+        try pressDecor(in: window)
+        await settle(window)
+        let split = try #require(frameSplit(in: window))
+        let panel = split.panelHosting.view
+        let detail = split.detailHosting.view
+        func fromTop(_ rect: NSRect, in view: NSView) -> NSRect {
+            NSRect(x: rect.minX, y: view.isFlipped ? rect.minY : view.bounds.maxY - rect.maxY,
+                   width: rect.width, height: rect.height)
+        }
+
+        // The first header: the system's focus frame around the section title.
+        let headers = views(in: panel).filter {
+            !$0.isHiddenOrHasHiddenAncestor && String(describing: type(of: $0)) == "_FocusRingView"
+        }.map { fromTop($0.convert($0.bounds, to: panel), in: panel) }
+            .filter { $0.width > panel.bounds.width / 2 && $0.height >= 20 && $0.height <= 40 }
+        let header = try #require(headers.min { $0.minY < $1.minY })
+        #expect(abs(header.minY - 6) <= 0.5, "the panel's top inset is not 6pt")
+        #expect(abs(header.height - 28) <= 0.5)
+
+        // The second line's axis: the compact colour button, found by its tooltip.
+        let tip = LocaleManager.shared.string("Color")
+        let carrier = try #require(views(in: detail).first { $0.toolTip == tip },
+                                   "a 804pt card must show the colour button")
+        let button = fromTop(carrier.convert(carrier.bounds, to: detail), in: detail)
+        #expect(abs(button.width - 54) <= 0.5 && abs(button.height - 24) <= 0.5,
+                "the colour button is \(button.width) × \(button.height), not 54 × 24")
+        #expect(abs(button.midY - 20) <= 0.5, "the second line's axis moved")
+        #expect(abs(header.midY - button.midY) <= 1, "the first header is off the second line's axis")
+
+        // The tile under the header: the first row of the panel's own picture
+        // that is not transparent, below the header's frame.
+        let panelPicture = try #require(panel.bitmapImageRepForCachingDisplay(in: panel.bounds))
+        panel.cacheDisplay(in: panel.bounds, to: panelPicture)
+        let panelScale = CGFloat(panelPicture.pixelsWide) / panel.bounds.width
+        let column = Int(panel.bounds.midX * panelScale)
+        var tileTop: CGFloat?
+        var y = header.maxY - 2
+        while y < 80 {
+            let alpha = panelPicture.colorAt(x: column, y: Int(y * panelScale))?.alphaComponent ?? 0
+            if alpha > 0.02 { tileTop = y; break }
+            y += 0.5
+        }
+        let top = try #require(tileTop, "no tile under the first header")
+        #expect(abs(top - 40) <= 1, "the first tile starts at \(top)pt, not on the second line's divider (40)")
+
+        // The dot: red pixels on the button's middle row.
+        let picture = try #require(detail.bitmapImageRepForCachingDisplay(in: detail.bounds))
+        detail.cacheDisplay(in: detail.bounds, to: picture)
+        let scale = CGFloat(picture.pixelsWide) / detail.bounds.width
+        let row = Int(button.midY * scale)
+        var dot = 0
+        for x in Int(button.minX * scale)..<Int(button.maxX * scale) {
+            guard let c = picture.colorAt(x: x, y: row)?.usingColorSpace(.sRGB) else { continue }
+            let chroma = max(c.redComponent, c.greenComponent, c.blueComponent)
+                - min(c.redComponent, c.greenComponent, c.blueComponent)
+            if chroma > 0.25 { dot += 1 }
+        }
+        #expect(abs(CGFloat(dot) / scale - 18) <= 1, "the dot is \(CGFloat(dot) / scale)pt wide, not 18")
     }
 
     // MARK: Real-window harness

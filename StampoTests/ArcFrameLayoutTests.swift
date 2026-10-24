@@ -23,12 +23,22 @@ import Testing
         #expect(ArcFrameLayout.minimumWidth == 1140)
     }
 
-    @Test func panelInsetsDoNotRepeatTheNativeToolbarGap() {
+    /// The toolbar's own 8pt gap is not repeated; the panel adds 6pt so the
+    /// first header's centre stands on the second line's axis (see `panelTopInset`).
+    @Test func panelInsetsPutTheFirstHeaderOnTheSecondLinesAxis() {
+        #expect(ArcFrameLayout.panelTopInset == 6)
         let insets = ArcFrameLayout.panelContentInsets
-        #expect(insets.top == 0)
+        #expect(insets.top == 6)
         #expect(insets.leading == 8)
         #expect(insets.bottom == 8)
         #expect(insets.trailing == 0)
+    }
+
+    /// The compact colour button's one place for its size, so a rollback is
+    /// one edit: 30pt of label plus the bordered style's 24 makes 54.
+    @Test func colourButtonKeepsItsApprovedSize() {
+        #expect(ColorPopoverButton.dotSide == 18)
+        #expect(ColorPopoverButton.labelWidth == 30)
     }
 
     @Test func frameColorChangesWithAppearance() throws {

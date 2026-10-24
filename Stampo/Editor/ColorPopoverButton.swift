@@ -63,6 +63,13 @@ struct ColorPopoverButton: View {
     let active: AnnotationColor
     let pick: (AnnotationColor) -> Void
 
+    /// The button's size lives here, in one place. The bordered style adds
+    /// 24pt to the label's width and 8pt to its height: 54 × 24 in all, the
+    /// height of the pickers beside it. Put `labelWidth` back to 34 and
+    /// `dotSide` to 16 for the first 58pt button.
+    static let dotSide: CGFloat = 18
+    static let labelWidth: CGFloat = 30
+
     @State private var showPopover = false
 
     /// The preset's name in the in-app language, for VoiceOver: the dot says
@@ -78,14 +85,12 @@ struct ColorPopoverButton: View {
                 Circle()
                     .fill(Color(nsColor: active.nsColor))
                     .overlay(Circle().strokeBorder(.quaternary, lineWidth: 1))
-                    .frame(width: 16, height: 16)
+                    .frame(width: Self.dotSide, height: Self.dotSide)
                 Image(systemName: "chevron.down")
                     .font(.system(size: 7, weight: .bold))
                     .opacity(0.45)
             }
-            // The bordered style adds 4pt above and below: 24pt in all, the
-            // height of the pickers beside it in the row.
-            .frame(width: 34, height: 16)
+            .frame(width: Self.labelWidth, height: 16)
         }
         .buttonStyle(.bordered)
         .accessibilityValue(Text(verbatim: activeName))
