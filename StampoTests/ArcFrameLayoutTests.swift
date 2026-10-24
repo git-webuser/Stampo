@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 import Testing
 @testable import Stampo
 
@@ -83,6 +84,12 @@ import Testing
             seen.append(folded)
         }
         #expect(seen == expected)
+    }
+
+    /// Only the Arc card sets the fold. A window that never does — the drawn
+    /// rows of the old editor, macOS 15.7 — reads the default and keeps its swatches.
+    @Test func settingsRowIsOpenUnlessTheCardFoldsIt() {
+        #expect(EnvironmentValues().settingsRowCompact == false)
     }
 
     @Test func legacyEditorConstantsKeepTheirExistingSizes() {
