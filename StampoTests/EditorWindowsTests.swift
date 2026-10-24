@@ -743,6 +743,48 @@ import Testing
         #expect(wide.button == 0 && wide.swatches == names.count, "a 944pt card must keep the row of swatches")
     }
 
+    /// What the Arc window sets so its frame runs up to the toolbar unbroken —
+    /// no system rule under the titlebar, no scroller across the panel — and
+    /// what every other window keeps. The window's own setting does not reach
+    /// split items, so each is read too.
+    @Test func arcWindowDropsTheTitlebarRuleAndThePanelScroller() async throws {
+        guard #available(macOS 26, *) else { return }
+        let restore = configureArc(true)
+        let url = try writePNG("editor-arc-rule.png", width: 1600, height: 800)
+        defer {
+            EditorWindowController.closeAllForTesting()
+            restore()
+            try? FileManager.default.removeItem(at: url)
+        }
+        func outerScroller(_ root: NSView) -> NSScrollView? {
+            views(in: root).compactMap { $0 as? NSScrollView }
+                .max { $0.frame.width * $0.frame.height < $1.frame.width * $1.frame.height }
+        }
+
+        let arc = try await openWindow(url)
+        try pressDecor(in: arc)
+        await settle(arc)
+        let split = try #require(frameSplit(in: arc))
+        #expect(arc.titlebarSeparatorStyle == .none)
+        #expect(split.splitViewItems.count == 2)
+        for item in split.splitViewItems { #expect(item.titlebarSeparatorStyle == .none) }
+        let arcScroller = try #require(outerScroller(split.panelHosting.view))
+        #expect(!arcScroller.hasVerticalScroller)
+        EditorWindowController.closeAllForTesting()
+
+        AppSettings.store.set(false, forKey: AppSettings.Keys.editorArcFrame)
+        let legacy = try await openWindow(url)
+        try pressDecor(in: legacy)
+        await settle(legacy)
+        #expect(legacy.titlebarSeparatorStyle == .automatic)
+        let content = try #require(legacy.contentView)
+        let legacySplit = try #require(views(in: content).compactMap { $0 as? NSSplitView }
+            .compactMap { $0.delegate as? NSSplitViewController }.first)
+        for item in legacySplit.splitViewItems { #expect(item.titlebarSeparatorStyle == .automatic) }
+        let legacyScroller = try #require(outerScroller(content))
+        #expect(legacyScroller.hasVerticalScroller)
+    }
+
     // MARK: Real-window harness
 
     private func configureArc(_ enabled: Bool) -> () -> Void {

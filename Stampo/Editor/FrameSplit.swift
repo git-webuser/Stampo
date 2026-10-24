@@ -75,6 +75,10 @@ final class FrameSplitController: NSSplitViewController {
         let detailItem = NSSplitViewItem(viewController: detailHosting)
         detailItem.minimumThickness = EditorView.arcDetailMinimumWidth
         detailItem.holdingPriority = .defaultLow
+        // Split items draw their own titlebar rule where they meet the
+        // toolbar; the window's setting does not reach them.
+        panelItem.titlebarSeparatorStyle = .none
+        detailItem.titlebarSeparatorStyle = .none
         addSplitViewItem(panelItem)
         addSplitViewItem(detailItem)
         collapseObservation = panelItem.observe(\.isCollapsed) { [weak self] _, _ in

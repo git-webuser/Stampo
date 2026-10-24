@@ -188,6 +188,9 @@ final class EditorWindowController: NSObject, NSWindowDelegate {
         if arcFrame {
             window.backgroundColor = ArcFrameLayout.frameColor
             window.titlebarAppearsTransparent = true
+            // The frame runs up to the toolbar unbroken; the system's rule
+            // under the titlebar would cut it, most visibly in dark mode.
+            window.titlebarSeparatorStyle = .none
             window.contentMinSize = NSSize(
                 width: ArcFrameLayout.minimumContentWidth(
                     visibleScreenWidth: window.screen?.visibleFrame.width ?? arcMinimumWidth
