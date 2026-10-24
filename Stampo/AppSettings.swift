@@ -110,6 +110,7 @@ enum AppSettings {
         static let noNotchNotchScale       = "noNotchNotchScale"
         static let wideNotchFlares         = "wideNotchFlares"
         static let editorSystemToolbar     = "editorSystemToolbar"
+        static let editorArcFrame          = "editorArcFrame"
         static let menuBarHare             = "menuBarHare"
         static let preferredLanguage       = "preferredLanguage"
         // Hotkeys (the 5 global actions store combos via HotkeyAction; these two
@@ -180,6 +181,12 @@ enum AppSettings {
     /// reopen the editor.
     static var editorSystemToolbar: Bool {
         UserDefaults.standard.object(forKey: Keys.editorSystemToolbar) as? Bool ?? true
+    }
+
+    /// The frame container is opt-in until its remaining visual steps ship.
+    /// Like the toolbar switch, it is read once when an editor opens.
+    static var editorArcFrame: Bool {
+        store.object(forKey: Keys.editorArcFrame) as? Bool ?? false
     }
 
     /// Whether the menu bar shows the hare (`MascotStatusView`) rather than

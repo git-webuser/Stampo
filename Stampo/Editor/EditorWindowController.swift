@@ -101,6 +101,8 @@ final class EditorWindowController: NSObject, NSWindowDelegate {
     private var window: NSWindow?
     private var document: EditorDocument?
     private let store = ScreenshotFileStore()
+    /// A window keeps the container it opened with until it closes.
+    private let arcFrame = EditorView.usesArcFrame
     /// Alive only while its sheet is up — it owns the format popup's target.
     private var saveAsPanel: EditorSaveAsPanel?
 
@@ -138,6 +140,16 @@ final class EditorWindowController: NSObject, NSWindowDelegate {
         self.document = document
         prepareBlurSources(for: document)
 
+        let inspectorChanged: ((Bool) -> Void)? = arcFrame ? nil : { [weak self] isPresented in
+            // Only the native inspector grows the window's minimum. The Arc
+            // container divides the space already available in the window.
+            DispatchQueue.main.async {
+                self?.updateEditorMinimumSize(inspectorPresented: isPresented)
+            }
+        }
+        let arcMinimumWidth = ArcFrameLayout.minimumContentWidth(
+            visibleScreenWidth: NSScreen.main?.visibleFrame.width ?? EditorView.arcMinimumContentWidth
+        )
         let root = EditorView(
             document: document,
             windowContext: windowContext,
@@ -150,15 +162,10 @@ final class EditorWindowController: NSObject, NSWindowDelegate {
                 await self.presentSaveAs(doc)
             },
             deleteHandler: { [weak self] doc in self?.performDelete(doc) },
-            presentationInspectorChanged: { [weak self] isPresented in
-                // AppKit owns the window minimum; the view only reports the
-                // native inspector's state so the main editor never gets
-                // squeezed below the toolbar's existing floor.
-                DispatchQueue.main.async {
-                    self?.updateEditorMinimumSize(inspectorPresented: isPresented)
-                }
-            },
-            colorShelf: Self.colorShelf
+            presentationInspectorChanged: inspectorChanged,
+            colorShelf: Self.colorShelf,
+            arcFrame: arcFrame,
+            arcMinimumWidth: arcMinimumWidth
         )
         .managedLocale()
 
@@ -178,8 +185,17 @@ final class EditorWindowController: NSObject, NSWindowDelegate {
         }
         window.title = url.lastPathComponent
         window.isReleasedWhenClosed = false
-        window.contentMinSize = EditorView.minimumContentSize
-        window.setContentSize(Self.initialContentSize(for: image))
+        if arcFrame {
+            window.contentMinSize = NSSize(
+                width: ArcFrameLayout.minimumContentWidth(
+                    visibleScreenWidth: window.screen?.visibleFrame.width ?? arcMinimumWidth
+                ),
+                height: EditorView.minimumContentSize.height
+            )
+        } else {
+            window.contentMinSize = EditorView.minimumContentSize
+        }
+        window.setContentSize(Self.initialContentSize(for: image, arcFrame: arcFrame))
         // One identifier for all of them, so the system's own tabs work: drag
         // one editor onto another and they become tabs, with no code of ours in
         // the way. The autosave name is deliberately *not* set any more — one
@@ -225,10 +241,11 @@ final class EditorWindowController: NSObject, NSWindowDelegate {
     private func warmDecorInspector(for document: EditorDocument) {
         guard !Self.decorInspectorWarmed else { return }
         Self.decorInspectorWarmed = true
+        let width = arcFrame ? EditorView.arcPanelDefaultWidth : EditorView.presentationInspectorIdealWidth
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             let view = NSHostingView(
                 rootView: PresentationInspector(document: document, colorShelf: nil)
-                    .frame(width: EditorView.presentationInspectorIdealWidth)
+                    .frame(width: width)
             )
             // Offscreen and never ordered in: laying out is the whole point,
             // and a window that is never shown cannot flash.
@@ -246,9 +263,11 @@ final class EditorWindowController: NSObject, NSWindowDelegate {
 
     /// The same warm-up, without the delay — for measuring it.
     static func warmDecorInspectorForTesting(document: EditorDocument) {
+        let width = EditorView.usesArcFrame
+            ? EditorView.arcPanelDefaultWidth : EditorView.presentationInspectorIdealWidth
         let view = NSHostingView(
             rootView: PresentationInspector(document: document, colorShelf: nil)
-                .frame(width: EditorView.presentationInspectorIdealWidth)
+                .frame(width: width)
         )
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 900),
                               styleMask: [.borderless], backing: .buffered, defer: true)
@@ -489,6 +508,16 @@ final class EditorWindowController: NSObject, NSWindowDelegate {
 
     // MARK: NSWindowDelegate
 
+    func windowDidChangeScreen(_ notification: Notification) {
+        guard arcFrame, let window, let visible = window.screen?.visibleFrame else { return }
+        // A display narrower than the ordinary floor must still let the
+        // editor fit. This policy never moves the window or opens the panel.
+        window.contentMinSize = NSSize(
+            width: ArcFrameLayout.minimumContentWidth(visibleScreenWidth: visible.width),
+            height: EditorView.minimumContentSize.height
+        )
+    }
+
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         guard let document, document.isDirty else { return true }
         return resolveUnsavedChanges(document, afterSave: { [weak self] in
@@ -527,7 +556,7 @@ final class EditorWindowController: NSObject, NSWindowDelegate {
 
     /// Image at ~50% of its pixel size (native look on 2x displays), capped
     /// to 80% of the screen and floored to a workable minimum.
-    private static func initialContentSize(for image: CGImage) -> NSSize {
+    private static func initialContentSize(for image: CGImage, arcFrame: Bool) -> NSSize {
         let toolbarAllowance: CGFloat = 40
         let visible = NSScreen.main?.visibleFrame.size ?? NSSize(width: 1440, height: 900)
         let maxW = visible.width * 0.8
@@ -538,7 +567,10 @@ final class EditorWindowController: NSObject, NSWindowDelegate {
         let scale = min(1, min(maxW / w, maxH / h))
         w *= scale
         h *= scale
-        return NSSize(width: max(EditorView.minimumContentSize.width, w),
+        let minimumWidth = arcFrame
+            ? ArcFrameLayout.minimumContentWidth(visibleScreenWidth: visible.width)
+            : EditorView.minimumContentSize.width
+        return NSSize(width: max(minimumWidth, w),
                       height: max(EditorView.minimumContentSize.height,
                                   h + toolbarAllowance))
     }

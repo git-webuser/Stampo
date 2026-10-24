@@ -20,6 +20,12 @@ struct EditorView: View {
     static let presentationInspectorIdealWidth: CGFloat = 360
     static let presentationInspectorMaximumWidth: CGFloat = 460
 
+    static let arcPanelDefaultWidth = ArcFrameLayout.panelDefaultWidth
+    static let arcPanelMinimumWidth = ArcFrameLayout.panelMinimumWidth
+    static let arcPanelMaximumWidth = ArcFrameLayout.panelMaximumWidth
+    static let arcDetailMinimumWidth = ArcFrameLayout.detailMinimumWidth
+    static let arcMinimumContentWidth = ArcFrameLayout.minimumWidth
+
     var document: EditorDocument
     /// What this editor's own window can answer. See `EditorWindowContext`.
     var windowContext: EditorWindowContext = .detached
@@ -75,6 +81,13 @@ struct EditorView: View {
     }
     private let systemToolbar = EditorView.usesSystemToolbar
 
+    static var usesArcFrame: Bool {
+        guard #available(macOS 26, *), usesSystemToolbar else { return false }
+        return AppSettings.editorArcFrame
+    }
+    var arcFrame = EditorView.usesArcFrame
+    @State var arcMinimumWidth: CGFloat = ArcFrameLayout.minimumWidth
+
     var body: some View {
         if #available(macOS 26, *), systemToolbar {
             editor.toolbar { systemToolbarContent }
@@ -84,42 +97,7 @@ struct EditorView: View {
     }
 
     private var editor: some View {
-        VStack(spacing: 0) {
-            if systemToolbar {
-                markupRow
-                Divider()
-            } else {
-                legacyToolbar
-                Divider()
-                legacyContextBar
-                Divider()
-            }
-            EditorCanvasView(
-                document: document,
-                tool: $tool,
-                style: $style,
-                editingTextID: $editingTextID,
-                zoomFactor: $zoomFactor,
-                panOffset: $panOffset,
-                cropRect: $cropRect,
-                onCropApply: applyCrop,
-                onCropCancel: cancelCrop,
-                imageScreenGeometry: $imageScreenGeometry,
-                windowContext: windowContext
-            )
-            .background(Color(nsColor: .underPageBackgroundColor))
-            // On the canvas, not on the whole editor: the toolbar runs the
-            // full width of the window and the inspector starts under it, the
-            // way the system's own inspectors do.
-            .inspector(isPresented: $presentationInspectorPresented) {
-                PresentationInspector(document: document, colorShelf: colorShelf)
-                    .inspectorColumnWidth(
-                        min: Self.presentationInspectorMinimumWidth,
-                        ideal: Self.presentationInspectorIdealWidth,
-                        max: Self.presentationInspectorMaximumWidth
-                    )
-            }
-        }
+        editorContent
         .onChange(of: tool) { _, newTool in
             if newTool == .scan {
                 beginScanSelection()
@@ -151,12 +129,78 @@ struct EditorView: View {
             }
         }
         .onAppear {
-            presentationInspectorChanged?(presentationInspectorPresented)
+            if !arcFrame { presentationInspectorChanged?(presentationInspectorPresented) }
         }
-        .frame(minWidth: Self.minimumContentSize.width,
+        .frame(minWidth: arcFrame ? arcMinimumWidth : Self.minimumContentSize.width,
                minHeight: Self.minimumContentSize.height)
         .onChange(of: presentationInspectorPresented) { _, presented in
-            presentationInspectorChanged?(presented)
+            if !arcFrame { presentationInspectorChanged?(presented) }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didChangeScreenNotification)) { notification in
+            guard arcFrame, let window = notification.object as? NSWindow,
+                  window === windowContext.overlayParent(),
+                  let width = window.screen?.visibleFrame.width else { return }
+            arcMinimumWidth = ArcFrameLayout.minimumContentWidth(visibleScreenWidth: width)
+        }
+    }
+
+    @ViewBuilder private var editorContent: some View {
+        if arcFrame {
+            FrameSplit(panel: PresentationInspector(document: document, colorShelf: colorShelf),
+                       detail: arcDetail, isPresented: $presentationInspectorPresented)
+        } else {
+            legacyEditor
+        }
+    }
+
+    private var arcDetail: some View {
+        VStack(spacing: 0) {
+            markupRow
+            Divider()
+            canvas
+        }
+    }
+
+    private var canvas: some View {
+        EditorCanvasView(
+            document: document,
+            tool: $tool,
+            style: $style,
+            editingTextID: $editingTextID,
+            zoomFactor: $zoomFactor,
+            panOffset: $panOffset,
+            cropRect: $cropRect,
+            onCropApply: applyCrop,
+            onCropCancel: cancelCrop,
+            imageScreenGeometry: $imageScreenGeometry,
+            windowContext: windowContext
+        )
+        .background(Color(nsColor: .underPageBackgroundColor))
+    }
+
+    private var legacyEditor: some View {
+        VStack(spacing: 0) {
+            if systemToolbar {
+                markupRow
+                Divider()
+            } else {
+                legacyToolbar
+                Divider()
+                legacyContextBar
+                Divider()
+            }
+            canvas
+            // On the canvas, not on the whole editor: the toolbar runs the
+            // full width of the window and the inspector starts under it, the
+            // way the system's own inspectors do.
+            .inspector(isPresented: $presentationInspectorPresented) {
+                PresentationInspector(document: document, colorShelf: colorShelf)
+                    .inspectorColumnWidth(
+                        min: Self.presentationInspectorMinimumWidth,
+                        ideal: Self.presentationInspectorIdealWidth,
+                        max: Self.presentationInspectorMaximumWidth
+                    )
+            }
         }
     }
 
