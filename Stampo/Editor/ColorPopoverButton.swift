@@ -64,11 +64,12 @@ struct ColorPopoverButton: View {
     let pick: (AnnotationColor) -> Void
 
     /// The button's size lives here, in one place. The bordered style adds
-    /// 24pt to the label's width and 8pt to its height: 54 × 24 in all, the
-    /// height of the pickers beside it. Put `labelWidth` back to 34 and
-    /// `dotSide` to 16 for the first 58pt button.
-    static let dotSide: CGFloat = 18
-    static let labelWidth: CGFloat = 30
+    /// 24pt to the label's width and 8pt to its height: 52 × 24 in all, the
+    /// height of the pickers beside it. The label is the dot, a 4pt gap and
+    /// the chevron's 8pt box: 28pt, no slack. `labelWidth` 34 makes the first
+    /// 58pt button; `dotSide` 18 and `labelWidth` 30 made 54.
+    static let dotSide: CGFloat = 16
+    static let labelWidth: CGFloat = 28
 
     @State private var showPopover = false
 

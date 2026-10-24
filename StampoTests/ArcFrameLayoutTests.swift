@@ -35,10 +35,10 @@ import Testing
     }
 
     /// The compact colour button's one place for its size, so a rollback is
-    /// one edit: 30pt of label plus the bordered style's 24 makes 54.
+    /// one edit: 28pt of label plus the bordered style's 24 makes 52.
     @Test func colourButtonKeepsItsApprovedSize() {
-        #expect(ColorPopoverButton.dotSide == 18)
-        #expect(ColorPopoverButton.labelWidth == 30)
+        #expect(ColorPopoverButton.dotSide == 16)
+        #expect(ColorPopoverButton.labelWidth == 28)
     }
 
     @Test func frameColorChangesWithAppearance() throws {

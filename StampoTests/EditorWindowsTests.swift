@@ -856,8 +856,8 @@ import Testing
         let carrier = try #require(views(in: detail).first { $0.toolTip == tip },
                                    "a 804pt card must show the colour button")
         let button = fromTop(carrier.convert(carrier.bounds, to: detail), in: detail)
-        #expect(abs(button.width - 54) <= 0.5 && abs(button.height - 24) <= 0.5,
-                "the colour button is \(button.width) × \(button.height), not 54 × 24")
+        #expect(abs(button.width - 52) <= 0.5 && abs(button.height - 24) <= 0.5,
+                "the colour button is \(button.width) × \(button.height), not 52 × 24")
         #expect(abs(button.midY - 20) <= 0.5, "the second line's axis moved")
         #expect(abs(header.midY - button.midY) <= 1, "the first header is off the second line's axis")
 
@@ -889,7 +889,7 @@ import Testing
                 - min(c.redComponent, c.greenComponent, c.blueComponent)
             if chroma > 0.25 { dot += 1 }
         }
-        #expect(abs(CGFloat(dot) / scale - 18) <= 1, "the dot is \(CGFloat(dot) / scale)pt wide, not 18")
+        #expect(abs(CGFloat(dot) / scale - 16) <= 1, "the dot is \(CGFloat(dot) / scale)pt wide, not 16")
     }
 
     // MARK: Real-window harness
