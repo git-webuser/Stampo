@@ -194,7 +194,7 @@ import Testing
             window.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
             window.makeKey()
-            await settle(window)
+            await settle(window, eventDelivery: true)
             #expect(window.isKeyWindow)
             #expect(EditorWindowController.keyEditor != nil)
             let fields = views(in: split.panelHosting.view).compactMap { $0 as? NSTextField }
@@ -211,11 +211,13 @@ import Testing
             #expect(hex.currentEditor() == nil)
             print("ARC focus content=\(size) key=\(window.isKeyWindow) hex=\(hex.stringValue) released=\(hex.currentEditor() == nil)")
 
-            for (name, appearance) in [("light", NSAppearance.Name.aqua),
-                                       ("dark", NSAppearance.Name.darkAqua)] {
-                window.appearance = NSAppearance(named: appearance)
-                await settle(window)
-                try cacheEditor(window, name: "arc-\(Int(size.width))-\(name)")
+            if ArcChromeEvidence.isEnabled {
+                for (name, appearance) in [("light", NSAppearance.Name.aqua),
+                                           ("dark", NSAppearance.Name.darkAqua)] {
+                    window.appearance = NSAppearance(named: appearance)
+                    await settle(window)
+                    try cacheEditor(window, name: "arc-\(Int(size.width))-\(name)")
+                }
             }
 
             split.splitView.setPosition(400, ofDividerAt: 0)
@@ -277,23 +279,24 @@ import Testing
             try? FileManager.default.removeItem(at: url)
         }
         for size in [NSSize(width: 1140, height: 720), NSSize(width: 1280, height: 780)] {
+            let window = try await openWindow(url)
+            window.setFrame(NSRect(origin: NSPoint(x: 10, y: 10), size: size), display: true)
+            await settle(window)
+            let split = try #require(frameSplit(in: window))
+            // Both appearances use the same document, frame and 320pt panel.
+            // Start its decoration once, then measure each closed/open pair.
+            try pressDecor(in: window)
+            await settle(window)
+            try pressDecor(in: window)
+            await settle(window)
             for (theme, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
-                let window = try await openWindow(url)
                 window.appearance = NSAppearance(named: appearance)
-                window.setFrame(NSRect(origin: NSPoint(x: 10, y: 10), size: size), display: true)
                 await settle(window)
-                let split = try #require(frameSplit(in: window))
                 let originalFrame = window.frame
                 // The display decides how much of the requested size the window
                 // gets: a CI runner's screen is 677pt tall, so 720 comes back as
                 // 677. Every edge is measured against the window as it is.
                 let actual = originalFrame.size
-                // Opening starts the real decoration. Use that same document
-                // presentation for the closed and open captures.
-                try pressDecor(in: window)
-                await settle(window)
-                try pressDecor(in: window)
-                await settle(window)
                 for open in [false, true] {
                     if split.panelItem.isCollapsed == open {
                         try pressDecor(in: window)
@@ -334,8 +337,8 @@ import Testing
                     #expect(ArcChromeEvidence.delta(evidence.cardColor, reference) >= 8,
                             "the white card does not separate from the frame in this appearance")
                 }
-                EditorWindowController.closeAllForTesting()
             }
+            EditorWindowController.closeAllForTesting()
         }
 
         // The brief also names an 884pt card for the still-unadapted Text
@@ -357,7 +360,7 @@ import Testing
                 keyCode: textShortcut.keyCode))
             NSApp.postEvent(event, atStart: false)
         }
-        await settle(textWindow)
+        await settle(textWindow, eventDelivery: true)
         let textSplit = try #require(frameSplit(in: textWindow))
         let segments = views(in: textSplit.detailHosting.view).compactMap { $0 as? NSSegmentedControl }
         #expect(segments.contains { $0.segmentCount == TextStyleFlag.allCases.count },
@@ -409,12 +412,14 @@ import Testing
         let content = try #require(window.contentView)
         let split = try #require(frameSplit(in: window))
         print("ARC NARROW requested=1024 contentMin=\(window.contentMinSize) content=\(content.bounds) split=\(split.splitView.bounds) window=\(window.frame)")
-        try ArcChromeEvidence.writeJSON([
-            "requestedScreenWidth": 1024, "contentMinWidth": window.contentMinSize.width,
-            "content": ArcChromeEvidence.rectJSON(content.bounds),
-            "split": ArcChromeEvidence.rectJSON(split.splitView.bounds),
-            "window": ArcChromeEvidence.rectJSON(window.frame)
-        ], name: "narrow-screen")
+        if ArcChromeEvidence.isEnabled {
+            try ArcChromeEvidence.writeJSON([
+                "requestedScreenWidth": 1024, "contentMinWidth": window.contentMinSize.width,
+                "content": ArcChromeEvidence.rectJSON(content.bounds),
+                "split": ArcChromeEvidence.rectJSON(split.splitView.bounds),
+                "window": ArcChromeEvidence.rectJSON(window.frame)
+            ], name: "narrow-screen")
+        }
         #expect(abs(window.contentMinSize.width - 1024) <= 0.5)
         #expect(abs(content.bounds.width - 1024) <= 0.5,
                 "the editor cannot actually fit the narrow-screen minimum")
@@ -457,8 +462,12 @@ import Testing
             else { AppSettings.store.removeObject(forKey: key) }
         }
         for (language, label) in [("en", "None"), ("ru", "Без фона")] {
+            // As the Arc panel builds it: without scroll indicators. Left on,
+            // a machine with no trackpad (a CI runner) draws a legacy scroller
+            // that takes 16-17pt of the 320 and moves every rail measured here.
             let host = NSHostingView(rootView: PresentationInspector(
-                document: document, contentInsets: ArcFrameLayout.panelContentInsets)
+                document: document, contentInsets: ArcFrameLayout.panelContentInsets,
+                showsScrollIndicators: false)
                 .environment(\.locale, Locale(identifier: language)))
             let window = NSWindow(contentRect: NSRect(x: 20, y: 20, width: 320, height: 740),
                                   styleMask: [.borderless], backing: .buffered, defer: false)
@@ -480,6 +489,67 @@ import Testing
             let firstRowY = try #require(tiles.map(\.minY).min())
             let firstRow = tiles.filter { abs($0.minY - firstRowY) <= 2 }
             #expect(firstRow.count == 4, "the real panel must retain four background columns")
+            // The same already-cached 320pt Arc panel proves its two grids
+            // and header/row rails, without another window or render.
+            let columns = firstRow.sorted { $0.minX < $1.minX }
+            let presets = focusFrames.filter {
+                $0.width >= 60 && $0.width <= 75 && $0.height >= 40 && $0.height <= 60
+                    && $0.minY > firstRowY
+            }
+            let presetY = try #require(presets.map(\.minY).min())
+            let presetRow = presets.filter { abs($0.minY - presetY) <= 0.5 }
+                .sorted { $0.minX < $1.minX }
+            #expect(presetRow.count == 4)
+            for (kind, preset) in zip(columns, presetRow) {
+                #expect(abs(kind.width - 67) <= 0.5)
+                #expect(abs(preset.width - 67) <= 0.5)
+                #expect(abs(preset.height - 50.25) <= 0.5)
+                #expect(abs(kind.width - preset.width) <= 0.5)
+                #expect(abs(kind.minX - preset.minX) <= 0.5,
+                        "background kinds and presets must share their columns")
+            }
+            let firstTile = try #require(columns.first)
+            #expect(abs(firstTile.minX - 21) <= 0.5)
+            let header = try #require(focusFrames.filter {
+                $0.width > host.bounds.width / 2 && $0.height >= 20 && $0.height <= 40
+            }.min { $0.minY < $1.minY })
+            #expect(abs(header.minX - 21) <= 0.5)
+            #expect(abs(header.minX - firstTile.minX) <= 0.5)
+            let chevron = try #require(focusFrames.first {
+                $0.width < 16 && $0.minX > host.bounds.width / 2
+                    && abs($0.minY - header.minY) <= 0.5 && abs($0.height - header.height) <= 0.5
+            })
+            // The first 100pt NumberField is the Background block's Corner
+            // Radius row; the colour editor above it is not a NumberField.
+            //
+            // In steps with their types written out: as one chain the CI
+            // toolchain's type checker gave up on it ("unable to type-check
+            // this expression in reasonable time").
+            let numberFields: [NumberField.Field] = ArcChromeEvidence.views(in: host)
+                .compactMap { $0 as? NumberField.Field }
+                .filter { !$0.isHiddenOrHasHiddenAncestor }
+            let numberFrames: [NSRect] = numberFields.map { (field: NumberField.Field) -> NSRect in
+                capture.topRect(field as NSView)
+            }
+            let hundredPoint: [NSRect] = numberFrames.filter { abs($0.width - 100) <= 0.5 }
+            let radius = try #require(hundredPoint.min { $0.minY < $1.minY })
+            #expect(abs(radius.maxX - 307) <= 0.5)
+            #expect(abs(chevron.maxX - 307) <= 0.5)
+            #expect(abs(chevron.maxX - radius.maxX) <= 0.5)
+
+            // A focus cell includes its caption and would conceal a 5pt
+            // plate. One vertical scan of the solid tile in the existing
+            // cache checks the actual picture's height and its top edge.
+            let step = 1 / capture.scale
+            let backing = capture.rgb(NSPoint(x: firstTile.midX, y: firstTile.minY - 3))
+            let pictureRows = stride(from: firstTile.minY, through: firstTile.minY + 54, by: step).filter {
+                ArcChromeEvidence.delta(capture.rgb(NSPoint(x: firstTile.midX, y: $0)), backing) > 6
+            }
+            let pictureTop = try #require(pictureRows.first)
+            let pictureBottom = try #require(pictureRows.last) + step
+            #expect(abs(pictureTop - firstTile.minY) <= 0.5)
+            #expect(abs(pictureBottom - pictureTop - 50.25) <= 0.5,
+                    "the kind's picture must keep the preset's 50.25pt height, without a plate")
             let tile = try #require(firstRow.max { $0.minX < $1.minX })
             let match = try #require(text.first {
                 tile.contains(NSPoint(x: $0.frame.midX, y: $0.frame.midY))
@@ -503,18 +573,21 @@ import Testing
             #expect(available > 0)
             #expect(natural * 0.8 <= available + 1,
                     "the full label cannot fit even at the tile's minimum scale")
-            try ArcChromeEvidence.writeJSON([
-                "language": language, "label": label, "ocrText": match.text,
-                "frame": ArcChromeEvidence.rectJSON(match.frame),
-                "tileFrame": ArcChromeEvidence.rectJSON(tile),
-                "naturalWidth": natural, "minimumScale": 0.8, "availableWidth": available
-            ], name: "panel-label-\(language)")
+            if ArcChromeEvidence.isEnabled {
+                try ArcChromeEvidence.writeJSON([
+                    "language": language, "label": label, "ocrText": match.text,
+                    "frame": ArcChromeEvidence.rectJSON(match.frame),
+                    "tileFrame": ArcChromeEvidence.rectJSON(tile),
+                    "naturalWidth": natural, "minimumScale": 0.8, "availableWidth": available
+                ], name: "panel-label-\(language)")
+            }
         }
     }
 
     /// Both paths start closed and measure the exposed panel at 8ms intervals.
     /// No preloading is introduced by this test.
-    @Test func arcAndLegacyDecorOpeningLatency() async throws {
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["STAMPO_EVIDENCE"] != nil))
+    func arcAndLegacyDecorOpeningLatency() async throws {
         guard #available(macOS 26, *) else { return }
         let restore = configureArc(false)
         let url = try writePNG("editor-arc-opening-latency.png", width: 1600, height: 800)
@@ -543,13 +616,15 @@ import Testing
                 recorder.sample()
                 try await Task.sleep(for: .milliseconds(1200))
                 recorder.stop()
-                try ArcChromeEvidence.writeJSON([
-                    "mode": mode, "attempt": attempt, "openCallAndFirstLayoutMs": openCost,
-                    "initialVisibleWidth": initialWidth, "finalVisibleWidth": recorder.panelWidth,
-                    "opened": recorder.panelPresented,
-                    "firstShiftMs": recorder.firstShiftMs.map { $0 as Any } ?? "not observed",
-                    "samples": recorder.samples
-                ], name: "latency-\(mode)-\(attempt)")
+                if ArcChromeEvidence.isEnabled {
+                    try ArcChromeEvidence.writeJSON([
+                        "mode": mode, "attempt": attempt, "openCallAndFirstLayoutMs": openCost,
+                        "initialVisibleWidth": initialWidth, "finalVisibleWidth": recorder.panelWidth,
+                        "opened": recorder.panelPresented,
+                        "firstShiftMs": recorder.firstShiftMs.map { $0 as Any } ?? "not observed",
+                        "samples": recorder.samples
+                    ], name: "latency-\(mode)-\(attempt)")
+                }
                 _ = try #require(recorder.firstShiftMs, "the real panel must expose growing width when Decor opens")
                 #expect(recorder.panelPresented)
                 #expect(recorder.panelWidth >= 300)
@@ -644,14 +719,21 @@ import Testing
             window.contentViewController = nil
             window.close()
         }
-        await settle(window)
+        await settle(window, eventDelivery: true)
         try pressDecor(in: window)
-        await settle(window)
+        await settle(window, eventDelivery: true)
         let split = try #require(frameSplit(in: window))
         #expect(!split.panelItem.isCollapsed)
         #expect(context.isKeyWindow())
         #expect(context.overlayParent() === window)
         #expect(document.selectedID == annotation.id)
+
+        // These checks used to reopen this exact 1140 × 720 window with the
+        // same selected red rectangle. Share the already-open 320pt panel.
+        try arcPanelHeaderAndColourButtonShareTheSecondLinesAxis(in: window)
+        try await arcColorControlFollowsTheCardWidth(in: window)
+        window.setContentSize(NSSize(width: 1140, height: 720))
+        await settle(window)
 
         func postKey(_ code: UInt16, characters: String) throws {
             for type in [NSEvent.EventType.keyDown, .keyUp] {
@@ -667,7 +749,7 @@ import Testing
 
         #expect(window.makeFirstResponder(nil))
         try postKey(124, characters: "\u{F703}")
-        await settle(window)
+        await settle(window, eventDelivery: true)
         #expect(document.annotations[0].start.x == 21,
                 "the open panel must not take the canvas's arrow shortcut")
 
@@ -677,23 +759,23 @@ import Testing
             $0.isEditable && ($0.accessibilityLabel() == color || $0.stringValue.hasPrefix("#"))
         })
         #expect(window.makeFirstResponder(hex))
-        await settle(window)
+        await settle(window, eventDelivery: true)
         let fieldEditor = try #require(hex.currentEditor() as? NSTextView)
         fieldEditor.selectAll(nil)
         try postKey(3, characters: "F")
-        await settle(window)
+        await settle(window, eventDelivery: true)
         #expect(fieldEditor.string == "F", "typed text must reach the inspector's field editor")
         try postKey(124, characters: "\u{F703}")
-        await settle(window)
+        await settle(window, eventDelivery: true)
         #expect(document.annotations[0].start.x == 21,
                 "an arrow in the color field must not nudge the annotation")
         #expect(context.isKeyWindow())
 
         #expect(window.makeFirstResponder(nil))
-        await settle(window)
+        await settle(window, eventDelivery: true)
         #expect(hex.currentEditor() == nil)
         try postKey(124, characters: "\u{F703}")
-        await settle(window)
+        await settle(window, eventDelivery: true)
         #expect(document.annotations[0].start.x == 22,
                 "the canvas must receive arrows again after the field releases focus")
         print("ARC keyboard key=\(context.isKeyWindow()) annotationX=\(document.annotations[0].start.x) typed=F fieldReleased=\(hex.currentEditor() == nil)")
@@ -703,42 +785,7 @@ import Testing
     /// the card is narrower than the widest line, the row of swatches once it
     /// is wide enough. Found by what each draws: the button's tooltip is the
     /// word "Color", a swatch's is its own colour's name.
-    @Test func arcColorControlFollowsTheCardWidth() async throws {
-        guard #available(macOS 26, *) else { return }
-        let restore = configureArc(true)
-        defer { restore() }
-        let document = EditorDocument(
-            baseImage: TestImages.make(width: 1600, height: 800),
-            sourceURL: URL(fileURLWithPath: "/tmp/editor-arc-color-control.png"))
-        let annotation = Annotation(kind: .rect, start: CGPoint(x: 20, y: 20),
-                                    end: CGPoint(x: 60, y: 60), color: .red, lineWidth: 4)
-        document.beginChange()
-        document.annotations.append(annotation)
-        document.commitChange()
-        document.selectedID = annotation.id
-
-        weak var editorWindow: NSWindow?
-        let context = EditorWindowContext(isKeyWindow: { editorWindow?.isKeyWindow == true },
-                                          overlayParent: { editorWindow })
-        let hosting = NSHostingController(rootView: EditorView(
-            document: document, windowContext: context, arcFrame: true).managedLocale())
-        hosting.sceneBridgingOptions = [.toolbars]
-        let window = NSWindow(contentViewController: hosting)
-        editorWindow = window
-        window.isReleasedWhenClosed = false
-        window.styleMask = [.titled, .closable, .resizable]
-        window.toolbarStyle = .unified
-        window.titleVisibility = .hidden
-        window.setContentSize(NSSize(width: 1140, height: 720))
-        window.makeKeyAndOrderFront(nil)
-        defer {
-            window.orderOut(nil)
-            window.contentViewController = nil
-            window.close()
-        }
-        await settle(window)
-        try pressDecor(in: window)
-        await settle(window)
+    private func arcColorControlFollowsTheCardWidth(in window: NSWindow) async throws {
         let split = try #require(frameSplit(in: window))
 
         let button = LocaleManager.shared.string("Color")
@@ -780,27 +827,31 @@ import Testing
         }
 
         let arc = try await openWindow(url)
-        try pressDecor(in: arc)
-        await settle(arc)
-        let split = try #require(frameSplit(in: arc))
-        #expect(arc.titlebarSeparatorStyle == .none)
-        #expect(split.splitViewItems.count == 2)
-        for item in split.splitViewItems { #expect(item.titlebarSeparatorStyle == .none) }
-        let arcScroller = try #require(outerScroller(split.panelHosting.view))
-        #expect(!arcScroller.hasVerticalScroller)
+        for _ in 0..<2 {
+            try await expectPanelOpens(in: arc)
+            let split = try #require(frameSplit(in: arc))
+            #expect(arc.titlebarSeparatorStyle == .none)
+            #expect(split.splitViewItems.count == 2)
+            for item in split.splitViewItems { #expect(item.titlebarSeparatorStyle == .none) }
+            let arcScroller = try #require(outerScroller(split.panelHosting.view))
+            #expect(!arcScroller.hasVerticalScroller)
+            try await expectPanelCloses(in: arc)
+        }
         EditorWindowController.closeAllForTesting()
 
         AppSettings.store.set(false, forKey: AppSettings.Keys.editorArcFrame)
         let legacy = try await openWindow(url)
-        try pressDecor(in: legacy)
-        await settle(legacy)
-        #expect(legacy.titlebarSeparatorStyle == .automatic)
-        let content = try #require(legacy.contentView)
-        let legacySplit = try #require(views(in: content).compactMap { $0 as? NSSplitView }
-            .compactMap { $0.delegate as? NSSplitViewController }.first)
-        for item in legacySplit.splitViewItems { #expect(item.titlebarSeparatorStyle == .automatic) }
-        let legacyScroller = try #require(outerScroller(content))
-        #expect(legacyScroller.hasVerticalScroller)
+        for _ in 0..<2 {
+            try await expectPanelOpens(in: legacy)
+            #expect(legacy.titlebarSeparatorStyle == .automatic)
+            let content = try #require(legacy.contentView)
+            let legacySplit = try #require(views(in: content).compactMap { $0 as? NSSplitView }
+                .compactMap { $0.delegate as? NSSplitViewController }.first)
+            for item in legacySplit.splitViewItems { #expect(item.titlebarSeparatorStyle == .automatic) }
+            let legacyScroller = try #require(outerScroller(content))
+            #expect(legacyScroller.hasVerticalScroller)
+            try await expectPanelCloses(in: legacy)
+        }
     }
 
     /// An Arc editor on a document of our own, so a test can select an
@@ -829,28 +880,7 @@ import Testing
     /// below the top, where the colour button is centred too), the tile under
     /// it starts on the line's divider (40pt), and the compact colour button
     /// and its dot have their approved size.
-    @Test func arcPanelHeaderAndColourButtonShareTheSecondLinesAxis() async throws {
-        guard #available(macOS 26, *) else { return }
-        let restore = configureArc(true)
-        defer { restore() }
-        let document = EditorDocument(
-            baseImage: TestImages.make(width: 1600, height: 800),
-            sourceURL: URL(fileURLWithPath: "/tmp/editor-arc-axis.png"))
-        let annotation = Annotation(kind: .rect, start: CGPoint(x: 20, y: 20),
-                                    end: CGPoint(x: 60, y: 60), color: .red, lineWidth: 4)
-        document.beginChange()
-        document.annotations.append(annotation)
-        document.commitChange()
-        document.selectedID = annotation.id
-        let window = hostedArcWindow(document: document)
-        defer {
-            window.orderOut(nil)
-            window.contentViewController = nil
-            window.close()
-        }
-        await settle(window)
-        try pressDecor(in: window)
-        await settle(window)
+    private func arcPanelHeaderAndColourButtonShareTheSecondLinesAxis(in window: NSWindow) throws {
         let split = try #require(frameSplit(in: window))
         let panel = split.panelHosting.view
         let detail = split.detailHosting.view
@@ -1077,11 +1107,61 @@ import Testing
         return window
     }
 
-    private func settle(_ window: NSWindow) async {
-        for _ in 0..<4 {
-            window.contentView?.layoutSubtreeIfNeeded()
-            window.displayIfNeeded()
-            try? await Task.sleep(for: .milliseconds(180))
+    /// The latency probe's behavior assertions stay in the permanent suite,
+    /// on the same two windows used to check the native rule and scroller.
+    private func expectPanelOpens(in window: NSWindow) async throws {
+        let recorder = ArcOpeningRecorder(window: window, arcSplit: frameSplit(in: window))
+        try #require(!recorder.panelPresented, "each opening must start with Decor closed")
+        #expect(recorder.panelWidth <= 0.5)
+        recorder.start()
+        defer { recorder.stop() }
+        try pressDecor(in: window)
+        await settle(window)
+        recorder.sample()
+        _ = try #require(recorder.firstShiftMs, "the real panel must expose growing width when Decor opens")
+        #expect(recorder.panelPresented)
+        #expect(recorder.panelWidth >= 300)
+    }
+
+    private func expectPanelCloses(in window: NSWindow) async throws {
+        try pressDecor(in: window)
+        await settle(window)
+        let recorder = ArcOpeningRecorder(window: window, arcSplit: frameSplit(in: window))
+        #expect(!recorder.panelPresented, "both native and Arc inspectors must close before the next opening")
+        #expect(recorder.panelWidth <= 0.5)
+    }
+
+    private func settle(_ window: NSWindow, eventDelivery: Bool = false) async {
+        if eventDelivery || (window.toolbar != nil && frameSplit(in: window) == nil) {
+            // AppKit activation/key delivery and the native inspector need
+            // the original event-loop allowance; geometry alone cannot
+            // establish that keyboard events have been delivered.
+            for _ in 0..<4 {
+                window.contentView?.layoutSubtreeIfNeeded()
+                window.displayIfNeeded()
+                try? await Task.sleep(for: .milliseconds(180))
+            }
+        } else {
+            // Drain queued SwiftUI updates and wait for the real split's
+            // animation and final divider positioning, rather than sleeping
+            // another 720ms after every focus, theme or layout change.
+            var previous: [NSRect] = []
+            var stableTurns = 0
+            for turn in 0..<60 {
+                window.contentView?.layoutSubtreeIfNeeded()
+                window.displayIfNeeded()
+                try? await Task.sleep(for: .milliseconds(20))
+                let split = frameSplit(in: window)
+                let frames = [window.frame, window.contentView?.bounds ?? .zero]
+                    + (split?.splitView.arrangedSubviews.map(\.frame) ?? [])
+                if split?.animatingPresentation != true && frames == previous {
+                    stableTurns += 1
+                } else {
+                    stableTurns = 0
+                }
+                previous = frames
+                if turn >= 4 && stableTurns >= 2 { break }
+            }
         }
         window.contentView?.layoutSubtreeIfNeeded()
     }
@@ -1179,6 +1259,7 @@ import Testing
     }
 
     private func cacheEditor(_ window: NSWindow, name: String) throws {
+        guard ArcChromeEvidence.isEnabled else { return }
         let hosting = try #require(window.contentView)
         let bitmap = try #require(hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds))
         let opaque = try #require(NSBitmapImageRep(
