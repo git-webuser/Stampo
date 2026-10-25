@@ -892,6 +892,112 @@ import Testing
         #expect(abs(CGFloat(dot) / scale - 16) <= 1, "the dot is \(CGFloat(dot) / scale)pt wide, not 16")
     }
 
+    /// The dot grid stands on the canvas: its first dot 12pt in from the
+    /// canvas's corner, its rows and columns 24pt apart, and nothing on the
+    /// strip of the second line above it. Measured in both appearances on the
+    /// real window's own picture.
+    @Test func arcCanvasDotsStandOnTheCanvasAndNotOnTheStrip() async throws {
+        guard #available(macOS 26, *) else { return }
+        let restore = configureArc(true)
+        defer { restore() }
+        let document = EditorDocument(
+            baseImage: TestImages.make(width: 1600, height: 800),
+            sourceURL: URL(fileURLWithPath: "/tmp/editor-arc-dots.png"))
+        let window = hostedArcWindow(document: document)
+        defer {
+            window.orderOut(nil)
+            window.contentViewController = nil
+            window.close()
+        }
+        for (theme, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
+            window.appearance = NSAppearance(named: appearance)
+            await settle(window)
+            let picture = try detailPicture(of: window)
+            let card = picture.rgb(6, 20)
+            let canvasTop = try #require(picture.canvasTop(card: card), "\(theme): no divider under the strip")
+            #expect(abs(canvasTop - 41) <= 1, "\(theme): the canvas begins at \(canvasTop)pt, not under the 40pt strip and its divider")
+
+            // The first dot and some far along each axis, in the margins the
+            // 1600 × 800 page leaves clear (its edges fall between the first
+            // and last columns): dot-coloured, not card-coloured.
+            for (column, row) in [(0, 0), (1, 0), (0, 1), (0, 13), (46, 13), (0, 26), (46, 26)] {
+                let x = ArcFrameLayout.dotStep * (CGFloat(column) + 0.5)
+                let y = canvasTop + ArcFrameLayout.dotStep * (CGFloat(row) + 0.5)
+                #expect(ArcChromeEvidence.delta(picture.rgb(x, y), card) >= 6,
+                        "\(theme): no dot at column \(column), row \(row)")
+                // Half a step further down the same column, between two dots,
+                // is the card's own colour.
+                #expect(ArcChromeEvidence.delta(picture.rgb(x, y + 12), card) <= 1,
+                        "\(theme): a dot where the grid has a gap at column \(column), row \(row)")
+            }
+            // Where the grid would put dots if it began at the strip: none.
+            for column in 0..<8 {
+                for y in [CGFloat(12), 36] {
+                    let x = ArcFrameLayout.dotStep * (CGFloat(column) + 0.5)
+                    #expect(ArcChromeEvidence.delta(picture.rgb(x, y), card) <= 1,
+                            "\(theme): a dot on the strip at \(x), \(y)")
+                }
+            }
+        }
+    }
+
+    /// An export is the document and nothing of the window that shows it. The
+    /// bytes from the real export path are the same before the window opens
+    /// and while it shows its dots, and the output holds no dots of its own:
+    /// the pixels where the grid would stand in a clear corner are the page's
+    /// own colour.
+    @Test func arcDotsNeverReachAnExport() async throws {
+        guard #available(macOS 26, *) else { return }
+        let restore = configureArc(true)
+        defer { restore() }
+        let blue = Presentation.Color(red: 0, green: 0, blue: 1, alpha: 1)
+        let decorated = Presentation(canvas: .preset(pixelSize: CGSize(width: 1000, height: 1000)),
+                                     background: .solid(blue))
+        for (name, presentation) in [("plain", Presentation?.none), ("decorated", .some(decorated))] {
+            let document = EditorDocument(
+                baseImage: TestImages.make(width: 1600, height: 800),
+                sourceURL: URL(fileURLWithPath: "/tmp/editor-arc-dots-export.png"))
+            document.beginChange()
+            document.annotations.append(Annotation(kind: .arrow, start: CGPoint(x: 400, y: 300),
+                                                   end: CGPoint(x: 700, y: 400), color: .red, lineWidth: 6))
+            document.annotations.append(Annotation(kind: .rect, start: CGPoint(x: 900, y: 300),
+                                                   end: CGPoint(x: 1200, y: 600), color: .red, lineWidth: 6))
+            document.presentation = presentation
+            document.commitChange()
+            let before = try exportedPNG(of: document)
+
+            let window = hostedArcWindow(document: document)
+            defer {
+                window.orderOut(nil)
+                window.contentViewController = nil
+                window.close()
+            }
+            await settle(window)
+            // The dots are on screen at this moment, not merely in the code.
+            let picture = try detailPicture(of: window)
+            let card = picture.rgb(6, 20)
+            let canvasTop = try #require(picture.canvasTop(card: card))
+            #expect(ArcChromeEvidence.delta(picture.rgb(12, canvasTop + 12), card) >= 6,
+                    "\(name): the window shows no dots, so the comparison proves nothing")
+            let after = try exportedPNG(of: document)
+            #expect(after == before, "\(name): the export changed while the Arc window was open")
+
+            let output = try #require(NSBitmapImageRep(data: after))
+            let page = try #require(output.colorAt(x: 0, y: 0)?.usingColorSpace(.sRGB))
+            for column in 0..<3 {
+                for row in 0..<3 {
+                    let x = Int(ArcFrameLayout.dotStep * (CGFloat(column) + 0.5))
+                    let y = Int(ArcFrameLayout.dotStep * (CGFloat(row) + 0.5))
+                    let pixel = try #require(output.colorAt(x: x, y: y)?.usingColorSpace(.sRGB))
+                    #expect(abs(pixel.redComponent - page.redComponent) < 0.004
+                            && abs(pixel.greenComponent - page.greenComponent) < 0.004
+                            && abs(pixel.blueComponent - page.blueComponent) < 0.004,
+                            "\(name): the export has a dot at \(x), \(y)")
+                }
+            }
+        }
+    }
+
     // MARK: Real-window harness
 
     private func configureArc(_ enabled: Bool) -> () -> Void {
@@ -980,6 +1086,48 @@ import Testing
             $0 is ImageScreenFrameReporter.ReporterView
         }, "the canvas must contain its actual image reporter")
         return window.convertToScreen(reporter.convert(reporter.bounds, to: nil))
+    }
+
+    /// The real export path, to the bytes: what Save, Copy and Share encode.
+    private func exportedPNG(of document: EditorDocument) throws -> Data {
+        let snapshot = document.makeRenderSnapshot(format: "png")
+        return try #require(AnnotationRenderer.renderEncoded(snapshot: snapshot)).data
+    }
+
+    /// The detail column as the window draws it, read in points from its
+    /// top-left corner (the card's own corner: the column starts at the card).
+    private struct DetailPicture {
+        let bitmap: NSBitmapImageRep
+        let scale: CGFloat
+
+        func rgb(_ x: CGFloat, _ y: CGFloat) -> [Int] {
+            let px = min(bitmap.pixelsWide - 1, max(0, Int((x * scale).rounded(.down))))
+            let py = min(bitmap.pixelsHigh - 1, max(0, Int((y * scale).rounded(.down))))
+            guard let color = bitmap.colorAt(x: px, y: py)?.usingColorSpace(.sRGB) else { return [] }
+            return [color.redComponent, color.greenComponent, color.blueComponent].map { Int(($0 * 255).rounded()) }
+        }
+
+        /// The first row of the canvas: the row after the divider under the
+        /// strip, read on a column the dots never reach.
+        func canvasTop(card: [Int]) -> CGFloat? {
+            let step = 1 / scale
+            guard let divider = stride(from: CGFloat(30), through: 48, by: step).first(where: {
+                ArcChromeEvidence.delta(rgb(6, $0), card) > 3
+            }) else { return nil }
+            return stride(from: divider, through: 60, by: step).first {
+                ArcChromeEvidence.delta(rgb(6, $0), card) <= 1
+            }
+        }
+    }
+
+    private func detailPicture(of window: NSWindow) throws -> DetailPicture {
+        let split = try #require(frameSplit(in: window))
+        let view = split.detailHosting.view
+        let bitmap = try #require(view.bitmapImageRepForCachingDisplay(in: view.bounds))
+        window.effectiveAppearance.performAsCurrentDrawingAppearance {
+            view.cacheDisplay(in: view.bounds, to: bitmap)
+        }
+        return DetailPicture(bitmap: bitmap, scale: CGFloat(bitmap.pixelsWide) / view.bounds.width)
     }
 
     private func cacheEditor(_ window: NSWindow, name: String) throws {

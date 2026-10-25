@@ -191,7 +191,8 @@ struct EditorView: View {
                     .frame(width: geometry.size.width)
                     .background(Color(nsColor: .textBackgroundColor))
                 Divider()
-                canvasContent
+                // On the canvas alone: the strip above stays plain.
+                canvasContent.background { ArcDotGrid() }
             }
             // A fixed-size tool row can exceed its proposal. The card keeps
             // the column's size while its contents await width adaptation.

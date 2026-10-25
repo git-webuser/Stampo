@@ -102,6 +102,53 @@ import Testing
         #expect(EnvironmentValues().settingsRowCompact == false)
     }
 
+    /// The dot grid's look in one place, so taking it back is one edit.
+    @Test func dotGridKeepsItsApprovedLook() {
+        #expect(ArcFrameLayout.dotStep == 24)
+        #expect(ArcFrameLayout.dotDiameter == 2.6)
+        #expect(ArcFrameLayout.dotOpacity == 0.14)
+    }
+
+    /// 944 × 650 is the canvas of a 1140 × 720 window with the panel shut;
+    /// 1500 × 900 is a large one.
+    @Test func dotsStartHalfAStepInAndFillTheArea() {
+        let small = ArcFrameLayout.dotCenters(in: CGSize(width: 944, height: 650))
+        #expect(small.count == 39 * 27)
+        #expect(small.count == 1053)
+        #expect(small.first == CGPoint(x: 12, y: 12))
+        #expect(small.last == CGPoint(x: 12 + 24 * 38, y: 12 + 24 * 26))
+        #expect(small.last == CGPoint(x: 924, y: 636))
+        #expect(ArcFrameLayout.dotCenters(in: CGSize(width: 1500, height: 900)).count == 62 * 37)
+    }
+
+    @Test func dotsStandOnOneGridInReadingOrder() {
+        let centers = ArcFrameLayout.dotCenters(in: CGSize(width: 100, height: 70))
+        let columns = [12, 36, 60, 84].map { CGFloat($0) }
+        let rows = [12, 36, 60].map { CGFloat($0) }
+        let expected = rows.flatMap { y in columns.map { CGPoint(x: $0, y: y) } }
+        #expect(centers == expected)
+    }
+
+    @Test func aDotsCentreOnTheEdgeIsOutside() {
+        let step = ArcFrameLayout.dotStep
+        // A centre exactly on the edge is out; a hair more width brings the next one in.
+        #expect(ArcFrameLayout.dotCenters(in: CGSize(width: step * 1.5, height: step)).count == 1)
+        #expect(ArcFrameLayout.dotCenters(in: CGSize(width: step * 1.5 + 0.5, height: step)).count == 2)
+        #expect(ArcFrameLayout.dotCenters(in: CGSize(width: step, height: step * 1.5)).count == 1)
+        #expect(ArcFrameLayout.dotCenters(in: CGSize(width: step, height: step * 1.5 + 0.5)).count == 2)
+    }
+
+    @Test func noAreaNoDots() {
+        let sizes: [CGSize] = [
+            .zero, CGSize(width: 0, height: 650), CGSize(width: 944, height: 0),
+            CGSize(width: -10, height: 650), CGSize(width: 944, height: CGFloat.nan),
+            CGSize(width: CGFloat.infinity, height: 650), CGSize(width: 944, height: CGFloat.infinity)
+        ]
+        for size in sizes {
+            #expect(ArcFrameLayout.dotCenters(in: size).isEmpty, "\(size)")
+        }
+    }
+
     @Test func legacyEditorConstantsKeepTheirExistingSizes() {
         #expect(EditorView.minimumContentSize == CGSize(width: 900, height: 360))
         #expect(EditorView.presentationInspectorMinimumWidth == 320)
