@@ -483,6 +483,60 @@ import Testing
             let firstRowY = try #require(tiles.map(\.minY).min())
             let firstRow = tiles.filter { abs($0.minY - firstRowY) <= 2 }
             #expect(firstRow.count == 4, "the real panel must retain four background columns")
+            // The same already-cached 320pt Arc panel proves its two grids
+            // and header/row rails, without another window or render.
+            let columns = firstRow.sorted { $0.minX < $1.minX }
+            let presets = focusFrames.filter {
+                $0.width >= 60 && $0.width <= 75 && $0.height >= 40 && $0.height <= 60
+                    && $0.minY > firstRowY
+            }
+            let presetY = try #require(presets.map(\.minY).min())
+            let presetRow = presets.filter { abs($0.minY - presetY) <= 0.5 }
+                .sorted { $0.minX < $1.minX }
+            #expect(presetRow.count == 4)
+            for (kind, preset) in zip(columns, presetRow) {
+                #expect(abs(kind.width - 67) <= 0.5)
+                #expect(abs(preset.width - 67) <= 0.5)
+                #expect(abs(preset.height - 50.25) <= 0.5)
+                #expect(abs(kind.width - preset.width) <= 0.5)
+                #expect(abs(kind.minX - preset.minX) <= 0.5,
+                        "background kinds and presets must share their columns")
+            }
+            let firstTile = try #require(columns.first)
+            #expect(abs(firstTile.minX - 21) <= 0.5)
+            let header = try #require(focusFrames.filter {
+                $0.width > host.bounds.width / 2 && $0.height >= 20 && $0.height <= 40
+            }.min { $0.minY < $1.minY })
+            #expect(abs(header.minX - 21) <= 0.5)
+            #expect(abs(header.minX - firstTile.minX) <= 0.5)
+            let chevron = try #require(focusFrames.first {
+                $0.width < 16 && $0.minX > host.bounds.width / 2
+                    && abs($0.minY - header.minY) <= 0.5 && abs($0.height - header.height) <= 0.5
+            })
+            // The first 100pt NumberField is the Background block's Corner
+            // Radius row; the colour editor above it is not a NumberField.
+            let radius = try #require(ArcChromeEvidence.views(in: host)
+                .compactMap { $0 as? NumberField.Field }
+                .filter { !$0.isHiddenOrHasHiddenAncestor }
+                .map { capture.topRect($0) }.filter { abs($0.width - 100) <= 0.5 }
+                .min { $0.minY < $1.minY })
+            #expect(abs(radius.maxX - 307) <= 0.5)
+            #expect(abs(chevron.maxX - 307) <= 0.5)
+            #expect(abs(chevron.maxX - radius.maxX) <= 0.5)
+
+            // A focus cell includes its caption and would conceal a 5pt
+            // plate. One vertical scan of the solid tile in the existing
+            // cache checks the actual picture's height and its top edge.
+            let step = 1 / capture.scale
+            let backing = capture.rgb(NSPoint(x: firstTile.midX, y: firstTile.minY - 3))
+            let pictureRows = stride(from: firstTile.minY, through: firstTile.minY + 54, by: step).filter {
+                ArcChromeEvidence.delta(capture.rgb(NSPoint(x: firstTile.midX, y: $0)), backing) > 6
+            }
+            let pictureTop = try #require(pictureRows.first)
+            let pictureBottom = try #require(pictureRows.last) + step
+            #expect(abs(pictureTop - firstTile.minY) <= 0.5)
+            #expect(abs(pictureBottom - pictureTop - 50.25) <= 0.5,
+                    "the kind's picture must keep the preset's 50.25pt height, without a plate")
             let tile = try #require(firstRow.max { $0.minX < $1.minX })
             let match = try #require(text.first {
                 tile.contains(NSPoint(x: $0.frame.midX, y: $0.frame.midY))
