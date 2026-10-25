@@ -983,8 +983,12 @@ import Testing
         guard #available(macOS 26, *) else { return }
         let restore = configureArc(true)
         defer { restore() }
+        // A strip of a picture: fitted into any window it leaves the top and
+        // bottom of the canvas clear, which a 2:1 picture does not once the
+        // window is as short as a CI runner's screen allows (the picture then
+        // covers the first rows, and the far rows are below the window).
         let document = EditorDocument(
-            baseImage: TestImages.make(width: 1600, height: 800),
+            baseImage: TestImages.make(width: 1600, height: 200),
             sourceURL: URL(fileURLWithPath: "/tmp/editor-arc-dots.png"))
         let window = hostedArcWindow(document: document)
         defer {
@@ -1000,12 +1004,31 @@ import Testing
             let canvasTop = try #require(picture.canvasTop(card: card), "\(theme): no divider under the strip")
             #expect(abs(canvasTop - 41) <= 1, "\(theme): the canvas begins at \(canvasTop)pt, not under the 40pt strip and its divider")
 
-            // The first dot and some far along each axis, in the margins the
-            // 1600 × 800 page leaves clear (its edges fall between the first
-            // and last columns): dot-coloured, not card-coloured.
-            for (column, row) in [(0, 0), (1, 0), (0, 1), (0, 13), (46, 13), (0, 26), (46, 26)] {
+            // The first dot and some far along each axis: the corners and the
+            // last row and column of the canvas as this window really is, each
+            // checked to stand clear of the picture, so the cell is dot-
+            // coloured and its gap card-coloured because of the grid and not
+            // because of what the picture covers.
+            let split = try #require(frameSplit(in: window))
+            let detail = split.detailHosting.view
+            let reporter = try #require(views(in: detail).first { $0 is ImageScreenFrameReporter.ReporterView })
+            var image = detail.convert(reporter.bounds, from: reporter)
+            if !detail.isFlipped { image.origin.y = detail.bounds.height - image.maxY }
+            // The card is the detail view less the 8pt frame at its right and
+            // bottom; the canvas is the card under the 41pt strip and divider.
+            let canvas = CGSize(width: detail.bounds.width - ArcFrameLayout.frameGap,
+                                height: detail.bounds.height - ArcFrameLayout.frameGap - canvasTop)
+            let columns = Int(((canvas.width - ArcFrameLayout.dotStep / 2) / ArcFrameLayout.dotStep).rounded(.up))
+            let rows = Int(((canvas.height - ArcFrameLayout.dotStep / 2) / ArcFrameLayout.dotStep).rounded(.up))
+            #expect(ArcFrameLayout.dotCenters(in: canvas).count == columns * rows,
+                    "\(theme): the grid the test counts is not the grid the view draws")
+            for (column, row) in [(0, 0), (1, 0), (0, 1), (columns - 2, 0), (0, rows - 2), (columns - 2, rows - 2)] {
                 let x = ArcFrameLayout.dotStep * (CGFloat(column) + 0.5)
                 let y = canvasTop + ArcFrameLayout.dotStep * (CGFloat(row) + 0.5)
+                let cell = CGRect(x: x - ArcFrameLayout.dotStep / 2, y: y - ArcFrameLayout.dotStep / 2,
+                                  width: ArcFrameLayout.dotStep, height: ArcFrameLayout.dotStep * 1.5)
+                #expect(!cell.intersects(image.insetBy(dx: -4, dy: -4)),
+                        "\(theme): column \(column), row \(row) is under the picture, so it proves nothing")
                 #expect(ArcChromeEvidence.delta(picture.rgb(x, y), card) >= 6,
                         "\(theme): no dot at column \(column), row \(row)")
                 // Half a step further down the same column, between two dots,
