@@ -616,4 +616,85 @@ nonisolated enum PinnedOutlineScenes {
         #expect(result.slice[184, 312, 0] == 240)
         #expect(result.repair.filled == masks.core.count)
     }
+
+    @Test func aStableGridOfAnotherSizeFallsBackToTheRingColour() {
+        let page = outlinedPage()
+        let reference = ScrollPinned.repairedSlice(frame: page.frame, rows: 0..<320, region: page.region,
+                                                   core: page.core, stable: nil, neighbours: [])
+        #expect(reference.repair.filled == page.core.count)
+        // The stable blocks of a half frame and of a wider one: read by the region's cell numbers, the first would
+        // run past its cells and the second would hold other blocks than the ones those numbers name.
+        for (columns, rows) in [(page.stable.columns / 2, page.stable.rows / 2),
+                                (page.stable.columns + 3, page.stable.rows)] {
+            var other = PinnedGrid(columns: columns, rows: rows)
+            for index in 0..<page.stable.cells.count where page.stable.cells[index] {
+                other[index % page.stable.columns, index / page.stable.columns] = true
+            }
+            let result = ScrollPinned.repairedSlice(frame: page.frame, rows: 0..<320, region: page.region,
+                                                    core: page.core, stable: other, neighbours: [])
+            #expect(result.repair == reference.repair)
+            let filledAsBefore = result.slice.pixels == reference.slice.pixels
+            #expect(filledAsBefore)
+        }
+    }
+
+    /// An outline of blocks that touch one another only at their corners: a diamond, with no two cells side by
+    /// side. Its centre is a hole for the four-connected space inside it, and has a way out, between two corners,
+    /// for an eight-connected one. 30 by 30 blocks; the diamond reaches `radius` blocks from the middle one.
+    private func diamondPage(text: Bool, radius: Int = 9)
+        -> (frame: CaptureFrame, region: PinnedGrid, core: PinnedGrid, stable: PinnedGrid) {
+        let columns = 30, rows = 30, middle = 15
+        var stable = PinnedGrid(columns: columns, rows: rows)
+        for offset in -radius...radius {
+            let reach = radius - abs(offset)
+            stable[middle + reach, middle + offset] = true
+            stable[middle - reach, middle + offset] = true
+        }
+        var region = PinnedGrid(columns: columns, rows: rows)
+        for row in (middle - radius - 1)...(middle + radius + 1) {
+            for column in (middle - radius - 1)...(middle + radius + 1) { region[column, row] = true }
+        }
+        let width = columns * block, height = rows * block
+        var pixels = [UInt8](repeating: 255, count: width * height * 4)
+        for y in 0..<height {
+            for x in 0..<width {
+                let at = (y * width + x) * 4
+                let outline = stable[x / block, y / block]
+                // Two lines of text across the hole, a few pixels high.
+                let ink = text && (x >= 100 && x < 140) && ((y >= 112 && y < 115) || (y >= 130 && y < 133))
+                pixels[at] = outline ? 240 : (ink ? 20 : 240)
+                pixels[at + 1] = outline ? 70 : (ink ? 20 : 240)
+                pixels[at + 2] = outline ? 160 : (ink ? 20 : 240)
+            }
+        }
+        return (CaptureFrame(width: width, height: height, pixels: pixels), region, region, stable)
+    }
+
+    @Test func textInsideADiagonalOutlineSurvivesWithoutANeighbour() {
+        let page = diamondPage(text: true)
+        // The outline is eight-connected and nothing more: no stable block has another beside it.
+        for index in 0..<page.stable.cells.count where page.stable.cells[index] {
+            let column = index % page.stable.columns, row = index / page.stable.columns
+            let beside = page.stable[column - 1, row] || page.stable[column + 1, row]
+                || page.stable[column, row - 1] || page.stable[column, row + 1]
+            #expect(!beside)
+        }
+        #expect(page.frame[110, 113, 0] == 20)
+        let result = ScrollPinned.repairedSlice(frame: page.frame, rows: 0..<page.frame.height, region: page.region,
+                                                core: page.core, stable: page.stable, neighbours: [])
+        #expect(result.repair.kept == result.repair.blocks && result.repair.filled == 0)
+        #expect(result.slice[110, 113, 0] == 20)
+        let unchanged = result.slice.pixels == page.frame.pixels
+        #expect(unchanged)
+    }
+
+    @Test func aDiagonalOutlineOverAFlatPageStillTakesTheRingColour() {
+        let page = diamondPage(text: false)
+        let result = ScrollPinned.repairedSlice(frame: page.frame, rows: 0..<page.frame.height, region: page.region,
+                                                core: page.core, stable: page.stable, neighbours: [])
+        // The left corner of the diamond, a stable block.
+        #expect(page.stable[6, 15] && page.frame[6 * block, 15 * block, 1] == 70)
+        #expect(result.slice[6 * block, 15 * block, 1] == 240)
+        #expect(result.repair.filled == page.core.count && result.repair.kept == 0)
+    }
 }

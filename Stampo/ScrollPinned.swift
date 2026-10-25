@@ -630,6 +630,9 @@ nonisolated enum ScrollPinned {
         /// When that opening shows structure, keep the piece: a stable edge block can contain page text too,
         /// and a solid middle of a wide letter can have no spread. A leftover outline is preferable to erased text.
         func preservesPage(atCell cell: Int, stable: PinnedGrid) -> Bool {
+            // The cells of `stable` are read by the index of the region's cells; a grid of another size would be
+            // read out of its bounds. The accumulator gives both, but if they ever differ, fill as before.
+            guard stable.columns == region.columns, stable.rows == region.rows else { return false }
             lock.lock()
             defer { lock.unlock() }
             findPieces()
