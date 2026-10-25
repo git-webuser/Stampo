@@ -409,12 +409,14 @@ import Testing
         let content = try #require(window.contentView)
         let split = try #require(frameSplit(in: window))
         print("ARC NARROW requested=1024 contentMin=\(window.contentMinSize) content=\(content.bounds) split=\(split.splitView.bounds) window=\(window.frame)")
-        try ArcChromeEvidence.writeJSON([
-            "requestedScreenWidth": 1024, "contentMinWidth": window.contentMinSize.width,
-            "content": ArcChromeEvidence.rectJSON(content.bounds),
-            "split": ArcChromeEvidence.rectJSON(split.splitView.bounds),
-            "window": ArcChromeEvidence.rectJSON(window.frame)
-        ], name: "narrow-screen")
+        if ArcChromeEvidence.isEnabled {
+            try ArcChromeEvidence.writeJSON([
+                "requestedScreenWidth": 1024, "contentMinWidth": window.contentMinSize.width,
+                "content": ArcChromeEvidence.rectJSON(content.bounds),
+                "split": ArcChromeEvidence.rectJSON(split.splitView.bounds),
+                "window": ArcChromeEvidence.rectJSON(window.frame)
+            ], name: "narrow-screen")
+        }
         #expect(abs(window.contentMinSize.width - 1024) <= 0.5)
         #expect(abs(content.bounds.width - 1024) <= 0.5,
                 "the editor cannot actually fit the narrow-screen minimum")
@@ -503,12 +505,14 @@ import Testing
             #expect(available > 0)
             #expect(natural * 0.8 <= available + 1,
                     "the full label cannot fit even at the tile's minimum scale")
-            try ArcChromeEvidence.writeJSON([
-                "language": language, "label": label, "ocrText": match.text,
-                "frame": ArcChromeEvidence.rectJSON(match.frame),
-                "tileFrame": ArcChromeEvidence.rectJSON(tile),
-                "naturalWidth": natural, "minimumScale": 0.8, "availableWidth": available
-            ], name: "panel-label-\(language)")
+            if ArcChromeEvidence.isEnabled {
+                try ArcChromeEvidence.writeJSON([
+                    "language": language, "label": label, "ocrText": match.text,
+                    "frame": ArcChromeEvidence.rectJSON(match.frame),
+                    "tileFrame": ArcChromeEvidence.rectJSON(tile),
+                    "naturalWidth": natural, "minimumScale": 0.8, "availableWidth": available
+                ], name: "panel-label-\(language)")
+            }
         }
     }
 
@@ -543,13 +547,15 @@ import Testing
                 recorder.sample()
                 try await Task.sleep(for: .milliseconds(1200))
                 recorder.stop()
-                try ArcChromeEvidence.writeJSON([
-                    "mode": mode, "attempt": attempt, "openCallAndFirstLayoutMs": openCost,
-                    "initialVisibleWidth": initialWidth, "finalVisibleWidth": recorder.panelWidth,
-                    "opened": recorder.panelPresented,
-                    "firstShiftMs": recorder.firstShiftMs.map { $0 as Any } ?? "not observed",
-                    "samples": recorder.samples
-                ], name: "latency-\(mode)-\(attempt)")
+                if ArcChromeEvidence.isEnabled {
+                    try ArcChromeEvidence.writeJSON([
+                        "mode": mode, "attempt": attempt, "openCallAndFirstLayoutMs": openCost,
+                        "initialVisibleWidth": initialWidth, "finalVisibleWidth": recorder.panelWidth,
+                        "opened": recorder.panelPresented,
+                        "firstShiftMs": recorder.firstShiftMs.map { $0 as Any } ?? "not observed",
+                        "samples": recorder.samples
+                    ], name: "latency-\(mode)-\(attempt)")
+                }
                 _ = try #require(recorder.firstShiftMs, "the real panel must expose growing width when Decor opens")
                 #expect(recorder.panelPresented)
                 #expect(recorder.panelWidth >= 300)
@@ -1156,6 +1162,7 @@ import Testing
     }
 
     private func cacheEditor(_ window: NSWindow, name: String) throws {
+        guard ArcChromeEvidence.isEnabled else { return }
         let hosting = try #require(window.contentView)
         let bitmap = try #require(hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds))
         let opaque = try #require(NSBitmapImageRep(

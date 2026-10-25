@@ -7,6 +7,8 @@ import Vision
 /// Retained measurements of the actual window, not a second implementation of
 /// the layout. Screen Recording is unavailable to the ad-hoc hosted test app.
 @MainActor enum ArcChromeEvidence {
+    static var isEnabled: Bool { ProcessInfo.processInfo.environment["STAMPO_EVIDENCE"] != nil }
+
     static let folder = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
         .deletingLastPathComponent().appendingPathComponent("build/arc-chrome-evidence", isDirectory: true)
 
@@ -109,6 +111,7 @@ import Vision
     }
 
     static func writeJSON(_ value: Any, name: String) throws {
+        guard isEnabled else { return }
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let data = try JSONSerialization.data(withJSONObject: value, options: [.prettyPrinted, .sortedKeys])
         let url = folder.appendingPathComponent("\(name).json")
@@ -141,12 +144,15 @@ import Vision
                        operation: .sourceOver, fraction: 1)
             NSGraphicsContext.restoreGraphicsState()
         }
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let url = folder.appendingPathComponent("\(name).png")
-        try #require(opaque.representation(using: .png, properties: [:])).write(to: url)
-        print("ARC CHROME PNG \(url.path)")
         let result = Capture(bitmap: opaque, root: root,
                              scale: CGFloat(opaque.pixelsWide) / root.bounds.width, url: url)
+        // Pixel assertions need the cache in every run; file evidence and its
+        // auxiliary tree walks are explicitly requested diagnostics.
+        guard isEnabled else { return result }
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try #require(opaque.representation(using: .png, properties: [:])).write(to: url)
+        print("ARC CHROME PNG \(url.path)")
         var viewRows: [[String: Any]] = []
         func visit(_ view: NSView, depth: Int) {
             viewRows.append(["class": String(describing: type(of: view)), "depth": depth,
