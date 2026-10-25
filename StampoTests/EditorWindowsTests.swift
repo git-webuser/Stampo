@@ -277,23 +277,24 @@ import Testing
             try? FileManager.default.removeItem(at: url)
         }
         for size in [NSSize(width: 1140, height: 720), NSSize(width: 1280, height: 780)] {
+            let window = try await openWindow(url)
+            window.setFrame(NSRect(origin: NSPoint(x: 10, y: 10), size: size), display: true)
+            await settle(window)
+            let split = try #require(frameSplit(in: window))
+            // Both appearances use the same document, frame and 320pt panel.
+            // Start its decoration once, then measure each closed/open pair.
+            try pressDecor(in: window)
+            await settle(window)
+            try pressDecor(in: window)
+            await settle(window)
             for (theme, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
-                let window = try await openWindow(url)
                 window.appearance = NSAppearance(named: appearance)
-                window.setFrame(NSRect(origin: NSPoint(x: 10, y: 10), size: size), display: true)
                 await settle(window)
-                let split = try #require(frameSplit(in: window))
                 let originalFrame = window.frame
                 // The display decides how much of the requested size the window
                 // gets: a CI runner's screen is 677pt tall, so 720 comes back as
                 // 677. Every edge is measured against the window as it is.
                 let actual = originalFrame.size
-                // Opening starts the real decoration. Use that same document
-                // presentation for the closed and open captures.
-                try pressDecor(in: window)
-                await settle(window)
-                try pressDecor(in: window)
-                await settle(window)
                 for open in [false, true] {
                     if split.panelItem.isCollapsed == open {
                         try pressDecor(in: window)
@@ -334,8 +335,8 @@ import Testing
                     #expect(ArcChromeEvidence.delta(evidence.cardColor, reference) >= 8,
                             "the white card does not separate from the frame in this appearance")
                 }
-                EditorWindowController.closeAllForTesting()
             }
+            EditorWindowController.closeAllForTesting()
         }
 
         // The brief also names an 884pt card for the still-unadapted Text
