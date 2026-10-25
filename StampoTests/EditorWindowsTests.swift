@@ -282,6 +282,10 @@ import Testing
                 await settle(window)
                 let split = try #require(frameSplit(in: window))
                 let originalFrame = window.frame
+                // The display decides how much of the requested size the window
+                // gets: a CI runner's screen is 677pt tall, so 720 comes back as
+                // 677. Every edge is measured against the window as it is.
+                let actual = originalFrame.size
                 // Opening starts the real decoration. Use that same document
                 // presentation for the closed and open captures.
                 try pressDecor(in: window)
@@ -296,13 +300,13 @@ import Testing
                     let name = "chrome-\(Int(size.width))-\(theme)-\(open ? "open" : "closed")"
                     let evidence = try ArcChromeEvidence.chrome(window, split: split, name: name, open: open)
                     let expectedX: CGFloat = open ? 328 : 8
-                    let expectedWidth = size.width - (open ? 336 : 16)
+                    let expectedWidth = actual.width - (open ? 336 : 16)
                     #expect(abs(evidence.card.minX - expectedX) <= 1,
                             "the painted card's left edge lost its 8pt frame")
                     #expect(abs(evidence.card.width - expectedWidth) <= 1,
                             "the painted card has the wrong width")
-                    #expect(abs(evidence.card.maxX - (size.width - 8)) <= 1)
-                    #expect(abs(evidence.card.maxY - (size.height - 8)) <= 1,
+                    #expect(abs(evidence.card.maxX - (actual.width - 8)) <= 1)
+                    #expect(abs(evidence.card.maxY - (actual.height - 8)) <= 1,
                             "the painted card must retain its bottom frame")
                     #expect(window.frame == originalFrame, "opening Decor must not move or resize the window")
                     if open {
@@ -478,7 +482,12 @@ import Testing
                 tile.contains(NSPoint(x: $0.frame.midX, y: $0.frame.midY))
             }, "the fourth tile must contain rendered caption pixels")
             let available = tile.width - 10
-            let captionBounds = tile.insetBy(dx: 4, dy: 4)
+            // The ink's edge sits on the 4pt line exactly, and recognition at 1x
+            // reports boxes in whole points that land a hair past it (a CI
+            // runner measured 286.0000009 against 286). One backing pixel of
+            // slack at 1x; none where the screen is 2x and the box is exact.
+            let slack: CGFloat = window.backingScaleFactor >= 2 ? 0 : 1
+            let captionBounds = tile.insetBy(dx: 4 - slack, dy: 4 - slack)
             #expect(captionBounds.contains(match.frame),
                     "the complete caption ink must fit inside the tile's existing 5pt padding")
             let natural = (label as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 11)]).width
