@@ -517,11 +517,18 @@ import Testing
             })
             // The first 100pt NumberField is the Background block's Corner
             // Radius row; the colour editor above it is not a NumberField.
-            let radius = try #require(ArcChromeEvidence.views(in: host)
+            //
+            // In steps with their types written out: as one chain the CI
+            // toolchain's type checker gave up on it ("unable to type-check
+            // this expression in reasonable time").
+            let numberFields: [NumberField.Field] = ArcChromeEvidence.views(in: host)
                 .compactMap { $0 as? NumberField.Field }
                 .filter { !$0.isHiddenOrHasHiddenAncestor }
-                .map { capture.topRect($0) }.filter { abs($0.width - 100) <= 0.5 }
-                .min { $0.minY < $1.minY })
+            let numberFrames: [NSRect] = numberFields.map { (field: NumberField.Field) -> NSRect in
+                capture.topRect(field as NSView)
+            }
+            let hundredPoint: [NSRect] = numberFrames.filter { abs($0.width - 100) <= 0.5 }
+            let radius = try #require(hundredPoint.min { $0.minY < $1.minY })
             #expect(abs(radius.maxX - 307) <= 0.5)
             #expect(abs(chevron.maxX - 307) <= 0.5)
             #expect(abs(chevron.maxX - radius.maxX) <= 0.5)
