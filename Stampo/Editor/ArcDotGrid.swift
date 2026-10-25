@@ -7,12 +7,14 @@ struct ArcDotGrid: View {
     var body: some View {
         Canvas { context, size in
             let diameter = ArcFrameLayout.dotDiameter
-            var dots = Path()
+            let shading = GraphicsContext.Shading.color(.primary.opacity(ArcFrameLayout.dotOpacity))
+            // One fill a dot: a single path of a thousand ellipses rasterises
+            // two to three times slower.
             for center in ArcFrameLayout.dotCenters(in: size) {
-                dots.addEllipse(in: CGRect(x: center.x - diameter / 2, y: center.y - diameter / 2,
-                                           width: diameter, height: diameter))
+                context.fill(Path(ellipseIn: CGRect(x: center.x - diameter / 2, y: center.y - diameter / 2,
+                                                    width: diameter, height: diameter)),
+                             with: shading)
             }
-            context.fill(dots, with: .color(.primary.opacity(ArcFrameLayout.dotOpacity)))
         }
         .allowsHitTesting(false)
         .accessibilityHidden(true)
