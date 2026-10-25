@@ -99,7 +99,7 @@ import Testing
         #expect(try toolbarControls(in: window) == controls,
                 "nested hosting changed the editor's actual toolbar controls")
         let split = try #require(frameSplit(in: window))
-        #expect(window.contentMinSize.width == 1140)
+        #expect(window.contentMinSize.width == arcMinimumWidth(of: window))
         #expect(window.contentMinSize.height == EditorView.minimumContentSize.height)
         #expect(split.panelItem.isCollapsed)
         // Opposite requests in the same turn must cancel the queued opening.
@@ -117,7 +117,7 @@ import Testing
             await settle(window)
             #expect(split.panelItem.isCollapsed == !presented)
             #expect(window.frame == frame, "Decor moved or resized the Arc editor")
-            #expect(window.contentMinSize.width == 1140)
+            #expect(window.contentMinSize.width == arcMinimumWidth(of: window))
             print("ARC toggle presented=\(presented) window=\(window.frame)")
         }
 
@@ -146,15 +146,18 @@ import Testing
 
         for size in [NSSize(width: 1140, height: 720), NSSize(width: 1280, height: 780)] {
             let window = try await openWindow(url)
+            // Positions are whole backing pixels: half a point on a 2x screen,
+            // a whole point on the 1x display of a CI runner.
+            let pixel = max(0.5, 1 / window.backingScaleFactor)
             let split = try #require(frameSplit(in: window))
             window.setFrame(NSRect(origin: NSPoint(x: 10, y: 10), size: size), display: true)
             await settle(window)
             try pressDecor(in: window)
             await settle(window)
-            #expect(abs(split.splitView.arrangedSubviews[0].frame.width - 320) < 0.5)
+            #expect(abs(split.splitView.arrangedSubviews[0].frame.width - 320) <= pixel)
             let panel = split.splitView.arrangedSubviews[0].frame
             let detail = split.splitView.arrangedSubviews[1].frame
-            #expect(abs(panel.width + 8 + detail.width - size.width) < 0.5)
+            #expect(abs(panel.width + 8 + detail.width - size.width) <= pixel)
             #expect(split.splitView.dividerThickness == 8)
             print("ARC initial content=\(size) panel=\(panel) detail=\(detail) window=\(window.frame)")
 
@@ -164,20 +167,22 @@ import Testing
             await settle(window)
             let closedImage = try imageRect(in: split, window: window)
             let closedDetail = split.detailHosting.view.bounds
-            #expect(abs(closedDetail.width - (size.width - 8)) < 0.5)
+            #expect(abs(closedDetail.width - (size.width - 8)) <= pixel)
             try pressDecor(in: window)
             await settle(window)
             let openImage = try imageRect(in: split, window: window)
             let openDetail = split.detailHosting.view.bounds
             #expect(openImage.width < closedImage.width)
+            // The reporter rounds each side to whole points: 864 x 432 fits to
+            // 682 x 342 on a 1x runner, where proportion says 341.
             #expect(abs(openImage.height - closedImage.height
-                        * openImage.width / closedImage.width) < 1,
+                        * openImage.width / closedImage.width) <= max(1, pixel),
                     "fit should preserve proportions within the reporter's pixel rounding")
-            #expect(abs(openImage.midY - closedImage.midY) < 0.5)
+            #expect(abs(openImage.midY - closedImage.midY) <= pixel)
             let detailScreen = window.convertToScreen(
                 split.detailHosting.view.convert(openDetail, to: nil))
             let cardMidX = detailScreen.midX - ArcFrameLayout.frameGap / 2
-            #expect(abs(openImage.midX - cardMidX) < 0.5,
+            #expect(abs(openImage.midX - cardMidX) <= pixel,
                     "fit must centre in the card after its trailing frame inset")
             for _ in 0..<2 {
                 await settle(window)
@@ -217,14 +222,14 @@ import Testing
             print("ARC drag immediate=\(split.splitView.arrangedSubviews.map(\.frame)) min=\(split.splitView.minPossiblePositionOfDivider(at: 0)) max=\(split.splitView.maxPossiblePositionOfDivider(at: 0))")
             await settle(window)
             let expected: CGFloat = size.width == 1140 ? 345 : 400
-            #expect(abs(split.splitView.arrangedSubviews[0].frame.width - expected) < 0.5)
+            #expect(abs(split.splitView.arrangedSubviews[0].frame.width - expected) <= pixel)
             #expect(split.splitView.arrangedSubviews[1].frame.width >= 787)
             print("ARC drag content=\(size) panel=\(split.splitView.arrangedSubviews[0].frame) detail=\(split.splitView.arrangedSubviews[1].frame)")
 
             if size.width == 1140 {
                 window.setContentSize(NSSize(width: 1280, height: size.height))
                 await settle(window)
-                #expect(abs(split.splitView.arrangedSubviews[0].frame.width - expected) < 0.5,
+                #expect(abs(split.splitView.arrangedSubviews[0].frame.width - expected) <= pixel,
                         "resizing the window should preserve the panel width")
             }
             EditorWindowController.closeAllForTesting()
@@ -279,6 +284,10 @@ import Testing
                 await settle(window)
                 let split = try #require(frameSplit(in: window))
                 let originalFrame = window.frame
+                // The display decides how much of the requested size the window
+                // gets: a CI runner's screen is 677pt tall, so 720 comes back as
+                // 677. Every edge is measured against the window as it is.
+                let actual = originalFrame.size
                 // Opening starts the real decoration. Use that same document
                 // presentation for the closed and open captures.
                 try pressDecor(in: window)
@@ -293,13 +302,13 @@ import Testing
                     let name = "chrome-\(Int(size.width))-\(theme)-\(open ? "open" : "closed")"
                     let evidence = try ArcChromeEvidence.chrome(window, split: split, name: name, open: open)
                     let expectedX: CGFloat = open ? 328 : 8
-                    let expectedWidth = size.width - (open ? 336 : 16)
+                    let expectedWidth = actual.width - (open ? 336 : 16)
                     #expect(abs(evidence.card.minX - expectedX) <= 1,
                             "the painted card's left edge lost its 8pt frame")
                     #expect(abs(evidence.card.width - expectedWidth) <= 1,
                             "the painted card has the wrong width")
-                    #expect(abs(evidence.card.maxX - (size.width - 8)) <= 1)
-                    #expect(abs(evidence.card.maxY - (size.height - 8)) <= 1,
+                    #expect(abs(evidence.card.maxX - (actual.width - 8)) <= 1)
+                    #expect(abs(evidence.card.maxY - (actual.height - 8)) <= 1,
                             "the painted card must retain its bottom frame")
                     #expect(window.frame == originalFrame, "opening Decor must not move or resize the window")
                     if open {
@@ -1004,6 +1013,14 @@ import Testing
                 }
             }
         }
+    }
+
+    /// The window's width floor on its own display: 1140, or the visible width
+    /// where the screen is narrower — a CI runner's is 1024. The product's rule,
+    /// asked of the window's screen, not a number that holds only on a big one.
+    private func arcMinimumWidth(of window: NSWindow) -> CGFloat {
+        ArcFrameLayout.minimumContentWidth(
+            visibleScreenWidth: window.screen?.visibleFrame.width ?? ArcFrameLayout.minimumWidth)
     }
 
     // MARK: Real-window harness

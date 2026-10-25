@@ -89,6 +89,135 @@ enum TestImages {
         #expect((rep?.colorAt(x: 0, y: 0)?.blueComponent ?? 0) > 0.9)
     }
 
+    /// The page's radius cuts the *page*: the corner is transparent whatever
+    /// lies there — here the background and the picture both reach it.
+    @Test func pageRadiusMakesThePagesCornersTransparent() {
+        let base = solidImage(width: 40, height: 40, red: 1, green: 0, blue: 0)
+        let blue = Presentation.Color(red: 0, green: 0, blue: 1, alpha: 1)
+        let presentation = Presentation(
+            canvas: .preset(pixelSize: CGSize(width: 40, height: 40)),
+            background: .solid(blue),
+            pageCornerRadius: 0.25
+        )
+
+        let rep = AnnotationRenderer.renderBitmap(
+            base: base, annotations: [], presentation: presentation)
+
+        for corner in [(0, 0), (39, 0), (0, 39), (39, 39)] {
+            #expect((rep?.colorAt(x: corner.0, y: corner.1)?.alphaComponent ?? 1) < 0.01,
+                    "corner \(corner) should be cut away")
+        }
+        // The middle of every side is still the page.
+        for edge in [(20, 0), (20, 39), (0, 20), (39, 20)] {
+            #expect((rep?.colorAt(x: edge.0, y: edge.1)?.alphaComponent ?? 0) > 0.99,
+                    "edge \(edge) should be kept")
+        }
+        #expect((rep?.colorAt(x: 20, y: 20)?.redComponent ?? 0) > 0.9)
+    }
+
+    /// A page nobody rounded stays square, which is what every document that
+    /// never set the field gets.
+    @Test func aSquarePageKeepsItsCorners() {
+        let base = solidImage(width: 40, height: 40, red: 1, green: 0, blue: 0)
+        let blue = Presentation.Color(red: 0, green: 0, blue: 1, alpha: 1)
+        let presentation = Presentation(
+            canvas: .preset(pixelSize: CGSize(width: 40, height: 40)),
+            background: .solid(blue)
+        )
+        #expect(presentation.pageCornerRadius == 0)
+
+        let rep = AnnotationRenderer.renderBitmap(
+            base: base, annotations: [], presentation: presentation)
+
+        #expect((rep?.colorAt(x: 0, y: 0)?.alphaComponent ?? 0) > 0.99)
+    }
+
+    /// The two radii are two fields: the page's arc does not move the
+    /// picture's, and the picture inset from the corner is rounded by its own.
+    @Test func pageRadiusLeavesThePicturesOwnRadiusAlone() {
+        let base = solidImage(width: 40, height: 40, red: 1, green: 0, blue: 0)
+        let blue = Presentation.Color(red: 0, green: 0, blue: 1, alpha: 1)
+        let presentation = Presentation(
+            canvas: .preset(pixelSize: CGSize(width: 120, height: 120)),
+            background: .solid(blue),
+            image: .init(center: CGPoint(x: 0.5, y: 0.5), scale: 0.5),
+            cornerRadius: 0.2,
+            pageCornerRadius: 0.1
+        )
+
+        let rep = AnnotationRenderer.renderBitmap(
+            base: base, annotations: [], presentation: presentation)
+
+        // The page corner is cut; the background next to it is not.
+        #expect((rep?.colorAt(x: 0, y: 0)?.alphaComponent ?? 1) < 0.01)
+        #expect((rep?.colorAt(x: 20, y: 20)?.blueComponent ?? 0) > 0.9)
+        // The picture (30…90) is rounded by its own 24 px: its corner shows the
+        // background, its middle shows the picture.
+        #expect((rep?.colorAt(x: 31, y: 31)?.blueComponent ?? 0) > 0.9)
+        #expect((rep?.colorAt(x: 60, y: 60)?.redComponent ?? 0) > 0.9)
+    }
+
+    /// Effects over the whole page are baked in an offscreen and laid on at
+    /// the end — the arc has to cut that too, or grain would square the corner
+    /// off again.
+    @Test func pageRadiusCutsPageLayerEffectsToo() {
+        let base = solidImage(width: 40, height: 40, red: 1, green: 0, blue: 0)
+        var grain = EffectStack.make(.grain, seed: 7)
+        grain.amount = 1
+        grain.layer = .page
+        var presentation = Presentation(
+            canvas: .preset(pixelSize: CGSize(width: 40, height: 40)),
+            background: .solid(.white),
+            pageCornerRadius: 0.25
+        )
+        presentation.effects = [grain]
+
+        let rep = AnnotationRenderer.renderBitmap(
+            base: base, annotations: [], presentation: presentation)
+
+        #expect((rep?.colorAt(x: 0, y: 0)?.alphaComponent ?? 1) < 0.01)
+        #expect((rep?.colorAt(x: 20, y: 20)?.alphaComponent ?? 0) > 0.99)
+    }
+
+    /// With no background the page is still cut: the radius rounds the
+    /// picture's own corners where it reaches them.
+    @Test func pageRadiusRoundsAPageWithNoBackground() {
+        let base = solidImage(width: 40, height: 40, red: 1, green: 0, blue: 0)
+        let presentation = Presentation(
+            canvas: .preset(pixelSize: CGSize(width: 40, height: 40)),
+            background: .none,
+            pageCornerRadius: 0.25
+        )
+
+        let rep = AnnotationRenderer.renderBitmap(
+            base: base, annotations: [], presentation: presentation)
+
+        #expect((rep?.colorAt(x: 0, y: 0)?.alphaComponent ?? 1) < 0.01)
+        #expect((rep?.colorAt(x: 20, y: 20)?.redComponent ?? 0) > 0.9)
+    }
+
+    /// The radius is a share of the *short* side and tops out at half of it,
+    /// so a long page becomes a pill and a huge value cannot overshoot.
+    @Test func pageRadiusFollowsTheShortSideAndCapsAtHalfOfIt() {
+        let base = solidImage(width: 60, height: 30, red: 1, green: 0, blue: 0)
+        let blue = Presentation.Color(red: 0, green: 0, blue: 1, alpha: 1)
+        for radius in [CGFloat(0.5), 5] {
+            let presentation = Presentation(
+                canvas: .preset(pixelSize: CGSize(width: 60, height: 30)),
+                background: .solid(blue),
+                pageCornerRadius: radius
+            )
+            let rep = AnnotationRenderer.renderBitmap(
+                base: base, annotations: [], presentation: presentation)
+
+            #expect((rep?.colorAt(x: 0, y: 0)?.alphaComponent ?? 1) < 0.01)
+            #expect((rep?.colorAt(x: 59, y: 29)?.alphaComponent ?? 1) < 0.01)
+            // Along the long side the page runs straight between the two ends.
+            #expect((rep?.colorAt(x: 30, y: 0)?.alphaComponent ?? 0) > 0.99)
+            #expect((rep?.colorAt(x: 30, y: 29)?.alphaComponent ?? 0) > 0.99)
+        }
+    }
+
     @Test func presentationShadowProducesPixelsOutsideImage() {
         let base = solidImage(width: 100, height: 100, red: 1, green: 1, blue: 1)
         let presentation = Presentation(

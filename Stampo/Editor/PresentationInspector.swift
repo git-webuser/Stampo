@@ -594,6 +594,16 @@ struct PresentationInspector: View {
                 .disabled(gradientShape != .linear)
                 .opacity(gradientShape != .linear ? 0.4 : 1)
             }
+
+            // Last in the block, for every kind of background: the page's
+            // corners are cut whatever it is painted with, or not painted at
+            // all. The row is the image's own.
+            presentationSlider(
+                "Corner Radius", id: "pageCornerRadius", systemImage: "rectangle",
+                value: pageCornerRadiusBinding,
+                range: 0...0.5, step: 0.005,
+                unit: .pixels(basis: min(canvasSize.width, canvasSize.height))
+            )
         }
     }
 
@@ -2930,6 +2940,12 @@ struct PresentationInspector: View {
     private var cornerRadiusBinding: Binding<CGFloat> {
         Binding(get: { draft.cornerRadius }, set: { value in
             updateLive { $0.cornerRadius = value }
+        })
+    }
+
+    private var pageCornerRadiusBinding: Binding<CGFloat> {
+        Binding(get: { draft.pageCornerRadius }, set: { value in
+            updateLive { $0.pageCornerRadius = value }
         })
     }
 

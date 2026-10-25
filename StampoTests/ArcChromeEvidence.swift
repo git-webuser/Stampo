@@ -222,9 +222,11 @@ import Vision
 
         var toolbarRows: [[String: Any]] = []
         var capsuleBottoms: [CGFloat] = []
+        var itemBottoms: [CGFloat] = []
         for item in window.toolbar?.items ?? [] {
             guard let view = item.view else { continue }
             let control = capture.topRect(view)
+            if control.maxY <= detail.minY + 1 { itemBottoms.append(control.maxY) }
             var ancestors: [[String: Any]] = []
             var parent: NSView? = view
             while let current = parent, current !== capture.root {
@@ -237,7 +239,10 @@ import Vision
             }
             toolbarRows.append(["label": item.label, "control": rectJSON(control), "ancestors": ancestors])
         }
-        let capsuleBottom = capsuleBottoms.max()
+        // The macOS 26 toolbar has no glass view among its items' ancestors, so
+        // a runner finds no capsule. The items end where the capsule does (36pt
+        // controls, 8pt in), and that bottom is what the gap is measured from.
+        let capsuleBottom = capsuleBottoms.max() ?? itemBottoms.max()
         let headerRect = open ? firstHeader(in: split.panelHosting.view, capture: capture) : nil
         // The header has a documented 6pt internal horizontal inset. The
         // enclosing section/GroupBox remains at the caller's outer padding.
