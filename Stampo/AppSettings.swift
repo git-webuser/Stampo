@@ -180,7 +180,7 @@ enum AppSettings {
     /// `defaults write com.hex000.Stampo editorSystemToolbar -bool NO`, then
     /// reopen the editor.
     static var editorSystemToolbar: Bool {
-        UserDefaults.standard.object(forKey: Keys.editorSystemToolbar) as? Bool ?? true
+        store.object(forKey: Keys.editorSystemToolbar) as? Bool ?? true
     }
 
     /// The Arc frame is on by default on macOS 26+ with the system toolbar.
