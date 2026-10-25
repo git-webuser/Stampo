@@ -211,11 +211,13 @@ import Testing
             #expect(hex.currentEditor() == nil)
             print("ARC focus content=\(size) key=\(window.isKeyWindow) hex=\(hex.stringValue) released=\(hex.currentEditor() == nil)")
 
-            for (name, appearance) in [("light", NSAppearance.Name.aqua),
-                                       ("dark", NSAppearance.Name.darkAqua)] {
-                window.appearance = NSAppearance(named: appearance)
-                await settle(window)
-                try cacheEditor(window, name: "arc-\(Int(size.width))-\(name)")
+            if ArcChromeEvidence.isEnabled {
+                for (name, appearance) in [("light", NSAppearance.Name.aqua),
+                                           ("dark", NSAppearance.Name.darkAqua)] {
+                    window.appearance = NSAppearance(named: appearance)
+                    await settle(window)
+                    try cacheEditor(window, name: "arc-\(Int(size.width))-\(name)")
+                }
             }
 
             split.splitView.setPosition(400, ofDividerAt: 0)
