@@ -3,7 +3,7 @@ import SwiftUI
 
 /// The divider is the frame between the panel and the canvas, not a rule.
 final class FrameSplitView: NSSplitView {
-    override var dividerThickness: CGFloat { ArcFrameLayout.dividerThickness }
+    override var dividerThickness: CGFloat { ArcFrameLayout.frameGap }
     override var dividerColor: NSColor { .clear }
     override func drawDivider(in rect: NSRect) {}
 }
@@ -87,13 +87,6 @@ final class FrameSplitController: NSSplitViewController {
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-
-    override func splitView(_ splitView: NSSplitView, shouldHideDividerAt dividerIndex: Int) -> Bool {
-        let hidden = super.splitView(splitView, shouldHideDividerAt: dividerIndex)
-        // A plain item does not hide its outer divider automatically. Its
-        // eight points belong to the open panel, not to the closed detail.
-        return hidden || (dividerIndex == 0 && panelItem.isCollapsed)
-    }
 
     func setPresented(_ presented: Bool) {
         // A native collapse reaches the binding after layout. Until then an

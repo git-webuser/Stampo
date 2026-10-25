@@ -32,6 +32,7 @@ struct PresentationInspector: View {
     /// The app's colours, live — see `PresentationColorShelf`. nil in previews
     /// and tests, where the built-in palette stands alone.
     let colorShelf: (any PresentationColorShelf)?
+    let contentInsets: EdgeInsets
 
     @State private var draft: Presentation
     /// Which groups the user has folded away. Sections are identified by a
@@ -481,9 +482,11 @@ struct PresentationInspector: View {
     /// large colour field beside it.
     private static let fieldButtonHeight: CGFloat = 18
 
-    init(document: EditorDocument, colorShelf: (any PresentationColorShelf)? = nil) {
+    init(document: EditorDocument, colorShelf: (any PresentationColorShelf)? = nil,
+         contentInsets: EdgeInsets = EdgeInsets(top: 16, leading: 16, bottom: 16, trailing: 16)) {
         self.document = document
         self.colorShelf = colorShelf
+        self.contentInsets = contentInsets
         _draft = State(initialValue: document.presentation ?? .identity)
     }
 
@@ -500,7 +503,7 @@ struct PresentationInspector: View {
                 objectSections
                 removePresentationButton
             }
-            .padding(16)
+            .padding(contentInsets)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .onChange(of: document.presentation) { _, presentation in

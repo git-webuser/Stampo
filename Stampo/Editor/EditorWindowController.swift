@@ -186,6 +186,8 @@ final class EditorWindowController: NSObject, NSWindowDelegate {
         window.title = url.lastPathComponent
         window.isReleasedWhenClosed = false
         if arcFrame {
+            window.backgroundColor = ArcFrameLayout.frameColor
+            window.titlebarAppearsTransparent = true
             window.contentMinSize = NSSize(
                 width: ArcFrameLayout.minimumContentWidth(
                     visibleScreenWidth: window.screen?.visibleFrame.width ?? arcMinimumWidth
@@ -507,16 +509,6 @@ final class EditorWindowController: NSObject, NSWindowDelegate {
     }
 
     // MARK: NSWindowDelegate
-
-    func windowDidChangeScreen(_ notification: Notification) {
-        guard arcFrame, let window, let visible = window.screen?.visibleFrame else { return }
-        // A display narrower than the ordinary floor must still let the
-        // editor fit. This policy never moves the window or opens the panel.
-        window.contentMinSize = NSSize(
-            width: ArcFrameLayout.minimumContentWidth(visibleScreenWidth: visible.width),
-            height: EditorView.minimumContentSize.height
-        )
-    }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         guard let document, document.isDirty else { return true }

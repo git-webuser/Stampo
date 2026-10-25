@@ -7,6 +7,10 @@ import Testing
     var widths: [CGFloat] = []
 }
 
+@MainActor private final class EditorScreenWidth {
+    var value: CGFloat = 1140
+}
+
 /// A window per document: the editor used to be one window that swapped its
 /// contents, so a second screenshot could not be opened until the first was
 /// settled — the editor locked the capture behind whatever was already in it.
@@ -163,7 +167,7 @@ import Testing
             await settle(window)
             let closedImage = try imageRect(in: split, window: window)
             let closedDetail = split.detailHosting.view.bounds
-            #expect(abs(closedDetail.width - size.width) <= pixel)
+            #expect(abs(closedDetail.width - (size.width - 8)) <= pixel)
             try pressDecor(in: window)
             await settle(window)
             let openImage = try imageRect(in: split, window: window)
@@ -177,7 +181,9 @@ import Testing
             #expect(abs(openImage.midY - closedImage.midY) <= pixel)
             let detailScreen = window.convertToScreen(
                 split.detailHosting.view.convert(openDetail, to: nil))
-            #expect(abs(openImage.midX - detailScreen.midX) <= pixel)
+            let cardMidX = detailScreen.midX - ArcFrameLayout.frameGap / 2
+            #expect(abs(openImage.midX - cardMidX) <= pixel,
+                    "fit must centre in the card after its trailing frame inset")
             for _ in 0..<2 {
                 await settle(window)
                 #expect(try imageRect(in: split, window: window) == openImage,
@@ -257,6 +263,303 @@ import Testing
         #expect(frameSplit(in: second) === secondSplit)
         #expect(second.contentView != nil)
         print("ARC tabs independent=true survivingWindow=\(second.frame) count=\(EditorWindowController.openCount)")
+    }
+
+    /// A mutation of the divider or the inspector caller must change pixels
+    /// and real control positions here, not merely another layout constant.
+    @Test func arcChromeUsesOneEightPointFrameInBothAppearances() async throws {
+        guard #available(macOS 26, *) else { return }
+        let restore = configureArc(true)
+        let url = try writePNG("editor-arc-chrome.png", width: 1600, height: 800)
+        defer {
+            EditorWindowController.closeAllForTesting()
+            restore()
+            try? FileManager.default.removeItem(at: url)
+        }
+        for size in [NSSize(width: 1140, height: 720), NSSize(width: 1280, height: 780)] {
+            for (theme, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
+                let window = try await openWindow(url)
+                window.appearance = NSAppearance(named: appearance)
+                window.setFrame(NSRect(origin: NSPoint(x: 10, y: 10), size: size), display: true)
+                await settle(window)
+                let split = try #require(frameSplit(in: window))
+                let originalFrame = window.frame
+                // The display decides how much of the requested size the window
+                // gets: a CI runner's screen is 677pt tall, so 720 comes back as
+                // 677. Every edge is measured against the window as it is.
+                let actual = originalFrame.size
+                // Opening starts the real decoration. Use that same document
+                // presentation for the closed and open captures.
+                try pressDecor(in: window)
+                await settle(window)
+                try pressDecor(in: window)
+                await settle(window)
+                for open in [false, true] {
+                    if split.panelItem.isCollapsed == open {
+                        try pressDecor(in: window)
+                        await settle(window)
+                    }
+                    let name = "chrome-\(Int(size.width))-\(theme)-\(open ? "open" : "closed")"
+                    let evidence = try ArcChromeEvidence.chrome(window, split: split, name: name, open: open)
+                    let expectedX: CGFloat = open ? 328 : 8
+                    let expectedWidth = actual.width - (open ? 336 : 16)
+                    #expect(abs(evidence.card.minX - expectedX) <= 1,
+                            "the painted card's left edge lost its 8pt frame")
+                    #expect(abs(evidence.card.width - expectedWidth) <= 1,
+                            "the painted card has the wrong width")
+                    #expect(abs(evidence.card.maxX - (actual.width - 8)) <= 1)
+                    #expect(abs(evidence.card.maxY - (actual.height - 8)) <= 1,
+                            "the painted card must retain its bottom frame")
+                    #expect(window.frame == originalFrame, "opening Decor must not move or resize the window")
+                    if open {
+                        let inset = try #require(evidence.headerInset,
+                                                "the real inspector's first header is required to measure outer padding")
+                        #expect(abs(inset - 8) <= 1,
+                                "the Arc inspector caller fell back to the legacy 16pt padding")
+                        let top = try #require(evidence.headerTopInset)
+                        let headerGap = try #require(evidence.capsuleToHeader)
+                        #expect(abs(top) <= 0.5, "the native toolbar gap must not be added a second time")
+                        #expect(abs(headerGap - 8) <= 2,
+                                "capsule to first inspector header must remain 8pt overall")
+                    }
+                    let cardGap = try #require(evidence.capsuleToCard)
+                    #expect(abs(cardGap - 8) <= 1)
+                    #expect(evidence.cornerMaxDelta <= 3, "card corners must not cast rectangular shadows")
+                    let rowHeight = try #require(evidence.markupHeight)
+                    #expect(abs(rowHeight - 40) <= 1)
+                    let reference = try #require(evidence.frameColors.first)
+                    #expect(evidence.frameColors.allSatisfy { ArcChromeEvidence.delta($0, reference) <= 3 },
+                            "panel, toolbar strip and outer frame do not share their backing color")
+                    #expect(ArcChromeEvidence.delta(evidence.cardColor, reference) >= 8,
+                            "the white card does not separate from the frame in this appearance")
+                }
+                EditorWindowController.closeAllForTesting()
+            }
+        }
+
+        // The brief also names an 884pt card for the still-unadapted Text
+        // row. Its explicit 320+8+8 frame geometry requires a 1220pt window.
+        let textWindow = try await openWindow(url)
+        textWindow.appearance = NSAppearance(named: .aqua)
+        textWindow.setFrame(NSRect(x: 10, y: 10, width: 1220, height: 720), display: true)
+        await settle(textWindow)
+        try pressDecor(in: textWindow)
+        await settle(textWindow)
+        #expect(textWindow.makeFirstResponder(nil))
+        let textShortcut = try #require(EditorTool.text.shortcut)
+        for type in [NSEvent.EventType.keyDown, .keyUp] {
+            let event = try #require(NSEvent.keyEvent(
+                with: type, location: .zero, modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: textWindow.windowNumber, context: nil,
+                characters: "t", charactersIgnoringModifiers: "t", isARepeat: false,
+                keyCode: textShortcut.keyCode))
+            NSApp.postEvent(event, atStart: false)
+        }
+        await settle(textWindow)
+        let textSplit = try #require(frameSplit(in: textWindow))
+        let segments = views(in: textSplit.detailHosting.view).compactMap { $0 as? NSSegmentedControl }
+        #expect(segments.contains { $0.segmentCount == TextStyleFlag.allCases.count },
+                "the real Text row must expose its five format segments")
+        let textEvidence = try ArcChromeEvidence.chrome(
+            textWindow, split: textSplit, name: "chrome-text-884-light", open: true)
+        #expect(abs(textEvidence.card.width - 884) <= 1)
+        print("ARC TEXT cardWidth=\(textEvidence.card.width) segmentCounts=\(segments.map(\.segmentCount)); width adaptation is intentionally deferred to S3")
+    }
+
+    /// Exercise the window's one actual minimum-size policy with a narrow
+    /// display width. A correct property alone is insufficient if SwiftUI's
+    /// root still insists on 1140 and makes the real split wider than the window.
+    @Test func arcWindowMinimumReallyFitsANarrowScreen() async throws {
+        guard #available(macOS 26, *) else { return }
+        let restore = configureArc(true)
+        let document = EditorDocument(baseImage: TestImages.make(width: 1600, height: 800),
+                                      sourceURL: URL(fileURLWithPath: "/tmp/editor-arc-narrow-screen.png"))
+        let screenWidth = EditorScreenWidth()
+        weak var editorWindow: NSWindow?
+        let context = EditorWindowContext(isKeyWindow: { editorWindow?.isKeyWindow == true },
+                                          overlayParent: { editorWindow })
+        let hosting = NSHostingController(rootView: EditorView(
+            document: document, windowContext: context, arcFrame: true,
+            arcMinimumWidth: 1140, visibleScreenWidth: { _ in screenWidth.value }).managedLocale())
+        hosting.sceneBridgingOptions = [.toolbars]
+        let window = NSWindow(contentViewController: hosting)
+        editorWindow = window
+        window.isReleasedWhenClosed = false
+        window.styleMask = [.titled, .closable, .resizable]
+        window.toolbarStyle = .unified
+        window.titleVisibility = .hidden
+        window.contentMinSize = NSSize(width: 1140, height: 360)
+        window.setContentSize(NSSize(width: 1140, height: 640))
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        await settle(window)
+        defer {
+            window.orderOut(nil)
+            window.contentViewController = nil
+            window.close()
+            restore()
+        }
+        screenWidth.value = 1024
+        NotificationCenter.default.post(name: NSWindow.didChangeScreenNotification, object: window)
+        await settle(window)
+        window.setContentSize(NSSize(width: 1024, height: 640))
+        await settle(window)
+        let content = try #require(window.contentView)
+        let split = try #require(frameSplit(in: window))
+        print("ARC NARROW requested=1024 contentMin=\(window.contentMinSize) content=\(content.bounds) split=\(split.splitView.bounds) window=\(window.frame)")
+        try ArcChromeEvidence.writeJSON([
+            "requestedScreenWidth": 1024, "contentMinWidth": window.contentMinSize.width,
+            "content": ArcChromeEvidence.rectJSON(content.bounds),
+            "split": ArcChromeEvidence.rectJSON(split.splitView.bounds),
+            "window": ArcChromeEvidence.rectJSON(window.frame)
+        ], name: "narrow-screen")
+        #expect(abs(window.contentMinSize.width - 1024) <= 0.5)
+        #expect(abs(content.bounds.width - 1024) <= 0.5,
+                "the editor cannot actually fit the narrow-screen minimum")
+        #expect(abs(split.splitView.bounds.width - 1024) <= 0.5,
+                "a duplicate SwiftUI floor made the split overflow its narrow window")
+        let frame = window.frame
+        try pressDecor(in: window)
+        await settle(window)
+        #expect(window.frame == frame, "opening the panel moved the editor on a narrow screen")
+        print("ARC NARROW open panel=\(split.splitView.arrangedSubviews[0].frame) detail=\(split.splitView.arrangedSubviews[1].frame)")
+        screenWidth.value = 1470
+        NotificationCenter.default.post(name: NSWindow.didChangeScreenNotification, object: window)
+        await settle(window)
+        #expect(window.contentMinSize.width == 1140)
+        print("ARC NARROW restored contentMin=\(window.contentMinSize) split=\(split.splitView.bounds)")
+    }
+
+    @Test func legacyInspectorKeepsSixteenPointInsets() {
+        let document = EditorDocument(baseImage: TestImages.make(width: 300, height: 200),
+                                      sourceURL: URL(fileURLWithPath: "/tmp/arc-default-inspector.png"))
+        let inspector = PresentationInspector(document: document)
+        #expect(inspector.contentInsets.top == 16)
+        #expect(inspector.contentInsets.leading == 16)
+        #expect(inspector.contentInsets.bottom == 16)
+        #expect(inspector.contentInsets.trailing == 16)
+    }
+
+    /// The catalogue test proves the words; this is the real 320pt panel with
+    /// the real tile layout. The label and its available frame are retained
+    /// alongside the rendered glyphs so truncation cannot be inferred away.
+    @Test func arcBackgroundLabelsFitAt320InEnglishAndRussian() async throws {
+        let document = EditorDocument(baseImage: TestImages.make(width: 1600, height: 800),
+                                      sourceURL: URL(fileURLWithPath: "/tmp/arc-label-panel.png"))
+        document.startDecorationIfNeeded()
+        let key = AppSettings.Keys.decorFoldedSections
+        let held = AppSettings.store.object(forKey: key)
+        AppSettings.store.set(PresentationInspector.folded(PresentationInspector.foldedByDefault), forKey: key)
+        defer {
+            if let held { AppSettings.store.set(held, forKey: key) }
+            else { AppSettings.store.removeObject(forKey: key) }
+        }
+        for (language, label) in [("en", "None"), ("ru", "Без фона")] {
+            let host = NSHostingView(rootView: PresentationInspector(
+                document: document, contentInsets: ArcFrameLayout.panelContentInsets)
+                .environment(\.locale, Locale(identifier: language)))
+            let window = NSWindow(contentRect: NSRect(x: 20, y: 20, width: 320, height: 740),
+                                  styleMask: [.borderless], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            window.backgroundColor = ArcFrameLayout.frameColor
+            window.contentView = host
+            window.orderFrontRegardless()
+            await settle(window)
+            defer { window.orderOut(nil); window.contentView = nil; window.close() }
+            let capture = try ArcChromeEvidence.capture(window, name: "panel-320-\(language)")
+            let text = try ArcChromeEvidence.recognizedText(capture)
+            let focusViews = ArcChromeEvidence.views(in: host).filter {
+                !$0.isHiddenOrHasHiddenAncestor && String(describing: type(of: $0)) == "_FocusRingView"
+            }
+            let focusFrames: [NSRect] = focusViews.map { capture.topRect($0) }
+            let tiles = focusFrames.filter {
+                $0.width >= 60 && $0.width <= 75 && $0.height >= 65 && $0.height <= 80
+            }
+            let firstRowY = try #require(tiles.map(\.minY).min())
+            let firstRow = tiles.filter { abs($0.minY - firstRowY) <= 2 }
+            #expect(firstRow.count == 4, "the real panel must retain four background columns")
+            let tile = try #require(firstRow.max { $0.minX < $1.minX })
+            let match = try #require(text.first {
+                tile.contains(NSPoint(x: $0.frame.midX, y: $0.frame.midY))
+            }, "the fourth tile must contain rendered caption pixels")
+            let available = tile.width - 10
+            // The ink's edge sits on the 4pt line exactly, and recognition at 1x
+            // reports boxes in whole points that land a hair past it (a CI
+            // runner measured 286.0000009 against 286). One backing pixel of
+            // slack at 1x; none where the screen is 2x and the box is exact.
+            let slack: CGFloat = window.backingScaleFactor >= 2 ? 0 : 1
+            let captionBounds = tile.insetBy(dx: 4 - slack, dy: 4 - slack)
+            #expect(captionBounds.contains(match.frame),
+                    "the complete caption ink must fit inside the tile's existing 5pt padding")
+            let natural = (label as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 11)]).width
+            // OCR is retained for its ink bounds, not as a second catalogue:
+            // at 11pt it can mistake Russian glyphs even in a complete label.
+            print("ARC LABEL language=\(language) label=\(label) ocr=\(match.text) ink=\(match.frame) tile=\(tile) naturalWidth=\(natural) available=\(available) minimumScale=0.8")
+            #expect(available > 0)
+            #expect(natural * 0.8 <= available + 1,
+                    "the full label cannot fit even at the tile's existing minimum scale")
+            try ArcChromeEvidence.writeJSON([
+                "language": language, "label": label, "ocrText": match.text,
+                "frame": ArcChromeEvidence.rectJSON(match.frame),
+                "tileFrame": ArcChromeEvidence.rectJSON(tile),
+                "naturalWidth": natural, "minimumScale": 0.8, "availableWidth": available
+            ], name: "panel-label-\(language)")
+        }
+    }
+
+    /// Both paths start closed and measure the exposed panel at 8ms intervals.
+    /// No preloading is introduced by this test.
+    @Test func arcAndLegacyDecorOpeningLatency() async throws {
+        guard #available(macOS 26, *) else { return }
+        let restore = configureArc(false)
+        let url = try writePNG("editor-arc-opening-latency.png", width: 1600, height: 800)
+        defer {
+            EditorWindowController.closeAllForTesting()
+            restore()
+            try? FileManager.default.removeItem(at: url)
+        }
+        for arc in [false, true] {
+            AppSettings.store.set(arc, forKey: AppSettings.Keys.editorArcFrame)
+            let openedAt = ProcessInfo.processInfo.systemUptime
+            EditorWindowController.open(url: url)
+            let window = try #require(NSApp.windows.first { $0.isVisible && $0.title == url.lastPathComponent })
+            window.contentView?.layoutSubtreeIfNeeded()
+            let openCost = (ProcessInfo.processInfo.systemUptime - openedAt) * 1000
+            window.setFrame(NSRect(x: 10, y: 10, width: 1280, height: 780), display: true)
+            await settle(window)
+            let mode = arc ? "arc" : "legacy"
+            for attempt in ["first", "repeat"] {
+                let recorder = ArcOpeningRecorder(window: window, arcSplit: frameSplit(in: window))
+                try #require(!recorder.panelPresented, "each latency sample must start with Decor closed")
+                let initialWidth = recorder.panelWidth
+                #expect(initialWidth <= 0.5)
+                recorder.start()
+                try pressDecor(in: window)
+                recorder.sample()
+                try await Task.sleep(for: .milliseconds(1200))
+                recorder.stop()
+                try ArcChromeEvidence.writeJSON([
+                    "mode": mode, "attempt": attempt, "openCallAndFirstLayoutMs": openCost,
+                    "initialVisibleWidth": initialWidth, "finalVisibleWidth": recorder.panelWidth,
+                    "opened": recorder.panelPresented,
+                    "firstShiftMs": recorder.firstShiftMs.map { $0 as Any } ?? "not observed",
+                    "samples": recorder.samples
+                ], name: "latency-\(mode)-\(attempt)")
+                _ = try #require(recorder.firstShiftMs, "the real panel must expose growing width when Decor opens")
+                #expect(recorder.panelPresented)
+                #expect(recorder.panelWidth >= 300)
+                print("ARC LATENCY mode=\(mode) attempt=\(attempt) openCallAndFirstLayoutMs=\(openCost) firstShiftMs=\(String(describing: recorder.firstShiftMs)) samples=\(recorder.samples.count)")
+                await settle(window)
+                if recorder.panelPresented {
+                    try pressDecor(in: window)
+                    await settle(window)
+                }
+                #expect(!recorder.panelPresented, "both native and Arc inspectors must close before the next opening")
+                #expect(recorder.panelWidth <= 0.5)
+            }
+            EditorWindowController.closeAllForTesting()
+        }
     }
 
     @Test func disablingArcKeepsTheNativeInspectorsWindowMinimum() async throws {
@@ -505,7 +808,7 @@ import Testing
             // backing in the PNG, otherwise transparent pixels appear black.
             NSGraphicsContext.saveGraphicsState()
             NSGraphicsContext.current = context
-            NSColor.windowBackgroundColor.setFill()
+            window.backgroundColor.setFill()
             NSRect(origin: .zero, size: opaque.size).fill()
             let image = NSImage(size: opaque.size)
             image.addRepresentation(bitmap)
@@ -514,8 +817,8 @@ import Testing
             NSGraphicsContext.restoreGraphicsState()
         }
         let data = try #require(opaque.representation(using: .png, properties: [:]))
-        try FileManager.default.createDirectory(at: Probe.folder, withIntermediateDirectories: true)
-        let url = Probe.folder.appendingPathComponent("\(name).png")
+        try FileManager.default.createDirectory(at: ArcChromeEvidence.folder, withIntermediateDirectories: true)
+        let url = ArcChromeEvidence.folder.appendingPathComponent("\(name).png")
         try data.write(to: url)
         print("PROBE \(url.path)")
     }
