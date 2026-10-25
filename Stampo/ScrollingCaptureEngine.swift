@@ -1018,7 +1018,7 @@ nonisolated struct ImageAssembler: Sendable {
             neighbours.append(.init(frame: earlier, region: earlierRegion, offset: -slice.movementBefore))
         }
         let result = ScrollPinned.repairedSlice(frame: slice.middle, rows: slice.from..<slice.to, region: region,
-                                                core: core, neighbours: neighbours)
+                                                core: core, stable: pinnedAccumulator.stableBlocks(), neighbours: neighbours)
         guard result.repair.blocks > 0 else { return nil }
         let mended: CaptureFrame
         if isShrunk {

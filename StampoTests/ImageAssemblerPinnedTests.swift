@@ -197,6 +197,30 @@ import Testing
         #expect(with.repairs.allSatisfy { $0 == nil })
     }
 
+    @Test func textInAPinnedOutlinesHoleSurvivesWhenFramesBarelyOverlap() throws {
+        let movement = 312
+        var assembler = ImageAssembler(axis: .vertical, maxLength: 10_000, scale: 1)
+        var previous = PinnedOutlineScenes.frame(0, movement: movement, wideStroke: true)
+        assembler.begin(with: previous)
+        for index in 1...7 {
+            let frame = PinnedOutlineScenes.frame(index, movement: movement, wideStroke: true)
+            let pinned = ScrollPinned.pinnedBlocks(previous: previous, current: frame, shift: movement)
+            try assembler.append(frame, movement: movement, pinned: pinned)
+            previous = frame
+        }
+        assembler.settlePending()
+        let image = try #require(CaptureFrame(image: assembler.makeImage()))
+        let frame = PinnedOutlineScenes.frame(2, movement: movement, wideStroke: true)
+        #expect(frame[117, 152, 0] == 20)
+        // Each adjacent frame misses this place of the page: 152 - 312 < 0, 152 + 312 > 320 - edgeRows.
+        #expect(image[117, 2 * movement + 152, 0] == 20)
+        for y in 144..<176 {
+            for x in 104..<136 {
+                #expect(image[x, 2 * movement + y, 0] == frame[x, y, 0])
+            }
+        }
+    }
+
     /// Without the blocks of the pairs the assembler does what it did: a card in the frames is in the image at every seam.
     @Test func withoutPinnedBlocksNothingIsMended() throws {
         let scene = Scene()

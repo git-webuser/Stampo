@@ -49,6 +49,33 @@ nonisolated enum PinnedScenes {
     }
 }
 
+nonisolated enum PinnedOutlineScenes {
+    /// A thin outline stays at the same window coordinates while strokes of the page pass through its hole.
+    /// Its box is not opaque: filling the box erased text in ScrollDump 2026-10-19-205034.
+    static func frame(_ index: Int, movement: Int = 96, ink: UInt8 = 20, wideStroke: Bool = false) -> CaptureFrame {
+        let width = 240, height = 320
+        var pixels = [UInt8](repeating: 255, count: width * height * 4)
+        for y in 0..<height {
+            for x in 0..<width {
+                let pageRow = y + index * movement
+                let thinStroke = !wideStroke && (56..<184).contains(x) && pageRow % 31 < 9 && x % 13 < 3
+                let broadStroke = wideStroke && (112..<128).contains(x)
+                    && (17..<49).contains((pageRow + 127 * 16 - 2 * movement) % 127)
+                let stroke = thinStroke || broadStroke
+                let value: UInt8 = stroke ? ink : 240
+                let at = (y * width + x) * 4
+                pixels[at] = value; pixels[at + 1] = value; pixels[at + 2] = value
+                let dx = x - 120, dy = y - 160
+                if (38 * 38...41 * 41).contains(dx * dx + dy * dy) {
+                    pixels[at] = 240; pixels[at + 1] = 70; pixels[at + 2] = 160
+                }
+            }
+        }
+        return CaptureFrame(width: width, height: height, pixels: pixels)
+    }
+
+}
+
 /// What the pinned blocks of a capture are, and how a slice is mended.
 @Suite struct ScrollPinnedTests {
     typealias Scene = PinnedScenes.Scene
@@ -428,5 +455,165 @@ nonisolated enum PinnedScenes {
                                                 neighbours: [])
         #expect(result.repair == ScrollPinned.Repair())
         #expect(result.slice.pixels == Array(frame.pixels[(100 * 480 * 4)..<(500 * 480 * 4)]))
+    }
+
+    private func outlinedPage(ink: UInt8 = 20, wideStroke: Bool = false)
+        -> (frame: CaptureFrame, region: PinnedGrid, core: PinnedGrid, stable: PinnedGrid) {
+        let frames = (0...4).map { PinnedOutlineScenes.frame($0, ink: ink, wideStroke: wideStroke) }
+        // The outline was learned before this text arrived under it, as it was in ScrollDump 2026-10-19-205034.
+        let learning = (0...4).map { PinnedOutlineScenes.frame($0, ink: 240) }
+        var accumulator = ScrollPinned.Accumulator()
+        for index in 1..<learning.count {
+            let pair = ScrollPinned.pinnedBlocks(previous: learning[index - 1], current: learning[index], shift: 96)!
+            accumulator.add(pair)
+        }
+        let masks = accumulator.regionAndCore(of: frames[2], near: [frames[1], frames[3]])
+        return (frames[2], masks.region, masks.core, accumulator.stableBlocks())
+    }
+
+    @Test func textInsideAThinPinnedOutlineSurvivesWithoutANeighbour() {
+        let page = outlinedPage()
+        #expect(page.core[117 / block, 152 / block])
+        #expect(!page.stable[117 / block, 152 / block])
+        let result = ScrollPinned.repairedSlice(frame: page.frame, rows: 120..<208, region: page.region,
+                                                core: page.core, stable: page.stable, neighbours: [])
+        #expect(page.frame[117, 152, 0] == 20)
+        #expect(result.slice[117, 152 - 120, 0] == 20)
+        #expect(result.slice[119, 152 - 120, 0] == page.frame[119, 152, 0])
+        #expect(result.repair.kept == result.repair.blocks && result.repair.filled == 0)
+    }
+
+    @Test func faintTextInsideTheOutlineStillCountsAsStructure() {
+        let page = outlinedPage(ink: 225)
+        let result = ScrollPinned.repairedSlice(frame: page.frame, rows: 120..<208, region: page.region,
+                                                core: page.core, stable: page.stable, neighbours: [])
+        // Faint strokes must survive just as dark ones do.
+        #expect(page.frame[117, 152, 0] == 225)
+        #expect(result.slice[117, 152 - 120, 0] == 225)
+        #expect(result.slice[120, 152 - 120, 0] == 240)
+    }
+
+    @Test func theSolidMiddleOfAWideTextStrokeSurvivesInsideTheOutline() {
+        let page = outlinedPage(wideStroke: true)
+        #expect(page.core[14, 19] && page.core[15, 19])
+        #expect(!page.stable[14, 19] && !page.stable[15, 19])
+        let result = ScrollPinned.repairedSlice(frame: page.frame, rows: 120..<208, region: page.region,
+                                                core: page.core, stable: page.stable, neighbours: [])
+        // Two complete blocks across the middle of the glyph have no brightness spread of their own.
+        for y in 144..<176 {
+            for x in 112..<128 {
+                #expect(page.frame[x, y, 0] == 20)
+                #expect(result.slice[x, y - 120, 0] == 20)
+            }
+        }
+    }
+
+    @Test func anOpenNeighbourStillSuppliesThePageInsideTheOutline() {
+        let page = outlinedPage()
+        let neighbour = CaptureFrame(width: 240, height: 320, pixels: [UInt8](repeating: 77, count: 240 * 320 * 4))
+        let free = PinnedGrid(columns: 30, rows: 40)
+        let result = ScrollPinned.repairedSlice(frame: page.frame, rows: 120..<208, region: page.region,
+                                                core: page.core, stable: page.stable,
+                                                neighbours: [.init(frame: neighbour, region: free, offset: 16)])
+        #expect(result.slice[117, 152 - 120, 0] == 77)
+        #expect(result.repair.fromNeighbour == result.repair.blocks)
+        #expect(result.repair.filled == 0 && result.repair.kept == 0)
+    }
+
+    @Test func repairingAThinOutlineDoesNotPaintADiscOverItsHole() {
+        let page = outlinedPage()
+        let result = ScrollPinned.repairedSlice(frame: page.frame, rows: 120..<208, region: page.region,
+                                                core: page.core, stable: page.stable, neighbours: [])
+        // Every pixel of this inner square is page, including the spaces between the strokes.
+        for y in 144..<176 {
+            for x in 104..<136 {
+                for channel in 0..<3 {
+                    #expect(result.slice[x, y - 120, channel] == page.frame[x, y, channel])
+                }
+            }
+        }
+        // A stable block can mix outline and text: keeping the outline is better than erasing those pixels.
+        #expect(page.stable[92 / block, 132 / block])
+        #expect(page.frame[92, 132, 1] == 70)
+        #expect(result.slice[92, 132 - 120, 1] == 70)
+        let expected = Array(page.frame.pixels[(120 * 240 * 4)..<(208 * 240 * 4)])
+        #expect(result.slice.pixels == expected)
+    }
+
+    @Test func aStableOutlineBlockDoesNotEraseTheTextItAlsoShows() {
+        let page = outlinedPage()
+        #expect(page.stable[91 / block, 184 / block])
+        #expect(page.frame[91, 184, 0] == 20)
+        let result = ScrollPinned.repairedSlice(frame: page.frame, rows: 120..<208, region: page.region,
+                                                core: page.core, stable: page.stable, neighbours: [])
+        // This stroke is inside the circle, in the same 8-by-8 block as its stable coloured edge.
+        #expect(result.slice[91, 184 - 120, 0] == 20)
+        for y in 184..<192 {
+            for x in 88..<96 {
+                for channel in 0..<3 {
+                    #expect(result.slice[x, y - 120, channel] == page.frame[x, y, channel])
+                }
+            }
+        }
+    }
+
+    @Test func aKnownOutlineOverAFlatPageStillTakesTheRingColour() {
+        let page = outlinedPage(ink: 240)
+        let result = ScrollPinned.repairedSlice(frame: page.frame, rows: 0..<320, region: page.region,
+                                                core: page.core, stable: page.stable, neighbours: [])
+        #expect(page.stable[92 / block, 132 / block])
+        #expect(page.frame[92, 132, 1] == 70)
+        #expect(result.slice[92, 132, 1] == 240)
+        #expect(result.repair.filled == page.core.count)
+    }
+
+    @Test func aKnownOpaqueElementOnAFlatPageStillTakesTheRingColour() {
+        var scene = Scene()
+        scene.page = { _, _ in 240 }
+        var accumulator = accumulate(3, scene: scene)
+        let frame = PinnedScenes.frame(2, of: scene)
+        let masks = accumulator.regionAndCore(of: frame, near: [PinnedScenes.frame(1, of: scene),
+                                                              PinnedScenes.frame(3, of: scene)])
+        let stable = accumulator.stableBlocks()
+        let result = ScrollPinned.repairedSlice(frame: frame, rows: 0..<frame.height, region: masks.region,
+                                                core: masks.core, stable: stable, neighbours: [])
+        #expect(result.repair.filled == masks.core.count)
+        for y in stride(from: 592, to: 776, by: block) {
+            for x in stride(from: 304, to: 448, by: block) {
+                #expect(stable[x / block, y / block])
+                #expect(result.slice[x, y, 0] == 240)
+            }
+        }
+    }
+
+    @Test func aSmallFlatOpeningDoesNotMakeAnOpaquePanelAnOutline() {
+        var scene = Scene(card: false)
+        scene.page = { _, _ in 240 }
+        let panel: (Int, Int) -> UInt8? = { y, x in
+            guard (256..<512).contains(y), (128..<384).contains(x) else { return nil }
+            let flatRow = (272..<352).contains(y) || (416..<496).contains(y)
+            let flatColumn = (144..<224).contains(x) || (288..<368).contains(x)
+            if flatRow && flatColumn { return 80 }
+            return SeamScenes.page(y, x)
+        }
+        var accumulator = accumulate(3, scene: scene, extra: panel)
+        let frames = (1...3).map { index in
+            PinnedScenes.frame(index, of: scene) { y, x in
+                guard let value = panel(y, x) else { return nil }
+                let flatRow = (272..<352).contains(y) || (416..<496).contains(y)
+                let flatColumn = (144..<224).contains(x) || (288..<368).contains(x)
+                if index == 2 && flatRow && flatColumn { return (x + y) % 2 == 0 ? 20 : 80 }
+                return value
+            }
+        }
+        let masks = accumulator.regionAndCore(of: frames[1], near: [frames[0], frames[2]])
+        let stable = accumulator.stableBlocks()
+        #expect(masks.core[23, 39] && !stable[23, 39])
+        let result = ScrollPinned.repairedSlice(frame: frames[1], rows: 0..<800, region: masks.region,
+                                                core: masks.core, stable: stable, neighbours: [])
+        // Four 10-by-10-block patches animate inside an opaque panel; none is its dominant opening.
+        #expect(frames[1][184, 312, 0] == 20)
+        #expect(result.slice[184, 312, 0] == 240)
+        #expect(result.repair.filled == masks.core.count)
     }
 }

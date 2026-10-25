@@ -320,6 +320,13 @@ nonisolated enum ScrollPinned {
             checkedPairs = pairs
         }
 
+        /// The blocks supported by the pairs themselves, before gaps and the box round an element are filled.
+        /// A box can contain page text inside an outlined element (ScrollDump 2026-10-19-205034).
+        mutating func stableBlocks() -> PinnedGrid {
+            refresh()
+            return cachedStable ?? PinnedGrid(columns: columns, rows: rows)
+        }
+
         /// The top, in pixels, of the highest element that stands at the bottom of the frame — its region reaches
         /// the last `edgeRows` rows, not the first, and is under `tallShare` of the frame — nil when there is none
         /// or fewer than `minimumPairs` pairs have been seen. `rows` is the frame's height in blocks. What stands
@@ -492,7 +499,7 @@ nonisolated enum ScrollPinned {
         var blocks = 0
         /// Of them, taken from a neighbouring frame, filled with the colour round the element (the blocks of the
         /// element itself that no neighbour shows the page behind), and left as the frame has them (the margin
-        /// round the element, which is page).
+        /// round the element, or structure in its box not supported as pinned by the pairs).
         var fromNeighbour = 0
         var filled = 0
         var kept = 0
@@ -517,10 +524,13 @@ nonisolated enum ScrollPinned {
     /// replaced: by the blocks of the first of `neighbours` that shows that place of the page where it is not
     /// itself covered, and else, for a block of the element itself (`core`), by the median colour of a ring one
     /// block wide round the element. A block of the margin that no neighbour shows is left as the frame has it:
-    /// it is page. With no `core` every block is the element's. The slice is a frame of its own, the width of
-    /// `frame`.
+    /// it is page. An outlined element, identified from `stable` (the blocks found pinned before the gaps and
+    /// box were filled), also keeps its pixels when no neighbour shows the page: even its stable edge blocks
+    /// can contain page text. With no `stable` the whole core is taken as pinned;
+    /// with no `core` every block is the element's.
+    /// The slice is a frame of its own, the width of `frame`.
     static func repairedSlice(frame: CaptureFrame, rows: Range<Int>, region: PinnedGrid, core: PinnedGrid? = nil,
-                              neighbours: [Neighbour]) -> (slice: CaptureFrame, repair: Repair) {
+                              stable: PinnedGrid? = nil, neighbours: [Neighbour]) -> (slice: CaptureFrame, repair: Repair) {
         let started = ContinuousClock.now
         let width = frame.width, height = frame.height
         var report = Repair()
@@ -536,9 +546,8 @@ nonisolated enum ScrollPinned {
         defer { tally.deallocate() }
         let tallyBox = Shared(value: tally)
         let columns = region.columns
-        // The colour round the element a block is a part of, looked for the first time a block has no neighbour to
-        // give it the page: a card that the next frame shows the page under never needs one.
-        let colourBox = Shared(value: RingColours(region: region, frame: frame))
+        // Fallbacks are looked for only when a block has no neighbour to give it the page.
+        let fallbackBox = Shared(value: Fallback(region: region, frame: frame))
         pixels.withUnsafeMutableBufferPointer { targetBuffer in
             let targetBox = Shared(value: targetBuffer.baseAddress!)
             withPixels(of: neighbours.map { $0.frame }) { pointers in
@@ -572,7 +581,12 @@ nonisolated enum ScrollPinned {
                         } else if let core, !core[column, row] {
                             // The margin round the element: the page, as the frame shows it.
                             tally[row * 4 + 3] += 1
-                        } else if let colour = colourBox.value.colour(atCell: row * columns + column) {
+                        } else if let stable,
+                                  fallbackBox.value.preservesPage(atCell: row * columns + column, stable: stable) {
+                            // A contour's box also covers the page visible inside it. Without a neighbour,
+                            // erasing that structure loses text (ScrollDump 2026-10-19-205034).
+                            tally[row * 4 + 3] += 1
+                        } else if let colour = fallbackBox.value.colour(atCell: row * columns + column) {
                             tally[row * 4 + 2] += 1
                             for y in from..<to {
                                 var t = ((y - low) * width + x0) * 4
@@ -597,30 +611,118 @@ nonisolated enum ScrollPinned {
         return (CaptureFrame(width: width, height: high - low, pixels: pixels, colorSpace: frame.colorSpace), report)
     }
 
-    /// The colour round each piece of a region, worked out when first asked for, by whichever worker asks.
-    private final class RingColours {
+    /// The colour round each piece and the open centres of outlines, worked out only when a neighbour cannot help.
+    private final class Fallback {
         private let region: PinnedGrid
         private let frame: CaptureFrame
         private let lock = NSLock()
         private var pieces: [[Int]]?
         private var pieceOf: [Int] = []
         private var colours: [Int: (UInt8, UInt8, UInt8)?] = [:]
+        private var openCentres: [Int: Bool] = [:]
 
         init(region: PinnedGrid, frame: CaptureFrame) {
             self.region = region
             self.frame = frame
         }
 
+        /// A dominant opening distinguishes an outline from the small counters and gaps in a panel's text.
+        /// When that opening shows structure, keep the piece: a stable edge block can contain page text too,
+        /// and a solid middle of a wide letter can have no spread. A leftover outline is preferable to erased text.
+        func preservesPage(atCell cell: Int, stable: PinnedGrid) -> Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            findPieces()
+            let id = pieceOf[cell]
+            guard id >= 0, let pieces else { return false }
+            if let known = openCentres[id] { return known }
+            let open = hasOpenCentre(pieces[id], stable: stable)
+            openCentres[id] = open
+            return open
+        }
+
+        private func hasOpenCentre(_ cells: [Int], stable: PinnedGrid) -> Bool {
+            let support = cells.filter { stable.cells[$0] }
+            guard !support.isEmpty else { return false }
+            var left = region.columns, right = 0, top = region.rows, bottom = 0
+            for index in support {
+                let column = index % region.columns, row = index / region.columns
+                left = min(left, column); right = max(right, column)
+                top = min(top, row); bottom = max(bottom, row)
+            }
+            let width = right - left + 1, height = bottom - top + 1
+            // Closing only adds support, so a dense piece cannot have an opening this large.
+            guard support.count * 4 <= width * height * 3 else { return false }
+            // The small closing reconnects samples lost where the page crosses the outline, without filling
+            // its centre as the element-sized closing does (ScrollDump 2026-10-19-205034).
+            let reach = ScrollPinned.coreReach, padding = reach + 1
+            var outline = PinnedGrid(columns: width + 2 * padding, rows: height + 2 * padding)
+            for index in support {
+                outline[index % region.columns - left + padding, index / region.columns - top + padding] = true
+            }
+            let closed = outline.closed(by: reach)
+            var seen = closed.cells
+            // Support is eight-connected; its complementary space is four-connected, so diagonal edges of
+            // an outline enclose their centre rather than giving it a diagonal path to the outside.
+            let directions = [(-1, 0), (1, 0), (0, -1), (0, 1)]
+            for start in 0..<seen.count where !seen[start] {
+                var stack = [start], hole: [Int] = [], outside = false
+                seen[start] = true
+                while let index = stack.popLast() {
+                    hole.append(index)
+                    let column = index % closed.columns, row = index / closed.columns
+                    if column == 0 || row == 0 || column == closed.columns - 1 || row == closed.rows - 1 { outside = true }
+                    for (dc, dr) in directions {
+                        let c = column + dc, r = row + dr
+                        guard c >= 0, r >= 0, c < closed.columns, r < closed.rows else { continue }
+                        let next = r * closed.columns + c
+                        if !seen[next] { seen[next] = true; stack.append(next) }
+                    }
+                }
+                if !outside, hole.count >= ScrollPinned.minimumBlocks, hole.count * 4 >= width * height,
+                   hasStructure(hole, columns: closed.columns, left: left - padding, top: top - padding) { return true }
+            }
+            return false
+        }
+
+        /// Spread over the whole opening includes strokes whose solid middle fills an 8-by-8 block. Sampling
+        /// the opening alone excludes the outline itself: on a flat page its old colour fill is still safe.
+        private func hasStructure(_ hole: [Int], columns: Int, left: Int, top: Int) -> Bool {
+            var sum = 0.0, squares = 0.0, samples = 0.0
+            frame.pixels.withUnsafeBufferPointer { pixels in
+                for cell in hole {
+                    guard let content = ScrollPinned.blockSums(pixels, width: frame.width,
+                                                               x: (left + cell % columns) * block,
+                                                               y: (top + cell / columns) * block) else { continue }
+                    let mean = Double(content.red + content.green + content.blue) / Double(block * block * 3)
+                    sum += mean
+                    squares += content.spread * content.spread + mean * mean
+                    samples += 1
+                }
+            }
+            guard samples > 0 else { return false }
+            let mean = sum / samples
+            return max(0, squares / samples - mean * mean).squareRoot() >= ScrollPinned.contentSpread
+        }
+
+        private func findPieces() {
+            if pieces == nil {
+                let found = region.pieces()
+                pieceOf = [Int](repeating: -1, count: region.cells.count)
+                for (id, cells) in found.enumerated() {
+                    for index in cells {
+                        pieceOf[index] = id
+                    }
+                }
+                pieces = found
+            }
+        }
+
         /// The colour for the block at `cell`, nil if it is part of no piece or there is no ring to look at.
         func colour(atCell cell: Int) -> (UInt8, UInt8, UInt8)? {
             lock.lock()
             defer { lock.unlock() }
-            if pieces == nil {
-                let found = region.pieces()
-                pieceOf = [Int](repeating: -1, count: region.cells.count)
-                for (id, cells) in found.enumerated() { for index in cells { pieceOf[index] = id } }
-                pieces = found
-            }
+            findPieces()
             let id = pieceOf[cell]
             guard id >= 0, let pieces else { return nil }
             if let known = colours[id] { return known }
