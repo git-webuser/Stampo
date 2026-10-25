@@ -13,22 +13,23 @@ enum PresentationColorSampler {
         let thumbnailSize = 32
         guard let reduced = downsample(image,
                                        width: thumbnailSize,
-                                       height: thumbnailSize) else { return [] }
-        let bitmap = NSBitmapImageRep(cgImage: reduced)
-        let halfWidth = max(1, bitmap.pixelsWide / 2)
-        let halfHeight = max(1, bitmap.pixelsHigh / 2)
-        return [
-            (0, 0), (1, 0), (0, 1), (1, 1)
-        ].compactMap { column, row in
-            averageColor(in: bitmap,
-                         xRange: (column * halfWidth)..<min(bitmap.pixelsWide,
-                                                            (column + 1) * halfWidth),
-                         yRange: (row * halfHeight)..<min(bitmap.pixelsHigh,
-                                                           (row + 1) * halfHeight))
+                                       height: thumbnailSize),
+              let data = reduced.dataProvider?.data else { return [] }
+        let halfWidth = max(1, reduced.width / 2)
+        let halfHeight = max(1, reduced.height / 2)
+        return (data as Data).withUnsafeBytes { pixels in
+            [(0, 0), (1, 0), (0, 1), (1, 1)].compactMap { column, row in
+                averageColor(in: pixels, bytesPerRow: reduced.bytesPerRow,
+                             xRange: (column * halfWidth)..<min(reduced.width,
+                                                                (column + 1) * halfWidth),
+                             yRange: (row * halfHeight)..<min(reduced.height,
+                                                               (row + 1) * halfHeight))
+            }
         }
     }
 
-    private static func averageColor(in bitmap: NSBitmapImageRep,
+    private static func averageColor(in pixels: UnsafeRawBufferPointer,
+                                     bytesPerRow: Int,
                                      xRange: Range<Int>,
                                      yRange: Range<Int>) -> Presentation.Color? {
         var red: CGFloat = 0
@@ -38,12 +39,16 @@ enum PresentationColorSampler {
         var count: CGFloat = 0
         for y in yRange {
             for x in xRange {
-                guard let source = bitmap.colorAt(x: x, y: y),
-                      let color = source.usingColorSpace(.sRGB) else { continue }
-                red += color.redComponent
-                green += color.greenComponent
-                blue += color.blueComponent
-                alpha += color.alphaComponent
+                // The thumbnail is sRGB RGBA. Read its bytes directly: colorAt
+                // labels these numbers Generic RGB and shifts them on conversion.
+                let offset = y * bytesPerRow + x * 4
+                let a = CGFloat(pixels[offset + 3])
+                if a > 0 {
+                    red += CGFloat(pixels[offset]) / a
+                    green += CGFloat(pixels[offset + 1]) / a
+                    blue += CGFloat(pixels[offset + 2]) / a
+                }
+                alpha += a / 255
                 count += 1
             }
         }
