@@ -180,13 +180,14 @@ enum AppSettings {
     /// `defaults write com.hex000.Stampo editorSystemToolbar -bool NO`, then
     /// reopen the editor.
     static var editorSystemToolbar: Bool {
-        UserDefaults.standard.object(forKey: Keys.editorSystemToolbar) as? Bool ?? true
+        store.object(forKey: Keys.editorSystemToolbar) as? Bool ?? true
     }
 
-    /// The frame container is opt-in until its remaining visual steps ship.
-    /// Like the toolbar switch, it is read once when an editor opens.
+    /// The Arc frame is on by default on macOS 26+ with the system toolbar.
+    /// Read once when an editor opens. To turn it off without a rebuild:
+    /// `defaults write com.hex000.Stampo editorArcFrame -bool NO`.
     static var editorArcFrame: Bool {
-        store.object(forKey: Keys.editorArcFrame) as? Bool ?? false
+        store.object(forKey: Keys.editorArcFrame) as? Bool ?? true
     }
 
     /// Whether the menu bar shows the hare (`MascotStatusView`) rather than
