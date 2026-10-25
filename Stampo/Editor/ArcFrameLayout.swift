@@ -46,6 +46,31 @@ struct ArcFrameLayout {
     /// on every point, so the row opens up only once it clears this width.
     static let settingsRowExpandAtOrAbove: CGFloat = 904
 
+    /// The dot grid on the canvas. It is part of how the work surface looks and
+    /// is never drawn into an export. Set `dotOpacity` to 0 to go back to a
+    /// plain card.
+    static let dotStep: CGFloat = 24
+    static let dotDiameter: CGFloat = 2.6
+    static let dotOpacity: Double = 0.14
+
+    /// Where the dots stand in an area of this size, from its top-left corner:
+    /// the first half a step in, then one every step while the centre is still
+    /// inside the area.
+    static func dotCenters(in size: CGSize) -> [CGPoint] {
+        guard size.width > 0, size.height > 0, size.width.isFinite, size.height.isFinite else { return [] }
+        var centers: [CGPoint] = []
+        var y = dotStep / 2
+        while y < size.height {
+            var x = dotStep / 2
+            while x < size.width {
+                centers.append(CGPoint(x: x, y: y))
+                x += dotStep
+            }
+            y += dotStep
+        }
+        return centers
+    }
+
     static func settingsRowIsCompact(cardWidth: CGFloat, wasCompact: Bool) -> Bool {
         cardWidth < (wasCompact ? settingsRowExpandAtOrAbove : settingsRowCompactBelow)
     }

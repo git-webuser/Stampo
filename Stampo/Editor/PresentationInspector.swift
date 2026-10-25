@@ -471,9 +471,9 @@ struct PresentationInspector: View {
         palette.map(\.color)
     }
 
-    private static let fallbackColor = Presentation.Color(
-        red: 0.18, green: 0.43, blue: 0.92, alpha: 1
-    )
+    var sampledBackgroundForTesting: Presentation.Background { sampledPreset.background }
+
+    private static let fallbackColor = PageColor.fallbackColor
 
     /// One row of eight, never two. Sized together with `contentMinimumWidth`.
     private static let swatchSize: CGFloat = 22
@@ -548,9 +548,13 @@ struct PresentationInspector: View {
     private var backgroundSectionBody: some View {
         inspectorGroup("Background", section: .background) {
             // Four kinds, four columns — the same row the preset gallery
-            // below is built on, rather than three and a straggler.
-            tileGrid(BackgroundKind.allCases, selected: backgroundKind, columns: 4) { kind in
-                backgroundTile(kind)
+            // below is built on, rather than three and a straggler. The same
+            // *size* too: no plate around the picture (it cost 5pt a side and
+            // made these 55.5pt wide against the gallery's 67), the gallery's
+            // 6pt gap, and the choice marked the way the gallery marks it.
+            tileGrid(BackgroundKind.allCases, selected: backgroundKind, columns: 4,
+                     spacing: 6, plated: false) { kind in
+                backgroundTile(kind, selected: backgroundKind == kind)
             } action: { kind in
                 setBackgroundKind(kind)
             }
@@ -660,20 +664,7 @@ struct PresentationInspector: View {
     /// Averaging instead pulls everything towards mud, and the lightest is
     /// usually just the window's background.
     private static func characteristicColor(of colors: [Presentation.Color]) -> Presentation.Color {
-        func saturation(_ c: Presentation.Color) -> CGFloat {
-            let high = max(c.red, max(c.green, c.blue))
-            let low = min(c.red, min(c.green, c.blue))
-            return high > 0 ? (high - low) / high : 0
-        }
-        guard let best = colors.max(by: { saturation($0) < saturation($1) }) else {
-            return fallbackColor
-        }
-        guard saturation(best) > 0.08 else {
-            // A grey shot: keep its lightness rather than inventing a hue.
-            return colors.max { $0.red + $0.green + $0.blue < $1.red + $1.green + $1.blue }
-                ?? fallbackColor
-        }
-        return best
+        PageColor.characteristic(of: colors)
     }
 
     private var gradientShapePicker: some View {
@@ -784,7 +775,7 @@ struct PresentationInspector: View {
 
     /// Painted by `PresentationRenderer`, not by a lookalike: what the tile
     /// shows is literally what the exported canvas would carry.
-    private func backgroundTile(_ kind: BackgroundKind) -> some View {
+    private func backgroundTile(_ kind: BackgroundKind, selected: Bool) -> some View {
         let sample = sampleBackground(for: kind)
         return VStack(spacing: 5) {
             ZStack {
@@ -819,6 +810,12 @@ struct PresentationInspector: View {
             .aspectRatio(4.0 / 3.0, contentMode: .fit)
                 .clipShape(RoundedRectangle(cornerRadius: 5))
                 .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(.quaternary, lineWidth: 1))
+                // The gallery's own ring (`presetGallery`), so a kind and a
+                // preset are chosen the same way.
+                .overlay {
+                    RoundedRectangle(cornerRadius: 5)
+                        .strokeBorder(selected ? Color.accentColor : Color.clear, lineWidth: 2)
+                }
             Text(kind.titleKey)
                 .font(.system(size: 11))
                 .lineLimit(1)
@@ -1658,11 +1655,12 @@ struct PresentationInspector: View {
         let values = MarginShorthand.values(for: target, of: margins).map { Double($0) }
         return HStack(spacing: 4) {
             Image(systemName: Self.marginSymbol(target))
-                .font(.system(size: 10))
+                .font(.system(size: 11))
                 // The glyph is the only thing that tells these fields apart,
                 // so it is also where the field says it has the keyboard.
                 .foregroundStyle(editedMargin == target ? AnyShapeStyle(.tint)
                                  : AnyShapeStyle(.secondary))
+                .frame(width: Self.rowIconSlot)
             NumberField(values: Binding<[Double]>.constant(values),
                         alignment: .center,
                         onCommit: { (typed: [Double]) in
@@ -2023,7 +2021,7 @@ struct PresentationInspector: View {
             }
             .buttonStyle(.plain)
             }
-            .padding(.horizontal, 6)
+            .padding(.horizontal, Self.headerInset)
 
             if isOpen {
                 // Four boxes rather than one box with rules in it. Every block
@@ -2127,8 +2125,9 @@ struct PresentationInspector: View {
                                  commit: @escaping (CGFloat) -> Void) -> some View {
         HStack(spacing: 4) {
             Image(systemName: systemImage)
-                .font(.system(size: 10))
+                .font(.system(size: 11))
                 .foregroundStyle(.secondary)
+                .frame(width: Self.rowIconSlot)
             NumberField(value: .constant(Double(value.rounded())), alignment: .center) { typed in
                 commit(CGFloat(typed))
             }
@@ -2162,6 +2161,7 @@ struct PresentationInspector: View {
                 Image(systemName: systemImage)
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
+                    .frame(width: Self.rowIconSlot)
                 Text(title)
                     .font(.system(size: 11))
                 Spacer(minLength: 4)
@@ -2448,11 +2448,11 @@ struct PresentationInspector: View {
         return VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
                 Button(action: fold) {
-                    HStack(spacing: 8) {
+                    HStack(spacing: 6) {
                         Image(systemName: section.systemImage)
                             .font(.system(size: 13))
                             .foregroundStyle(.secondary)
-                            .frame(width: 18)
+                            .frame(width: Self.rowIconSlot)
                         Text(title).font(.headline)
                         Spacer(minLength: 0)
                     }
@@ -2477,7 +2477,7 @@ struct PresentationInspector: View {
                 }
                 .buttonStyle(.plain)
             }
-            .padding(.horizontal, 6)
+            .padding(.horizontal, Self.headerInset)
 
             if isExpanded {
                 GroupBox {
@@ -2497,36 +2497,49 @@ struct PresentationInspector: View {
     /// counting different things: the four kinds of background are a row, like
     /// the gallery of presets under them, while the effects are a list of
     /// twelve that reads better three abreast.
+    ///
+    /// `plated`: a tile sits on a plate that carries the choice — 5pt of padding
+    /// a side, a tint and a ring. Without it the tile is the whole column and
+    /// marks the choice itself, which is what the preset gallery does and what
+    /// lets a row here match the gallery's size.
     private func tileGrid<Choice: Identifiable & Hashable, Tile: View>(
         _ choices: [Choice],
         selected: Choice?,
         columns: Int = 3,
+        spacing: CGFloat = 8,
+        plated: Bool = true,
         @ViewBuilder tile: @escaping (Choice) -> Tile,
         action: @escaping (Choice) -> Void
     ) -> some View {
         LazyVGrid(
-            columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: columns),
-            spacing: 8
+            columns: Array(repeating: GridItem(.flexible(), spacing: spacing), count: columns),
+            spacing: spacing
         ) {
             ForEach(choices) { choice in
                 Button { action(choice) } label: {
-                    tile(choice)
-                        .padding(5)
-                        .frame(maxWidth: .infinity)
-                        .background {
-                            RoundedRectangle(cornerRadius: 7)
-                                .fill(selected == choice
-                                      ? Color.accentColor.opacity(0.16)
-                                      : Color.clear)
-                        }
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 7)
-                                .strokeBorder(selected == choice
-                                              ? Color.accentColor
-                                              : Color.clear,
-                                              lineWidth: 1.5)
-                        }
-                        .contentShape(RoundedRectangle(cornerRadius: 7))
+                    if plated {
+                        tile(choice)
+                            .padding(5)
+                            .frame(maxWidth: .infinity)
+                            .background {
+                                RoundedRectangle(cornerRadius: 7)
+                                    .fill(selected == choice
+                                          ? Color.accentColor.opacity(0.16)
+                                          : Color.clear)
+                            }
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 7)
+                                    .strokeBorder(selected == choice
+                                                  ? Color.accentColor
+                                                  : Color.clear,
+                                                  lineWidth: 1.5)
+                            }
+                            .contentShape(RoundedRectangle(cornerRadius: 7))
+                    } else {
+                        tile(choice)
+                            .frame(maxWidth: .infinity)
+                            .contentShape(Rectangle())
+                    }
                 }
                 .buttonStyle(.plain)
             }
@@ -2572,6 +2585,19 @@ struct PresentationInspector: View {
     private static let captionGap: CGFloat = 6
     /// Between the margin fields and the button beside them.
     private static let marginGap: CGFloat = 6
+    /// The room a row's glyph has, whatever the glyph. Without it the slot was
+    /// as wide as the symbol, so the titles that followed started anywhere from
+    /// 16.5 to 23 points in (a `rectangle` against `arrow.up.and.down`), and the
+    /// glyphs' centres were 3pt apart. One slot puts every glyph centred on the
+    /// same line and every title on the same one. A glyph wider than the slot
+    /// overhangs it evenly on both sides — the layout stays put.
+    private static let rowIconSlot: CGFloat = 14
+    /// How far a section's header stands in from the box under it: the same
+    /// 13 the controls inside the box stand in (the group's own ~5 and
+    /// `groupPadding`), at both ends, so the header's glyph sits over the
+    /// glyphs of the rows below it and its switch and chevron end where the
+    /// number fields end.
+    private static let headerInset: CGFloat = 13
     /// Breathing room inside a section's box, on top of what `GroupBox` gives.
     /// Its own inset is about half of what the app's settings cards use, and
     /// beside them the panel looked cramped rather than compact.
@@ -2614,6 +2640,7 @@ struct PresentationInspector: View {
                 Image(systemName: systemImage)
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
+                    .frame(width: Self.rowIconSlot)
                 Text(title)
                     .font(.system(size: 11))
                     .fixedSize(horizontal: false, vertical: true)
