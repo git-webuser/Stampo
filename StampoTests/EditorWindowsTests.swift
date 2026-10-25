@@ -715,6 +715,13 @@ import Testing
         #expect(context.overlayParent() === window)
         #expect(document.selectedID == annotation.id)
 
+        // These checks used to reopen this exact 1140 × 720 window with the
+        // same selected red rectangle. Share the already-open 320pt panel.
+        try arcPanelHeaderAndColourButtonShareTheSecondLinesAxis(in: window)
+        try await arcColorControlFollowsTheCardWidth(in: window)
+        window.setContentSize(NSSize(width: 1140, height: 720))
+        await settle(window)
+
         func postKey(_ code: UInt16, characters: String) throws {
             for type in [NSEvent.EventType.keyDown, .keyUp] {
                 let event = try #require(NSEvent.keyEvent(
@@ -765,42 +772,7 @@ import Testing
     /// the card is narrower than the widest line, the row of swatches once it
     /// is wide enough. Found by what each draws: the button's tooltip is the
     /// word "Color", a swatch's is its own colour's name.
-    @Test func arcColorControlFollowsTheCardWidth() async throws {
-        guard #available(macOS 26, *) else { return }
-        let restore = configureArc(true)
-        defer { restore() }
-        let document = EditorDocument(
-            baseImage: TestImages.make(width: 1600, height: 800),
-            sourceURL: URL(fileURLWithPath: "/tmp/editor-arc-color-control.png"))
-        let annotation = Annotation(kind: .rect, start: CGPoint(x: 20, y: 20),
-                                    end: CGPoint(x: 60, y: 60), color: .red, lineWidth: 4)
-        document.beginChange()
-        document.annotations.append(annotation)
-        document.commitChange()
-        document.selectedID = annotation.id
-
-        weak var editorWindow: NSWindow?
-        let context = EditorWindowContext(isKeyWindow: { editorWindow?.isKeyWindow == true },
-                                          overlayParent: { editorWindow })
-        let hosting = NSHostingController(rootView: EditorView(
-            document: document, windowContext: context, arcFrame: true).managedLocale())
-        hosting.sceneBridgingOptions = [.toolbars]
-        let window = NSWindow(contentViewController: hosting)
-        editorWindow = window
-        window.isReleasedWhenClosed = false
-        window.styleMask = [.titled, .closable, .resizable]
-        window.toolbarStyle = .unified
-        window.titleVisibility = .hidden
-        window.setContentSize(NSSize(width: 1140, height: 720))
-        window.makeKeyAndOrderFront(nil)
-        defer {
-            window.orderOut(nil)
-            window.contentViewController = nil
-            window.close()
-        }
-        await settle(window)
-        try pressDecor(in: window)
-        await settle(window)
+    private func arcColorControlFollowsTheCardWidth(in window: NSWindow) async throws {
         let split = try #require(frameSplit(in: window))
 
         let button = LocaleManager.shared.string("Color")
@@ -895,28 +867,7 @@ import Testing
     /// below the top, where the colour button is centred too), the tile under
     /// it starts on the line's divider (40pt), and the compact colour button
     /// and its dot have their approved size.
-    @Test func arcPanelHeaderAndColourButtonShareTheSecondLinesAxis() async throws {
-        guard #available(macOS 26, *) else { return }
-        let restore = configureArc(true)
-        defer { restore() }
-        let document = EditorDocument(
-            baseImage: TestImages.make(width: 1600, height: 800),
-            sourceURL: URL(fileURLWithPath: "/tmp/editor-arc-axis.png"))
-        let annotation = Annotation(kind: .rect, start: CGPoint(x: 20, y: 20),
-                                    end: CGPoint(x: 60, y: 60), color: .red, lineWidth: 4)
-        document.beginChange()
-        document.annotations.append(annotation)
-        document.commitChange()
-        document.selectedID = annotation.id
-        let window = hostedArcWindow(document: document)
-        defer {
-            window.orderOut(nil)
-            window.contentViewController = nil
-            window.close()
-        }
-        await settle(window)
-        try pressDecor(in: window)
-        await settle(window)
+    private func arcPanelHeaderAndColourButtonShareTheSecondLinesAxis(in window: NSWindow) throws {
         let split = try #require(frameSplit(in: window))
         let panel = split.panelHosting.view
         let detail = split.detailHosting.view
