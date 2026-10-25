@@ -641,6 +641,43 @@ import Testing
         }
     }
 
+    @Test func arcFrameDefaultsOnAndKeepsStoredValues() {
+        let key = AppSettings.Keys.editorArcFrame
+        let held = AppSettings.store.object(forKey: key)
+        defer {
+            if let held { AppSettings.store.set(held, forKey: key) }
+            else { AppSettings.store.removeObject(forKey: key) }
+        }
+
+        AppSettings.store.removeObject(forKey: key)
+        #expect(AppSettings.editorArcFrame == true)
+        AppSettings.store.set(false, forKey: key)
+        #expect(AppSettings.editorArcFrame == false)
+        AppSettings.store.set(true, forKey: key)
+        #expect(AppSettings.editorArcFrame == true)
+    }
+
+    @Test func arcFrameOpensByDefaultWithoutAStoredFlag() async throws {
+        guard #available(macOS 26, *) else { return }
+        let restore = configureArc(true)
+        let url = try writePNG("editor-arc-default.png")
+        defer {
+            EditorWindowController.closeAllForTesting()
+            restore()
+            try? FileManager.default.removeItem(at: url)
+        }
+        AppSettings.store.removeObject(forKey: AppSettings.Keys.editorArcFrame)
+        #expect(AppSettings.store.object(forKey: AppSettings.Keys.editorArcFrame) == nil)
+        #expect(EditorView.usesArcFrame == true)
+        let window = try await openWindow(url)
+        window.setFrame(NSRect(x: 10, y: 10, width: 1140, height: 677), display: true)
+        await settle(window)
+        _ = try #require(frameSplit(in: window))
+        #expect(window.titlebarSeparatorStyle == .none)
+        #expect(window.contentMinSize.width == arcMinimumWidth(of: window))
+        print("ARC default storedFlag=nil minimum=\(window.contentMinSize) window=\(window.frame)")
+    }
+
     @Test func disablingArcKeepsTheNativeInspectorsWindowMinimum() async throws {
         guard #available(macOS 26, *) else { return }
         let restore = configureArc(false)
@@ -650,7 +687,6 @@ import Testing
             restore()
             try? FileManager.default.removeItem(at: url)
         }
-        AppSettings.store.removeObject(forKey: AppSettings.Keys.editorArcFrame)
         #expect(AppSettings.editorArcFrame == false)
         #expect(EditorView.usesArcFrame == false)
         let window = try await openWindow(url)
@@ -664,7 +700,7 @@ import Testing
             }
         }
         defer { observation.invalidate() }
-        window.setContentSize(NSSize(width: 900, height: 720))
+        window.setFrame(NSRect(x: 10, y: 10, width: 900, height: 677), display: true)
         await settle(window)
         try pressDecor(in: window)
         await settle(window)
