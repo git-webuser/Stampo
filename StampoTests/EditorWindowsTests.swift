@@ -1092,7 +1092,7 @@ import Testing
         let window = try #require(NSApp.windows.first {
             $0.isVisible && $0.title == url.lastPathComponent
         })
-        await settle(window, eventDelivery: true)
+        await settle(window)
         return window
     }
 
