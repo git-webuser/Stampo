@@ -518,7 +518,8 @@ import Testing
 
     /// Both paths start closed and measure the exposed panel at 8ms intervals.
     /// No preloading is introduced by this test.
-    @Test func arcAndLegacyDecorOpeningLatency() async throws {
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["STAMPO_EVIDENCE"] != nil))
+    func arcAndLegacyDecorOpeningLatency() async throws {
         guard #available(macOS 26, *) else { return }
         let restore = configureArc(false)
         let url = try writePNG("editor-arc-opening-latency.png", width: 1600, height: 800)
@@ -786,27 +787,31 @@ import Testing
         }
 
         let arc = try await openWindow(url)
-        try pressDecor(in: arc)
-        await settle(arc)
-        let split = try #require(frameSplit(in: arc))
-        #expect(arc.titlebarSeparatorStyle == .none)
-        #expect(split.splitViewItems.count == 2)
-        for item in split.splitViewItems { #expect(item.titlebarSeparatorStyle == .none) }
-        let arcScroller = try #require(outerScroller(split.panelHosting.view))
-        #expect(!arcScroller.hasVerticalScroller)
+        for _ in 0..<2 {
+            try await expectPanelOpens(in: arc)
+            let split = try #require(frameSplit(in: arc))
+            #expect(arc.titlebarSeparatorStyle == .none)
+            #expect(split.splitViewItems.count == 2)
+            for item in split.splitViewItems { #expect(item.titlebarSeparatorStyle == .none) }
+            let arcScroller = try #require(outerScroller(split.panelHosting.view))
+            #expect(!arcScroller.hasVerticalScroller)
+            try await expectPanelCloses(in: arc)
+        }
         EditorWindowController.closeAllForTesting()
 
         AppSettings.store.set(false, forKey: AppSettings.Keys.editorArcFrame)
         let legacy = try await openWindow(url)
-        try pressDecor(in: legacy)
-        await settle(legacy)
-        #expect(legacy.titlebarSeparatorStyle == .automatic)
-        let content = try #require(legacy.contentView)
-        let legacySplit = try #require(views(in: content).compactMap { $0 as? NSSplitView }
-            .compactMap { $0.delegate as? NSSplitViewController }.first)
-        for item in legacySplit.splitViewItems { #expect(item.titlebarSeparatorStyle == .automatic) }
-        let legacyScroller = try #require(outerScroller(content))
-        #expect(legacyScroller.hasVerticalScroller)
+        for _ in 0..<2 {
+            try await expectPanelOpens(in: legacy)
+            #expect(legacy.titlebarSeparatorStyle == .automatic)
+            let content = try #require(legacy.contentView)
+            let legacySplit = try #require(views(in: content).compactMap { $0 as? NSSplitView }
+                .compactMap { $0.delegate as? NSSplitViewController }.first)
+            for item in legacySplit.splitViewItems { #expect(item.titlebarSeparatorStyle == .automatic) }
+            let legacyScroller = try #require(outerScroller(content))
+            #expect(legacyScroller.hasVerticalScroller)
+            try await expectPanelCloses(in: legacy)
+        }
     }
 
     /// An Arc editor on a document of our own, so a test can select an
@@ -1058,6 +1063,30 @@ import Testing
         })
         await settle(window)
         return window
+    }
+
+    /// The latency probe's behavior assertions stay in the permanent suite,
+    /// on the same two windows used to check the native rule and scroller.
+    private func expectPanelOpens(in window: NSWindow) async throws {
+        let recorder = ArcOpeningRecorder(window: window, arcSplit: frameSplit(in: window))
+        try #require(!recorder.panelPresented, "each opening must start with Decor closed")
+        #expect(recorder.panelWidth <= 0.5)
+        recorder.start()
+        defer { recorder.stop() }
+        try pressDecor(in: window)
+        await settle(window)
+        recorder.sample()
+        _ = try #require(recorder.firstShiftMs, "the real panel must expose growing width when Decor opens")
+        #expect(recorder.panelPresented)
+        #expect(recorder.panelWidth >= 300)
+    }
+
+    private func expectPanelCloses(in window: NSWindow) async throws {
+        try pressDecor(in: window)
+        await settle(window)
+        let recorder = ArcOpeningRecorder(window: window, arcSplit: frameSplit(in: window))
+        #expect(!recorder.panelPresented, "both native and Arc inspectors must close before the next opening")
+        #expect(recorder.panelWidth <= 0.5)
     }
 
     private func settle(_ window: NSWindow) async {
