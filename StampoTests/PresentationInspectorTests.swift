@@ -140,23 +140,21 @@ import Testing
         // starves the very main-queue work being waited on.
         try? await Task.sleep(for: .milliseconds(600))
 
-        // The *number* field, by type rather than by being first: the panel
-        // also carries a hex field now, and "the first editable text field"
-        // moves whenever the rows are rearranged.
+        // The *number* field, by type and by what it shows rather than by
+        // being first: the panel also carries a hex field, and the page's
+        // radius row now opens the first block, so "the first editable text
+        // field" moves whenever the rows are rearranged.
         func firstEditable(_ view: NSView) -> NSTextField? {
-            if let field = view as? NumberField.Field, field.isEditable { return field }
+            if let field = view as? NumberField.Field, field.isEditable,
+               field.stringValue == "20" { return field }
             for sub in view.subviews { if let found = firstEditable(sub) { return found } }
             return nil
         }
+        // Every margin is 20; the radius rows read 0.
         guard let field = firstEditable(hosting) else {
-            Issue.record("the inspector should have an editable number field")
+            Issue.record("the inspector should have a margin field showing 20")
             return
         }
-
-        // The first number in the panel is the top margin: the page's own size
-        // moved to the toolbar's second row with the rest of the canvas
-        // controls.
-        #expect(field.stringValue == "20")
 
         // A real mouse-down/up pair: the click is where the problem lived.
         let point = field.convert(CGPoint(x: field.bounds.midX, y: field.bounds.midY), to: nil)
@@ -308,6 +306,166 @@ import Testing
         #expect(field.stringValue == "20")
 
         window.orderOut(nil)
+    }
+
+    /// Every number field in the panel, top to bottom, with where it sits — in
+    /// points from the panel's top, which is the order a person reads it.
+    ///
+    /// Fields rather than sliders: SwiftUI draws its own `Slider`, so there is
+    /// no `NSSlider` in the tree to find. The value field sits on the same row,
+    /// directly above its slider, so the two keep the same order.
+    private func numberFields(in hosting: NSView) -> [(field: NumberField.Field, frame: CGRect)] {
+        var fields: [(NumberField.Field, CGRect)] = []
+        func walk(_ view: NSView) {
+            if let field = view as? NumberField.Field {
+                let rect = view.convert(view.bounds, to: hosting)
+                fields.append((field, hosting.isFlipped
+                    ? rect
+                    : CGRect(x: rect.minX, y: hosting.bounds.height - rect.maxY,
+                             width: rect.width, height: rect.height)))
+            }
+            view.subviews.forEach(walk)
+        }
+        walk(hosting)
+        return fields.sorted { $0.1.minY < $1.1.minY }
+    }
+
+    /// A tall panel in a real window, on a 440×340 page whose background is of
+    /// the given kind.
+    private func inspector(background: Presentation.Background)
+    async -> (EditorDocument, NSHostingView<PresentationInspector>, NSWindow) {
+        let (document, hosting, window) = await inspectorWithMargins()
+        document.presentation?.background = background
+        try? await Task.sleep(for: .milliseconds(500))
+        return (document, hosting, window)
+    }
+
+    /// "Like the image's", measured: the page's radius row is the same control
+    /// at the same size as the picture's, and it is the last thing in the
+    /// background block — above the image section's margins, below the
+    /// background's own colours.
+    @Test func thePageRadiusRowIsTheImagesRowAndClosesTheBackgroundBlock() async {
+        let (_, hosting, window) = await inspector(background: .solid(.white))
+        defer { window.orderOut(nil) }
+
+        let fields = numberFields(in: hosting)
+        print("PROBE solid fields", fields.map {
+            "\($0.field.stringValue)@\($0.frame.minX),\($0.frame.minY) \($0.frame.width)x\($0.frame.height)"
+        })
+        // Page radius, the two margins, picture radius: in that order.
+        guard fields.count >= 4 else {
+            Issue.record("expected the two radius rows and the margins, got \(fields.count) fields")
+            return
+        }
+        #expect(fields.prefix(4).map(\.field.stringValue) == ["0", "20", "20", "0"])
+
+        // One control: the same field, at the same size and the same left edge.
+        let page = fields[0].frame, image = fields[3].frame
+        #expect(page.size == image.size)
+        #expect(page.minX == image.minX)
+
+        // The margins sit between the two rows, so the page's row is in the
+        // block above them, not among them.
+        #expect(fields[1].frame.minY > page.maxY)
+        #expect(fields[2].frame.minY > page.maxY)
+        #expect(fields[3].frame.minY > fields[2].frame.maxY)
+    }
+
+    /// Last in the block means last for every kind of background: after the
+    /// angle of a line, which was the last row before this one.
+    @Test func thePageRadiusRowComesAfterTheGradientAngle() async {
+        let line = Presentation.Background.linearGradient(
+            stops: Presentation.Stop.spread([.white, .black]), angle: .pi / 2)
+        let (_, hosting, window) = await inspector(background: line)
+        defer { window.orderOut(nil) }
+
+        let fields = numberFields(in: hosting)
+        print("PROBE gradient fields", fields.map {
+            "\($0.field.stringValue)@\($0.frame.minX),\($0.frame.minY) \($0.frame.width)x\($0.frame.height)"
+        })
+        guard let angle = fields.firstIndex(where: { $0.field.stringValue == "90" }),
+              fields.count > angle + 4
+        else {
+            Issue.record("a line should show its angle, then the page's radius, the margins and the picture's radius")
+            return
+        }
+        // Top to bottom: angle, page radius, margins, picture radius.
+        #expect(fields[(angle + 1)...(angle + 4)].map(\.field.stringValue) == ["0", "20", "20", "0"])
+        #expect(fields[angle].frame.size == fields[angle + 1].frame.size)
+        #expect(fields[angle + 1].frame.size == fields[angle + 4].frame.size)
+        #expect(fields[angle].frame.maxY < fields[angle + 1].frame.minY)
+    }
+
+    /// A number typed into the page's row reaches the page — in pixels of the
+    /// short side, like the picture's — and leaves the picture's radius alone.
+    @Test func typingAPageRadiusSetsOnlyThePagesRadius() async {
+        let (document, hosting, window) = await inspector(background: .solid(.white))
+        defer { window.orderOut(nil) }
+
+        guard let field = numberFields(in: hosting).first?.field,
+              field.stringValue == "0"
+        else {
+            Issue.record("the page's radius row should open the panel's first block")
+            return
+        }
+
+        window.makeFirstResponder(field)
+        try? await Task.sleep(for: .milliseconds(200))
+        guard let editor = field.currentEditor() as? NSTextView else {
+            Issue.record("the field should have taken the keyboard")
+            return
+        }
+        editor.selectAll(nil)
+        editor.insertText("34", replacementRange: editor.selectedRange())
+        try? await Task.sleep(for: .milliseconds(100))
+        editor.insertNewline(nil)
+        try? await Task.sleep(for: .milliseconds(400))
+
+        // The page is 440×340, so 34 px is a tenth of the short side.
+        let radius = document.presentation?.pageCornerRadius ?? -1
+        #expect(abs(radius - 0.1) < 0.001)
+        #expect(document.presentation?.cornerRadius == 0)
+        #expect(field.stringValue == "34")
+    }
+
+    /// The row does not wait for a background: with none, the page is still
+    /// cut, so the field stays live.
+    @Test func thePageRadiusRowStaysLiveWithNoBackground() async {
+        let (document, hosting, window) = await inspector(background: .none)
+        defer { window.orderOut(nil) }
+
+        guard let field = numberFields(in: hosting).first?.field,
+              field.stringValue == "0"
+        else {
+            Issue.record("the page's radius row should be there with no background")
+            return
+        }
+        #expect(field.isEnabled)
+
+        window.makeFirstResponder(field)
+        try? await Task.sleep(for: .milliseconds(200))
+        guard let editor = field.currentEditor() as? NSTextView else {
+            Issue.record("the field should have taken the keyboard")
+            return
+        }
+        editor.selectAll(nil)
+        editor.insertText("17", replacementRange: editor.selectedRange())
+        editor.insertNewline(nil)
+        try? await Task.sleep(for: .milliseconds(400))
+
+        #expect(abs((document.presentation?.pageCornerRadius ?? -1) - 0.05) < 0.001)
+    }
+
+    /// A document that never had the field opens square, and opening the panel
+    /// does not give it one.
+    @Test func aDocumentWithoutAPageRadiusOpensSquare() {
+        let document = document(canvas: CGSize(width: 800, height: 600))
+        #expect(document.presentation?.pageCornerRadius == 0)
+
+        present(document)
+
+        #expect(document.presentation?.pageCornerRadius == 0)
+        #expect(document.isDirty == false)
     }
 
     /// A 400×300 picture with 20 pt margins, shown in a real window: the

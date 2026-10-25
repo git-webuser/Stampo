@@ -436,6 +436,13 @@ nonisolated struct Presentation: Equatable, Sendable {
     var background: Background
     var image: ImagePlacement
     var cornerRadius: CGFloat
+    /// Rounds the page itself rather than the picture on it: everything the
+    /// canvas holds is cut along the arc, and what lies beyond it is
+    /// transparent, in the file as on screen. Kept the way `cornerRadius` is —
+    /// a share of the canvas's short side, 0…0.5 — so the two fields read and
+    /// behave alike. Zero is a square page, which is also what a document
+    /// that never set it gets.
+    var pageCornerRadius: CGFloat = 0
     var shadow: Shadow
     var glow: Glow = .none
     /// Applied in order, bottom of the list last: filters do not commute, so
@@ -459,11 +466,13 @@ nonisolated struct Presentation: Equatable, Sendable {
          background: Background = .solid(.white),
          image: ImagePlacement = .fitted,
          cornerRadius: CGFloat = 0,
+         pageCornerRadius: CGFloat = 0,
          shadow: Shadow = .none) {
         self.canvas = canvas
         self.background = background
         self.image = image
         self.cornerRadius = cornerRadius
+        self.pageCornerRadius = pageCornerRadius
         self.shadow = shadow
     }
 }

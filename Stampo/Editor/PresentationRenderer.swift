@@ -67,6 +67,20 @@ nonisolated enum PresentationRenderer {
         skipping skippedID: UUID? = nil,
         pageQuality: PageQuality = .full
     ) {
+        // The page's own corners, before anything is drawn on it: background,
+        // lights, picture, commentary and the page-layer effects are all cut by
+        // the same arc, and what lies beyond it stays transparent. A square
+        // page skips the clip, so it costs nothing until it is asked for.
+        let roundsPage = presentation.pageCornerRadius > 0
+        if roundsPage {
+            ctx.saveGState()
+            clip(to: CGRect(origin: .zero, size: layout.canvasSize),
+                 canvasSize: layout.canvasSize,
+                 cornerRadius: presentation.pageCornerRadius,
+                 in: ctx)
+        }
+        defer { if roundsPage { ctx.restoreGState() } }
+
         guard !EffectStack.page(presentation.effects).isEmpty else {
             drawContents(in: ctx, base: base, blurSources: blurSources,
                          pictures: pictures,
