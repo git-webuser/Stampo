@@ -462,8 +462,12 @@ import Testing
             else { AppSettings.store.removeObject(forKey: key) }
         }
         for (language, label) in [("en", "None"), ("ru", "Без фона")] {
+            // As the Arc panel builds it: without scroll indicators. Left on,
+            // a machine with no trackpad (a CI runner) draws a legacy scroller
+            // that takes 16-17pt of the 320 and moves every rail measured here.
             let host = NSHostingView(rootView: PresentationInspector(
-                document: document, contentInsets: ArcFrameLayout.panelContentInsets)
+                document: document, contentInsets: ArcFrameLayout.panelContentInsets,
+                showsScrollIndicators: false)
                 .environment(\.locale, Locale(identifier: language)))
             let window = NSWindow(contentRect: NSRect(x: 20, y: 20, width: 320, height: 740),
                                   styleMask: [.borderless], backing: .buffered, defer: false)
