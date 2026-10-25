@@ -194,7 +194,7 @@ import Testing
             window.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
             window.makeKey()
-            await settle(window)
+            await settle(window, eventDelivery: true)
             #expect(window.isKeyWindow)
             #expect(EditorWindowController.keyEditor != nil)
             let fields = views(in: split.panelHosting.view).compactMap { $0 as? NSTextField }
@@ -357,7 +357,7 @@ import Testing
                 keyCode: textShortcut.keyCode))
             NSApp.postEvent(event, atStart: false)
         }
-        await settle(textWindow)
+        await settle(textWindow, eventDelivery: true)
         let textSplit = try #require(frameSplit(in: textWindow))
         let segments = views(in: textSplit.detailHosting.view).compactMap { $0 as? NSSegmentedControl }
         #expect(segments.contains { $0.segmentCount == TextStyleFlag.allCases.count },
@@ -651,9 +651,9 @@ import Testing
             window.contentViewController = nil
             window.close()
         }
-        await settle(window)
+        await settle(window, eventDelivery: true)
         try pressDecor(in: window)
-        await settle(window)
+        await settle(window, eventDelivery: true)
         let split = try #require(frameSplit(in: window))
         #expect(!split.panelItem.isCollapsed)
         #expect(context.isKeyWindow())
@@ -674,7 +674,7 @@ import Testing
 
         #expect(window.makeFirstResponder(nil))
         try postKey(124, characters: "\u{F703}")
-        await settle(window)
+        await settle(window, eventDelivery: true)
         #expect(document.annotations[0].start.x == 21,
                 "the open panel must not take the canvas's arrow shortcut")
 
@@ -684,23 +684,23 @@ import Testing
             $0.isEditable && ($0.accessibilityLabel() == color || $0.stringValue.hasPrefix("#"))
         })
         #expect(window.makeFirstResponder(hex))
-        await settle(window)
+        await settle(window, eventDelivery: true)
         let fieldEditor = try #require(hex.currentEditor() as? NSTextView)
         fieldEditor.selectAll(nil)
         try postKey(3, characters: "F")
-        await settle(window)
+        await settle(window, eventDelivery: true)
         #expect(fieldEditor.string == "F", "typed text must reach the inspector's field editor")
         try postKey(124, characters: "\u{F703}")
-        await settle(window)
+        await settle(window, eventDelivery: true)
         #expect(document.annotations[0].start.x == 21,
                 "an arrow in the color field must not nudge the annotation")
         #expect(context.isKeyWindow())
 
         #expect(window.makeFirstResponder(nil))
-        await settle(window)
+        await settle(window, eventDelivery: true)
         #expect(hex.currentEditor() == nil)
         try postKey(124, characters: "\u{F703}")
-        await settle(window)
+        await settle(window, eventDelivery: true)
         #expect(document.annotations[0].start.x == 22,
                 "the canvas must receive arrows again after the field releases focus")
         print("ARC keyboard key=\(context.isKeyWindow()) annotationX=\(document.annotations[0].start.x) typed=F fieldReleased=\(hex.currentEditor() == nil)")
@@ -1061,7 +1061,7 @@ import Testing
         let window = try #require(NSApp.windows.first {
             $0.isVisible && $0.title == url.lastPathComponent
         })
-        await settle(window)
+        await settle(window, eventDelivery: true)
         return window
     }
 
@@ -1089,11 +1089,37 @@ import Testing
         #expect(recorder.panelWidth <= 0.5)
     }
 
-    private func settle(_ window: NSWindow) async {
-        for _ in 0..<4 {
-            window.contentView?.layoutSubtreeIfNeeded()
-            window.displayIfNeeded()
-            try? await Task.sleep(for: .milliseconds(180))
+    private func settle(_ window: NSWindow, eventDelivery: Bool = false) async {
+        if eventDelivery || (window.toolbar != nil && frameSplit(in: window) == nil) {
+            // AppKit activation/key delivery and the native inspector need
+            // the original event-loop allowance; geometry alone cannot
+            // establish that keyboard events have been delivered.
+            for _ in 0..<4 {
+                window.contentView?.layoutSubtreeIfNeeded()
+                window.displayIfNeeded()
+                try? await Task.sleep(for: .milliseconds(180))
+            }
+        } else {
+            // Drain queued SwiftUI updates and wait for the real split's
+            // animation and final divider positioning, rather than sleeping
+            // another 720ms after every focus, theme or layout change.
+            var previous: [NSRect] = []
+            var stableTurns = 0
+            for turn in 0..<60 {
+                window.contentView?.layoutSubtreeIfNeeded()
+                window.displayIfNeeded()
+                try? await Task.sleep(for: .milliseconds(20))
+                let split = frameSplit(in: window)
+                let frames = [window.frame, window.contentView?.bounds ?? .zero]
+                    + (split?.splitView.arrangedSubviews.map(\.frame) ?? [])
+                if split?.animatingPresentation != true && frames == previous {
+                    stableTurns += 1
+                } else {
+                    stableTurns = 0
+                }
+                previous = frames
+                if turn >= 4 && stableTurns >= 2 { break }
+            }
         }
         window.contentView?.layoutSubtreeIfNeeded()
     }
