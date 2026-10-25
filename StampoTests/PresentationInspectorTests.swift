@@ -32,6 +32,35 @@ import Testing
         window.orderOut(nil)
     }
 
+    private func outerScroller(of inspector: PresentationInspector) -> NSScrollView? {
+        let hosting = NSHostingView(rootView: inspector)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 340, height: 700),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = hosting
+        window.orderFrontRegardless()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.4))
+        defer { window.orderOut(nil) }
+        func scrollers(_ view: NSView) -> [NSScrollView] {
+            ((view as? NSScrollView).map { [$0] } ?? []) + view.subviews.flatMap(scrollers)
+        }
+        // The effect grid has a scroller of its own; the panel's is the big one.
+        return scrollers(hosting).max { $0.frame.width * $0.frame.height < $1.frame.width * $1.frame.height }
+    }
+
+    /// The Arc panel hides its scroller; every other caller keeps it. Asked of
+    /// the real scroll view, because the flag only matters if AppKit honours it.
+    @Test func thePanelShowsItsScrollerUnlessTheCallerHidesIt() throws {
+        let document = document(canvas: CGSize(width: 1600, height: 900))
+        let shown = PresentationInspector(document: document)
+        let hidden = PresentationInspector(document: document, showsScrollIndicators: false)
+        #expect(shown.showsScrollIndicators)
+        #expect(!hidden.showsScrollIndicators)
+        let shownScroller = try #require(outerScroller(of: shown))
+        let hiddenScroller = try #require(outerScroller(of: hidden))
+        #expect(shownScroller.hasVerticalScroller)
+        #expect(!hiddenScroller.hasVerticalScroller)
+    }
+
     /// The size fields carry Custom's own numbers, and a `TextField(value:)`
     /// writes its parsed value back as it appears. Without a guard that write
     /// switched the canvas to Custom just because the panel was opened.

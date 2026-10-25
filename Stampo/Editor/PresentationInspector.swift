@@ -33,6 +33,9 @@ struct PresentationInspector: View {
     /// and tests, where the built-in palette stands alone.
     let colorShelf: (any PresentationColorShelf)?
     let contentInsets: EdgeInsets
+    /// The Arc panel sits on the window frame, where a scroller would lie
+    /// across the tiles. Wheel and trackpad scroll as before without it.
+    let showsScrollIndicators: Bool
 
     @State private var draft: Presentation
     /// Which groups the user has folded away. Sections are identified by a
@@ -483,15 +486,17 @@ struct PresentationInspector: View {
     private static let fieldButtonHeight: CGFloat = 18
 
     init(document: EditorDocument, colorShelf: (any PresentationColorShelf)? = nil,
-         contentInsets: EdgeInsets = EdgeInsets(top: 16, leading: 16, bottom: 16, trailing: 16)) {
+         contentInsets: EdgeInsets = EdgeInsets(top: 16, leading: 16, bottom: 16, trailing: 16),
+         showsScrollIndicators: Bool = true) {
         self.document = document
         self.colorShelf = colorShelf
         self.contentInsets = contentInsets
+        self.showsScrollIndicators = showsScrollIndicators
         _draft = State(initialValue: document.presentation ?? .identity)
     }
 
     var body: some View {
-        ScrollView {
+        ScrollView(showsIndicators: showsScrollIndicators) {
             VStack(alignment: .leading, spacing: Self.sectionSpacing) {
                 backgroundSection
                 // The picture before the treatments on it: the page, then the

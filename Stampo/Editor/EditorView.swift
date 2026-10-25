@@ -87,6 +87,9 @@ struct EditorView: View {
     }
     var arcFrame = EditorView.usesArcFrame
     @State var arcMinimumWidth: CGFloat = ArcFrameLayout.minimumWidth
+    /// Whether the Arc card last drew its settings line with the colours
+    /// folded into a button. See `ArcFrameLayout.settingsRowIsCompact`.
+    @State private var rowIsCompact = false
     /// The editor follows its own window's display, including when moved to
     /// one narrower than the usual floor. Supplying the measurement also lets
     /// the real window policy be exercised without substituting an NSScreen.
@@ -161,7 +164,8 @@ struct EditorView: View {
         if arcFrame {
             FrameSplit(panel: PresentationInspector(
                 document: document, colorShelf: colorShelf,
-                contentInsets: ArcFrameLayout.panelContentInsets)
+                contentInsets: ArcFrameLayout.panelContentInsets,
+                showsScrollIndicators: false)
                 .scrollContentBackground(.hidden),
                        detail: arcDetail, isPresented: $presentationInspectorPresented)
         } else {
@@ -174,8 +178,16 @@ struct EditorView: View {
         // be cut by the hosting column and leave rectangular corner edges.
         let shape = RoundedRectangle(cornerRadius: ArcFrameLayout.cardCornerRadius, style: .continuous)
         return GeometryReader { geometry in
+            // One answer for the whole window, from the card's own width:
+            // the colour control keeps its form when only the tool changes.
+            let compact = ArcFrameLayout.settingsRowIsCompact(
+                cardWidth: geometry.size.width, wasCompact: rowIsCompact)
             VStack(spacing: 0) {
                 markupRow
+                    .environment(\.settingsRowCompact, compact)
+                    // The form changes at once, not by a fade across a panel
+                    // animation that happens to cross the threshold.
+                    .transaction(value: compact) { $0.disablesAnimations = true }
                     .frame(width: geometry.size.width)
                     .background(Color(nsColor: .textBackgroundColor))
                 Divider()
@@ -187,6 +199,9 @@ struct EditorView: View {
             .background(Color(nsColor: .textBackgroundColor))
             .clipShape(shape)
             .overlay(shape.strokeBorder(Color(nsColor: .separatorColor), lineWidth: 1))
+            // The memory the hysteresis needs: which side of the band the
+            // row was on before this width.
+            .onChange(of: compact, initial: true) { _, now in rowIsCompact = now }
         }
         .padding(.trailing, ArcFrameLayout.frameGap)
         .padding(.bottom, ArcFrameLayout.frameGap)
@@ -595,7 +610,7 @@ struct EditorView: View {
                                   ... CGFloat(BlurIntensity.range.upperBound),
                               step: 1)
             case .text:
-                colorSwatches
+                colorControl
                 fontPicker
                 settingStepper("Text Size", systemImage: "textformat.size",
                                value: fontSizeBinding, range: 16...96, step: 2)
@@ -604,7 +619,7 @@ struct EditorView: View {
             case .freehand:
                 // The pen/marker choice lives in the drawing popover — one
                 // parameter, one home; the row keeps the per-brush settings.
-                colorSwatches
+                colorControl
                 if effectiveDrawingMode == .marker {
                     markerTipPicker
                 }
@@ -615,7 +630,7 @@ struct EditorView: View {
                               range: range,
                               step: effectiveDrawingMode == .marker ? 4 : 2)
             case .step:
-                colorSwatches
+                colorControl
                 fontPicker
                 settingStepper("Text Size", systemImage: "textformat.size",
                                value: stepLabelSizeBinding,
@@ -623,7 +638,7 @@ struct EditorView: View {
                 settingSlider("Marker Size", systemImage: "circle.circle",
                               value: stepSizeBinding, range: 24...72, step: 8)
             case .loupe:
-                colorSwatches
+                colorControl
                 loupeShapePicker
                 loupeModePicker
                 // Grouped with the other segmented pickers, ahead of the
@@ -636,15 +651,15 @@ struct EditorView: View {
                               value: loupeScaleBinding, range: 1.5...4, step: 0.5,
                               format: { String(format: "×%.1f", $0) })
             case .line:
-                colorSwatches
+                colorControl
                 lineStylePicker
                 thicknessSlider
             case .rect, .oval, .roundedRect:
-                colorSwatches
+                colorControl
                 thicknessSlider
                 fillSlider
             case .polygon:
-                colorSwatches
+                colorControl
                 settingStepper("Sides", systemImage: "hexagon",
                                value: polygonSidesBinding,
                                range: CGFloat(ShapeCounts.polygonSides.lowerBound)
@@ -653,7 +668,7 @@ struct EditorView: View {
                 thicknessSlider
                 fillSlider
             case .star:
-                colorSwatches
+                colorControl
                 settingStepper("Points", systemImage: "star",
                                value: starPointsBinding,
                                range: CGFloat(ShapeCounts.starPoints.lowerBound)
@@ -662,12 +677,12 @@ struct EditorView: View {
                 thicknessSlider
                 fillSlider
             case .bubble:
-                colorSwatches
+                colorControl
                 bubbleTailPicker
                 thicknessSlider
                 fillSlider
             case .arrow:
-                colorSwatches
+                colorControl
                 arrowRoutePicker
                 arrowStylePicker
                 arrowHeadPlacementPicker
@@ -718,10 +733,6 @@ struct EditorView: View {
         }
     }
 
-    /// String-catalog keys for the preset names, aligned with
-    /// `AnnotationColor.presets`.
-    private var colorNames: [String] { Self.annotationColorNames }
-
     /// The swatch names, in the order of `AnnotationColor.presets`. Static, so
     /// the test that keeps every hover tooltip translated can read them: they
     /// reach `hoverTip` as values, and a key nobody wrote at a call site is a
@@ -742,35 +753,14 @@ struct EditorView: View {
         document.selectedAnnotation?.color ?? style.color
     }
 
-    private var colorSwatches: some View {
-        HStack(spacing: 2) {
-            ForEach(Array(AnnotationColor.presets.enumerated()), id: \.offset) { index, preset in
-                Button {
-                    style.color = preset
-                    applyToSelection { $0.color = preset }
-                } label: {
-                    // 18pt of colour in a 24pt target: at 14pt the chips were
-                    // easy to miss, and the space between them caught nothing.
-                    Circle()
-                        .fill(Color(nsColor: preset.nsColor))
-                        .overlay(Circle().strokeBorder(.quaternary, lineWidth: 1))
-                        .overlay {
-                            if activeColor == preset {
-                                Circle().strokeBorder(Color.accentColor, lineWidth: 2).padding(-3)
-                            }
-                        }
-                        .frame(width: 18, height: 18)
-                        .frame(width: 24, height: 24)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .hoverTip(colorNames[index])
-                // The accent ring is the only thing marking the current
-                // colour, and a ring is not a thing VoiceOver reads.
-                .accessibilityAddTraits(activeColor == preset ? [.isButton, .isSelected] : .isButton)
-            }
+    /// The colour control for the row: the swatches, or one button with the
+    /// same swatches in a popover when the Arc card is too narrow for the
+    /// widest line. Picking does the same either way.
+    private var colorControl: some View {
+        AnnotationColorControl(active: activeColor) { preset in
+            style.color = preset
+            applyToSelection { $0.color = preset }
         }
-        .accessibilityLabel("Color")
     }
 
     private var blurStylePicker: some View {
