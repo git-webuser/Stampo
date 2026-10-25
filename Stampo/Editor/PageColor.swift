@@ -75,7 +75,12 @@ nonisolated enum PageColor {
 
     static func defaultColor(from colors: [Presentation.Color]) -> Presentation.Color {
         guard !colors.isEmpty else { return BackgroundDrawers.defaultStops[0] }
-        let color = characteristic(of: colors)
+        // Opaque whatever the sample was: a shot with a transparent margin
+        // (a window with its shadow) averages to an alpha below 1, and a page
+        // that is part see-through would export with holes in it.
+        let sample = characteristic(of: colors)
+        let color = Presentation.Color(red: sample.red, green: sample.green,
+                                       blue: sample.blue, alpha: 1)
         if isVisible(color) { return color }
         return saturation(color) > minimumHueSaturation
             ? complement(of: color) : BackgroundDrawers.defaultStops[0]

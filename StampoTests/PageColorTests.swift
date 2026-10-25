@@ -35,6 +35,17 @@ nonisolated enum PageColorSamples {
         #expect(abs(PageColor.contrast(.white, PageColorSamples.color(0x1E1E1E)) - 16.671156) < 0.00001)
     }
 
+    @Test func theDefaultPageIsOpaqueWhateverTheSampleWas() {
+        // A shot with a see-through margin averages to an alpha below 1.
+        let seeThrough = Presentation.Color(red: 0.78, green: 0.83, blue: 0.88, alpha: 0.6)
+        let page = PageColor.defaultColor(from: [seeThrough])
+        #expect(page.alpha == 1)
+        #expect(page.red == seeThrough.red && page.green == seeThrough.green && page.blue == seeThrough.blue)
+        // The complement and the accent were opaque already.
+        let pale = Presentation.Color(red: 0.86, green: 0.91, blue: 1, alpha: 0.5)
+        #expect(PageColor.defaultColor(from: [pale]).alpha == 1)
+    }
+
     @Test func aPageMustStandApartFromBothCards() {
         for hex in [0xFAFAFA, 0xEDEDED, 0x1E1E1E, 0x000000, 0xDCE8FF, 0xEEF4FF] {
             #expect(!PageColor.isVisible(PageColorSamples.color(hex)), "\(String(hex, radix: 16))")
