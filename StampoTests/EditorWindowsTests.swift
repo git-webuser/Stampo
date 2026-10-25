@@ -173,8 +173,10 @@ import Testing
             let openImage = try imageRect(in: split, window: window)
             let openDetail = split.detailHosting.view.bounds
             #expect(openImage.width < closedImage.width)
+            // The reporter rounds each side to whole points: 864 x 432 fits to
+            // 682 x 342 on a 1x runner, where proportion says 341.
             #expect(abs(openImage.height - closedImage.height
-                        * openImage.width / closedImage.width) < 1,
+                        * openImage.width / closedImage.width) <= max(1, pixel),
                     "fit should preserve proportions within the reporter's pixel rounding")
             #expect(abs(openImage.midY - closedImage.midY) <= pixel)
             let detailScreen = window.convertToScreen(
