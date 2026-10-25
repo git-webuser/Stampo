@@ -66,6 +66,176 @@ import Testing
         #expect((payload.last as? NSURL) as URL? == b)
     }
 
+    @Test(arguments: [UInt64(0), 1, 128 * 1024 * 1024])
+    func aSingleFileUpTo128MiBOnlyOffersCopy(size: UInt64) throws {
+        try withSparseFiles(sizes: [size]) { urls in
+            let payload = ArchiveDragPayload.files(urls)
+            #expect(ArchiveDragPayload.copiesOut(payload))
+            #expect(ArchiveDragPayload.outsideMask(for: payload) == [.copy])
+        }
+    }
+
+    @Test func aSingleFileOneByteOver128MiBKeepsLinkSupport() throws {
+        try withSparseFiles(sizes: [128 * 1024 * 1024 + 1]) { urls in
+            let payload = ArchiveDragPayload.files(urls)
+            #expect(ArchiveDragPayload.copiesOut(payload) == false)
+            #expect(ArchiveDragPayload.outsideMask(for: payload) == [.copy, .link])
+        }
+    }
+
+    @Test func threeFilesAt512MiBOnlyOfferCopy() throws {
+        try withSparseFiles(sizes: [128 * 1024 * 1024, 128 * 1024 * 1024,
+                                   256 * 1024 * 1024]) { urls in
+            let payload = ArchiveDragPayload.files(urls)
+            #expect(ArchiveDragPayload.outsideMask(for: payload) == [.copy])
+        }
+    }
+
+    @Test func threeFilesOneByteOver512MiBKeepLinkSupport() throws {
+        try withSparseFiles(sizes: [128 * 1024 * 1024, 128 * 1024 * 1024,
+                                   256 * 1024 * 1024 + 1]) { urls in
+            let payload = ArchiveDragPayload.files(urls)
+            #expect(ArchiveDragPayload.outsideMask(for: payload) == [.copy, .link])
+        }
+    }
+
+    @Test func manySmallFilesStillUseTheirCombinedSize() throws {
+        try withSparseFiles(sizes: Array(repeating: 64 * 1024 * 1024, count: 9)) { urls in
+            let payload = ArchiveDragPayload.files(urls)
+            #expect(ArchiveDragPayload.outsideMask(for: payload) == [.copy, .link])
+        }
+    }
+
+    @Test func aSelectionCanCopyAMemberLargerThanTheSingleFileLimit() throws {
+        try withSparseFiles(sizes: [1, 128 * 1024 * 1024 + 1, 1]) { urls in
+            let payload = ArchiveDragPayload.files(urls)
+            #expect(ArchiveDragPayload.outsideMask(for: payload) == [.copy])
+        }
+    }
+
+    @Test func aDirectoryKeepsLinkSupportForTheWholeDrag() throws {
+        try withSparseFiles(sizes: [1]) { urls in
+            let directory = urls[0].deletingLastPathComponent()
+            let folderPayload = ArchiveDragPayload.files([directory])
+            let mixedPayload = ArchiveDragPayload.files(urls + [directory])
+            #expect(ArchiveDragPayload.outsideMask(for: folderPayload) == [.copy, .link])
+            #expect(ArchiveDragPayload.outsideMask(for: mixedPayload) == [.copy, .link])
+        }
+    }
+
+    @Test func aMissingFileKeepsLinkSupportForTheWholeDrag() throws {
+        try withSparseFiles(sizes: [1]) { urls in
+            let missing = urls[0].deletingLastPathComponent().appendingPathComponent("missing")
+            let missingPayload = ArchiveDragPayload.files([missing])
+            let mixedPayload = ArchiveDragPayload.files(urls + [missing])
+            #expect(ArchiveDragPayload.outsideMask(for: missingPayload) == [.copy, .link])
+            #expect(ArchiveDragPayload.outsideMask(for: mixedPayload) == [.copy, .link])
+        }
+    }
+
+    @Test func anUnreadableFileKeepsLinkSupport() throws {
+        try withSparseFiles(sizes: [1]) { urls in
+            let url = urls[0]
+            try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: url.path)
+            defer {
+                try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+            }
+            let payload = ArchiveDragPayload.files(urls)
+            #expect(ArchiveDragPayload.outsideMask(for: payload) == [.copy, .link])
+        }
+    }
+
+    @Test func aNonFileURLKeepsLinkSupport() throws {
+        let url = try #require(URL(string: "https://example.com/file.png"))
+        let payload: [NSPasteboardWriting] = [url as NSURL]
+        #expect(ArchiveDragPayload.outsideMask(for: payload) == [.copy, .link])
+    }
+
+    @Test func textAndColorOnlyOfferCopy() {
+        let text = ArchiveDragPayload.text("hello")
+        let color = ArchiveDragPayload.color(.systemRed, formatted: "#FF0000")
+        #expect(ArchiveDragPayload.outsideMask(for: text) == [.copy])
+        #expect(ArchiveDragPayload.outsideMask(for: color) == [.copy])
+        #expect(ArchiveDragPayload.outsideMask(for: text + color) == [.copy])
+        #expect(ArchiveDragPayload.outsideMask(for: []) == [.copy])
+    }
+
+    @Test(arguments: [UInt64(128 * 1024 * 1024), 128 * 1024 * 1024 + 1])
+    func aMixedDragUsesOnlyItsFilePart(size: UInt64) throws {
+        try withSparseFiles(sizes: [size]) { urls in
+            let filePayload = ArchiveDragPayload.files(urls)
+            let mixedPayload = ArchiveDragPayload.text("hello") + filePayload
+                + ArchiveDragPayload.color(.systemRed, formatted: "#FF0000")
+            let expected: NSDragOperation = size <= 128 * 1024 * 1024 ? [.copy] : [.copy, .link]
+            #expect(ArchiveDragPayload.outsideMask(for: mixedPayload) == expected)
+        }
+    }
+
+    @Test func anImageAndAnotherFileOfTheSameSizeOfferTheSameMask() throws {
+        let image = try makePNG()
+        defer { try? FileManager.default.removeItem(at: image) }
+        let size = try #require(image.resourceValues(forKeys: [.fileSizeKey]).fileSize)
+        try withSparseFiles(sizes: [UInt64(size)]) { urls in
+            let imagePayload = ArchiveDragPayload.files([image])
+            let otherPayload = ArchiveDragPayload.files(urls)
+            #expect(ArchiveDragPayload.outsideMask(for: imagePayload) == [.copy])
+            #expect(ArchiveDragPayload.outsideMask(for: otherPayload) == [.copy])
+        }
+    }
+
+    @Test func aMixedCaptureDragUsesTheExportedFileURL() throws {
+        let image = try makePNG()
+        defer { try? FileManager.default.removeItem(at: image) }
+        let capture = ArchiveDragPayload.capture(image, as: .jpg)
+        let exported = try #require((capture.first as? NSURL) as URL?)
+        #expect(exported.pathExtension == "jpg")
+        let payload = ArchiveDragPayload.text("hello") + capture
+            + ArchiveDragPayload.color(.systemRed, formatted: "#FF0000")
+        #expect(ArchiveDragPayload.outsideMask(for: payload) == [.copy])
+    }
+
+    @Test(arguments: [UInt64(128 * 1024 * 1024), 128 * 1024 * 1024 + 1])
+    func aSymbolicLinkUsesItsTargetsSize(size: UInt64) throws {
+        try withSparseFiles(sizes: [size]) { urls in
+            let link = urls[0].deletingLastPathComponent().appendingPathComponent("link")
+            try FileManager.default.createSymbolicLink(at: link, withDestinationURL: urls[0])
+            let payload = ArchiveDragPayload.files([link])
+            let expected: NSDragOperation = size <= 128 * 1024 * 1024 ? [.copy] : [.copy, .link]
+            #expect(ArchiveDragPayload.outsideMask(for: payload) == expected)
+        }
+    }
+
+    @Test func symbolicLinksToDirectoriesAndMissingFilesKeepLinkSupport() throws {
+        try withSparseFiles(sizes: [1]) { urls in
+            let directory = urls[0].deletingLastPathComponent()
+            let folderLink = directory.appendingPathComponent("folder-link")
+            let brokenLink = directory.appendingPathComponent("broken-link")
+            try FileManager.default.createSymbolicLink(at: folderLink, withDestinationURL: directory)
+            try FileManager.default.createSymbolicLink(at: brokenLink,
+                                                      withDestinationURL: directory.appendingPathComponent("missing"))
+            let folderPayload = ArchiveDragPayload.files([folderLink])
+            let brokenPayload = ArchiveDragPayload.files([brokenLink])
+            #expect(ArchiveDragPayload.outsideMask(for: folderPayload) == [.copy, .link])
+            #expect(ArchiveDragPayload.outsideMask(for: brokenPayload) == [.copy, .link])
+        }
+    }
+
+    private func withSparseFiles(sizes: [UInt64], _ body: ([URL]) throws -> Void) throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("drag-mask-test-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let urls = try sizes.enumerated().map { index, size in
+            let url = directory.appendingPathComponent("file-\(index).dat")
+            try #require(FileManager.default.createFile(atPath: url.path, contents: nil))
+            let handle = try FileHandle(forWritingTo: url)
+            defer { try? handle.close() }
+            try handle.truncate(atOffset: size)
+            return url
+        }
+        try body(urls)
+    }
+
     /// A capture already in the chosen format is dragged as itself: the file
     /// on the pasteboard is the one in the archive, not a copy of it.
     @Test func aCaptureAlreadyInFormatRidesOutAsItself() throws {

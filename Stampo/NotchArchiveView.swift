@@ -3080,9 +3080,7 @@ final class ArchiveDragShimView: NSView, NSDraggingSource {
     func draggingSession(_ session: NSDraggingSession,
                          sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
         guard context == .outsideApplication else { return [.move] }
-        // .link means "make an alias", which only exists for files — offering
-        // it for a color or a snippet would advertise a drop that can't happen.
-        return payload.contains { $0 is NSURL } ? [.copy, .link] : [.copy]
+        return ArchiveDragPayload.outsideMask(for: payload)
     }
 
     func draggingSession(_ session: NSDraggingSession,
