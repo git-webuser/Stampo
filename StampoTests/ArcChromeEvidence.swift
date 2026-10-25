@@ -244,9 +244,10 @@ import Vision
         // controls, 8pt in), and that bottom is what the gap is measured from.
         let capsuleBottom = capsuleBottoms.max() ?? itemBottoms.max()
         let headerRect = open ? firstHeader(in: split.panelHosting.view, capture: capture) : nil
-        // The header has a documented 6pt internal horizontal inset. The
+        // The header has a documented 13pt internal horizontal inset (it
+        // stands in as far as the controls in the box under it). The
         // enclosing section/GroupBox remains at the caller's outer padding.
-        let headerInset = headerRect.map { $0.minX - panel.minX - 6 }
+        let headerInset = headerRect.map { $0.minX - panel.minX - 13 }
         let headerTopInset = headerRect.map { $0.minY - panel.minY }
         let points: [(String, NSPoint)] = [
             ("panel-lower-left", NSPoint(x: open ? 4 : card.minX - 4, y: height - 24)),

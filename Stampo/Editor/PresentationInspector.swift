@@ -2034,7 +2034,7 @@ struct PresentationInspector: View {
             }
             .buttonStyle(.plain)
             }
-            .padding(.horizontal, 6)
+            .padding(.horizontal, Self.headerInset)
 
             if isOpen {
                 // Four boxes rather than one box with rules in it. Every block
@@ -2461,11 +2461,11 @@ struct PresentationInspector: View {
         return VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
                 Button(action: fold) {
-                    HStack(spacing: 8) {
+                    HStack(spacing: 6) {
                         Image(systemName: section.systemImage)
                             .font(.system(size: 13))
                             .foregroundStyle(.secondary)
-                            .frame(width: 18)
+                            .frame(width: Self.rowIconSlot)
                         Text(title).font(.headline)
                         Spacer(minLength: 0)
                     }
@@ -2490,7 +2490,7 @@ struct PresentationInspector: View {
                 }
                 .buttonStyle(.plain)
             }
-            .padding(.horizontal, 6)
+            .padding(.horizontal, Self.headerInset)
 
             if isExpanded {
                 GroupBox {
@@ -2605,6 +2605,12 @@ struct PresentationInspector: View {
     /// same line and every title on the same one. A glyph wider than the slot
     /// overhangs it evenly on both sides — the layout stays put.
     private static let rowIconSlot: CGFloat = 14
+    /// How far a section's header stands in from the box under it: the same
+    /// 13 the controls inside the box stand in (the group's own ~5 and
+    /// `groupPadding`), at both ends, so the header's glyph sits over the
+    /// glyphs of the rows below it and its switch and chevron end where the
+    /// number fields end.
+    private static let headerInset: CGFloat = 13
     /// Breathing room inside a section's box, on top of what `GroupBox` gives.
     /// Its own inset is about half of what the app's settings cards use, and
     /// beside them the panel looked cramped rather than compact.
