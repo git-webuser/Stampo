@@ -475,17 +475,25 @@ import Testing
             let match = try #require(text.first {
                 tile.contains(NSPoint(x: $0.frame.midX, y: $0.frame.midY))
             }, "the fourth tile must contain rendered caption pixels")
-            let available = tile.width - 10
-            let captionBounds = tile.insetBy(dx: 4, dy: 4)
+            // The tile is the picture and its caption, with no plate around
+            // them: the caption has the column's whole width, as the preset
+            // gallery's swatches do.
+            let available = tile.width
+            // Recognition at 1x reports boxes in whole points that can land a
+            // hair past the edge (a CI runner measured 286.0000009 against
+            // 286). One backing pixel of slack at 1x; none where the screen is
+            // 2x and the box is exact.
+            let slack: CGFloat = window.backingScaleFactor >= 2 ? 0 : 1
+            let captionBounds = tile.insetBy(dx: -slack, dy: -slack)
             #expect(captionBounds.contains(match.frame),
-                    "the complete caption ink must fit inside the tile's existing 5pt padding")
+                    "the complete caption ink must fit inside the tile")
             let natural = (label as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 11)]).width
             // OCR is retained for its ink bounds, not as a second catalogue:
             // at 11pt it can mistake Russian glyphs even in a complete label.
             print("ARC LABEL language=\(language) label=\(label) ocr=\(match.text) ink=\(match.frame) tile=\(tile) naturalWidth=\(natural) available=\(available) minimumScale=0.8")
             #expect(available > 0)
             #expect(natural * 0.8 <= available + 1,
-                    "the full label cannot fit even at the tile's existing minimum scale")
+                    "the full label cannot fit even at the tile's minimum scale")
             try ArcChromeEvidence.writeJSON([
                 "language": language, "label": label, "ocrText": match.text,
                 "frame": ArcChromeEvidence.rectJSON(match.frame),
