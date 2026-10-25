@@ -5,14 +5,14 @@ import Testing
 
 /// Shared tiny-image factory for renderer/document tests.
 enum TestImages {
-    static func make(width: Int, height: Int) -> CGImage {
+    static func make(width: Int, height: Int, color: Presentation.Color = .white) -> CGImage {
         let ctx = CGContext(
             data: nil, width: width, height: height,
             bitsPerComponent: 8, bytesPerRow: 0,
             space: CGColorSpace(name: CGColorSpace.sRGB)!,
             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
         )!
-        ctx.setFillColor(CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 1))
+        ctx.setFillColor(CGColor(srgbRed: color.red, green: color.green, blue: color.blue, alpha: color.alpha))
         ctx.fill(CGRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height)))
         return ctx.makeImage()!
     }

@@ -471,9 +471,9 @@ struct PresentationInspector: View {
         palette.map(\.color)
     }
 
-    private static let fallbackColor = Presentation.Color(
-        red: 0.18, green: 0.43, blue: 0.92, alpha: 1
-    )
+    var sampledBackgroundForTesting: Presentation.Background { sampledPreset.background }
+
+    private static let fallbackColor = PageColor.fallbackColor
 
     /// One row of eight, never two. Sized together with `contentMinimumWidth`.
     private static let swatchSize: CGFloat = 22
@@ -664,20 +664,7 @@ struct PresentationInspector: View {
     /// Averaging instead pulls everything towards mud, and the lightest is
     /// usually just the window's background.
     private static func characteristicColor(of colors: [Presentation.Color]) -> Presentation.Color {
-        func saturation(_ c: Presentation.Color) -> CGFloat {
-            let high = max(c.red, max(c.green, c.blue))
-            let low = min(c.red, min(c.green, c.blue))
-            return high > 0 ? (high - low) / high : 0
-        }
-        guard let best = colors.max(by: { saturation($0) < saturation($1) }) else {
-            return fallbackColor
-        }
-        guard saturation(best) > 0.08 else {
-            // A grey shot: keep its lightness rather than inventing a hue.
-            return colors.max { $0.red + $0.green + $0.blue < $1.red + $1.green + $1.blue }
-                ?? fallbackColor
-        }
-        return best
+        PageColor.characteristic(of: colors)
     }
 
     private var gradientShapePicker: some View {

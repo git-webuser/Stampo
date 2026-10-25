@@ -94,7 +94,7 @@ import Testing
         #expect(!document.isDirty)
     }
 
-    /// And what the button does when it opens the panel: a white page with the
+    /// And what the button does when it opens the panel: a page with the
     /// picture framed by the default margin, as one undo step.
     @Test func startingADecorationFramesThePicture() {
         let ctx = CGContext(data: nil, width: 1200, height: 600, bitsPerComponent: 8,
@@ -679,6 +679,92 @@ import Testing
             guard case .solid(let color) = preset else { continue }
             #expect(palette.contains(color) == false,
                     "Preset repeats a palette colour: \(color)")
+        }
+    }
+}
+
+extension PresentationInspectorTests {
+    @Test func newPagesUseTheScreenshotsVisibleColour() throws {
+        for hex in PageColorSamples.documents {
+            let color = PageColorSamples.color(hex)
+            let document = EditorDocument(baseImage: TestImages.make(width: 800, height: 400, color: color),
+                                          sourceURL: URL(fileURLWithPath: "/tmp/page-colour.png"))
+            document.startDecorationIfNeeded()
+            let expected: Presentation.Color
+            switch hex {
+            case 0xFAFAFA, 0x1E1E1E, 0xEEF4FF: expected = BackgroundDrawers.defaultStops[0]
+            case 0xDCE8FF: expected = PageColor.complement(of: color)
+            default: expected = color
+            }
+            let actual = try #require(document.presentation?.background.colors.first)
+            #expect(abs(actual.red - expected.red) <= 1 / 255)
+            #expect(abs(actual.green - expected.green) <= 1 / 255)
+            #expect(abs(actual.blue - expected.blue) <= 1 / 255)
+            #expect(actual.alpha == 1)
+            let selected = document.presentation
+            document.startDecorationIfNeeded()
+            document.startDecorationForEditing()
+            #expect(document.presentation == selected)
+            #expect(document.undoStack.count == 1)
+        }
+    }
+
+    @Test func startingDecorLeavesSelectedPagesAlone() {
+        let document = EditorDocument(baseImage: TestImages.make(width: 800, height: 400),
+                                      sourceURL: URL(fileURLWithPath: "/tmp/selected-page.png"))
+        let backgrounds: [Presentation.Background] = [
+            .solid(.white), .linearGradient(stops: Presentation.Stop.spread(BackgroundDrawers.defaultStops), angle: 0)
+        ]
+        for background in backgrounds {
+            let selected = Presentation(canvas: .auto(margins: Presentation.Margins(all: 60), scale: 1),
+                                        background: background)
+            document.presentation = selected
+            document.markSaved()
+            document.startDecorationIfNeeded()
+            document.startDecorationForEditing()
+            #expect(document.presentation == selected)
+            #expect(!document.isDirty)
+            #expect(document.undoStack.isEmpty)
+        }
+    }
+
+    @Test func editingAndChoosingAFormatUseTheSamePageColour() {
+        let ratio = CanvasRatio(width: 4, height: 5, titleKey: "Instagram 4:5")
+        for hex in PageColorSamples.documents {
+            for entry in 0..<3 {
+                let document = EditorDocument(
+                    baseImage: TestImages.make(width: 800, height: 400, color: PageColorSamples.color(hex)),
+                    sourceURL: URL(fileURLWithPath: "/tmp/formatted-page.png"))
+                if entry == 0 {
+                    document.startDecorationForEditing()
+                } else {
+                    if entry == 2 {
+                        document.presentation = Presentation(canvas: .auto(margins: Presentation.Margins(all: 60), scale: 1),
+                                                             background: .none)
+                    }
+                    document.setCanvasRatio(ratio)
+                }
+                #expect(document.presentation?.background == .solid(PageColor.defaultColor(from: document.sampledPalette)))
+            }
+        }
+    }
+
+    @Test func theFirstGalleryTileUsesTheSharedCharacteristic() throws {
+        for hex in PageColorSamples.documents + [0xFFEBEB, 0xFFEAEA] {
+            let context = try #require(CGContext(
+                data: nil, width: 32, height: 32, bitsPerComponent: 8, bytesPerRow: 0,
+                space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+            context.setFillColor(CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 1))
+            context.fill(CGRect(x: 0, y: 0, width: 32, height: 32))
+            let color = PageColorSamples.color(hex)
+            context.setFillColor(CGColor(srgbRed: color.red, green: color.green, blue: color.blue, alpha: 1))
+            context.fill(CGRect(x: 0, y: 0, width: 16, height: 16))
+            let document = EditorDocument(baseImage: try #require(context.makeImage()),
+                                          sourceURL: URL(fileURLWithPath: "/tmp/gallery-colour.png"))
+            document.startDecorationIfNeeded()
+            let inspector = PresentationInspector(document: document)
+            #expect(inspector.sampledBackgroundForTesting == .solid(PageColor.characteristic(of: document.sampledPalette)))
         }
     }
 }

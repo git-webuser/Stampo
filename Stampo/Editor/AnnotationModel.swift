@@ -2682,7 +2682,7 @@ nonisolated struct RenderedArtifact: Sendable {
         // An auto page: the picture keeps every one of its own pixels and the
         // page grows around it by the margin, on all four sides equally.
         presentation = Presentation(canvas: .auto(margins: .init(all: margin), scale: 1),
-                                    background: .solid(.white))
+                                    background: .solid(PageColor.defaultColor(from: sampledPalette)))
         commitChange()
     }
 
@@ -2930,7 +2930,7 @@ nonisolated struct RenderedArtifact: Sendable {
         let margin = Presentation.defaultMargin(for: pixelSize)
         guard margin > 0 else { return }
         presentation = Presentation(canvas: .auto(margins: .init(all: margin), scale: 1),
-                                    background: .solid(.white))
+                                    background: .solid(PageColor.defaultColor(from: sampledPalette)))
     }
 
     /// Puts the page into a ratio, as one undo step.
@@ -2956,7 +2956,7 @@ nonisolated struct RenderedArtifact: Sendable {
         // the first format a picture is given should show it on a real
         // background. `.fitted` is the placement nobody has touched yet.
         if presentation.image == .fitted, case .none = presentation.background {
-            updated.background = .solid(.white)
+            updated.background = .solid(PageColor.defaultColor(from: sampledPalette))
         }
         guard updated != presentation else { return }
         beginChange()
