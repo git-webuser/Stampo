@@ -83,17 +83,34 @@ import Testing
         }
     }
 
-    @Test func threeFilesAt512MiBOnlyOfferCopy() throws {
+    @Test func fourFilesAt512MiBOnlyOfferCopy() throws {
         try withSparseFiles(sizes: [128 * 1024 * 1024, 128 * 1024 * 1024,
-                                   256 * 1024 * 1024]) { urls in
+                                   128 * 1024 * 1024, 128 * 1024 * 1024]) { urls in
             let payload = ArchiveDragPayload.files(urls)
             #expect(ArchiveDragPayload.outsideMask(for: payload) == [.copy])
         }
     }
 
-    @Test func threeFilesOneByteOver512MiBKeepLinkSupport() throws {
+    @Test func fiveFilesAt512MiBOnlyOfferCopy() throws {
         try withSparseFiles(sizes: [128 * 1024 * 1024, 128 * 1024 * 1024,
-                                   256 * 1024 * 1024 + 1]) { urls in
+                                   128 * 1024 * 1024, 127 * 1024 * 1024,
+                                   1024 * 1024]) { urls in
+            let payload = ArchiveDragPayload.files(urls)
+            #expect(ArchiveDragPayload.outsideMask(for: payload) == [.copy])
+        }
+    }
+
+    @Test func threeFilesAt512MiBKeepLinkSupportForAnOversizedMember() throws {
+        try withSparseFiles(sizes: [128 * 1024 * 1024, 128 * 1024 * 1024,
+                                   256 * 1024 * 1024]) { urls in
+            let payload = ArchiveDragPayload.files(urls)
+            #expect(ArchiveDragPayload.outsideMask(for: payload) == [.copy, .link])
+        }
+    }
+
+    @Test func fiveFilesOneByteOver512MiBKeepLinkSupport() throws {
+        try withSparseFiles(sizes: [128 * 1024 * 1024, 128 * 1024 * 1024,
+                                   128 * 1024 * 1024, 128 * 1024 * 1024, 1]) { urls in
             let payload = ArchiveDragPayload.files(urls)
             #expect(ArchiveDragPayload.outsideMask(for: payload) == [.copy, .link])
         }
@@ -106,10 +123,27 @@ import Testing
         }
     }
 
-    @Test func aSelectionCanCopyAMemberLargerThanTheSingleFileLimit() throws {
+    @Test func aSelectionKeepsLinkSupportForAMemberLargerThanTheFileLimit() throws {
         try withSparseFiles(sizes: [1, 128 * 1024 * 1024 + 1, 1]) { urls in
             let payload = ArchiveDragPayload.files(urls)
-            #expect(ArchiveDragPayload.outsideMask(for: payload) == [.copy])
+            #expect(ArchiveDragPayload.outsideMask(for: payload) == [.copy, .link])
+        }
+        try withSparseFiles(sizes: [300 * 1024 * 1024, 1]) { urls in
+            let payload = ArchiveDragPayload.files(urls)
+            #expect(ArchiveDragPayload.outsideMask(for: payload) == [.copy, .link])
+        }
+    }
+
+    @Test func aPackageKeepsLinkSupportAloneAndInASelection() throws {
+        try withSparseFiles(sizes: [1]) { urls in
+            let package = urls[0].deletingLastPathComponent()
+                .appendingPathComponent("Deck.key", isDirectory: true)
+            try FileManager.default.createDirectory(at: package, withIntermediateDirectories: false)
+            try Data([1]).write(to: package.appendingPathComponent("slide.dat"))
+            let packagePayload = ArchiveDragPayload.files([package])
+            let mixedPayload = ArchiveDragPayload.files(urls + [package])
+            #expect(ArchiveDragPayload.outsideMask(for: packagePayload) == [.copy, .link])
+            #expect(ArchiveDragPayload.outsideMask(for: mixedPayload) == [.copy, .link])
         }
     }
 
