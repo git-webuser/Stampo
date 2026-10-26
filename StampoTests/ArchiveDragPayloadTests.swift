@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import SwiftUI
 import Testing
 @testable import Stampo
 
@@ -251,6 +252,35 @@ import Testing
             let brokenPayload = ArchiveDragPayload.files([brokenLink])
             #expect(ArchiveDragPayload.outsideMask(for: folderPayload) == [.copy, .link])
             #expect(ArchiveDragPayload.outsideMask(for: brokenPayload) == [.copy, .link])
+        }
+    }
+
+    @MainActor
+    @Test func aDragKeepsItsPreparedMaskUntilTheNextDrag() throws {
+        try withSparseFiles(sizes: [1]) { urls in
+            let shim = ArchiveDragShimView(isPressed: .constant(false), isDragging: .constant(false),
+                                           onHoverChange: { _ in }, onTap: { _ in })
+            let payload = ArchiveDragPayload.files(urls)
+            shim.prepareDrag(with: payload)
+            #expect(shim.operationMask(for: .outsideApplication) == [.copy])
+            try FileManager.default.removeItem(at: urls[0])
+            #expect(shim.operationMask(for: .outsideApplication) == [.copy])
+            #expect(shim.operationMask(for: .withinApplication) == [.move])
+
+            shim.prepareDrag(with: payload)
+            #expect(shim.operationMask(for: .outsideApplication) == [.copy, .link])
+            #expect(shim.operationMask(for: .withinApplication) == [.move])
+        }
+    }
+
+    @MainActor
+    @Test func aDragPreparedWithALargeFileKeepsLinkSupport() throws {
+        try withSparseFiles(sizes: [128 * 1024 * 1024 + 1]) { urls in
+            let shim = ArchiveDragShimView(isPressed: .constant(false), isDragging: .constant(false),
+                                           onHoverChange: { _ in }, onTap: { _ in })
+            let payload = ArchiveDragPayload.files(urls)
+            shim.prepareDrag(with: payload)
+            #expect(shim.operationMask(for: .outsideApplication) == [.copy, .link])
         }
     }
 
