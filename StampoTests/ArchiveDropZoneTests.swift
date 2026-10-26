@@ -87,4 +87,34 @@ import Testing
             plateStart += layout.plateWidths[index] + layout.gap
         }
     }
+
+    // MARK: - The drag session behind the plates
+
+    /// 2026-10-26: forty images dropped on the "to the archive" plate. The files
+    /// were kept within 20 ms, but `dropUpdated` came once more 400 ms after
+    /// `performDrop`, the highlight went back on, no `dropExited` followed, and
+    /// the plates stayed until the system ended the drag some 30–60 s later.
+    @Test func aDragThatWasDroppedNoLongerMovesTheHighlight() {
+        let session = ArchiveDropSession()
+        session.entered()
+        #expect(session.movesHighlight)
+        session.finished()
+        #expect(!session.movesHighlight)
+    }
+
+    @Test func aDragThatLeftNoLongerMovesTheHighlight() {
+        let session = ArchiveDropSession()
+        #expect(!session.movesHighlight)
+        session.entered()
+        session.finished()
+        #expect(!session.movesHighlight)
+    }
+
+    @Test func theNextDragOverTheArchiveStartsAgain() {
+        let session = ArchiveDropSession()
+        session.entered()
+        session.finished()
+        session.entered()
+        #expect(session.movesHighlight)
+    }
 }

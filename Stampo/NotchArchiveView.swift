@@ -47,6 +47,9 @@ struct NotchArchiveView: View {
     /// Which half of the drop band the pointer is over, nil when no external
     /// drag is hovering.
     @State private var targetedZone: ArchiveDropZone?
+    /// The external drag over the panel, so that a late report after the drop
+    /// cannot bring the plates back (`ArchiveDropSession`).
+    @State private var dropSession = ArchiveDropSession()
     /// Panel width, needed to place the split; measured rather than derived
     /// because the panel is as wide as the screen's notch band.
     @State private var panelWidth: CGFloat = 0
@@ -170,6 +173,7 @@ struct NotchArchiveView: View {
         .onDrop(of: [.fileURL], delegate: ArchiveDropDelegate(
             layout: dropLayout(totalWidth: panelWidth),
             isInternalDragging: isInternalDragging,
+            session: dropSession,
             setZone: { zone in
                 guard targetedZone != zone else { return }
                 withAnimation(.easeInOut(duration: 0.12)) { targetedZone = zone }
@@ -187,6 +191,10 @@ struct NotchArchiveView: View {
         // handed back from here or it never is.
         .onChange(of: isContentVisible) {
             guard !isContentVisible else { return }
+            // A drag that was dropped or left while the archive was open must
+            // not leave the plates over it when it is shown again.
+            dropSession.finished()
+            targetedZone = nil
             expandedStackID = nil
             selection.clear()
             hoveredPreviewURLs = []
@@ -2826,6 +2834,7 @@ private struct PanelWidthKey: PreferenceKey {
 private struct ArchiveDropDelegate: DropDelegate {
     let layout: ArchiveDropLayout
     let isInternalDragging: Bool
+    let session: ArchiveDropSession
     let setZone: (ArchiveDropZone?) -> Void
     let perform: (ArchiveDropZone, [NSItemProvider]) -> Bool
 
@@ -2834,20 +2843,23 @@ private struct ArchiveDropDelegate: DropDelegate {
     }
 
     func dropEntered(info: DropInfo) {
+        session.entered()
         setZone(layout.zone(atX: info.location.x))
     }
 
     func dropUpdated(info: DropInfo) -> DropProposal? {
-        setZone(layout.zone(atX: info.location.x))
+        if session.movesHighlight { setZone(layout.zone(atX: info.location.x)) }
         return DropProposal(operation: .copy)
     }
 
     func dropExited(info: DropInfo) {
+        session.finished()
         setZone(nil)
     }
 
     func performDrop(info: DropInfo) -> Bool {
         let zone = layout.zone(atX: info.location.x)
+        session.finished()
         setZone(nil)
         return perform(zone, info.itemProviders(for: [.fileURL]))
     }

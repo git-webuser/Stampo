@@ -119,3 +119,27 @@ struct ArchiveDropLayout: Equatable {
         return .archive
     }
 }
+
+/// One external drag over the archive, as far as the plate highlight goes.
+///
+/// After `performDrop` has taken the files, the system can still deliver
+/// `dropUpdated` for the same drag — the source (Finder, with a drop of forty
+/// files) ends the session late — and a `dropExited` may never come. Each of those
+/// late reports put the highlight back, so the plates stayed on the panel, over a
+/// closed and reopened archive too, until the system dropped the session
+/// half a minute later. A drag that has been dropped or has left no longer moves
+/// the highlight; the next `dropEntered` starts a new one. A reference type: the
+/// delegate that reads it is rebuilt on every view update.
+final class ArchiveDropSession {
+    private(set) var isOver = false
+
+    /// The pointer came over the archive with a drag.
+    func entered() { isOver = true }
+
+    /// The files were taken, or the pointer left: nothing the system says about
+    /// this drag from now on may show the plates again.
+    func finished() { isOver = false }
+
+    /// Whether a pointer report may still move the highlight.
+    var movesHighlight: Bool { isOver }
+}
