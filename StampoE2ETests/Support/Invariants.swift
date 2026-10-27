@@ -5,7 +5,7 @@ import XCTest
 final class Invariants {
     private let started = Date()
     private let initialCrashes: Set<String>
-    private var initialWindows: Set<Int>?
+    private var initialWindows: Set<String>?
     private let artifacts: Artifacts
 
     init(artifacts: Artifacts) throws {
@@ -15,7 +15,7 @@ final class Invariants {
 
     func recordWindowBaseline(app: E2EApp) throws {
         guard let pid = app.processID else { throw E2EFailure("Cannot record windows: E2E process is absent") }
-        initialWindows = Self.windowIDs(pid: pid)
+        initialWindows = Self.windowStates(pid: pid)
         try artifacts.text(Self.allWindowDescription(pid: pid), name: "windows-before.txt")
     }
 
@@ -25,9 +25,9 @@ final class Invariants {
         XCTAssertTrue(newCrashes.isEmpty, "New Stampo crash reports: \(newCrashes.sorted())")
         if let pid = app.processID {
             if let initialWindows {
-                let settled = waitUntil(timeout: 3) { Self.windowIDs(pid: pid) == initialWindows }
+                let settled = waitUntil(timeout: 3) { Self.windowStates(pid: pid) == initialWindows }
                 try artifacts.text(Self.allWindowDescription(pid: pid), name: "windows-after.txt")
-                XCTAssertTrue(settled, "E2E full window set did not return to baseline: \(initialWindows) -> \(Self.windowIDs(pid: pid))")
+                XCTAssertTrue(settled, "E2E full window set did not return to baseline: \(initialWindows) -> \(Self.windowStates(pid: pid))")
             }
             // Bound the actual AX request rather than dispatching a potentially
             // hung XCUI query to another thread and leaving it running there.
@@ -93,8 +93,12 @@ final class Invariants {
         return values.filter { ($0[kCGWindowOwnerPID as String] as? Int) == Int(pid) }
     }
 
-    private static func windowIDs(pid: pid_t) -> Set<Int> {
-        Set(windows(pid: pid, options: .optionAll).compactMap { $0[kCGWindowNumber as String] as? Int })
+    private static func windowStates(pid: pid_t) -> Set<String> {
+        Set(windows(pid: pid, options: .optionAll).compactMap { window in
+            guard let number = window[kCGWindowNumber as String] as? Int else { return nil }
+            let visible = window[kCGWindowIsOnscreen as String] as? Bool ?? false
+            return "\(number):onScreen=\(visible)"
+        })
     }
 
     private static func allWindowDescription(pid: pid_t) -> String {

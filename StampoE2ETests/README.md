@@ -116,7 +116,7 @@ to xcresult. Failures add a screenshot, AX tree and unified-log evidence.
 
 Common tearDown checks that the process still runs at the expected path, no
 new `~/Library/Logs/DiagnosticReports/Stampo*.ips` appeared, the full set of process
-window ids returns to baseline, the four named log categories contain no error,
+window ids and their on-screen flags returns to baseline, the four named log categories contain no error,
 and an AX children query answers successfully within 2 seconds. Full window
 inventories are saved before and after, including hidden windows. Before taking
 the baseline, the harness opens and closes the panel once via real HID input
