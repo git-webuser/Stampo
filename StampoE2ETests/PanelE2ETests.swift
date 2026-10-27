@@ -248,14 +248,18 @@ final class PanelE2ETests: E2ETestCase {
 
     private func stableButton(_ control: E2EApp.Control, label: String) throws -> ButtonSnapshot {
         try app.input.park()
-        let frame = try XCTUnwrap(required(control).frame, "Button has no frame before screenshot")
-        XCTAssertFalse(frame.isEmpty, "Button region is empty")
+        _ = try required(control)
         let display = CGDisplayBounds(CGMainDisplayID())
-        XCTAssertTrue(display.contains(frame), "Button comparison is limited to the primary display")
         let deadline = Date().addingTimeInterval(3)
         var previous: [UInt8]?
+        var previousFrame: CGRect?
         var stable = 0
         repeat {
+            // Delay choices resize the native button after changing its value.
+            // A fixed crop can appear stable while its real bounds still move.
+            let frame = try XCTUnwrap(required(control).frame, "Button has no frame before screenshot")
+            XCTAssertFalse(frame.isEmpty, "Button region is empty")
+            XCTAssertTrue(display.contains(frame), "Button comparison is limited to the primary display")
             let png = try artifacts.step(label)
             let bitmap = try Files.Bitmap(png: png)
             let scale = CGFloat(bitmap.width) / display.width
@@ -265,11 +269,12 @@ final class PanelE2ETests: E2ETestCase {
             for y in Int(rect.minY)..<Int(rect.maxY) {
                 for x in Int(rect.minX)..<Int(rect.maxX) { pixels += try bitmap.rgba(x: x, y: y) }
             }
-            if let previous, pixels.count == previous.count,
+            if let previous, frame == previousFrame, pixels.count == previous.count,
                zip(pixels, previous).allSatisfy({ abs(Int($0) - Int($1)) <= 2 }) { stable += 1 }
             else { stable = 0 }
             if stable >= 2 { return ButtonSnapshot(frame: frame, pixels: pixels) }
             previous = pixels
+            previousFrame = frame
             RunLoop.current.run(until: Date().addingTimeInterval(0.1))
         } while Date() < deadline
         XCTFail("\(control.rawValue) pixels did not settle within 3 s")
