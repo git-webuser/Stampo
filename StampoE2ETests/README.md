@@ -155,3 +155,11 @@ in a temporary worktree. The warmed baseline contains the first allocation;
 the second opening must fail with `E2E full window set did not return to baseline`.
 The review mutation detected two hidden windows becoming three; removing it
 returned S0 to green. Full inventories and the patch are retained in local artifacts.
+
+## Error log oracle
+
+Insert `Log.panel.error("E2E mutation: panel shown")` at the start of
+showAnimated in a temporary worktree, importing OSLog there. S0 must finish its
+steps and fail in teardown with `Unexpected E2E errors` and that exact message.
+The review mutation was red and its unmodified control green. The same log
+predicate covers error and fault; exceptions require an explicit allowlist reason.
