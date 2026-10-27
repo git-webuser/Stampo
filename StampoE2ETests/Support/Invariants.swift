@@ -6,6 +6,7 @@ final class Invariants {
     private let started = Date()
     private let initialCrashes: Set<String>
     private var initialWindows: Set<String>?
+    private var windowProbe = 0
     private let artifacts: Artifacts
 
     init(artifacts: Artifacts) throws {
@@ -23,34 +24,39 @@ final class Invariants {
         // Return diagnostics, rather than asserting here: XCTest may abort a
         // teardown assertion before the caller can save evidence or terminate.
         var failures: [String] = []
-        if app.application.state == .notRunning { failures.append("E2E process died during the scenario") }
+        if !app.quitExpected && app.application.state == .notRunning { failures.append("E2E process died during the scenario") }
         do {
             let newCrashes = try Self.crashReports().subtracting(initialCrashes)
             if !newCrashes.isEmpty { failures.append("New Stampo crash reports: \(newCrashes.sorted())") }
         } catch { failures.append("Cannot inspect crash reports: \(error)") }
-        if let pid = app.processID {
-            if let initialWindows {
-                let settled = waitUntil(timeout: 3) { (try? Self.windowStates(pid: pid)) == initialWindows }
-                do {
-                    try artifacts.text(try Self.allWindowDescription(pid: pid), name: "windows-after.txt")
-                    if !settled {
-                        failures.append("E2E full window set did not return to baseline: \(initialWindows) -> \(try Self.windowStates(pid: pid))")
-                    }
-                } catch { failures.append("Cannot inspect E2E windows: \(error)") }
+        if !app.quitExpected {
+            if let pid = app.processID {
+                failures += windowFailures(app: app)
+                let root = AXUIElementCreateApplication(pid)
+                AXUIElementSetMessagingTimeout(root, 2)
+                var children: CFTypeRef?
+                let before = Date()
+                let result = AXUIElementCopyAttributeValue(root, kAXChildrenAttribute as CFString, &children)
+                let elapsed = Date().timeIntervalSince(before)
+                if result != .success { failures.append("E2E Accessibility tree did not answer: \(result.rawValue)") }
+                if elapsed > 2 { failures.append("E2E Accessibility tree took \(elapsed)s; limit is 2s") }
+            } else {
+                failures.append("The isolated E2E process is absent or its executable path changed")
             }
-            let root = AXUIElementCreateApplication(pid)
-            AXUIElementSetMessagingTimeout(root, 2)
-            var children: CFTypeRef?
-            let before = Date()
-            let result = AXUIElementCopyAttributeValue(root, kAXChildrenAttribute as CFString, &children)
-            let elapsed = Date().timeIntervalSince(before)
-            if result != .success { failures.append("E2E Accessibility tree did not answer: \(result.rawValue)") }
-            if elapsed > 2 { failures.append("E2E Accessibility tree took \(elapsed)s; limit is 2s") }
-        } else {
-            failures.append("The isolated E2E process is absent or its executable path changed")
         }
         do { failures += try checkLog() } catch { failures.append("Cannot check unified log: \(error)") }
         return failures
+    }
+
+    func windowFailures(app: E2EApp) -> [String] {
+        guard let initialWindows else { return ["Window baseline has not been recorded"] }
+        guard let pid = app.processID else { return ["Cannot inspect windows: E2E process is absent"] }
+        let settled = waitUntil(timeout: 3) { (try? Self.windowStates(pid: pid)) == initialWindows }
+        do {
+            windowProbe += 1
+            try artifacts.text(try Self.allWindowDescription(pid: pid), name: "windows-after-\(windowProbe).txt")
+            return settled ? [] : ["E2E full window set did not return to baseline: \(initialWindows) -> \(try Self.windowStates(pid: pid))"]
+        } catch { return ["Cannot inspect E2E windows: \(error)"] }
     }
 
     private func checkLog() throws -> [String] {

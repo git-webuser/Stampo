@@ -31,10 +31,15 @@ class E2ETestCase: XCTestCase {
         XCTAssertTrue(app.element(.panel).waitForExistence(timeout: 5), "Panel cache warmup did not open the panel")
         try artifacts.step("baseline-panel-open")
         try app.tap(.panelClose)
-        try app.input.park()
         XCTAssertTrue(waitUntil(timeout: 5) { !self.app.element(.panel).exists }, "Panel cache warmup did not close the panel")
+        try app.input.park()
         try artifacts.step("baseline-panel-closed")
         try invariants?.recordWindowBaseline(app: app)
+    }
+
+    func expectWindowSetUnchanged(file: StaticString = #filePath, line: UInt = #line) {
+        let failures = invariants?.windowFailures(app: app) ?? ["Missing invariant recorder"]
+        XCTAssertTrue(failures.isEmpty, failures.joined(separator: "\n"), file: file, line: line)
     }
 
     override func tearDownWithError() throws {

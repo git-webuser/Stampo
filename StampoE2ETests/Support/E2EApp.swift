@@ -4,6 +4,10 @@ import XCTest
 @MainActor
 final class E2EApp {
     enum Control: String {
+        case fixtureKeys = "stampo.e2e.fixture.keys"
+        case panelMoreMenu = "stampo.panel.moreMenu"
+        case statusSettings = "stampo.statusMenu.settings"
+        case statusQuit = "stampo.statusMenu.quit"
         case fixture = "stampo.e2e.fixture"
         case editorCanvas = "stampo.editor.canvas"
         case statusItem = "stampo.status.item"
@@ -19,6 +23,9 @@ final class E2EApp {
     let directory: URL
     private let appURL: URL
     private(set) var launched = false
+    private(set) var quitExpected = false
+
+    func expectQuit() { quitExpected = true }
 
     init(directory: URL) throws {
         let environment = ProcessInfo.processInfo.environment

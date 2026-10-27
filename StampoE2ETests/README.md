@@ -169,3 +169,19 @@ Archive cell identifiers intentionally follow array positions (`stampo.archive.c
 Panel cache warmup proves that repeated opening leaves no extra window. It does not prove that the first opening never creates a permanent extra window; a pre-first-open window-count scenario would cover that blind spot and is outside this step.
 
 S0b covers only the primary display. Keep the fixture unobstructed by notifications, panels or other windows: its pixels are sampled from a screen screenshot, not a window capture.
+
+
+`PanelE2ETests` adds twenty panel open/close cycles, mode/delay/more menu
+checks, pointer-dependent Tab delivery, and status-menu Settings/Quit paths.
+`stampo.e2e.fixture.keys` is a zero-sized, AX-only child whose value counts
+fixture `keyDown` deliveries; it exists only in the DEBUG E2E fixture.
+Settings/Quit launch with the fixture to establish AppKit's key-window
+activation cache before recording the full window baseline. No window ids or
+onScreen flags are exempted. Status-menu opening checks nonempty menu-item
+frames: hidden NSMenu items also satisfy `exists` on macOS.
+
+Stage E2E-3 is currently stopped on a real panel lifecycle race in P1:
+a notch click can start both closeButton and notchClick hides, and a stale
+hide completion can orderOut a subsequently opened panel. P1 remains red;
+it is not skipped or treated as a successful run. The stage report records
+the debug stream and the outstanding five-run/oracle validation.
