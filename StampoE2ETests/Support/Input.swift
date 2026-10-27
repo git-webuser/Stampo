@@ -55,6 +55,20 @@ final class Input {
                                         "C": 0x08, "S": 0x01, "L": 0x25, "P": 0x23,
                                         "D": 0x02, "T": 0x11, "F": 0x03, "ESC": 0x35]
         guard let code = codes[key] else { throw E2EFailure("Unsupported key chord: \(chord)") }
+        // A key-up carrying chord flags leaves those flags in HID state.
+        // Pair them with modifier key-ups even though delivery uses event flags.
+        defer {
+            var remaining = flags
+            for (flag, modifier) in [(CGEventFlags.maskShift, CGKeyCode(0x38)),
+                                     (.maskCommand, 0x37), (.maskAlternate, 0x3A), (.maskControl, 0x3B)]
+                where flags.contains(flag) {
+                remaining.remove(flag)
+                if let event = CGEvent(keyboardEventSource: source, virtualKey: modifier, keyDown: false) {
+                    event.flags = remaining
+                    event.post(tap: .cghidEventTap)
+                }
+            }
+        }
         for down in [true, false] {
             guard let event = CGEvent(keyboardEventSource: source, virtualKey: code, keyDown: down) else {
                 throw E2EFailure("Cannot construct key event: \(chord)")
