@@ -15,37 +15,45 @@ final class Invariants {
 
     func recordWindowBaseline(app: E2EApp) throws {
         guard let pid = app.processID else { throw E2EFailure("Cannot record windows: E2E process is absent") }
-        initialWindows = Self.windowStates(pid: pid)
-        try artifacts.text(Self.allWindowDescription(pid: pid), name: "windows-before.txt")
+        initialWindows = try Self.windowStates(pid: pid)
+        try artifacts.text(try Self.allWindowDescription(pid: pid), name: "windows-before.txt")
     }
 
-    func check(app: E2EApp) throws {
-        XCTAssertNotEqual(app.application.state, .notRunning, "E2E process died during the scenario")
-        let newCrashes = try Self.crashReports().subtracting(initialCrashes)
-        XCTAssertTrue(newCrashes.isEmpty, "New Stampo crash reports: \(newCrashes.sorted())")
+    func check(app: E2EApp) -> [String] {
+        // Return diagnostics, rather than asserting here: XCTest may abort a
+        // teardown assertion before the caller can save evidence or terminate.
+        var failures: [String] = []
+        if app.application.state == .notRunning { failures.append("E2E process died during the scenario") }
+        do {
+            let newCrashes = try Self.crashReports().subtracting(initialCrashes)
+            if !newCrashes.isEmpty { failures.append("New Stampo crash reports: \(newCrashes.sorted())") }
+        } catch { failures.append("Cannot inspect crash reports: \(error)") }
         if let pid = app.processID {
             if let initialWindows {
-                let settled = waitUntil(timeout: 3) { Self.windowStates(pid: pid) == initialWindows }
-                try artifacts.text(Self.allWindowDescription(pid: pid), name: "windows-after.txt")
-                XCTAssertTrue(settled, "E2E full window set did not return to baseline: \(initialWindows) -> \(Self.windowStates(pid: pid))")
+                let settled = waitUntil(timeout: 3) { (try? Self.windowStates(pid: pid)) == initialWindows }
+                do {
+                    try artifacts.text(try Self.allWindowDescription(pid: pid), name: "windows-after.txt")
+                    if !settled {
+                        failures.append("E2E full window set did not return to baseline: \(initialWindows) -> \(try Self.windowStates(pid: pid))")
+                    }
+                } catch { failures.append("Cannot inspect E2E windows: \(error)") }
             }
-            // Bound the actual AX request rather than dispatching a potentially
-            // hung XCUI query to another thread and leaving it running there.
             let root = AXUIElementCreateApplication(pid)
             AXUIElementSetMessagingTimeout(root, 2)
             var children: CFTypeRef?
             let before = Date()
             let result = AXUIElementCopyAttributeValue(root, kAXChildrenAttribute as CFString, &children)
             let elapsed = Date().timeIntervalSince(before)
-            XCTAssertEqual(result, .success, "E2E Accessibility tree did not answer: \(result.rawValue)")
-            XCTAssertLessThanOrEqual(elapsed, 2, "E2E Accessibility tree took \(elapsed)s; limit is 2s")
+            if result != .success { failures.append("E2E Accessibility tree did not answer: \(result.rawValue)") }
+            if elapsed > 2 { failures.append("E2E Accessibility tree took \(elapsed)s; limit is 2s") }
         } else {
-            XCTFail("The isolated E2E process is absent or its executable path changed")
+            failures.append("The isolated E2E process is absent or its executable path changed")
         }
-        try checkLog()
+        do { failures += try checkLog() } catch { failures.append("Cannot check unified log: \(error)") }
+        return failures
     }
 
-    private func checkLog() throws {
+    private func checkLog() throws -> [String] {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
@@ -74,7 +82,7 @@ final class Invariants {
             let message = entry["eventMessage"] as? String ?? String(describing: entry)
             return allowed.contains(where: { message.contains($0) }) ? nil : message
         }
-        XCTAssertTrue(unexpected.isEmpty, "Unexpected E2E errors in capture/input/panel/settings: \(unexpected.joined(separator: "\n"))")
+        return unexpected.isEmpty ? [] : ["Unexpected E2E errors in capture/input/panel/settings: \(unexpected.joined(separator: "\n"))"]
     }
 
     private static func crashReports() throws -> Set<String> {
@@ -85,23 +93,22 @@ final class Invariants {
             .filter { $0.hasPrefix("Stampo") && $0.hasSuffix(".ips") })
     }
 
-    private static func windows(pid: pid_t, options: CGWindowListOption) -> [[String: Any]] {
+    private static func windows(pid: pid_t, options: CGWindowListOption) throws -> [[String: Any]] {
         guard let values = CGWindowListCopyWindowInfo([options, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else {
-            XCTFail("Cannot query the WindowServer inventory")
-            return []
+            throw E2EFailure("Cannot query the WindowServer inventory")
         }
         return values.filter { ($0[kCGWindowOwnerPID as String] as? Int) == Int(pid) }
     }
 
-    private static func windowStates(pid: pid_t) -> Set<String> {
-        Set(windows(pid: pid, options: .optionAll).compactMap { window in
+    private static func windowStates(pid: pid_t) throws -> Set<String> {
+        Set(try windows(pid: pid, options: .optionAll).compactMap { window in
             guard let number = window[kCGWindowNumber as String] as? Int else { return nil }
             let visible = window[kCGWindowIsOnscreen as String] as? Bool ?? false
             return "\(number):onScreen=\(visible)"
         })
     }
 
-    private static func allWindowDescription(pid: pid_t) -> String {
-        String(describing: windows(pid: pid, options: .optionAll))
+    private static func allWindowDescription(pid: pid_t) throws -> String {
+        String(describing: try windows(pid: pid, options: .optionAll))
     }
 }

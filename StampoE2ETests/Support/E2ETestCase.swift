@@ -34,15 +34,15 @@ class E2ETestCase: XCTestCase {
     }
 
     override func tearDownWithError() throws {
-        // Cleanup assertions must not abort evidence collection or termination.
-        continueAfterFailure = true
         guard let app else { return }
         defer { app.terminate() }
-        do {
-            if app.launched { try invariants?.check(app: app) }
-        } catch {
-            XCTFail("Cannot verify E2E invariants: \(error)")
+        var failures = app.launched ? invariants?.check(app: app) ?? [] : []
+        if (testRun?.failureCount ?? 0) > 0 || !failures.isEmpty {
+            do { try artifacts.failure(app: app) }
+            catch { failures.append("Cannot collect failure artifacts: \(error)") }
         }
-        if (testRun?.failureCount ?? 0) > 0 { try artifacts.failure(app: app) }
+        // Complete evidence and cleanup before recording any new assertion.
+        app.terminate()
+        if !failures.isEmpty { XCTFail(failures.joined(separator: "\n")) }
     }
 }
