@@ -57,9 +57,11 @@ final class Invariants {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        // os/log.h defines error=0x10 and fault=0x11; log show does not
+        // resolve the symbolic constants inside an IN collection.
         let result = try Files.run("/usr/bin/log", ["show", "--start", formatter.string(from: started),
             "--info", "--style", "json", "--predicate",
-            "subsystem == \"com.hex000.Stampo.e2e\" AND messageType == error AND category IN {\"capture\", \"input\", \"panel\", \"settings\"}"], in: artifacts.directory)
+            "subsystem == \"com.hex000.Stampo.e2e\" AND messageType IN {16, 17} AND category IN {\"capture\", \"input\", \"panel\", \"settings\"}"], in: artifacts.directory)
         try artifacts.text(result.output, name: "app-errors.json")
         guard result.status == 0 else { throw E2EFailure("Cannot check unified log: \(result.error)") }
         guard let entries = try JSONSerialization.jsonObject(with: Data(result.output.utf8)) as? [[String: Any]] else {
