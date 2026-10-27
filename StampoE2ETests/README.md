@@ -116,7 +116,7 @@ to xcresult. Failures add a screenshot, AX tree and unified-log evidence.
 
 Common tearDown checks that the process still runs at the expected path, no
 new `~/Library/Logs/DiagnosticReports/Stampo*.ips` appeared, the full set of process
-window ids and their on-screen flags returns to baseline, the four named log categories contain no error,
+window ids and their on-screen flags returns to baseline, the four named log categories contain no error or fault,
 and an AX children query answers successfully within 2 seconds. Full window
 inventories are saved before and after, including hidden windows. Before taking
 the baseline, the harness opens and closes the panel once via real HID input
@@ -163,3 +163,7 @@ showAnimated in a temporary worktree, importing OSLog there. S0 must finish its
 steps and fail in teardown with `Unexpected E2E errors` and that exact message.
 The review mutation was red and its unmodified control green. The same log
 predicate covers error and fault; exceptions require an explicit allowlist reason.
+
+Archive cell identifiers intentionally follow array positions (`stampo.archive.cell.<index>`); adding a capture shifts the existing indices.
+
+Panel cache warmup proves that repeated opening leaves no extra window. It does not prove that the first opening never creates a permanent extra window; a pre-first-open window-count scenario would cover that blind spot and is outside this step.
