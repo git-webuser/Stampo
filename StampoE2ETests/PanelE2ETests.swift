@@ -59,18 +59,22 @@ final class PanelE2ETests: E2ETestCase {
         ]
         for (control, choices) in menus {
             for (title, expected) in choices {
-                try select(title, in: control)
-                try expectValue(control, expected, message: "Menu did not select \(title)")
-                try closePanel()
-                try openPanel()
-                try expectValue(control, expected, message: "\(title) did not persist after panel reopen")
-                // A different mode/delay changes the glyph. Compare release on
-                // a second pick of that same value, so before/after are the
-                // same button and glyph, not a golden UI screenshot.
+                // Pick a different value once before comparing the same glyph.
+                // The initial Selection/No Delay comparisons start untouched,
+                // so a stuck first interaction cannot become its own baseline.
+                if try required(control).value != expected {
+                    try select(title, in: control)
+                    try expectValue(control, expected, message: "Menu did not select \(title)")
+                }
                 let before = try stableButton(control, label: "\(title)-before")
                 try select(title, in: control)
+                try expectValue(control, expected, message: "Menu did not select \(title)")
                 let after = try stableButton(control, label: "\(title)-released")
                 expectReleased(before, after, message: "\(control.rawValue) remained highlighted after \(title)")
+                try closePanel()
+                try openPanel()
+                try expectValue(.panelModeMenu, "Selection", message: "Reopen did not restore the E2E default mode")
+                try expectValue(.panelDelayMenu, "No Delay", message: "Reopen did not restore the E2E default delay")
             }
         }
         let before = try stableButton(.panelMoreMenu, label: "more-before")

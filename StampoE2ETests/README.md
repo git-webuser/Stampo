@@ -180,8 +180,7 @@ activation cache before recording the full window baseline. No window ids or
 onScreen flags are exempted. Status-menu opening checks nonempty menu-item
 frames: hidden NSMenu items also satisfy `exists` on macOS.
 
-Stage E2E-3 is currently stopped on a real panel lifecycle race in P1:
-a notch click can start both closeButton and notchClick hides, and a stale
-hide completion can orderOut a subsequently opened panel. P1 remains red;
-it is not skipped or treated as a successful run. The stage report records
-the debug stream and the outstanding five-run/oracle validation.
+Panel modes and delays reset to the E2E defaults on every panel reveal.
+P2 verifies that reset; it does not require a transient choice to persist.
+The late-hide race found by P1 is fixed in main by d956594, which is also a
+P1 oracle. Do not add a pause between closing and reopening the panel.
