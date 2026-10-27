@@ -147,3 +147,11 @@ In a temporary worktree from the final implementation commit, comment out only
 The expected failure is `Panel cache warmup did not open the panel`. A missing
 accessibility identifier alone is not the behavior oracle. Run the same command
 without the mutation to establish the green control, then remove the worktree.
+
+## Repeated window leak oracle
+
+Retain a new borderless 10×10 NSWindow at the start of every showAnimated call
+in a temporary worktree. The warmed baseline contains the first allocation;
+the second opening must fail with `E2E full window set did not return to baseline`.
+The review mutation detected two hidden windows becoming three; removing it
+returned S0 to green. Full inventories and the patch are retained in local artifacts.
