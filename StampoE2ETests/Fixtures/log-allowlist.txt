@@ -1,0 +1,2 @@
+# Format: message substring | specific reason
+# No exceptions are currently allowed. Every entry must explain the known error.
