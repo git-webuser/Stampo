@@ -95,9 +95,11 @@ private final class FixedTitleTabViewController: NSTabViewController {
         return item
     }
 
+    #if DEBUG
     /// NSToolbarItem identifiers are not exported by AppKit's native buttons.
     /// Identify the existing accessibility objects once the toolbar is laid out.
     func identifyToolbarTabs(in window: NSWindow) {
+        guard E2EHooks.isEnabled else { return }
         func findToolbar(_ element: any NSAccessibilityProtocol) -> (any NSAccessibilityProtocol)? {
             if element.accessibilityRole() == .toolbar { return element }
             for child in element.accessibilityChildren() ?? [] {
@@ -113,6 +115,8 @@ private final class FixedTitleTabViewController: NSTabViewController {
             button.setAccessibilityIdentifier(item.itemIdentifier.rawValue)
         }
     }
+
+    #endif
 
     @objc private func toolbarTabTapped(_ sender: NSToolbarItem) {
         guard let idx = tabIdentifiers.firstIndex(of: sender.itemIdentifier) else { return }
@@ -228,7 +232,9 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         tabController.installToolbar(in: win)
 
         win.makeKeyAndOrderFront(nil)
-        tabController.identifyToolbarTabs(in: win)
+        #if DEBUG
+        if E2EHooks.isEnabled { tabController.identifyToolbarTabs(in: win) }
+        #endif
         NSApp.activate(ignoringOtherApps: true)
     }
 
