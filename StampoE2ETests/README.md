@@ -167,3 +167,5 @@ predicate covers error and fault; exceptions require an explicit allowlist reaso
 Archive cell identifiers intentionally follow array positions (`stampo.archive.cell.<index>`); adding a capture shifts the existing indices.
 
 Panel cache warmup proves that repeated opening leaves no extra window. It does not prove that the first opening never creates a permanent extra window; a pre-first-open window-count scenario would cover that blind spot and is outside this step.
+
+S0b covers only the primary display. Keep the fixture unobstructed by notifications, panels or other windows: its pixels are sampled from a screen screenshot, not a window capture.
