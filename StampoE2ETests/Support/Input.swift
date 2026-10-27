@@ -20,7 +20,7 @@ final class Input {
     func click(at point: CGPoint) throws {
         try move(to: point)
         try mouse(.leftMouseDown, at: point)
-        try mouse(.leftMouseUp, at: point)
+        defer { try? mouse(.leftMouseUp, at: point) }
     }
 
     func drag(from start: CGPoint, to end: CGPoint, steps: Int = 24) throws {
@@ -62,6 +62,41 @@ final class Input {
             event.flags = flags
             event.post(tap: .cghidEventTap)
         }
+    }
+
+    /// Inspect HID state before invariant checks, and release every held
+    /// input even when the scenario failed before its normal key/button up.
+    func releasePressedState() -> [String] {
+        let flags = CGEventSource.flagsState(.hidSystemState)
+        let modifiers: [(String, CGEventFlags, [CGKeyCode])] = [
+            ("control", .maskControl, [0x3B, 0x3E]),
+            ("option", .maskAlternate, [0x3A, 0x3D]),
+            ("command", .maskCommand, [0x37, 0x36]),
+            ("shift", .maskShift, [0x38, 0x3C])
+        ]
+        let held = modifiers.filter { flags.contains($0.1) }
+        let leftDown = CGEventSource.buttonState(.hidSystemState, button: .left)
+        guard !held.isEmpty || leftDown else {
+            print("input state clean")
+            return []
+        }
+        let names = held.map { $0.0 } + (leftDown ? ["left mouse"] : [])
+        var failures = ["input left pressed: \(names.joined(separator: ", "))"]
+        print(failures[0])
+        for (_, _, codes) in held {
+            for code in codes {
+                if let event = CGEvent(keyboardEventSource: source, virtualKey: code, keyDown: false) {
+                    event.flags = []
+                    event.post(tap: .cghidEventTap)
+                } else { failures.append("Cannot release modifier key \(code)") }
+            }
+        }
+        if leftDown {
+            let point = CGEvent(source: source)?.location ?? Self.quartzPoint(fromAppKit: NSEvent.mouseLocation)
+            do { try mouse(.leftMouseUp, at: point) }
+            catch { failures.append("Cannot release left mouse: \(error)") }
+        }
+        return failures
     }
 
     func park() throws {

@@ -36,7 +36,8 @@ class E2ETestCase: XCTestCase {
     override func tearDownWithError() throws {
         guard let app else { return }
         defer { app.terminate() }
-        var failures = app.launched ? invariants?.check(app: app) ?? [] : []
+        var failures = app.input.releasePressedState()
+        if app.launched { failures += invariants?.check(app: app) ?? [] }
         if (testRun?.failureCount ?? 0) > 0 || !failures.isEmpty {
             do { try artifacts.failure(app: app) }
             catch { failures.append("Cannot collect failure artifacts: \(error)") }
