@@ -19,7 +19,11 @@ class E2ETestCase: XCTestCase {
         }
     }
 
-    func recordWindowBaseline() throws {
+    func recordWindowBaseline(primePanelCache: Bool = true) throws {
+        if !primePanelCache {
+            try invariants?.recordWindowBaseline(app: app)
+            return
+        }
         // The panel is created lazily and retained after orderOut. Prime that
         // cache through real input, so full window-id sets can be compared
         // without silently exempting new hidden windows from leak detection.

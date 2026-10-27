@@ -17,15 +17,18 @@ final class Artifacts {
         print("E2E seed: \(seed); scenario artifacts: \(directory.path)")
     }
 
-    func step(_ name: String) throws {
+    @discardableResult
+    func step(_ name: String) throws -> URL {
         stepNumber += 1
         let label = String(format: "%02d-%@", stepNumber, name)
         let screenshot = XCUIScreen.main.screenshot()
-        try screenshot.pngRepresentation.write(to: directory.appendingPathComponent("\(label).png"))
+        let url = directory.appendingPathComponent("\(label).png")
+        try screenshot.pngRepresentation.write(to: url)
         let attachment = XCTAttachment(screenshot: screenshot)
         attachment.name = label
         attachment.lifetime = .keepAlways
         test.add(attachment)
+        return url
     }
 
     func text(_ value: String, name: String) throws {

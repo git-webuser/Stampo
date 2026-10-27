@@ -4,6 +4,8 @@ import XCTest
 @MainActor
 final class E2EApp {
     enum Control: String {
+        case fixture = "stampo.e2e.fixture"
+        case editorCanvas = "stampo.editor.canvas"
         case statusItem = "stampo.status.item"
         case panel = "stampo.panel.window"
         case panelClose = "stampo.panel.close"
