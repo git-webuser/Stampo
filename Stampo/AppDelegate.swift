@@ -41,6 +41,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillFinishLaunching(_ notification: Notification) {
+        #if DEBUG
+        E2EHooks.prepare()
+        #endif
         let lang = UserDefaults.standard.string(forKey: AppSettings.Keys.preferredLanguage) ?? "system"
         switch lang {
         case "en": UserDefaults.standard.set(["en"],       forKey: "AppleLanguages")
@@ -96,6 +99,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 FirstLaunchWindowController.shared.show()
             }
         }
+        #if DEBUG
+        E2EHooks.start()
+        #endif
     }
 
     /// Intercepts the "Settings…" (⌘,) menu item that SwiftUI automatically
