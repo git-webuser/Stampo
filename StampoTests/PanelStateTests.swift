@@ -204,4 +204,34 @@ import Testing
         #expect(PanelWait.translating.hold == 0)
         #expect(PanelWait.saving.hold == 0)
     }
+
+    /// Two closes of one panel — the close button and the click on the notch
+    /// land together — leave a hide running when the next show starts. Its
+    /// animation reports as the show begins, with a token that is no longer
+    /// current, and ordering the window out then hid the new panel while its
+    /// state stayed on screen.
+    @Test(arguments: [PanelState.showing, .main, .archive, .translate, .countdown,
+                      .scrollCapture, .waiting, .transitioning(to: .main)])
+    func anOvertakenHideLeavesAShownPanelAlone(state: PanelState) {
+        #expect(state.wantsWindowOnScreen)
+        #expect(state.sparesWindowFromHideCompletion(tokenIsCurrent: false))
+    }
+
+    /// While the state still stands for a hidden panel, the second report may
+    /// order the window out again: the panel is meant to be gone, and that is
+    /// what it did before.
+    @Test(arguments: [PanelState.hidden, .hiding, .preSelection(.window),
+                      .stale(reason: .spaceChange)])
+    func anOvertakenHideStillClosesAHiddenPanel(state: PanelState) {
+        #expect(!state.wantsWindowOnScreen)
+        #expect(!state.sparesWindowFromHideCompletion(tokenIsCurrent: false))
+    }
+
+    /// A hide that still owns the panel finishes as it always did, in any state.
+    @Test(arguments: [PanelState.hidden, .showing, .main, .archive, .translate, .hiding,
+                      .countdown, .scrollCapture, .waiting, .transitioning(to: .archive),
+                      .preSelection(.selection), .stale(reason: .sleep)])
+    func aCurrentHideAlwaysFinishes(state: PanelState) {
+        #expect(!state.sparesWindowFromHideCompletion(tokenIsCurrent: true))
+    }
 }

@@ -341,6 +341,26 @@ extension PanelState {
         }
     }
 
+    /// Whether the window is meant to be on screen in this state. A hide that is
+    /// running or has finished, and the states that stand for a hidden panel,
+    /// are not.
+    var wantsWindowOnScreen: Bool {
+        switch self {
+        case .hidden, .hiding, .preSelection, .stale: return false
+        case .showing, .main, .transitioning, .archive, .translate,
+             .countdown, .scrollCapture, .waiting: return true
+        }
+    }
+
+    /// Whether a hide's completion must leave the window where it is. A hide
+    /// that has been overtaken (its token is no longer current) can still report
+    /// after a show has taken the panel; ordering the window out then would hide
+    /// the new panel. While the state still stands for a hidden panel, closing
+    /// the window once more is harmless and stays as it was.
+    func sparesWindowFromHideCompletion(tokenIsCurrent: Bool) -> Bool {
+        !tokenIsCurrent && wantsWindowOnScreen
+    }
+
     /// Which layer Esc unwinds — one press, one layer, innermost first.
     ///
     /// Inside the archive that is the ladder in `archiveUnwindStep`: an
@@ -2074,9 +2094,24 @@ final class NotchPanelController: NSObject {
                 // hide was dropped roughly once in three delayed shots, with
                 // nothing to say why.
                 onMainActorNow {
-                    self?.uninstallMouseRegionTracking()
-                    panel?.orderOut(nil)
+                    // An interrupted animation reports as well. Two closes of
+                    // one panel — the close button and the click on the notch
+                    // arrive together — cut the first hide short, and it
+                    // orders the window out at once; a show that follows is
+                    // let through while the second hide is still animating,
+                    // and that hide's report lands on the new panel: tracking
+                    // pulled, window ordered out, the panel gone with its
+                    // state still on screen.
+                    let spares = self.map {
+                        $0.state.sparesWindowFromHideCompletion(
+                            tokenIsCurrent: $0.transitionCoordinator.matches(token))
+                    } ?? false
+                    if !spares {
+                        self?.uninstallMouseRegionTracking()
+                        panel?.orderOut(nil)
+                    }
                     guard let self else { return }
+                    if spares { self.trace("hideMainPanel.completion.spared") }
                     if self.animationGenerationMatches(token) {
                         self.state = .hidden
                         self.interactionState.isEnabled = true
@@ -2123,9 +2158,24 @@ final class NotchPanelController: NSObject {
                 // hide was dropped roughly once in three delayed shots, with
                 // nothing to say why.
                 onMainActorNow {
-                    self?.uninstallMouseRegionTracking()
-                    panel?.orderOut(nil)
+                    // An interrupted animation reports as well. Two closes of
+                    // one panel — the close button and the click on the notch
+                    // arrive together — cut the first hide short, and it
+                    // orders the window out at once; a show that follows is
+                    // let through while the second hide is still animating,
+                    // and that hide's report lands on the new panel: tracking
+                    // pulled, window ordered out, the panel gone with its
+                    // state still on screen.
+                    let spares = self.map {
+                        $0.state.sparesWindowFromHideCompletion(
+                            tokenIsCurrent: $0.transitionCoordinator.matches(token))
+                    } ?? false
+                    if !spares {
+                        self?.uninstallMouseRegionTracking()
+                        panel?.orderOut(nil)
+                    }
                     guard let self else { return }
+                    if spares { self.trace("hideMainPanel.completion.spared") }
                     if self.animationGenerationMatches(token) {
                         self.state = .hidden
                         self.interactionState.isEnabled = true
