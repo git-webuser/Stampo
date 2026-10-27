@@ -19,6 +19,7 @@
 /* Begin PBXFileReference section */
 		458BCE762F26708D00C08299 /* Stampo.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Stampo.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		45AA00012FAABBCC00C08299 /* StampoTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = StampoTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		E2E200000000000000000001 /* StampoE2ETests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = StampoE2ETests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -29,6 +30,11 @@
 			);
 			target = 458BCE752F26708D00C08299 /* Stampo */;
 		};
+		E2E200000000000000000003 /* E2E non-resources */ = {
+            isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+            membershipExceptions = (README.md, StampoE2ETests.entitlements,);
+            target = E2E200000000000000000006 /* StampoE2ETests */;
+        };
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -45,6 +51,12 @@
 			path = StampoTests;
 			sourceTree = "<group>";
 		};
+		E2E200000000000000000002 /* StampoE2ETests */ = {
+            isa = PBXFileSystemSynchronizedRootGroup;
+            exceptions = (E2E200000000000000000003 /* E2E non-resources */,);
+            path = StampoE2ETests;
+            sourceTree = "<group>";
+        };
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -62,6 +74,12 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+        E2E200000000000000000005 = {
+            isa = PBXFrameworksBuildPhase;
+            buildActionMask = 2147483647;
+            files = ();
+            runOnlyForDeploymentPostprocessing = 0;
+        };
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -70,6 +88,7 @@
 			children = (
 				458BCE782F26708D00C08299 /* Stampo */,
 				45AA00022FAABBCC00C08299 /* StampoTests */,
+                E2E200000000000000000002 /* StampoE2ETests */,
 				458BCE772F26708D00C08299 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -79,6 +98,7 @@
 			children = (
 				458BCE762F26708D00C08299 /* Stampo.app */,
 				45AA00012FAABBCC00C08299 /* StampoTests.xctest */,
+                E2E200000000000000000001 /* StampoE2ETests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -131,6 +151,18 @@
 			productReference = 45AA00012FAABBCC00C08299 /* StampoTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
+        E2E200000000000000000006 /* StampoE2ETests */ = {
+            isa = PBXNativeTarget;
+            buildConfigurationList = E2E20000000000000000000A;
+            buildPhases = (E2E200000000000000000004, E2E200000000000000000005, E2E200000000000000000007,);
+            buildRules = ();
+            dependencies = ();
+            fileSystemSynchronizedGroups = (E2E200000000000000000002 /* StampoE2ETests */,);
+            name = StampoE2ETests;
+            productName = StampoE2ETests;
+            productReference = E2E200000000000000000001 /* StampoE2ETests.xctest */;
+            productType = "com.apple.product-type.bundle.ui-testing";
+        };
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -167,6 +199,7 @@
 			targets = (
 				458BCE752F26708D00C08299 /* Stampo */,
 				45AA00062FAABBCC00C08299 /* StampoTests */,
+                E2E200000000000000000006 /* StampoE2ETests */,
 			);
 		};
 /* End PBXProject section */
@@ -186,6 +219,12 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+        E2E200000000000000000007 = {
+            isa = PBXResourcesBuildPhase;
+            buildActionMask = 2147483647;
+            files = ();
+            runOnlyForDeploymentPostprocessing = 0;
+        };
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -203,6 +242,12 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+        E2E200000000000000000004 = {
+            isa = PBXSourcesBuildPhase;
+            buildActionMask = 2147483647;
+            files = ();
+            runOnlyForDeploymentPostprocessing = 0;
+        };
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -444,6 +489,46 @@
 			};
 			name = Release;
 		};
+        E2E200000000000000000008 /* Debug */ = {
+            isa = XCBuildConfiguration;
+            buildSettings = {
+                CODE_SIGN_ENTITLEMENTS = StampoE2ETests/StampoE2ETests.entitlements;
+                CODE_SIGN_STYLE = Automatic;
+                DEVELOPMENT_TEAM = C4KBH3KJS5;
+                ENABLE_APP_SANDBOX = NO;
+                ENABLE_HARDENED_RUNTIME = YES;
+                GENERATE_INFOPLIST_FILE = YES;
+                LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/../Frameworks", "@loader_path/../Frameworks",);
+                MACOSX_DEPLOYMENT_TARGET = 15.7;
+                PRODUCT_BUNDLE_IDENTIFIER = com.hex000.StampoE2ETests;
+                PRODUCT_NAME = "$(TARGET_NAME)";
+                SWIFT_APPROACHABLE_CONCURRENCY = YES;
+                SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+                SWIFT_EMIT_LOC_STRINGS = NO;
+                SWIFT_VERSION = 5.0;
+            };
+            name = Debug;
+        };
+        E2E200000000000000000009 /* Release */ = {
+            isa = XCBuildConfiguration;
+            buildSettings = {
+                CODE_SIGN_ENTITLEMENTS = StampoE2ETests/StampoE2ETests.entitlements;
+                CODE_SIGN_STYLE = Automatic;
+                DEVELOPMENT_TEAM = C4KBH3KJS5;
+                ENABLE_APP_SANDBOX = NO;
+                ENABLE_HARDENED_RUNTIME = YES;
+                GENERATE_INFOPLIST_FILE = YES;
+                LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/../Frameworks", "@loader_path/../Frameworks",);
+                MACOSX_DEPLOYMENT_TARGET = 15.7;
+                PRODUCT_BUNDLE_IDENTIFIER = com.hex000.StampoE2ETests;
+                PRODUCT_NAME = "$(TARGET_NAME)";
+                SWIFT_APPROACHABLE_CONCURRENCY = YES;
+                SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+                SWIFT_EMIT_LOC_STRINGS = NO;
+                SWIFT_VERSION = 5.0;
+            };
+            name = Release;
+        };
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -474,6 +559,12 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+        E2E20000000000000000000A = {
+            isa = XCConfigurationList;
+            buildConfigurations = (E2E200000000000000000008, E2E200000000000000000009,);
+            defaultConfigurationIsVisible = 0;
+            defaultConfigurationName = Release;
+        };
 /* End XCConfigurationList section */
 	};
 	rootObject = 458BCE6E2F26708D00C08299 /* Project object */;

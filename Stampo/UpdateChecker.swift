@@ -56,6 +56,9 @@ final class UpdateChecker {
 
     /// Call once at launch. Performs a delayed check, then re-checks daily.
     func startAutomaticChecks() {
+        #if DEBUG
+        if E2EHooks.isEnabled { return }
+        #endif
         timer?.invalidate()
         timer = Timer.scheduledTimer(withTimeInterval: 60 * 60, repeats: true) { _ in
             // Go through the (lifetime-long) singleton instead of capturing self in

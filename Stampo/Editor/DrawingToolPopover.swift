@@ -39,6 +39,7 @@ struct DrawingToolButton: View {
 
     var body: some View {
         trigger
+            .accessibilityIdentifier(EditorTool.drawing.accessibilityIdentifier)
             .popover(isPresented: $showPopover, arrowEdge: .bottom) {
                 DrawingPopoverContent(
                     activeBrush: tool == .drawing ? drawingMode : nil,
@@ -132,6 +133,7 @@ private struct DrawingPopoverContent: View {
             StrokeTrace(style: mode.freehandStyle, color: strokeColor,
                         tip: markerTip)
         }
+        .accessibilityIdentifier("stampo.editor.tool.drawing.\(mode.rawValue)")
     }
 
     private var eraserRow: some View {
@@ -143,6 +145,7 @@ private struct DrawingPopoverContent: View {
                             fallbackSymbol: "eraser")
             StrokeTrace(style: .pen, color: .secondary, fadesOut: true)
         }
+        .accessibilityIdentifier(EditorTool.eraser.accessibilityIdentifier)
     }
 
     private func row(active: Bool, labelKey: String, shortcut: String? = nil,

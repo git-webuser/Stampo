@@ -48,7 +48,7 @@ private final class FixedTitleTabViewController: NSTabViewController {
     /// Call after NSWindow(contentViewController:) so tabViewItems are populated.
     func installToolbar(in window: NSWindow) {
         tabIdentifiers = tabViewItems.indices.map {
-            NSToolbarItem.Identifier("notchShot.tab.\($0)")
+            NSToolbarItem.Identifier(SettingsTab.allCases[$0].accessibilityIdentifier)
         }
 
         let toolbar = NSToolbar(identifier: "notchShot.settings.toolbar")

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Scheme LastUpgradeVersion="2710" version="1.7">
+  <BuildAction parallelizeBuildables="NO" buildImplicitDependencies="NO">
+    <BuildActionEntries>
+      <BuildActionEntry buildForTesting="YES" buildForRunning="NO" buildForProfiling="NO" buildForArchiving="NO" buildForAnalyzing="YES"><BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="E2E200000000000000000006" BuildableName="StampoE2ETests.xctest" BlueprintName="StampoE2ETests" ReferencedContainer="container:Stampo.xcodeproj"/></BuildActionEntry>
+    </BuildActionEntries>
+  </BuildAction>
+  <TestAction buildConfiguration="Debug" selectedDebuggerIdentifier="Xcode.DebuggerFoundation.Debugger.LLDB" selectedLauncherIdentifier="Xcode.DebuggerFoundation.Launcher.LLDB" shouldUseLaunchSchemeArgsEnv="NO">
+    <MacroExpansion><BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="E2E200000000000000000006" BuildableName="StampoE2ETests.xctest" BlueprintName="StampoE2ETests" ReferencedContainer="container:Stampo.xcodeproj"/></MacroExpansion>
+    <Testables><TestableReference skipped="NO" parallelizable="NO"><BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="E2E200000000000000000006" BuildableName="StampoE2ETests.xctest" BlueprintName="StampoE2ETests" ReferencedContainer="container:Stampo.xcodeproj"/></TestableReference></Testables>
+    <EnvironmentVariables><EnvironmentVariable key="STAMPO_E2E_APP_PATH" value="$(STAMPO_E2E_APP_PATH)" isEnabled="YES"/>
+<EnvironmentVariable key="STAMPO_E2E_ARTIFACTS" value="$(STAMPO_E2E_ARTIFACTS)" isEnabled="YES"/>
+<EnvironmentVariable key="STAMPO_E2E_SEED" value="$(STAMPO_E2E_SEED)" isEnabled="YES"/></EnvironmentVariables>
+  </TestAction>
+  <AnalyzeAction buildConfiguration="Debug"/>
+</Scheme>

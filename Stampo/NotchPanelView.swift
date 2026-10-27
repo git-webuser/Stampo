@@ -395,6 +395,7 @@ struct NotchPanelView: View {
         .frame(width: metrics.cellWidth, height: metrics.iconSize)
         .help("Close panel")
         .accessibilityLabel("Close panel")
+        .accessibilityIdentifier("stampo.panel.close")
     }
 
     private var modeMenuCell: some View {
@@ -456,6 +457,7 @@ struct NotchPanelView: View {
         .frame(width: metrics.cellWidth, height: metrics.iconSize)
         .help(isArchiveOpen ? "Hide archive" : "Show archive")
         .accessibilityLabel(isArchiveOpen ? "Hide archive" : "Show archive")
+        .accessibilityIdentifier("stampo.panel.archiveToggle")
     }
 
     private var moreCell: some View {
@@ -506,6 +508,7 @@ private struct PopUpModeButtonWrapper: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSPopUpButton {
         let button = PanelPopUpButton()
+        button.setAccessibilityIdentifier("stampo.panel.modeMenu")
         context.coordinator.button = button
         button.isBordered        = false
         button.isTransparent     = true
@@ -643,6 +646,7 @@ private struct PopUpButtonWrapper: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSPopUpButton {
         let button = PanelPopUpButton()
+        button.setAccessibilityIdentifier("stampo.panel.delayMenu")
         context.coordinator.button = button
         button.isBordered        = false
         button.isTransparent     = true

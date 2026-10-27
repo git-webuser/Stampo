@@ -550,6 +550,7 @@ struct NotchArchiveView: View {
                 }
                 .padding(.horizontal, scrollPadH)
                 .frame(height: metrics.panelHeight)
+                .accessibilityIdentifier("stampo.archive.header")
 
                 if !archiveModel.items.isEmpty {
                     scrollContent.frame(height: scrollRowHeight)
@@ -730,6 +731,7 @@ struct NotchArchiveView: View {
                             }
                         }
                     }
+                    .accessibilityIdentifier("stampo.archive.cell.\(archiveModel.items.firstIndex { $0.id == item.id } ?? 0)")
                     // Cell exit: shrink + fade out together; neighbours
                     // slide into the gap because the surrounding HStack
                     // re-layouts inside the same withAnimation block.

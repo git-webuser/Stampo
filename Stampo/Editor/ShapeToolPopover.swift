@@ -45,6 +45,7 @@ struct ShapeToolButton: View {
 
     var body: some View {
         trigger
+            .accessibilityIdentifier("stampo.editor.shapes")
             .popover(isPresented: $showPopover, arrowEdge: .bottom) {
                 // Highlight only the actually active shape — nothing on first
                 // open or after another tool reset the family.
@@ -145,5 +146,6 @@ private struct ShapePopoverContent: View {
         }
         .buttonStyle(.plain)
         .hoverTip(t.labelKey, shortcut: t.shortcut?.label)
+        .accessibilityIdentifier(t.accessibilityIdentifier)
     }
 }

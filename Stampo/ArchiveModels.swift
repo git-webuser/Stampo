@@ -252,6 +252,9 @@ private struct PersistedArchiveItem: Codable {
     }
 
     init() {
+        #if DEBUG
+        if E2EHooks.isEnabled { return }
+        #endif
         restoreIfNeeded()
         #if DEBUG
         if DemoArchive.isEnabled {
@@ -551,6 +554,9 @@ private struct PersistedArchiveItem: Codable {
     // MARK: Persistence
 
     private func persistIfNeeded() {
+        #if DEBUG
+        if E2EHooks.isEnabled { return }
+        #endif
         #if DEBUG
         // Demo mode owns the archive for this run only — writing its fake
         // entries out would overwrite whatever the real archive holds.
