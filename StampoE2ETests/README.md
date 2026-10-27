@@ -138,3 +138,12 @@ Quarantine, if authorized, must use XCTSkip with a reason/date and be listed her
 
 Current scenario: `S0/testPanelLifecycle` — launch, status item, global hotkey,
 mode/delay/archive ids, close button, clean invariants. No quarantined scenarios.
+
+## S0 behavior oracle
+
+In a temporary worktree from the final implementation commit, comment out only
+`panel.toggleAnimated(on: screen)` under `handleHotKey`, `case 1`, in
+`NotchHoverController.swift`. Run `bash Scripts/run-e2e.sh --only S0 --seed 12345`.
+The expected failure is `Panel cache warmup did not open the panel`. A missing
+accessibility identifier alone is not the behavior oracle. Run the same command
+without the mutation to establish the green control, then remove the worktree.
