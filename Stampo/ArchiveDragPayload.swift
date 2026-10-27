@@ -9,6 +9,42 @@ import AppKit
 /// can't disagree about what an item is.
 enum ArchiveDragPayload {
 
+    // A file's ceiling must not depend on whether it has neighbours in the drag.
+    static let singleFileLimit = 128 * 1024 * 1024
+    // Even small files together can make a copy too expensive for one drag.
+    static let selectionLimit = 512 * 1024 * 1024
+
+    /// Decide for the whole drag: offering a link lets the receiver turn even
+    /// a small working file into an alias instead of a usable copy.
+    static func outsideMask(for payload: [NSPasteboardWriting]) -> NSDragOperation {
+        guard payload.contains(where: { $0 is NSURL }) else { return [.copy] }
+        return copiesOut(payload) ? [.copy] : [.copy, .link]
+    }
+
+    /// Both the per-file ceiling and the selection's total must allow copying.
+    /// Packages are filesystem directories and keep link support: sizing one
+    /// would walk all its contents on the main thread.
+    static func copiesOut(_ payload: [NSPasteboardWriting]) -> Bool {
+        let urls = payload.compactMap { ($0 as? NSURL) as URL? }
+        guard !urls.isEmpty else { return false }
+        var totalSize = 0
+        for url in urls {
+            guard url.isFileURL else { return false }
+            // A symbolic link is sized by its target, just like the file the
+            // receiver will use. Missing or unreadable targets keep link support.
+            let target = url.resolvingSymlinksInPath()
+            guard let values = try? target.resourceValues(forKeys: [.isRegularFileKey,
+                                                                  .isReadableKey, .fileSizeKey]),
+                  values.isRegularFile == true,
+                  values.isReadable == true,
+                  let size = values.fileSize, size >= 0,
+                  size <= singleFileLimit,
+                  size <= selectionLimit - totalSize else { return false }
+            totalSize += size
+        }
+        return true
+    }
+
     static func files(_ urls: [URL]) -> [NSPasteboardWriting] {
         urls.map { $0 as NSURL }
     }

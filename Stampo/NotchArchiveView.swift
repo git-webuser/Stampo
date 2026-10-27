@@ -2929,9 +2929,7 @@ private struct ArchiveDragShim: NSViewRepresentable {
 
 final class ArchiveDragShimView: NSView, NSDraggingSource {
     var makePayload: () -> [NSPasteboardWriting] = { [] }
-    /// What the running session is carrying, kept so the operation mask can be
-    /// decided from the same items the drag actually began with.
-    private var payload: [NSPasteboardWriting] = []
+    private var outsideDragMask: NSDragOperation = [.copy]
     var makeDragImages: () -> [NSImage?] = { [] }
     var cellSize: CGSize = .zero
     var onDragCompleted: ((NSDragOperation) -> Void)?
@@ -3056,8 +3054,9 @@ final class ArchiveDragShimView: NSView, NSDraggingSource {
     }
 
     override func mouseDragged(with event: NSEvent) {
-        payload = makePayload()
+        let payload = makePayload()
         guard !payload.isEmpty else { return }
+        prepareDrag(with: payload)
         DispatchQueue.main.async {
             self.isPressed = false
             self.isDragging = true
@@ -3079,10 +3078,18 @@ final class ArchiveDragShimView: NSView, NSDraggingSource {
 
     func draggingSession(_ session: NSDraggingSession,
                          sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
+        operationMask(for: context)
+    }
+
+    func prepareDrag(with payload: [NSPasteboardWriting]) {
+        // AppKit asks again as receivers change; reading file sizes there would
+        // repeatedly stall the main thread for the same running drag.
+        outsideDragMask = ArchiveDragPayload.outsideMask(for: payload)
+    }
+
+    func operationMask(for context: NSDraggingContext) -> NSDragOperation {
         guard context == .outsideApplication else { return [.move] }
-        // .link means "make an alias", which only exists for files — offering
-        // it for a color or a snippet would advertise a drop that can't happen.
-        return payload.contains { $0 is NSURL } ? [.copy, .link] : [.copy]
+        return outsideDragMask
     }
 
     func draggingSession(_ session: NSDraggingSession,
