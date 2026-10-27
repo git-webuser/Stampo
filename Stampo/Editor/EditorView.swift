@@ -228,6 +228,9 @@ struct EditorView: View {
             windowContext: windowContext
         )
         .accessibilityIdentifier("stampo.editor.canvas")
+        #if DEBUG
+        .modifier(E2ECanvasAccessibility())
+        #endif
     }
 
     private var legacyEditor: some View {

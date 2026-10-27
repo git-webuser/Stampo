@@ -1,5 +1,6 @@
 #if DEBUG
 import AppKit
+import SwiftUI
 
 /// E2E state belongs to the separately signed bundle. The normal Debug launch
 /// takes none of these paths, and Release compiles out this entire file.
@@ -69,6 +70,19 @@ enum E2EHooks {
             NSRect(x: 0, y: 0, width: bounds.width / 2, height: bounds.height).fill()
             NSColor(srgbRed: 0, green: 0, blue: 1, alpha: 1).setFill()
             NSRect(x: bounds.width / 2, y: 0, width: bounds.width / 2, height: bounds.height).fill()
+        }
+    }
+}
+/// The canvas has no accessible descendants in normal launches. E2E needs
+/// its actual bounds as a hit target without adding labels or values.
+struct E2ECanvasAccessibility: ViewModifier {
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if E2EHooks.isEnabled {
+            content.accessibilityElement(children: .contain)
+                .accessibilityIdentifier("stampo.editor.canvas")
+        } else {
+            content
         }
     }
 }

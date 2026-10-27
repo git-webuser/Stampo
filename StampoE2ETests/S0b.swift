@@ -37,8 +37,19 @@ final class S0b: E2ETestCase {
         let local = artifacts.directory.appendingPathComponent("editor-hook.png")
         try FileManager.default.copyItem(at: source, to: local)
         try app.launch(editorPNG: local)
-        XCTAssertTrue(app.element(.editorCanvas).waitForExistence(timeout: 5),
+        let canvas = app.element(.editorCanvas)
+        XCTAssertTrue(canvas.waitForExistence(timeout: 5),
                       "The editor hook did not expose stampo.editor.canvas")
+        let window = app.application.windows.firstMatch
+        XCTAssertTrue(window.exists, "The editor window must exist before checking canvas geometry")
+        let canvasFrame = canvas.frame
+        let windowFrame = window.frame
+        let finite = [canvasFrame.minX, canvasFrame.minY, canvasFrame.width, canvasFrame.height].allSatisfy { $0.isFinite }
+        XCTAssertTrue(finite && !canvasFrame.isEmpty,
+                      "Editor canvas must be finite and non-empty; canvas=\(canvasFrame), window=\(windowFrame)")
+        XCTAssertTrue(windowFrame.contains(canvasFrame),
+                      "Editor canvas must lie inside its window; canvas=\(canvasFrame), window=\(windowFrame)")
+        print("Editor canvas frame=\(canvasFrame), window frame=\(windowFrame)")
         // This scenario intentionally retains the editor opened at startup.
         try recordWindowBaseline(primePanelCache: false)
         try artifacts.step("editor-hook")
