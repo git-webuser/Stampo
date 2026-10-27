@@ -268,6 +268,7 @@ struct PopUpMoreButtonWrapper: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSPopUpButton {
         let button = PanelPopUpButton()
+        button.setAccessibilityIdentifier("stampo.panel.moreMenu")
         context.coordinator.button = button
         button.isBordered       = false
         button.isTransparent    = true

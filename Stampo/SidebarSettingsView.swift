@@ -6,6 +6,7 @@ enum SettingsTab: Int, CaseIterable, Identifiable, Hashable {
     case general, capture, archive, hotkeys, about
 
     var id: Int { rawValue }
+    var accessibilityIdentifier: String { "stampo.settings.tab.\(self)" }
 
     var labelKey: String {
         switch self {
@@ -115,6 +116,7 @@ struct SidebarSettingsView: View {
                         .font(.body)
                 }
                 .padding(.vertical, 3)
+                .accessibilityIdentifier(tab.accessibilityIdentifier)
             }
             .listStyle(.sidebar)
             .scrollContentBackground(colorScheme == .dark ? .hidden : .automatic)

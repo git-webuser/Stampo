@@ -227,6 +227,7 @@ struct EditorView: View {
             imageScreenGeometry: $imageScreenGeometry,
             windowContext: windowContext
         )
+        .accessibilityIdentifier("stampo.editor.canvas")
     }
 
     private var legacyEditor: some View {
@@ -313,6 +314,7 @@ struct EditorView: View {
             .toggleStyle(.button)
             .disabled(textEditingActive)
             .help(Text(verbatim: tooltipText("Crop", shortcut: EditorTool.crop.shortcut?.label)))
+            .accessibilityIdentifier(EditorTool.crop.accessibilityIdentifier)
 
             Toggle(isOn: Binding(
                 get: { tool == .scan },
@@ -323,6 +325,7 @@ struct EditorView: View {
             .toggleStyle(.button)
             .disabled(textEditingActive)
             .help(Text(verbatim: tooltipText("Scan", shortcut: EditorTool.scan.shortcut?.label)))
+            .accessibilityIdentifier(EditorTool.scan.accessibilityIdentifier)
         }
     }
 
@@ -404,6 +407,7 @@ struct EditorView: View {
             }
             .toggleStyle(.button)
             .help("Decor")
+            .accessibilityIdentifier("stampo.editor.decor")
         }
 
         ToolbarSpacer(.fixed)
@@ -475,6 +479,7 @@ struct EditorView: View {
         }
         .toggleStyle(.button)
         .help(Text(verbatim: tooltipText(t.labelKey, shortcut: t.shortcut?.label)))
+        .accessibilityIdentifier(t.accessibilityIdentifier)
     }
 
     /// The active tool's settings, one centred row under the toolbar — where
@@ -544,6 +549,7 @@ struct EditorView: View {
         }
         .buttonStyle(.borderless)
         .activeToolChrome(tool == t)
+        .accessibilityIdentifier(t.accessibilityIdentifier)
         .hoverTip(t.labelKey, shortcut: t.shortcut?.label)
     }
 
@@ -1880,6 +1886,7 @@ struct EditorView: View {
         .activeToolChrome(tool == .crop)
         .disabled(textEditingActive)
         .hoverTip("Crop", shortcut: EditorTool.crop.shortcut?.label)
+        .accessibilityIdentifier(EditorTool.crop.accessibilityIdentifier)
     }
 
     /// Own group past the crop divider: the scanner is a marquee like the
@@ -1901,6 +1908,7 @@ struct EditorView: View {
         .activeToolChrome(tool == .scan)
         .disabled(textEditingActive)
         .hoverTip("Scan", shortcut: EditorTool.scan.shortcut?.label)
+        .accessibilityIdentifier(EditorTool.scan.accessibilityIdentifier)
     }
 
     /// Opens the native trailing inspector. It is deliberately not an
@@ -1919,6 +1927,7 @@ struct EditorView: View {
         .buttonStyle(.borderless)
         .activeToolChrome(presentationInspectorPresented)
         .hoverTip("Decor")
+        .accessibilityIdentifier("stampo.editor.decor")
     }
 
     /// In crop mode the Copy/Save actions are replaced by Cancel/Apply.

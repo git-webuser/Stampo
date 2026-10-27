@@ -171,6 +171,7 @@ final class NotchHoverController: NSObject {
         statusItem = item
 
         guard let button = item.button else { return }
+        button.setAccessibilityIdentifier("stampo.status.item")
         button.image = nil
         button.imagePosition = .noImage
 
@@ -186,6 +187,7 @@ final class NotchHoverController: NSObject {
             action: #selector(statusMenuSettingsTapped),
             keyEquivalent: ""
         )
+        settingsItem.setAccessibilityIdentifier("stampo.statusMenu.settings")
         settingsItem.target = self
         menu.addItem(settingsItem)
         statusItemSettingsItem = settingsItem
@@ -197,6 +199,7 @@ final class NotchHoverController: NSObject {
             action: #selector(statusMenuQuitTapped),
             keyEquivalent: ""
         )
+        quitItem.setAccessibilityIdentifier("stampo.statusMenu.quit")
         quitItem.target = self
         menu.addItem(quitItem)
         statusItemQuitItem = quitItem

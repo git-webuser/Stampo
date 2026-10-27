@@ -6,6 +6,10 @@ enum EditorTool: Equatable, CaseIterable {
     case select, line, arrow, rect, oval, roundedRect, polygon, star,
          bubble, text, drawing, eraser, blur, step, loupe, scan, crop
 
+    var accessibilityIdentifier: String {
+        "stampo.editor.tool.\(self == .rect ? "rectangle" : String(describing: self))"
+    }
+
     /// Drawing tools shown in the toolbar picker — the set the keyboard
     /// shortcuts resolve against. Scan and Crop are transient modes driven by
     /// their own toolbar buttons, not persistent drawing tools, so they're

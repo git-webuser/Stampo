@@ -2243,6 +2243,7 @@ final class NotchPanelController: NSObject {
             defer: false
         )
 
+        panel.setAccessibilityIdentifier("stampo.panel.window")
         panel.isFloatingPanel = true
         panel.level = .statusBar
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
