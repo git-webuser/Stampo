@@ -34,6 +34,8 @@ class E2ETestCase: XCTestCase {
     }
 
     override func tearDownWithError() throws {
+        // Cleanup assertions must not abort evidence collection or termination.
+        continueAfterFailure = true
         guard let app else { return }
         defer { app.terminate() }
         do {

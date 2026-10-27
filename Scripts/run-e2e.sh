@@ -220,7 +220,7 @@ PY
 if [ "$build" -eq 1 ]; then
   printf '%s\n' "$fingerprint" > "$e2e_root/source-fingerprint.txt"
   authority="$(sed -n 's/^Authority=Apple Development:/Apple Development:/p' "$artifacts/e2e-signature.txt")"
-  passport="E2E: $app_path · id com.hex000.Stampo.e2e · подпись $authority · $(git branch --show-current) · $(git rev-parse --short HEAD) · сборка $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  passport="E2E: $app_path · id com.hex000.Stampo.e2e · подпись $authority · $(git rev-parse --abbrev-ref HEAD) · $(git rev-parse --short HEAD) · сборка $(date -u +%Y-%m-%dT%H:%M:%SZ)"
   [ -z "$(git status --porcelain)" ] || passport="$passport · uncommitted changes"
   printf '%s\n' "$passport" > "$e2e_root/build-passport.txt"
 else
