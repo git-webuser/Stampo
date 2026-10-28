@@ -242,11 +242,19 @@ termination report fails immediately. Raw JSON and the selected exit message
 are attached. The ordinary crash-report invariant remains enabled.
 
 
-## P1 outside-click coverage
+## P1 cycle and outside-click coverage
 
-P1 launches the owned fixture. Each outside click uses the current AX frame
-of `stampo.e2e.fixture`, targets its center, and asserts that point is outside
-the panel. It never targets a screen corner or another application's window.
-This covers the local mouse monitor (a click in Stampo); delivery to another
-application through the global monitor is not covered. Both monitors use
-`handleGlobalLeftMouseDown`.
+`testOpenCloseCycles` runs without a fixture: twenty opener/closer pairs,
+with escape/button/hotkey/notch closures and no pause before reopening.
+Both notch-closing pairs recur at least twice. Frontmost application ids
+are logged to test the activation hypothesis behind the late-hide oracle.
+
+`testOutsideClickCloses` owns the fixture: four cycles, two each from hotkey
+and notch. Each outside click uses the current AX center of
+`stampo.e2e.fixture`, outside the panel. The panel must disappear, the full
+window set return to baseline and the fixture retain its frame.
+
+Закрытие кликом вне панели проверено только через локальный монитор (клик
+в окно-образец Stampo). Клик в окно другой программы (глобальный монитор)
+автоматическим тестом не покрыт; проверяется вручную.
+Both monitors use `handleGlobalLeftMouseDown`.

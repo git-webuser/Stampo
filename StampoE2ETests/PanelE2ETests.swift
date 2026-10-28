@@ -5,15 +5,14 @@ import XCTest
 @MainActor
 final class PanelE2ETests: E2ETestCase {
     func testOpenCloseCycles() throws {
-        try app.launch(fixture: true)
+        try app.launch()
         try recordWindowBaseline()
         let trigger = try XCTUnwrap(Input.notchTrigger, "Primary display has no menu-bar trigger")
-        let closers = trigger.hasNotch ? ["escape", "button", "hotkey", "outside", "notch"]
-            : ["escape", "button", "hotkey", "outside"]
+        let closers = ["escape", "button", "hotkey", "notch"]
         let pairs = ["hotkey", "notch"].flatMap { opener in closers.map { (opener, $0) } }
         for cycle in 0..<20 {
             let (opener, closer) = pairs[cycle % pairs.count]
-            print("P1 starting cycle \(cycle + 1): \(opener) × \(closer), trigger=\(trigger.point)")
+            print("P1 starting cycle \(cycle + 1): \(opener) × \(closer), trigger=\(trigger.point), frontmost=\(NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "none")")
             try app.input.park()
             if opener == "hotkey" { try app.input.press("⌃⌥⌘N") }
             else { try app.input.click(at: trigger.point) }
@@ -34,17 +33,34 @@ final class PanelE2ETests: E2ETestCase {
             case "button": try tapLive(.panelClose)
             case "hotkey": try app.input.press("⌃⌥⌘N")
             case "notch": try app.input.click(at: trigger.point)
-            default:
-                let fixture = try XCTUnwrap(required(.fixture).frame, "Fixture has no outside-click frame")
-                XCTAssertFalse(fixture.isEmpty, "Fixture has an empty outside-click frame")
-                let point = CGPoint(x: fixture.midX, y: fixture.midY)
-                XCTAssertFalse(frame.contains(point), "Fixture center must be outside the panel: \(point)")
-                print("P1 outside click: fixture frame=\(fixture), point=\(point)")
-                try app.input.click(at: point)
+            default: XCTFail("Unknown P1 closer: \(closer)")
             }
             try expectPanelClosed()
             expectWindowSetUnchanged()
             try artifacts.step("cycle-\(cycle + 1)-closed")
+        }
+    }
+
+    func testOutsideClickCloses() throws {
+        try app.launch(fixture: true)
+        try recordWindowBaseline()
+        let trigger = try XCTUnwrap(Input.notchTrigger, "Primary display has no menu-bar trigger")
+        for cycle in 0..<4 {
+            let opener = ["hotkey", "notch"][cycle % 2]
+            try app.input.park()
+            if opener == "hotkey" { try app.input.press("⌃⌥⌘N") }
+            else { try app.input.click(at: trigger.point) }
+            let panel = try settledPanel()
+            let fixture = try XCTUnwrap(required(.fixture).frame, "Fixture has no outside-click frame")
+            XCTAssertFalse(fixture.isEmpty, "Fixture has an empty outside-click frame")
+            let point = CGPoint(x: fixture.midX, y: fixture.midY)
+            XCTAssertFalse(panel.contains(point), "Fixture center must be outside the panel: \(point)")
+            print("P1 outside cycle \(cycle + 1): \(opener), fixture=\(fixture), point=\(point), frontmost=\(NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "none")")
+            try app.input.click(at: point)
+            try expectPanelClosed()
+            expectWindowSetUnchanged()
+            XCTAssertEqual(try required(.fixture).frame, fixture, "Outside click displaced or closed the fixture")
+            try artifacts.step("outside-\(cycle + 1)-closed")
         }
     }
 
