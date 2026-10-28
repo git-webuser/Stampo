@@ -408,28 +408,11 @@ final class PanelE2ETests: E2ETestCase {
         try artifacts.text(app.application.debugDescription, name: "before-status-menu-tree.txt")
         print("Status item frame: \(app.element(.statusItem).frame)")
         try app.tap(.statusItem)
-        var opened = waitUntil(timeout: 1) { self.statusMenuIsVisible }
+        let opened = waitUntil(timeout: 1) { self.statusMenuIsVisible }
         try artifacts.step("status-after-left-click")
         print("Status menu HID left click: \(opened ? "opened" : "did not open")")
-        if !opened {
-            let frame = app.element(.statusItem).frame
-            try app.input.rightClick(at: CGPoint(x: frame.midX, y: frame.midY))
-            opened = waitUntil(timeout: 1) { self.statusMenuIsVisible }
-            try artifacts.step("status-after-right-click")
-            print("Status menu HID right click: \(opened ? "opened" : "did not open")")
-        }
-        if !opened {
-            guard let status = try app.liveElement(.statusItem) else { throw E2EFailure("Status item is absent before AXPress") }
-            // NSStatusItem may keep AXPress pending in its menu tracking loop.
-            // Judge opening by the visible menu, and retain the AX result too.
-            do { try status.press() }
-            catch { print("Status AXPress result: \(error)") }
-            opened = waitUntil(timeout: 1) { self.statusMenuIsVisible }
-            try artifacts.step("status-after-ax-press")
-            print("Status menu Accessibility press: \(opened ? "opened" : "did not open")")
-        }
         try artifacts.text(app.application.debugDescription, name: "status-menu-tree.txt")
-        XCTAssertTrue(opened, "Status menu did not open by HID left/right click or Accessibility press")
+        XCTAssertTrue(opened, "Status menu did not open by HID left click")
         XCTAssertTrue(app.element(.statusSettings).exists, "Status menu is missing Settings")
         XCTAssertTrue(app.element(.statusQuit).exists, "Status menu is missing Quit")
         try artifacts.step("status-menu")

@@ -274,3 +274,8 @@ Esc coverage checks both sides of menu tracking: first HID Esc closes More
 while preserving the panel; one MainActor delivery turn (100 ms) is allowed
 for didEndTracking to restore the hotkey, then a single second HID Esc must
 close the panel and restore the full window baseline. Esc is never retried.
+
+
+Status menu coverage requires the HID left click. A failed click saves the
+snapshot and AX tree and fails; no right-click or AXPress fallback is used.
+Input cleanup still checks and releases both mouse buttons independently.

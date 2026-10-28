@@ -31,20 +31,6 @@ final class Input {
         RunLoop.current.run(until: Date().addingTimeInterval(0.02))
     }
 
-    func rightClick(at point: CGPoint) throws {
-        try move(to: point)
-        RunLoop.current.run(until: Date().addingTimeInterval(0.1))
-        guard let down = CGEvent(mouseEventSource: source, mouseType: .rightMouseDown,
-                                 mouseCursorPosition: point, mouseButton: .right),
-              let up = CGEvent(mouseEventSource: source, mouseType: .rightMouseUp,
-                               mouseCursorPosition: point, mouseButton: .right) else {
-            throw E2EFailure("Cannot construct right click")
-        }
-        down.post(tap: .cghidEventTap)
-        defer { up.post(tap: .cghidEventTap) }
-        RunLoop.current.run(until: Date().addingTimeInterval(0.02))
-    }
-
     func holdMouse(at point: CGPoint) throws {
         try move(to: point)
         RunLoop.current.run(until: Date().addingTimeInterval(0.1))
