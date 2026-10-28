@@ -201,29 +201,20 @@ crosses More during this normalization.
 
 Menu selections use a single held HID gesture: press the popup, drag to its
 item while NSMenu tracks, and release there. This targets the lost release
-and pointer exit from daf3bad/fabf326. Neither tested gesture reproduced the
-mode/delay afterClose mutation on this macOS; see the oracle limitations below.
+and pointer exit from daf3bad/fabf326. The old afterClose results used an inverted PNG decoder and do not prove
+release-state sensitivity; see the oracle limitations below.
 
 
 ## Известные ограничения оракулов
 
-`daf3bad` (режим, задержка): не воспроизводится на macOS 27.0.1 (26A434)
-двумя жестами (2026-10-28). Проверка «кнопка отпустила» остаётся как защита
-от регрессии; чувствительность к этому оракулу не доказана. Решение ведущего
-из обновления 3 guidance принимает этот результат; третий жест не пробуем.
-Патчи и логи: `build/e2e/stage3-final/oracles/p2-mode-delay/{mutation.patch,red.log}`
-(два клика) и `build/e2e/stage3-final/oracles-held/p2-mode-delay/{mutation.patch,red.log}`
-(удерживаемый HID-жест). Несмотря на имя red.log, оба запуска зелёные.
-
-`fabf326` (More через Settings): не воспроизводится на macOS 27.0.1 (26A434),
-2026-10-28. Прежнее сравнение после закрытия/открытия панели не покраснило
-тест (`build/e2e/stage3-final/oracles-held/p2-more/`). Единственная новая
-попытка по обновлению 4 сравнивает More сразу после ⌘W, пока панель видна,
-затем после нормализации: мутант и здоровый контроль зелёные, expectedFailures 0.
-Доказательства: `build/e2e/stage3-update4/oracles/p2-more/`. Чувствительность
-к этому историческому оракулу не доказана; новых жестов и предпосылок не пробуем.
-Снимок полного набора окон с открытой панелью используется только для этой
-фазы; исходная база teardown со скрытой панелью сохраняется.
+`daf3bad` и `fabf326`: прежний вывод «не воспроизводится на этой macOS»
+был принят до обнаружения перевёрнутых Y-строк в Files.Bitmap (обновление 7).
+Те сравнения читали другую область экрана: они не доказывают отсутствие
+залипшей подсветки. Старые зелёные логи сохранены в stage3-final/oracles*,
+stage3-update4/oracles/p2-more; переинтерпретировать их как красные нельзя.
+Новых жестов и повторов этих исторических мутаций после открытия причины
+не выполнялось. M3 и остальные пиксельные проверки предстоят с исправленным
+decoder; чувствительность P2 ещё не доказана.
 
 `1f1e69f` — оракул снят: его исправление откатили в bc68d99. Проверки
 верхнего края остаются свойствами. Явный native safe-area inset, если
@@ -279,3 +270,38 @@ close the panel and restore the full window baseline. Esc is never retried.
 Status menu coverage requires the HID left click. A failed click saves the
 snapshot and AX tree and fails; no right-click or AXPress fallback is used.
 Input cleanup still checks and releases both mouse buttons independently.
+
+
+## Status item visibility before a HID click
+
+openStatusMenu saves the owned process's CGWindowList inventory and a screen
+PNG before clicking. The AX frame must lie on the primary display. Its central
+**14×18 pt** region is sampled in sRGB; the median RGB of top/bottom **1 pt**
+strips of the full AX frame estimates the local background. A pixel counts as
+foreground when max absolute RGB-channel difference is **≥80**. At least
+**5%** of the central pixels must be foreground. The narrow center excludes a
+neighboring chevron overlapping the right edge of the hidden item's frame.
+It is a foreground check, not rabbit-shape recognition; another glyph in the
+same center could produce a false positive.
+
+At Retina ×2, the sample is 1008 pixels. Ten drawn reference frames from
+20261028T164830Z-N1Rfnh give **288–297/1008 (28.57–29.46%)**; the hidden frame
+from 20261028T190149Z-r1HSCP gives **0/1008**, background RGB **32,32,32** in
+both. The exact runtime helper classifies all eleven saved cases correctly.
+Measurements, crops and source references are in build/e2e/stage3-update7/.
+No interface golden PNGs are committed. CG window data is diagnostic: the old
+inventories contain no separate window matching the AX status frame in either
+case, so window onScreen/alpha alone cannot establish that it was drawn.
+
+A failed visibility check saves the frame, measurement and window list, fails
+with `Status item is not drawn at its Accessibility frame ...`, and sends **no
+click**. After a pass, the frame must still match and only its verified center
+receives one HID left click. The 1 s menu timeout and absence of fallbacks are
+unchanged; there is no new script preflight or environment adjustment.
+
+The PNG decoder now preserves top-left row order. BitmapTests covers four
+asymmetric corner colors; the old decoder read the top row as the bottom row.
+The original red/blue fixture is vertically symmetric and did not detect this.
+Offline verification passes, but the UI runner failed before executing the new
+XCTest (`Timed out while enabling automation mode`); a live guard run and final
+Settings×5/Quit×5 still require a working automation session.

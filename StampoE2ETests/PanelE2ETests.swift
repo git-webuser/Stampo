@@ -406,8 +406,26 @@ final class PanelE2ETests: E2ETestCase {
     private func openStatusMenu() throws {
         try app.input.park()
         try artifacts.text(app.application.debugDescription, name: "before-status-menu-tree.txt")
-        print("Status item frame: \(app.element(.statusItem).frame)")
-        try app.tap(.statusItem)
+        let frame = try XCTUnwrap(required(.statusItem).frame, "Status item has no Accessibility frame")
+        print("Status item frame: \(frame)")
+        let pid = try XCTUnwrap(app.processID, "Missing process for status-item diagnostics")
+        let windows = try StatusItemVisibility.windows(pid: pid, statusFrame: frame)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let windowText = String(decoding: try encoder.encode(windows), as: UTF8.self)
+        try artifacts.text(windowText, name: "status-windows.json")
+        let png = try artifacts.step("status-before-left-click")
+        let visibility = try StatusItemVisibility.measure(png: png, frame: frame,
+                                                          display: CGDisplayBounds(CGMainDisplayID()))
+        let visibilityText = String(decoding: try encoder.encode(visibility), as: UTF8.self)
+        try artifacts.text(visibilityText, name: "status-visibility.json")
+        print("Status item visibility: \(visibilityText)")
+        XCTAssertTrue(visibility.drawn,
+                      "Status item is not drawn at its Accessibility frame \(frame): a menu bar manager or a crowded menu bar can hide it; foreground \(visibility.foregroundPixels)/\(visibility.samplePixels); window list: \(windowText)")
+        XCTAssertEqual(try required(.statusItem).frame, frame, "Status item moved during visibility check; no click was sent")
+        // Click exactly the frame whose pixels were checked, rather than
+        // resolving a potentially moved status item to an unverified target.
+        try app.input.click(at: CGPoint(x: frame.midX, y: frame.midY))
         let opened = waitUntil(timeout: 1) { self.statusMenuIsVisible }
         try artifacts.step("status-after-left-click")
         print("Status menu HID left click: \(opened ? "opened" : "did not open")")
