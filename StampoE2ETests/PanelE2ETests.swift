@@ -5,7 +5,7 @@ import XCTest
 @MainActor
 final class PanelE2ETests: E2ETestCase {
     func testOpenCloseCycles() throws {
-        try app.launch()
+        try app.launch(fixture: true)
         try recordWindowBaseline()
         let trigger = try XCTUnwrap(Input.notchTrigger, "Primary display has no menu-bar trigger")
         let closers = trigger.hasNotch ? ["escape", "button", "hotkey", "outside", "notch"]
@@ -35,9 +35,12 @@ final class PanelE2ETests: E2ETestCase {
             case "hotkey": try app.input.press("⌃⌥⌘N")
             case "notch": try app.input.click(at: trigger.point)
             default:
-                try app.input.park()
-                let display = CGDisplayBounds(CGMainDisplayID())
-                try app.input.click(at: CGPoint(x: display.minX + 20, y: display.maxY - 40))
+                let fixture = try XCTUnwrap(required(.fixture).frame, "Fixture has no outside-click frame")
+                XCTAssertFalse(fixture.isEmpty, "Fixture has an empty outside-click frame")
+                let point = CGPoint(x: fixture.midX, y: fixture.midY)
+                XCTAssertFalse(frame.contains(point), "Fixture center must be outside the panel: \(point)")
+                print("P1 outside click: fixture frame=\(fixture), point=\(point)")
+                try app.input.click(at: point)
             }
             try expectPanelClosed()
             expectWindowSetUnchanged()

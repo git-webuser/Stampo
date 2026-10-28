@@ -240,3 +240,13 @@ and this launch: `(0, 0, 0)`. Measured on macOS 27.0.1: normal Quit gives
 identity. A missing system report fails after a bounded 5 s wait; a nonzero
 termination report fails immediately. Raw JSON and the selected exit message
 are attached. The ordinary crash-report invariant remains enabled.
+
+
+## P1 outside-click coverage
+
+P1 launches the owned fixture. Each outside click uses the current AX frame
+of `stampo.e2e.fixture`, targets its center, and asserts that point is outside
+the panel. It never targets a screen corner or another application's window.
+This covers the local mouse monitor (a click in Stampo); delivery to another
+application through the global monitor is not covered. Both monitors use
+`handleGlobalLeftMouseDown`.
