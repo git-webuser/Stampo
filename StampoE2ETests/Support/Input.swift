@@ -45,6 +45,25 @@ final class Input {
         RunLoop.current.run(until: Date().addingTimeInterval(0.02))
     }
 
+    func holdMouse(at point: CGPoint) throws {
+        try move(to: point)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        try mouse(.leftMouseDown, at: point)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.02))
+    }
+
+    func dragHeldMouse(from start: CGPoint, to end: CGPoint, steps: Int = 24) throws {
+        guard steps > 0 else { throw E2EFailure("Drag requires at least one step") }
+        for step in 1...steps {
+            let t = CGFloat(step) / CGFloat(steps)
+            try mouse(.leftMouseDragged, at: CGPoint(x: start.x + (end.x - start.x) * t,
+                                                     y: start.y + (end.y - start.y) * t))
+            RunLoop.current.run(until: Date().addingTimeInterval(0.015))
+        }
+    }
+
+    func releaseMouse(at point: CGPoint) throws { try mouse(.leftMouseUp, at: point) }
+
     func drag(from start: CGPoint, to end: CGPoint, steps: Int = 24) throws {
         guard steps > 0 else { throw E2EFailure("Drag requires at least one step") }
         try move(to: start)

@@ -209,3 +209,8 @@ For the More → Settings path, current settingsTapped leaves the panel visible.
 After closing Settings, the test hides that retained panel through the HID
 hotkey before comparing the baseline and reopening it. The pointer never
 crosses More during this normalization, preserving the stale-highlight probe.
+
+Menu selections use a single held HID gesture: press the popup, drag to its
+item while NSMenu tracks, and release there. This exercises the lost release
+and pointer exit from daf3bad/fabf326; a click released over the button before
+a second item click did not reproduce the mode/delay mutation on this macOS.

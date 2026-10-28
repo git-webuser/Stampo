@@ -78,8 +78,7 @@ final class PanelE2ETests: E2ETestCase {
             }
         }
         let before = try stableButton(.panelMoreMenu, label: "more-before")
-        try openMenu(.panelMoreMenu)
-        try selectVisibleMenuItem("Settings")
+        try select("Settings", in: .panelMoreMenu)
         try closeSettingsWindow()
         try openPanel()
         let after = try stableButton(.panelMoreMenu, label: "more-after-settings")
@@ -256,18 +255,37 @@ final class PanelE2ETests: E2ETestCase {
     }
 
     private func select(_ title: String, in control: E2EApp.Control) throws {
-        try openMenu(control)
-        try selectVisibleMenuItem(title)
+        try app.input.park()
+        let frame = try XCTUnwrap(required(control).frame, "Missing menu-button hit target")
+        let start = CGPoint(x: frame.midX, y: frame.midY)
+        var release = start
+        var held = true
+        try app.input.holdMouse(at: start)
+        defer { if held { try? app.input.releaseMouse(at: release) } }
+        XCTAssertTrue(waitUntil(timeout: 3) { self.visibleMenu != nil }, "\(control.rawValue) did not open while pressed")
+        let item = try visibleMenuItemFrame(title)
+        release = CGPoint(x: item.midX, y: item.midY)
+        // daf3bad/fabf326 lost the release and pointer exit inside NSMenu's
+        // tracking loop. Keep the button down until the pointer leaves it
+        // for the item, instead of releasing on the button before choosing.
+        try app.input.dragHeldMouse(from: start, to: release)
+        try app.input.releaseMouse(at: release)
+        held = false
+        XCTAssertTrue(waitUntil(timeout: 3) { self.visibleMenu == nil }, "Menu did not close in 3 s after \(title)")
+        try app.input.park()
     }
 
-    private func selectVisibleMenuItem(_ title: String) throws {
+    private func visibleMenuItemFrame(_ title: String) throws -> CGRect {
         let menu = try XCTUnwrap(visibleMenu, "Menu disappeared before selecting \(title)")
-        // Reproduce daf3bad/fabf326: leave while NSMenu's tracking loop owns
-        // mouse-up/exit delivery, rather than visiting the button afterwards.
-        try app.input.park()
         let item = try XCTUnwrap(menu.first { $0.role == kAXMenuItemRole && $0.title == title }, "Missing menu item \(title)")
         let frame = try XCTUnwrap(item.frame, "Menu item \(title) has no frame")
         XCTAssertFalse(frame.isEmpty, "Menu item \(title) is hidden")
+        return frame
+    }
+
+    private func selectVisibleMenuItem(_ title: String) throws {
+        try app.input.park()
+        let frame = try visibleMenuItemFrame(title)
         try app.input.click(at: CGPoint(x: frame.midX, y: frame.midY))
         XCTAssertTrue(waitUntil(timeout: 3) { self.visibleMenu == nil }, "Menu did not close in 3 s after \(title)")
         try app.input.park()
