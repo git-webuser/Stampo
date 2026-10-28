@@ -75,9 +75,9 @@ compare Stampo interface screenshots against golden images.
 Identifiers add no labels, values, controls or visual changes. Both editor
 layout paths use the same ids, but only one is present at a time. AppKit popup
 ids are set directly on their NSPopUpButton, because SwiftUI wrappers swallow
-them. Settings toolbar items use their native itemIdentifier; sidebar rows use
-SwiftUI identifiers. Editor/settings/archive ids are source mappings; S0 checks
-only status/panel controls, not every editor and settings path at runtime.
+them. Native Settings toolbar buttons receive AX identifiers only in DEBUG
+with -StampoE2E; sidebar rows use SwiftUI identifiers. P6 checks all five toolbar
+ids at runtime. Editor/archive ids remain source mappings beyond S0/S0b.
 
 | Brief item | Current control | Identifier |
 |---|---|---|
@@ -136,8 +136,11 @@ Then require five consecutive passes. Fix the cause of any failure; after two
 unsuccessful cause fixes, stop and ask the user. Do not repeat until green.
 Quarantine, if authorized, must use XCTSkip with a reason/date and be listed here.
 
-Current scenario: `S0/testPanelLifecycle` — launch, status item, global hotkey,
-mode/delay/archive ids, close button, clean invariants. No quarantined scenarios.
+`S0/testPanelLifecycle` checks launch, status, the global hotkey, required panel
+controls, close and clean invariants. `S0b` covers fixture pixels and the editor
+hook. `PanelE2ETests` has six methods: open/close cycles, panel menus, the known
+Esc probe, pointer-dependent Tab, status Settings, and status Quit. No skips or
+quarantined scenarios are enabled.
 
 ## S0 behavior oracle
 
@@ -201,3 +204,8 @@ The runner accepts XCTest's `Expected Failure` summary for that strict probe;
 zero completed tests, skipped tests and unexpected failures still fail the run.
 The expected assertion temporarily permits continuation so its cleanup runs;
 fail-fast behavior is restored before cleanup and common invariants.
+
+For the More → Settings path, current settingsTapped leaves the panel visible.
+After closing Settings, the test hides that retained panel through the HID
+hotkey before comparing the baseline and reopening it. The pointer never
+crosses More during this normalization, preserving the stale-highlight probe.
