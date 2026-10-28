@@ -268,3 +268,9 @@ Native AX reads throw on a failed root children response, messaging error or
 missing element. `testAXQueryRejectsTerminatedProcess` terminates only its owned
 copy, then requires liveElement to throw. That explicit probe skips process/
 window/AX liveness after termination; crash, log and input checks still run.
+
+
+Esc coverage checks both sides of menu tracking: first HID Esc closes More
+while preserving the panel; one MainActor delivery turn (100 ms) is allowed
+for didEndTracking to restore the hotkey, then a single second HID Esc must
+close the panel and restore the full window baseline. Esc is never retried.

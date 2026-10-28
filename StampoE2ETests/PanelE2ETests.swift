@@ -134,8 +134,15 @@ final class PanelE2ETests: E2ETestCase {
         try app.input.park()
         try app.input.press("ESC")
         XCTAssertTrue(try waitUntil(timeout: 3) { try self.visibleMenu == nil }, "More menu did not close after Esc")
+        XCTAssertNotNil(try app.liveElement(.panel), "Esc closed the panel together with the menu")
         try artifacts.step("menu-closed-by-esc")
-        try closePanel()
+        // didEndTracking schedules syncEscapeHotkey in a MainActor Task.
+        // Give that single delivery turn time to restore the panel's hotkey.
+        RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        try app.input.press("ESC")
+        try expectPanelClosed(message: "second Esc did not close the panel")
+        expectWindowSetUnchanged()
+        try artifacts.step("panel-closed-by-second-esc")
     }
 
     func testTabFollowsPointer() throws {
@@ -252,8 +259,8 @@ final class PanelE2ETests: E2ETestCase {
         try settledPanel()
     }
 
-    private func expectPanelClosed() throws {
-        XCTAssertTrue(try waitUntil(timeout: 3) { try self.app.liveElement(.panel) == nil }, "Panel did not disappear in 3 s")
+    private func expectPanelClosed(message: String = "Panel did not disappear in 3 s") throws {
+        XCTAssertTrue(try waitUntil(timeout: 3) { try self.app.liveElement(.panel) == nil }, message)
         try app.input.park()
     }
 
