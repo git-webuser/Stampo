@@ -211,6 +211,24 @@ hotkey before comparing the baseline and reopening it. The pointer never
 crosses More during this normalization, preserving the stale-highlight probe.
 
 Menu selections use a single held HID gesture: press the popup, drag to its
-item while NSMenu tracks, and release there. This exercises the lost release
-and pointer exit from daf3bad/fabf326; a click released over the button before
-a second item click did not reproduce the mode/delay mutation on this macOS.
+item while NSMenu tracks, and release there. This targets the lost release
+and pointer exit from daf3bad/fabf326. Neither tested gesture reproduced the
+mode/delay afterClose mutation on this macOS; see the oracle limitations below.
+
+
+## Известные ограничения оракулов
+
+`daf3bad` (режим, задержка): не воспроизводится на macOS 27.0.1 (26A434)
+двумя жестами (2026-10-28). Проверка «кнопка отпустила» остаётся как защита
+от регрессии; чувствительность к этому оракулу не доказана. Решение ведущего
+из обновления 3 guidance принимает этот результат; третий жест не пробуем.
+Патчи и логи: `build/e2e/stage3-final/oracles/p2-mode-delay/{mutation.patch,red.log}`
+(два клика) и `build/e2e/stage3-final/oracles-held/p2-mode-delay/{mutation.patch,red.log}`
+(удерживаемый HID-жест). Несмотря на имя red.log, оба запуска зелёные.
+
+`fabf326` (More через Settings): удаление afterClose также не покраснило
+`testPanelMenus` на macOS 27.0.1 (2026-10-28). Доказательства:
+`build/e2e/stage3-final/oracles-held/p2-more/{mutation.patch,red.log,red-artifacts}`.
+Этот обязательный оракул не засчитан; по обновлению 3 guidance UI-пачка
+остановлена до отдельного решения ведущего по P2. Приложение не менялось,
+пиксельные утверждения и допуск ±2 не ослаблялись.
