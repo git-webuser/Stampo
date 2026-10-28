@@ -229,3 +229,14 @@ mode/delay afterClose mutation on this macOS; see the oracle limitations below.
 верхнего края остаются свойствами. Явный native safe-area inset, если
 используется как fault injection, является собственной, не исторической
 мутацией. Оракул гонки P1 — d956594.
+
+
+## Quit exit evidence
+
+P6 Quit records the target PID before choosing Quit. After it disappears,
+teardown requires runningboardd's termination report for that exact app PID
+and this launch: `(0, 0, 0)`. Measured on macOS 27.0.1: normal Quit gives
+`(0, 0, 0)`, abort gives `(2, 6, 6)`. Child XPC-service exits are excluded by
+identity. A missing system report fails after a bounded 5 s wait; a nonzero
+termination report fails immediately. Raw JSON and the selected exit message
+are attached. The ordinary crash-report invariant remains enabled.

@@ -23,9 +23,13 @@ final class E2EApp {
     let directory: URL
     private let appURL: URL
     private(set) var launched = false
-    private(set) var quitExpected = false
+    private(set) var expectedQuitProcessID: pid_t?
+    var quitExpected: Bool { expectedQuitProcessID != nil }
 
-    func expectQuit() { quitExpected = true }
+    func expectQuit() throws {
+        guard let processID else { throw E2EFailure("Missing process before expected Quit") }
+        expectedQuitProcessID = processID
+    }
 
     init(directory: URL) throws {
         let environment = ProcessInfo.processInfo.environment

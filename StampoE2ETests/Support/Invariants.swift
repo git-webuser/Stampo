@@ -39,6 +39,10 @@ final class Invariants {
             let newCrashes = try Self.crashReports().subtracting(initialCrashes)
             if !newCrashes.isEmpty { failures.append("New Stampo crash reports: \(newCrashes.sorted())") }
         } catch { failures.append("Cannot inspect crash reports: \(error)") }
+        if let pid = app.expectedQuitProcessID {
+            do { failures += try cleanExitFailures(pid: pid) }
+            catch { failures.append("Cannot prove clean Quit for PID \(pid): \(error)") }
+        }
         if !app.quitExpected {
             if let pid = app.processID {
                 failures += windowFailures(app: app)
@@ -56,6 +60,39 @@ final class Invariants {
         }
         do { failures += try checkLog() } catch { failures.append("Cannot check unified log: \(error)") }
         return failures
+    }
+
+    private func cleanExitFailures(pid: pid_t) throws -> [String] {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        let deadline = Date().addingTimeInterval(5)
+        repeat {
+            // Measured system evidence: a voluntary Quit reports (0, 0, 0),
+            // abort reports (2, 6, 6). A disappeared PID alone proves neither.
+            let result = try Files.run("/usr/bin/log", ["show", "--start", formatter.string(from: started),
+                "--info", "--debug", "--style", "json", "--predicate",
+                "process == \"runningboardd\" AND eventMessage CONTAINS \"\(pid)\""],
+                in: artifacts.directory, timeout: 5)
+            try artifacts.text(result.output, name: "quit-system-\(pid).json")
+            guard result.status == 0 else { throw E2EFailure("System exit log failed: \(result.error)") }
+            guard let entries = try JSONSerialization.jsonObject(with: Data(result.output.utf8)) as? [[String: Any]] else {
+                throw E2EFailure("System exit log did not return a JSON array")
+            }
+            let messages = entries.compactMap { $0["eventMessage"] as? String }.filter {
+                // Exclude XPC services whose identity merely contains the parent PID.
+                $0.hasPrefix("[app<application.com.hex000.Stampo.e2e.") &&
+                $0.contains(">:\(pid)] termination reported by launchd ")
+            }
+            if !messages.isEmpty {
+                try artifacts.text(messages.joined(separator: "\n"), name: "quit-exit-status.txt")
+                print("Quit system exit PID \(pid): \(messages)")
+                return messages.allSatisfy { $0.hasSuffix("termination reported by launchd (0, 0, 0)") }
+                    ? [] : ["Quit PID \(pid) did not exit cleanly: \(messages)"]
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        } while Date() < deadline
+        return ["No system exit status for expected Quit PID \(pid) within 5 s"]
     }
 
     func windowFailures(app: E2EApp, baseline: WindowBaseline? = nil) -> [String] {

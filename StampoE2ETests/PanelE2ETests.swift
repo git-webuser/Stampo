@@ -173,7 +173,8 @@ final class PanelE2ETests: E2ETestCase {
         try recordWindowBaseline()
         try openStatusMenu()
         guard let pid = app.processID else { throw E2EFailure("Missing process before Quit") }
-        app.expectQuit()
+        try artifacts.text(String(pid), name: "quit-pid.txt")
+        try app.expectQuit()
         try app.tap(.statusQuit)
         XCTAssertTrue(waitUntil(timeout: 5) { NSRunningApplication(processIdentifier: pid) == nil },
                       "process still alive 5 s after Quit")
