@@ -309,14 +309,17 @@ explicit precondition for Settings×5/Quit×5; archived frames are not those run
 
 ## Isolated status-item position
 
-In DEBUG with -StampoE2E, E2EHooks.prepare() resets only the .e2e domain, then
-sets `NSStatusItem Preferred Position Item-0` to Float(300), a preferred distance
-from the right edge. applicationWillFinishLaunching calls prepare and flushes
-defaults before applicationDidFinishLaunching calls hover.start/installStatusItem.
-A script write before launch would be erased by prepare's reset, so the hook
-owns this value. The bundle-id precondition prevents writing the dev domain.
-Normal Debug and Release do not take this path. No icon is dragged, no foreign
-preferences are written and no other program is closed. The visibility guard
-and single HID left click remain unchanged. testStatusItemIsDrawn measures a
-fresh launch without clicking; five consecutive launches and a Settings check
-validate the selected position before final coverage.
+Before launching tests, run-e2e.sh writes Float(300) to
+`com.hex000.Stampo.e2e` / `NSStatusItem Preferred Position Item-0`, a preferred
+distance from the right edge, and records it in the runtime passport. The
+script seeds it before the process exists because AppKit can cache restoration
+state before applicationWillFinishLaunching. A first attempt writing in
+E2EHooks.prepare() persisted float 300 but left the AX item hidden at x=749.
+
+In DEBUG with -StampoE2E, prepare resets only the .e2e domain and preserves this
+single position key; it cannot erase the prelaunch seed. The bundle-id
+precondition prevents any dev-domain write. Normal Debug and Release do not
+preserve/reset these E2E preferences. No icon is dragged, no foreign preferences
+are written and no other program is closed. The visibility guard and one HID
+left click are unchanged. testStatusItemIsDrawn checks a fresh launch without
+clicking; five consecutive launches and one Settings check validate placement.
