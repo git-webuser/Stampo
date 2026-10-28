@@ -276,6 +276,13 @@ final class PanelE2ETests: E2ETestCase {
         try artifacts.step("settings-from-more")
         try app.input.press("⌘W")
         XCTAssertTrue(waitUntil(timeout: 3) { !settings.exists }, "Settings window remained after ⌘W")
+        // Current settingsTapped opens Settings without hiding the panel.
+        // Normalize through the real hotkey, without crossing the More button
+        // and resetting the hover/press state whose release is being tested.
+        if app.liveElement(.panel) != nil {
+            print("Settings left the panel visible; closing with HID hotkey before the window baseline")
+            try app.input.press("⌃⌥⌘N")
+        }
         try expectPanelClosed()
         expectWindowSetUnchanged()
     }
