@@ -79,12 +79,42 @@ final class PanelE2ETests: E2ETestCase {
         }
         let before = try stableButton(.panelMoreMenu, label: "more-before")
         try openMenu(.panelMoreMenu)
+        try selectVisibleMenuItem("Settings")
+        try closeSettingsWindow()
+        try openPanel()
+        let after = try stableButton(.panelMoreMenu, label: "more-after-settings")
+        expectReleased(before, after, message: "More button remained highlighted after Settings")
+        try closePanel()
+    }
+
+    func testMoreMenuClosesOnEsc() throws {
+        try app.launch(fixture: true)
+        try recordWindowBaseline()
+        try openPanel()
+        try openMenu(.panelMoreMenu)
         try app.input.park()
         try app.input.press("ESC")
-        XCTAssertTrue(waitUntil(timeout: 3) { self.visibleMenu == nil }, "More menu did not close after Esc")
-        let after = try stableButton(.panelMoreMenu, label: "more-released")
-        expectReleased(before, after, message: "More button remained highlighted after Esc")
-        try closePanel()
+        let closed = waitUntil(timeout: 3) { self.visibleMenu == nil }
+        // The lead is investigating the panel's Carbon Esc registration during
+        // NSMenu tracking. Keep the real HID probe and make a future fix fail
+        // strictly, rather than silently dropping this coverage.
+        let strict = XCTExpectedFailure.Options()
+        strict.isStrict = true
+        strict.issueMatcher = { $0.compactDescription.contains("More menu did not close after Esc") }
+        XCTExpectFailure("Known app issue (lead, 2026-10-28): Esc does not close the ⋯ menu while the panel holds Esc", options: strict) {
+            XCTAssertTrue(closed, "More menu did not close after Esc")
+        }
+        print("Known Esc probe: menu closed=\(closed); strict expected failure")
+        try artifacts.step("esc-result")
+        try artifacts.text(app.application.debugDescription, name: "esc-result-tree.txt")
+        if !closed {
+            // Cleanup follows the recorded Esc result; selecting Settings here
+            // never counts as Esc working and leaves the full invariants intact.
+            try selectVisibleMenuItem("Settings")
+            try closeSettingsWindow()
+        } else {
+            try closePanel()
+        }
     }
 
     func testTabFollowsPointer() throws {
@@ -222,6 +252,10 @@ final class PanelE2ETests: E2ETestCase {
 
     private func select(_ title: String, in control: E2EApp.Control) throws {
         try openMenu(control)
+        try selectVisibleMenuItem(title)
+    }
+
+    private func selectVisibleMenuItem(_ title: String) throws {
         let menu = try XCTUnwrap(visibleMenu, "Menu disappeared before selecting \(title)")
         // Reproduce daf3bad/fabf326: leave while NSMenu's tracking loop owns
         // mouse-up/exit delivery, rather than visiting the button afterwards.
@@ -232,6 +266,18 @@ final class PanelE2ETests: E2ETestCase {
         try app.input.click(at: CGPoint(x: frame.midX, y: frame.midY))
         XCTAssertTrue(waitUntil(timeout: 3) { self.visibleMenu == nil }, "Menu did not close in 3 s after \(title)")
         try app.input.park()
+    }
+
+    private func closeSettingsWindow() throws {
+        let settings = app.application.windows["Settings"].firstMatch
+        XCTAssertTrue(settings.waitForExistence(timeout: 3), "settings window did not open")
+        let general = app.application.descendants(matching: .any)["stampo.settings.tab.general"].firstMatch
+        XCTAssertTrue(general.exists, "Settings did not expose its General tab")
+        try artifacts.step("settings-from-more")
+        try app.input.press("⌘W")
+        XCTAssertTrue(waitUntil(timeout: 3) { !settings.exists }, "Settings window remained after ⌘W")
+        try expectPanelClosed()
+        expectWindowSetUnchanged()
     }
 
     private func expectValue(_ control: E2EApp.Control, _ expected: String, message: String) throws {

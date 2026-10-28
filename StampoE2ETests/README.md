@@ -184,3 +184,15 @@ Panel modes and delays reset to the E2E defaults on every panel reveal.
 P2 verifies that reset; it does not require a transient choice to persist.
 The late-hide race found by P1 is fixed in main by d956594, which is also a
 P1 oracle. Do not add a pause between closing and reopening the panel.
+
+
+## Известные проблемы приложения
+
+`PanelE2ETests/testMoreMenuClosesOnEsc` keeps the real HID Esc probe under a
+strict `XCTExpectFailure` (lead decision, 2026-10-28): Esc currently leaves the
+More menu open while the panel owns the global Carbon Esc hotkey. Only that
+assertion is expected; setup, cleanup and all invariants still have to pass.
+An unexpected pass fails the test and requires removing the expectation after
+the lead confirms the fix. Cleanup selects Settings only after recording the
+Esc result. `testPanelMenus` independently checks More release through Settings,
+closing its window and reopening the panel, as in the historical fabf326 bug.
