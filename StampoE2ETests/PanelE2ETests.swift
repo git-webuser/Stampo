@@ -429,7 +429,7 @@ final class PanelE2ETests: E2ETestCase {
         try artifacts.text(visibilityText, name: "status-visibility.json")
         print("Status item visibility: \(visibilityText)")
         XCTAssertTrue(visibility.drawn,
-                      "Status item is not drawn at its Accessibility frame \(frame): a menu bar manager or a crowded menu bar can hide it; foreground \(visibility.foregroundPixels)/\(visibility.samplePixels); window list: \(windowText)")
+                      "Status item is not drawn at its Accessibility frame \(frame): a menu bar manager or a crowded menu bar can hide it. On a notched display the menu bar has room for only a limited number of items; close menu bar apps or disconnect AirPods before the run; foreground \(visibility.foregroundPixels)/\(visibility.samplePixels); window list: \(windowText)")
         XCTAssertEqual(try required(.statusItem).frame, frame, "Status item moved during visibility check; no click was sent")
         return frame
     }

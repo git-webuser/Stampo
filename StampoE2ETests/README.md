@@ -307,19 +307,13 @@ correctly rejected the hidden icon before clicking. A visible icon remains an
 explicit precondition for Settings×5/Quit×5; archived frames are not those runs.
 
 
-## Isolated status-item position
+## Menu bar space
 
-Before launching tests, run-e2e.sh writes Float(300) to
-`com.hex000.Stampo.e2e` / `NSStatusItem Preferred Position Item-0`, a preferred
-distance from the right edge, and records it in the runtime passport. The
-script seeds it before the process exists because AppKit can cache restoration
-state before applicationWillFinishLaunching. A first attempt writing in
-E2EHooks.prepare() persisted float 300 but left the AX item hidden at x=749.
+Перед прогоном в строке меню **справа от выреза** должно быть место для значка
+Stampo E2E (около **40 pt**): закройте лишние программы со значками, отключите
+AirPods. Эти действия выполняет пользователь. Тест сохраняет AX-рамку, CG-окна
+и пиксели и отказывает до клика, если значок не нарисован.
 
-In DEBUG with -StampoE2E, prepare resets only the .e2e domain and preserves this
-single position key; it cannot erase the prelaunch seed. The bundle-id
-precondition prevents any dev-domain write. Normal Debug and Release do not
-preserve/reset these E2E preferences. No icon is dragged, no foreign preferences
-are written and no other program is closed. The visibility guard and one HID
-left click are unchanged. testStatusItemIsDrawn checks a fresh launch without
-clicking; five consecutive launches and one Settings check validate placement.
+Preferred-position writes were removed after three values left the icon hidden.
+Neither the script nor prepare preserves or sets an NSStatusItem position.
+The fresh-launch guard test remains; the environment must provide enough space.

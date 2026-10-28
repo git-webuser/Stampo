@@ -13,13 +13,7 @@ enum E2EHooks {
         precondition(Bundle.main.bundleIdentifier == "com.hex000.Stampo.e2e",
                      "E2E requires the isolated com.hex000.Stampo.e2e copy")
         let defaults = UserDefaults.standard
-        // The script seeds AppKit's position before process startup; AppKit
-        // can cache it before willFinishLaunching. Preserve only that E2E key
-        // when resetting the remaining preferences for every fresh launch.
-        let positionKey = "NSStatusItem Preferred Position Item-0"
-        let statusPosition = defaults.object(forKey: positionKey)
         defaults.removePersistentDomain(forName: "com.hex000.Stampo.e2e")
-        if let statusPosition { defaults.set(statusPosition, forKey: positionKey) }
         var arguments = defaults.volatileDomain(forName: UserDefaults.argumentDomain)
         // Reset only our identity. Volatile values keep hotkeys and the save
         // path deterministic without borrowing any preferences from the dev app.

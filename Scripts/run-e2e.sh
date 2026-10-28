@@ -229,14 +229,6 @@ fi
 printf '%s\n' "$passport" > "$artifacts/passport.txt"
 if [ "$build_only" -eq 1 ]; then echo "Build and signature checks passed. No UI tests were run."; exit 0; fi
 
-# AppKit may cache Item-0's preferred location before applicationWillFinishLaunching.
-# Seed only the isolated identity before the process exists; prepare preserves it.
-status_position=300
-defaults write com.hex000.Stampo.e2e 'NSStatusItem Preferred Position Item-0' -float "$status_position"
-passport="$passport · E2E status preferred position: $status_position (float)"
-printf '%s\n' "$passport" > "$artifacts/passport.txt"
-
-
 set +e
 pgrep -x Stampo > "$artifacts/processes-before-ui.txt" 2> "$artifacts/processes-before-ui.stderr"
 process_status=$?
