@@ -34,7 +34,7 @@ final class Invariants {
         // Return diagnostics, rather than asserting here: XCTest may abort a
         // teardown assertion before the caller can save evidence or terminate.
         var failures: [String] = []
-        if !app.quitExpected && app.application.state == .notRunning { failures.append("E2E process died during the scenario") }
+        if !app.terminationExpected && app.application.state == .notRunning { failures.append("E2E process died during the scenario") }
         do {
             let newCrashes = try Self.crashReports().subtracting(initialCrashes)
             if !newCrashes.isEmpty { failures.append("New Stampo crash reports: \(newCrashes.sorted())") }
@@ -43,7 +43,7 @@ final class Invariants {
             do { failures += try cleanExitFailures(pid: pid) }
             catch { failures.append("Cannot prove clean Quit for PID \(pid): \(error)") }
         }
-        if !app.quitExpected {
+        if !app.terminationExpected {
             if let pid = app.processID {
                 failures += windowFailures(app: app)
                 let root = AXUIElementCreateApplication(pid)

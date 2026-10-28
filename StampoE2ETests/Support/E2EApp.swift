@@ -24,6 +24,14 @@ final class E2EApp {
     private let appURL: URL
     private(set) var launched = false
     private(set) var expectedQuitProcessID: pid_t?
+    private(set) var accessibilityProbeProcessID: pid_t?
+    var terminationExpected: Bool { quitExpected || accessibilityProbeProcessID != nil }
+
+    func terminateForAccessibilityProbe() throws {
+        guard let processID else { throw E2EFailure("Missing process before the AX termination probe") }
+        accessibilityProbeProcessID = processID
+        terminate()
+    }
     var quitExpected: Bool { expectedQuitProcessID != nil }
 
     func expectQuit() throws {
@@ -98,11 +106,11 @@ final class E2EApp {
 
 @MainActor
 @discardableResult
-func waitUntil(timeout: TimeInterval, _ condition: () -> Bool) -> Bool {
+func waitUntil(timeout: TimeInterval, _ condition: () throws -> Bool) rethrows -> Bool {
     let deadline = Date().addingTimeInterval(timeout)
     repeat {
-        if condition() { return true }
+        if try condition() { return true }
         RunLoop.current.run(until: Date().addingTimeInterval(0.02))
     } while Date() < deadline
-    return condition()
+    return try condition()
 }

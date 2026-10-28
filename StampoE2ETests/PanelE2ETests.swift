@@ -4,6 +4,20 @@ import XCTest
 
 @MainActor
 final class PanelE2ETests: E2ETestCase {
+    func testAXQueryRejectsTerminatedProcess() throws {
+        try app.launch()
+        try recordWindowBaseline(primePanelCache: false)
+        let pid = try XCTUnwrap(app.processID, "Missing AX probe PID")
+        try app.terminateForAccessibilityProbe()
+        XCTAssertTrue(waitUntil(timeout: 3) { NSRunningApplication(processIdentifier: pid) == nil },
+                      "AX probe process did not terminate")
+        XCTAssertThrowsError(try app.liveElement(.statusItem)) { error in
+            let message = String(describing: error)
+            print("AX terminated-process probe: \(message)")
+            XCTAssertTrue(message.contains("AX"), "Expected an AX read error, received \(message)")
+        }
+    }
+
     func testOpenCloseCycles() throws {
         try app.launch()
         try recordWindowBaseline()
@@ -119,7 +133,7 @@ final class PanelE2ETests: E2ETestCase {
         try openMenu(.panelMoreMenu)
         try app.input.park()
         try app.input.press("ESC")
-        XCTAssertTrue(waitUntil(timeout: 3) { self.visibleMenu == nil }, "More menu did not close after Esc")
+        XCTAssertTrue(try waitUntil(timeout: 3) { try self.visibleMenu == nil }, "More menu did not close after Esc")
         try artifacts.step("menu-closed-by-esc")
         try closePanel()
     }
@@ -132,7 +146,8 @@ final class PanelE2ETests: E2ETestCase {
         try select("Scrolling", in: .panelModeMenu)
         try expectValue(.panelModeMenu, "Scrolling, down", message: "Scrolling was not selected")
         let counter = try required(.fixtureKeys)
-        let initialCount = try XCTUnwrap(Int(counter.value), "Fixture key counter is not numeric: \(counter.value)")
+        let counterValue = try counter.value
+        let initialCount = try XCTUnwrap(Int(counterValue), "Fixture key counter is not numeric: \(counterValue)")
         let mode = try required(.panelModeMenu)
         let modeFrame = try XCTUnwrap(mode.frame, "Mode button has no frame")
         try app.input.move(to: CGPoint(x: modeFrame.midX, y: modeFrame.midY))
@@ -151,9 +166,9 @@ final class PanelE2ETests: E2ETestCase {
         XCTAssertTrue(panelFrame.contains(below), "Tab target must be inside the panel window: \(below), \(panelFrame)")
         try app.input.move(to: below)
         RunLoop.current.run(until: Date().addingTimeInterval(0.1))
-        XCTAssertNotNil(app.liveElement(.panel), "Panel closed before the empty-window Tab")
+        XCTAssertNotNil(try app.liveElement(.panel), "Panel closed before the empty-window Tab")
         try app.input.press("TAB")
-        let received = waitUntil(timeout: 3) { self.app.liveElement(.fixtureKeys)?.value == String(initialCount + 1) }
+        let received = try waitUntil(timeout: 3) { try self.app.liveElement(.fixtureKeys)?.value == String(initialCount + 1) }
         let actual = try required(.fixtureKeys).value
         XCTAssertTrue(received, "Tab did not reach the fixture: counter \(actual), expected \(initialCount + 1)")
         XCTAssertEqual(try required(.panelModeMenu).value, "Scrolling, right", "Tab outside the drawn panel changed direction")
@@ -201,7 +216,7 @@ final class PanelE2ETests: E2ETestCase {
     }
 
     private func required(_ control: E2EApp.Control, file: StaticString = #filePath, line: UInt = #line) throws -> AccessibilityNode {
-        let exists = waitUntil(timeout: 3) { self.app.liveElement(control) != nil }
+        let exists = try waitUntil(timeout: 3) { try self.app.liveElement(control) != nil }
         XCTAssertTrue(exists, "Missing \(control.rawValue) before reading its value/frame", file: file, line: line)
         return try XCTUnwrap(app.liveElement(control), "Missing \(control.rawValue)", file: file, line: line)
     }
@@ -220,7 +235,7 @@ final class PanelE2ETests: E2ETestCase {
         var previous: CGRect?
         var stable = 0
         repeat {
-            if let frame = app.liveElement(.panel)?.frame, !frame.isEmpty {
+            if let frame = try app.liveElement(.panel)?.frame, !frame.isEmpty {
                 stable = frame == previous ? stable + 1 : 0
                 if stable >= 2 { return frame }
                 previous = frame
@@ -238,7 +253,7 @@ final class PanelE2ETests: E2ETestCase {
     }
 
     private func expectPanelClosed() throws {
-        XCTAssertTrue(waitUntil(timeout: 3) { self.app.liveElement(.panel) == nil }, "Panel did not disappear in 3 s")
+        XCTAssertTrue(try waitUntil(timeout: 3) { try self.app.liveElement(.panel) == nil }, "Panel did not disappear in 3 s")
         try app.input.park()
     }
 
@@ -249,13 +264,15 @@ final class PanelE2ETests: E2ETestCase {
     }
 
     private var visibleMenu: AccessibilityNode? {
-        app.accessibilityRoot?.first { $0.role == kAXMenuRole && !($0.frame?.isEmpty ?? true) }
+        get throws {
+            try app.accessibilityRoot.first { try $0.role == kAXMenuRole && !($0.frame?.isEmpty ?? true) }
+        }
     }
 
     private func openMenu(_ control: E2EApp.Control) throws {
         try app.input.park()
         try tapLive(control)
-        XCTAssertTrue(waitUntil(timeout: 3) { self.visibleMenu != nil }, "\(control.rawValue) did not open a menu")
+        XCTAssertTrue(try waitUntil(timeout: 3) { try self.visibleMenu != nil }, "\(control.rawValue) did not open a menu")
     }
 
     private func select(_ title: String, in control: E2EApp.Control) throws {
@@ -266,7 +283,7 @@ final class PanelE2ETests: E2ETestCase {
         var held = true
         try app.input.holdMouse(at: start)
         defer { if held { try? app.input.releaseMouse(at: release) } }
-        XCTAssertTrue(waitUntil(timeout: 3) { self.visibleMenu != nil }, "\(control.rawValue) did not open while pressed")
+        XCTAssertTrue(try waitUntil(timeout: 3) { try self.visibleMenu != nil }, "\(control.rawValue) did not open while pressed")
         let item = try visibleMenuItemFrame(title)
         release = CGPoint(x: item.midX, y: item.midY)
         // daf3bad/fabf326 lost the release and pointer exit inside NSMenu's
@@ -275,13 +292,13 @@ final class PanelE2ETests: E2ETestCase {
         try app.input.dragHeldMouse(from: start, to: release)
         try app.input.releaseMouse(at: release)
         held = false
-        XCTAssertTrue(waitUntil(timeout: 3) { self.visibleMenu == nil }, "Menu did not close in 3 s after \(title)")
+        XCTAssertTrue(try waitUntil(timeout: 3) { try self.visibleMenu == nil }, "Menu did not close in 3 s after \(title)")
         try app.input.park()
     }
 
     private func visibleMenuItemFrame(_ title: String) throws -> CGRect {
         let menu = try XCTUnwrap(visibleMenu, "Menu disappeared before selecting \(title)")
-        let item = try XCTUnwrap(menu.first { $0.role == kAXMenuItemRole && $0.title == title }, "Missing menu item \(title)")
+        let item = try XCTUnwrap(menu.first { try $0.role == kAXMenuItemRole && $0.title == title }, "Missing menu item \(title)")
         let frame = try XCTUnwrap(item.frame, "Menu item \(title) has no frame")
         XCTAssertFalse(frame.isEmpty, "Menu item \(title) is hidden")
         return frame
@@ -291,7 +308,7 @@ final class PanelE2ETests: E2ETestCase {
         try app.input.park()
         let frame = try visibleMenuItemFrame(title)
         try app.input.click(at: CGPoint(x: frame.midX, y: frame.midY))
-        XCTAssertTrue(waitUntil(timeout: 3) { self.visibleMenu == nil }, "Menu did not close in 3 s after \(title)")
+        XCTAssertTrue(try waitUntil(timeout: 3) { try self.visibleMenu == nil }, "Menu did not close in 3 s after \(title)")
         try app.input.park()
     }
 
@@ -310,7 +327,7 @@ final class PanelE2ETests: E2ETestCase {
         // Current settingsTapped opens Settings without hiding the panel.
         // Normalize through the real hotkey, without crossing the More button
         // and resetting the hover/press state whose release is being tested.
-        if app.liveElement(.panel) != nil {
+        if try app.liveElement(.panel) != nil {
             print("Settings left the panel visible; closing with HID hotkey before the window baseline")
             try app.input.press("⌃⌥⌘N")
         }
@@ -320,7 +337,7 @@ final class PanelE2ETests: E2ETestCase {
 
     private func expectValue(_ control: E2EApp.Control, _ expected: String, message: String) throws {
         _ = try required(control)
-        let matches = waitUntil(timeout: 3) { self.app.liveElement(control)?.value == expected }
+        let matches = try waitUntil(timeout: 3) { try self.app.liveElement(control)?.value == expected }
         let actual = try required(control).value
         XCTAssertTrue(matches, "\(message): value \(actual), expected \(expected)")
     }
@@ -395,7 +412,7 @@ final class PanelE2ETests: E2ETestCase {
             print("Status menu HID right click: \(opened ? "opened" : "did not open")")
         }
         if !opened {
-            guard let status = app.liveElement(.statusItem) else { throw E2EFailure("Status item is absent before AXPress") }
+            guard let status = try app.liveElement(.statusItem) else { throw E2EFailure("Status item is absent before AXPress") }
             // NSStatusItem may keep AXPress pending in its menu tracking loop.
             // Judge opening by the visible menu, and retain the AX result too.
             do { try status.press() }

@@ -1,61 +1,79 @@
 import ApplicationServices
 import Foundation
 
-/// Fast, bounded AX probes let the twenty panel cycles observe 100 ms frame
-/// samples without XCTest's per-query idle wait dominating the scenario.
+/// Fast, bounded AX queries distinguish an absent element from a failed read.
 struct AccessibilityNode {
     let element: AXUIElement
 
-    func attribute(_ name: String) -> CFTypeRef? {
+    func attribute(_ name: String, required: Bool = false) throws -> CFTypeRef? {
         var value: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(element, name as CFString, &value) == .success else { return nil }
-        return value
+        let result = AXUIElementCopyAttributeValue(element, name as CFString, &value)
+        if result == .success { return value }
+        // Optional attributes are legitimately unsupported by many leaf nodes.
+        if !required && (result == .attributeUnsupported || result == .noValue) { return nil }
+        throw E2EFailure("AX attribute \(name) failed: \(result.rawValue)")
     }
 
-    var identifier: String { attribute(kAXIdentifierAttribute) as? String ?? "" }
-    var title: String { attribute(kAXTitleAttribute) as? String ?? "" }
-    var value: String { attribute(kAXValueAttribute).map { String(describing: $0) } ?? "" }
-    var role: String { attribute(kAXRoleAttribute) as? String ?? "" }
+    var identifier: String { get throws { try attribute(kAXIdentifierAttribute) as? String ?? "" } }
+    var title: String { get throws { try attribute(kAXTitleAttribute) as? String ?? "" } }
+    var value: String { get throws { try attribute(kAXValueAttribute).map { String(describing: $0) } ?? "" } }
+    var role: String { get throws { try attribute(kAXRoleAttribute) as? String ?? "" } }
     var children: [AccessibilityNode] {
-        (attribute(kAXChildrenAttribute) as? [AXUIElement] ?? []).map { AccessibilityNode(element: $0) }
+        get throws {
+            (try attribute(kAXChildrenAttribute) as? [AXUIElement] ?? []).map { AccessibilityNode(element: $0) }
+        }
     }
     var frame: CGRect? {
-        guard let position = attribute(kAXPositionAttribute), let size = attribute(kAXSizeAttribute),
-              CFGetTypeID(position) == AXValueGetTypeID(), CFGetTypeID(size) == AXValueGetTypeID() else { return nil }
-        var point = CGPoint.zero
-        var extent = CGSize.zero
-        guard AXValueGetValue(position as! AXValue, .cgPoint, &point),
-              AXValueGetValue(size as! AXValue, .cgSize, &extent) else { return nil }
-        return CGRect(origin: point, size: extent)
+        get throws {
+            guard let position = try attribute(kAXPositionAttribute), let size = try attribute(kAXSizeAttribute),
+                  CFGetTypeID(position) == AXValueGetTypeID(), CFGetTypeID(size) == AXValueGetTypeID() else { return nil }
+            var point = CGPoint.zero
+            var extent = CGSize.zero
+            guard AXValueGetValue(position as! AXValue, .cgPoint, &point),
+                  AXValueGetValue(size as! AXValue, .cgSize, &extent) else { return nil }
+            return CGRect(origin: point, size: extent)
+        }
     }
 
-    func first(where matches: (AccessibilityNode) -> Bool) -> AccessibilityNode? {
+    func first(where matches: (AccessibilityNode) throws -> Bool) throws -> AccessibilityNode? {
         var pending = [self]
         var visited = 0
-        while !pending.isEmpty && visited < 2000 {
-            let node = pending.removeFirst()
+        while visited < pending.count {
+            guard visited < 2000 else { throw E2EFailure("AX traversal exceeded the 2000-node limit") }
+            let node = pending[visited]
             visited += 1
-            if matches(node) { return node }
-            pending += node.children
+            if try matches(node) { return node }
+            pending += try node.children
         }
         return nil
     }
 
     func press() throws {
         let result = AXUIElementPerformAction(element, kAXPressAction as CFString)
-        guard result == .success else { throw E2EFailure("AXPress failed for \(identifier): \(result.rawValue)") }
+        guard result == .success else { throw E2EFailure("AXPress failed: \(result.rawValue)") }
     }
 }
 
 extension E2EApp {
-    var accessibilityRoot: AccessibilityNode? {
-        guard let processID else { return nil }
-        let root = AXUIElementCreateApplication(processID)
-        AXUIElementSetMessagingTimeout(root, 2)
-        return AccessibilityNode(element: root)
+    var accessibilityRoot: AccessibilityNode {
+        get throws {
+            guard let pid = processID ?? accessibilityProbeProcessID ?? expectedQuitProcessID else {
+                throw E2EFailure("AX query has no isolated process PID")
+            }
+            let element = AXUIElementCreateApplication(pid)
+            let timeout = AXUIElementSetMessagingTimeout(element, 2)
+            guard timeout == .success else { throw E2EFailure("AX messaging timeout setup failed: \(timeout.rawValue)") }
+            let root = AccessibilityNode(element: element)
+            // A successful root response is required even when searching for
+            // absence; a dead/unresponsive process must never look like nil.
+            guard try root.attribute(kAXChildrenAttribute, required: true) is [AXUIElement] else {
+                throw E2EFailure("AX root children returned a malformed response for PID \(pid)")
+            }
+            return root
+        }
     }
 
-    func liveElement(_ control: Control) -> AccessibilityNode? {
-        accessibilityRoot?.first { $0.identifier == control.rawValue }
+    func liveElement(_ control: Control) throws -> AccessibilityNode? {
+        try accessibilityRoot.first { try $0.identifier == control.rawValue }
     }
 }

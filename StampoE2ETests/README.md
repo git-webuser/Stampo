@@ -258,3 +258,13 @@ window set return to baseline and the fixture retain its frame.
 в окно-образец Stampo). Клик в окно другой программы (глобальный монитор)
 автоматическим тестом не покрыт; проверяется вручную.
 Both monitors use `handleGlobalLeftMouseDown`.
+
+
+## AX query failures
+
+Native AX reads throw on a failed root children response, messaging error or
+2000-node traversal limit. Unsupported optional leaf attributes remain absent.
+`waitUntil` propagates a thrown query; it cannot turn that into an ordinary
+missing element. `testAXQueryRejectsTerminatedProcess` terminates only its owned
+copy, then requires liveElement to throw. That explicit probe skips process/
+window/AX liveness after termination; crash, log and input checks still run.
