@@ -14,6 +14,10 @@ enum E2EHooks {
                      "E2E requires the isolated com.hex000.Stampo.e2e copy")
         let defaults = UserDefaults.standard
         defaults.removePersistentDomain(forName: "com.hex000.Stampo.e2e")
+        // AppKit restores Item-0 before installing its status-bar window.
+        // prepare runs in willFinishLaunching, before hover.start creates it.
+        // Keep only the isolated copy to the right of hidden menu-bar items.
+        defaults.set(Float(300), forKey: "NSStatusItem Preferred Position Item-0")
         var arguments = defaults.volatileDomain(forName: UserDefaults.argumentDomain)
         // Reset only our identity. Volatile values keep hotkeys and the save
         // path deterministic without borrowing any preferences from the dev app.

@@ -302,6 +302,21 @@ unchanged; there is no new script preflight or environment adjustment.
 The PNG decoder now preserves top-left row order. BitmapTests covers four
 asymmetric corner colors; the old decoder read the top row as the bottom row.
 The original red/blue fixture is vertically symmetric and did not detect this.
-Offline verification passes, but the UI runner failed before executing the new
-XCTest (`Timed out while enabling automation mode`); a live guard run and final
-Settings×5/Quit×5 still require a working automation session.
+BitmapTests passed after the user confirmed automation. The live guard then
+correctly rejected the hidden icon before clicking. A visible icon remains an
+explicit precondition for Settings×5/Quit×5; archived frames are not those runs.
+
+
+## Isolated status-item position
+
+In DEBUG with -StampoE2E, E2EHooks.prepare() resets only the .e2e domain, then
+sets `NSStatusItem Preferred Position Item-0` to Float(300), a preferred distance
+from the right edge. applicationWillFinishLaunching calls prepare and flushes
+defaults before applicationDidFinishLaunching calls hover.start/installStatusItem.
+A script write before launch would be erased by prepare's reset, so the hook
+owns this value. The bundle-id precondition prevents writing the dev domain.
+Normal Debug and Release do not take this path. No icon is dragged, no foreign
+preferences are written and no other program is closed. The visibility guard
+and single HID left click remain unchanged. testStatusItemIsDrawn measures a
+fresh launch without clicking; five consecutive launches and a Settings check
+validate the selected position before final coverage.

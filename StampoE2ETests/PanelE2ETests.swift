@@ -4,6 +4,13 @@ import XCTest
 
 @MainActor
 final class PanelE2ETests: E2ETestCase {
+    func testStatusItemIsDrawn() throws {
+        try app.launch()
+        try recordWindowBaseline(primePanelCache: false)
+        _ = try verifiedStatusItemFrame()
+        expectWindowSetUnchanged()
+    }
+
     func testAXQueryRejectsTerminatedProcess() throws {
         try app.launch()
         try recordWindowBaseline(primePanelCache: false)
@@ -403,12 +410,13 @@ final class PanelE2ETests: E2ETestCase {
         return settings.exists && quit.exists && !settings.frame.isEmpty && !quit.frame.isEmpty
     }
 
-    private func openStatusMenu() throws {
+    private func verifiedStatusItemFrame() throws -> CGRect {
         try app.input.park()
         try artifacts.text(app.application.debugDescription, name: "before-status-menu-tree.txt")
         let frame = try XCTUnwrap(required(.statusItem).frame, "Status item has no Accessibility frame")
         print("Status item frame: \(frame)")
         let pid = try XCTUnwrap(app.processID, "Missing process for status-item diagnostics")
+        print("Status item PID: \(pid)")
         let windows = try StatusItemVisibility.windows(pid: pid, statusFrame: frame)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -423,6 +431,11 @@ final class PanelE2ETests: E2ETestCase {
         XCTAssertTrue(visibility.drawn,
                       "Status item is not drawn at its Accessibility frame \(frame): a menu bar manager or a crowded menu bar can hide it; foreground \(visibility.foregroundPixels)/\(visibility.samplePixels); window list: \(windowText)")
         XCTAssertEqual(try required(.statusItem).frame, frame, "Status item moved during visibility check; no click was sent")
+        return frame
+    }
+
+    private func openStatusMenu() throws {
+        let frame = try verifiedStatusItemFrame()
         // Click exactly the frame whose pixels were checked, rather than
         // resolving a potentially moved status item to an unverified target.
         try app.input.click(at: CGPoint(x: frame.midX, y: frame.midY))
