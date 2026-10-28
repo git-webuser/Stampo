@@ -101,9 +101,14 @@ final class PanelE2ETests: E2ETestCase {
         let strict = XCTExpectedFailure.Options()
         strict.isStrict = true
         strict.issueMatcher = { $0.compactDescription.contains("More menu did not close after Esc") }
+        // XCTest still aborts a fail-fast UI test on an expected assertion.
+        // Continue across this one assertion so cleanup and invariants run.
+        let previous = continueAfterFailure
+        continueAfterFailure = true
         XCTExpectFailure("Known app issue (lead, 2026-10-28): Esc does not close the ⋯ menu while the panel holds Esc", options: strict) {
             XCTAssertTrue(closed, "More menu did not close after Esc")
         }
+        continueAfterFailure = previous
         print("Known Esc probe: menu closed=\(closed); strict expected failure")
         try artifacts.step("esc-result")
         try artifacts.text(app.application.debugDescription, name: "esc-result-tree.txt")

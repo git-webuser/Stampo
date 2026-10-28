@@ -196,3 +196,8 @@ An unexpected pass fails the test and requires removing the expectation after
 the lead confirms the fix. Cleanup selects Settings only after recording the
 Esc result. `testPanelMenus` independently checks More release through Settings,
 closing its window and reopening the panel, as in the historical fabf326 bug.
+
+The runner accepts XCTest's `Expected Failure` summary for that strict probe;
+zero completed tests, skipped tests and unexpected failures still fail the run.
+The expected assertion temporarily permits continuation so its cleanup runs;
+fail-fast behavior is restored before cleanup and common invariants.

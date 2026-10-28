@@ -275,8 +275,13 @@ python3 - "$artifacts/summary.json" <<'PY'
 import json, sys
 with open(sys.argv[1]) as f: s=json.load(f)
 total, failed = s.get('totalTestCount',0), s.get('failedTests',0)
+expected = s.get('expectedFailures',0)
 print(f'E2E tests reported: {total}, failed {failed}')
-if not isinstance(total,int) or total <= 0 or failed or s.get('passedTests',0) <= 0 or s.get('skippedTests',0) or s.get('result') != 'Passed': sys.exit(1)
+print(f'E2E expected failure tests: {expected}')
+# A strict XCTExpectFailure is a completed test, not a skip. XCTest reports
+# "Expected Failure" when that is the only test selected; unexpected passes
+# still appear in failedTests and must fail this runner.
+if not isinstance(total,int) or total <= 0 or failed or s.get('passedTests',0) + expected <= 0 or s.get('skippedTests',0) or s.get('result') not in ('Passed', 'Expected Failure'): sys.exit(1)
 PY
 summary_status=$?
 set -e
