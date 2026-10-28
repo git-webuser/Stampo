@@ -189,21 +189,9 @@ The late-hide race found by P1 is fixed in main by d956594, which is also a
 P1 oracle. Do not add a pause between closing and reopening the panel.
 
 
-## Известные проблемы приложения
-
-`PanelE2ETests/testMoreMenuClosesOnEsc` keeps the real HID Esc probe under a
-strict `XCTExpectFailure` (lead decision, 2026-10-28): Esc currently leaves the
-More menu open while the panel owns the global Carbon Esc hotkey. Only that
-assertion is expected; setup, cleanup and all invariants still have to pass.
-An unexpected pass fails the test and requires removing the expectation after
-the lead confirms the fix. Cleanup selects Settings only after recording the
-Esc result. `testPanelMenus` independently checks More release through Settings,
-closing its window and reopening the panel, as in the historical fabf326 bug.
-
-The runner accepts XCTest's `Expected Failure` summary for that strict probe;
-zero completed tests, skipped tests and unexpected failures still fail the run.
-The expected assertion temporarily permits continuation so its cleanup runs;
-fail-fast behavior is restored before cleanup and common invariants.
+`testMoreMenuClosesOnEsc` is ordinary HID regression coverage after the
+045b2ff fix in main (PR #53). Reversing that app fix is its oracle. The runner
+rejects expected failures as well as unexpected failures, skips and zero tests.
 
 For the More → Settings path, current settingsTapped leaves the panel visible.
 After closing Settings, the test hides that retained panel through the HID

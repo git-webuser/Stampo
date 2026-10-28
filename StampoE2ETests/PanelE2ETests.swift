@@ -93,32 +93,9 @@ final class PanelE2ETests: E2ETestCase {
         try openMenu(.panelMoreMenu)
         try app.input.park()
         try app.input.press("ESC")
-        let closed = waitUntil(timeout: 3) { self.visibleMenu == nil }
-        // The lead is investigating the panel's Carbon Esc registration during
-        // NSMenu tracking. Keep the real HID probe and make a future fix fail
-        // strictly, rather than silently dropping this coverage.
-        let strict = XCTExpectedFailure.Options()
-        strict.isStrict = true
-        strict.issueMatcher = { $0.compactDescription.contains("More menu did not close after Esc") }
-        // XCTest still aborts a fail-fast UI test on an expected assertion.
-        // Continue across this one assertion so cleanup and invariants run.
-        let previous = continueAfterFailure
-        continueAfterFailure = true
-        XCTExpectFailure("Known app issue (lead, 2026-10-28): Esc does not close the ⋯ menu while the panel holds Esc", options: strict) {
-            XCTAssertTrue(closed, "More menu did not close after Esc")
-        }
-        continueAfterFailure = previous
-        print("Known Esc probe: menu closed=\(closed); strict expected failure")
-        try artifacts.step("esc-result")
-        try artifacts.text(app.application.debugDescription, name: "esc-result-tree.txt")
-        if !closed {
-            // Cleanup follows the recorded Esc result; selecting Settings here
-            // never counts as Esc working and leaves the full invariants intact.
-            try selectVisibleMenuItem("Settings")
-            try closeSettingsWindow()
-        } else {
-            try closePanel()
-        }
+        XCTAssertTrue(waitUntil(timeout: 3) { self.visibleMenu == nil }, "More menu did not close after Esc")
+        try artifacts.step("menu-closed-by-esc")
+        try closePanel()
     }
 
     func testTabFollowsPointer() throws {
