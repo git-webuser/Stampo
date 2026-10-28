@@ -3,6 +3,11 @@ import XCTest
 
 @MainActor
 final class Invariants {
+    struct WindowBaseline {
+        let processID: pid_t
+        let windows: Set<String>
+    }
+
     private let started = Date()
     private let initialCrashes: Set<String>
     private var initialWindows: Set<String>?
@@ -14,10 +19,15 @@ final class Invariants {
         initialCrashes = try Self.crashReports()
     }
 
-    func recordWindowBaseline(app: E2EApp) throws {
+    func captureWindowBaseline(app: E2EApp, name: String) throws -> WindowBaseline {
         guard let pid = app.processID else { throw E2EFailure("Cannot record windows: E2E process is absent") }
-        initialWindows = try Self.windowStates(pid: pid)
-        try artifacts.text(try Self.allWindowDescription(pid: pid), name: "windows-before.txt")
+        let baseline = WindowBaseline(processID: pid, windows: try Self.windowStates(pid: pid))
+        try artifacts.text(try Self.allWindowDescription(pid: pid), name: "windows-\(name).txt")
+        return baseline
+    }
+
+    func recordWindowBaseline(app: E2EApp) throws {
+        initialWindows = try captureWindowBaseline(app: app, name: "before").windows
     }
 
     func check(app: E2EApp) -> [String] {
@@ -48,14 +58,15 @@ final class Invariants {
         return failures
     }
 
-    func windowFailures(app: E2EApp) -> [String] {
-        guard let initialWindows else { return ["Window baseline has not been recorded"] }
+    func windowFailures(app: E2EApp, baseline: WindowBaseline? = nil) -> [String] {
+        guard let expected = baseline?.windows ?? initialWindows else { return ["Window baseline has not been recorded"] }
         guard let pid = app.processID else { return ["Cannot inspect windows: E2E process is absent"] }
-        let settled = waitUntil(timeout: 3) { (try? Self.windowStates(pid: pid)) == initialWindows }
+        if let baseline, baseline.processID != pid { return ["E2E process changed after the window snapshot"] }
+        let settled = waitUntil(timeout: 3) { (try? Self.windowStates(pid: pid)) == expected }
         do {
             windowProbe += 1
             try artifacts.text(try Self.allWindowDescription(pid: pid), name: "windows-after-\(windowProbe).txt")
-            return settled ? [] : ["E2E full window set did not return to baseline: \(initialWindows) -> \(try Self.windowStates(pid: pid))"]
+            return settled ? [] : ["E2E full window set did not return to baseline: \(expected) -> \(try Self.windowStates(pid: pid))"]
         } catch { return ["Cannot inspect E2E windows: \(error)"] }
     }
 

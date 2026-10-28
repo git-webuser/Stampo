@@ -78,8 +78,15 @@ final class PanelE2ETests: E2ETestCase {
             }
         }
         let before = try stableButton(.panelMoreMenu, label: "more-before")
+        let openWindows = try captureWindowBaseline(name: "before-more-settings")
         try select("Settings", in: .panelMoreMenu)
         try closeSettingsWindow()
+        // The phase snapshot keeps the panel on screen. It does not replace
+        // teardown's original closed-panel baseline or exempt any window ids.
+        expectWindowSetUnchanged(baseline: openWindows)
+        let immediate = try stableButton(.panelMoreMenu, label: "more-immediately-after-settings")
+        expectReleased(before, immediate, message: "More button remained highlighted immediately after Settings")
+        try normalizePanelAfterSettings()
         try openPanel()
         let after = try stableButton(.panelMoreMenu, label: "more-after-settings")
         expectReleased(before, after, message: "More button remained highlighted after Settings")
@@ -276,6 +283,10 @@ final class PanelE2ETests: E2ETestCase {
         try artifacts.step("settings-from-more")
         try app.input.press("⌘W")
         XCTAssertTrue(waitUntil(timeout: 3) { !settings.exists }, "Settings window remained after ⌘W")
+        try app.input.park()
+    }
+
+    private func normalizePanelAfterSettings() throws {
         // Current settingsTapped opens Settings without hiding the panel.
         // Normalize through the real hotkey, without crossing the More button
         // and resetting the hover/press state whose release is being tested.
