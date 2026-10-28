@@ -39,8 +39,8 @@ enum Files {
                                               bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
                                                 | CGBitmapInfo.byteOrder32Big.rawValue) else { return false }
                 context.setRenderingIntent(.relativeColorimetric)
-                context.translateBy(x: 0, y: CGFloat(height))
-                context.scaleBy(x: 1, y: -1)
+                // Keep CGImage's row order. Flipping this bitmap context
+                // swaps top/bottom in the stored pixel rows used by rgba.
                 context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
                 return true
             }
