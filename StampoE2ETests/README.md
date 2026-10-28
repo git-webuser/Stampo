@@ -138,8 +138,7 @@ Quarantine, if authorized, must use XCTSkip with a reason/date and be listed her
 
 `S0/testPanelLifecycle` checks launch, status, the global hotkey, required panel
 controls, close and clean invariants. `S0b` covers fixture pixels and the editor
-hook. `PanelE2ETests` has six methods: open/close cycles, panel menus, the known
-Esc probe, pointer-dependent Tab, status Settings, and status Quit. No skips or
+hook. `PanelE2ETests` has six methods: open/close cycles, panel menus, HID Esc menu closure, pointer-dependent Tab, status Settings, and status Quit. No skips or
 quarantined scenarios are enabled.
 
 ## S0 behavior oracle
@@ -194,9 +193,11 @@ P1 oracle. Do not add a pause between closing and reopening the panel.
 rejects expected failures as well as unexpected failures, skips and zero tests.
 
 For the More → Settings path, current settingsTapped leaves the panel visible.
-After closing Settings, the test hides that retained panel through the HID
-hotkey before comparing the baseline and reopening it. The pointer never
-crosses More during this normalization, preserving the stale-highlight probe.
+After closing Settings, the test first compares More while the panel remains
+visible and verifies the full window set against an immutable phase snapshot.
+It then hides the retained panel through the HID hotkey, verifies the original
+closed-panel baseline, reopens and compares More again. The pointer never
+crosses More during this normalization.
 
 Menu selections use a single held HID gesture: press the popup, drag to its
 item while NSMenu tracks, and release there. This targets the lost release
@@ -214,13 +215,15 @@ mode/delay afterClose mutation on this macOS; see the oracle limitations below.
 (два клика) и `build/e2e/stage3-final/oracles-held/p2-mode-delay/{mutation.patch,red.log}`
 (удерживаемый HID-жест). Несмотря на имя red.log, оба запуска зелёные.
 
-`fabf326` (More через Settings): прежнее сравнение после закрытия/открытия
-панели не покраснило тест; доказательства сохранены в
-`build/e2e/stage3-final/oracles-held/p2-more/`. Обновление 4 добавляет одну
-проверку сразу после ⌘W, пока панель видна, затем прежнюю проверку после
-нормализации. Снимок полного набора окон с открытой панелью используется
-только для этой фазы; исходная база teardown со скрытой панелью сохраняется.
-Результат единственной новой мутации записывается в отчёте.
+`fabf326` (More через Settings): не воспроизводится на macOS 27.0.1 (26A434),
+2026-10-28. Прежнее сравнение после закрытия/открытия панели не покраснило
+тест (`build/e2e/stage3-final/oracles-held/p2-more/`). Единственная новая
+попытка по обновлению 4 сравнивает More сразу после ⌘W, пока панель видна,
+затем после нормализации: мутант и здоровый контроль зелёные, expectedFailures 0.
+Доказательства: `build/e2e/stage3-update4/oracles/p2-more/`. Чувствительность
+к этому историческому оракулу не доказана; новых жестов и предпосылок не пробуем.
+Снимок полного набора окон с открытой панелью используется только для этой
+фазы; исходная база teardown со скрытой панелью сохраняется.
 
 `1f1e69f` — оракул снят: его исправление откатили в bc68d99. Проверки
 верхнего края остаются свойствами. Явный native safe-area inset, если

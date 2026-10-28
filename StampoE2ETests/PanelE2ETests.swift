@@ -24,8 +24,8 @@ final class PanelE2ETests: E2ETestCase {
             let modeFrame = try XCTUnwrap(mode.frame, "Mode button has no frame")
             let offset = modeFrame.minY - frame.minY
             print("P1 cycle \(cycle + 1): \(opener) × \(closer), frame=\(frame), content offset=\(offset) pt")
-            // Measured on the healthy notched primary display; window geometry
-            // alone cannot detect the 1f1e69f safe-area regression.
+            // Measured on the healthy notched primary display. Check content
+            // placement separately because the window can still start at y=0.
             XCTAssertEqual(offset, 4, accuracy: 2,
                            "panel content top offset \(offset) pt, expected 4 (±2)")
             try artifacts.step("cycle-\(cycle + 1)-open")
