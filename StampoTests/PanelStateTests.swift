@@ -122,21 +122,22 @@ import Testing
 
     @Test(arguments: [PanelState.showing, .main, .archive, .translate, .countdown, .waiting])
     func visibleStatesHoldTheHotkey(state: PanelState) {
-        #expect(state.wantsEscapeHotkey(isSharePickerOpen: false))
+        #expect(state.wantsEscapeHotkey(isSharePickerOpen: false, isMenuTracking: false))
     }
 
     /// .hiding is already on its way out, and the rest have no panel to act on.
     @Test(arguments: [PanelState.hidden, .hiding, .transitioning(to: .archive),
                       .preSelection(.selection), .stale(reason: .sleep)])
     func everythingElseReleasesIt(state: PanelState) {
-        #expect(!state.wantsEscapeHotkey(isSharePickerOpen: false))
+        #expect(!state.wantsEscapeHotkey(isSharePickerOpen: false, isMenuTracking: false))
     }
 
     /// The strip is on screen, but Esc belongs to the capture session: a
     /// hotkey the panel held here would shadow the session's and close the
     /// strip without telling the capture it was over.
     @Test func theScrollingStripLeavesEscToTheSession() {
-        #expect(!PanelState.scrollCapture.wantsEscapeHotkey(isSharePickerOpen: false))
+        #expect(!PanelState.scrollCapture.wantsEscapeHotkey(isSharePickerOpen: false,
+                                                            isMenuTracking: false))
     }
 
     /// ⇥ is only worth claiming where the header has a list to step through.
@@ -181,7 +182,33 @@ import Testing
     /// meant for the sheet and close the panel it hangs off instead.
     @Test(arguments: [PanelState.showing, .main, .archive, .countdown])
     func anOpenShareSheetTakesTheHotkeyBack(state: PanelState) {
-        #expect(!state.wantsEscapeHotkey(isSharePickerOpen: true))
+        #expect(!state.wantsEscapeHotkey(isSharePickerOpen: true, isMenuTracking: false))
+    }
+
+    /// A menu tracks keys in its own loop. A registered hotkey eats the Esc
+    /// before the menu sees it, so the menu stayed open and the panel behind it
+    /// did not hear Esc either. With the key handed back, the first Esc closes
+    /// the menu — the panel's own, an archive cell's, the translator's language
+    /// list — whichever state the panel is in.
+    @Test(arguments: [PanelState.showing, .main, .archive, .translate, .countdown, .waiting])
+    func anOpenMenuTakesTheHotkeyBack(state: PanelState) {
+        #expect(!state.wantsEscapeHotkey(isSharePickerOpen: false, isMenuTracking: true))
+    }
+
+    /// And the second Esc finds the key held again: closing the menu is the
+    /// only thing that changes, so the panel closes as it did before.
+    @Test(arguments: [PanelState.showing, .main, .archive, .translate, .countdown, .waiting])
+    func whenTheMenuHasClosedTheHotkeyIsHeldAgain(state: PanelState) {
+        #expect(!state.wantsEscapeHotkey(isSharePickerOpen: false, isMenuTracking: true))
+        #expect(state.wantsEscapeHotkey(isSharePickerOpen: false, isMenuTracking: false))
+    }
+
+    /// A menu does not make a hidden panel want the key.
+    @Test(arguments: [PanelState.hidden, .hiding, .preSelection(.window),
+                      .stale(reason: .displayChange)])
+    func anOpenMenuDoesNotHoldTheHotkeyForAHiddenPanel(state: PanelState) {
+        #expect(!state.wantsEscapeHotkey(isSharePickerOpen: false, isMenuTracking: true))
+        #expect(!state.wantsEscapeHotkey(isSharePickerOpen: false, isMenuTracking: false))
     }
 
     /// One strip, two errands: it was built for a translation and now also

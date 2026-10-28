@@ -310,9 +310,15 @@ extension PanelState {
     /// — the panel is already going away, and the key should return to the
     /// system as early as possible. A share sheet takes it back too: the sheet
     /// is a window of ours, so a registered hotkey would swallow the Esc meant
-    /// to dismiss it and close the panel out from under the sheet instead.
-    func wantsEscapeHotkey(isSharePickerOpen: Bool) -> Bool {
-        guard !isSharePickerOpen else { return false }
+    /// to dismiss it and close the panel out from under the sheet instead. An
+    /// open menu — the panel's own, an archive cell's, the translator's language
+    /// list — takes it back for the same reason: the menu tracks keys in its own
+    /// loop, a registered hotkey eats the Esc before the menu sees it, and the
+    /// menu stayed open with the panel behind it deaf to Esc. With the key
+    /// handed back, the first Esc closes the menu and the second one reaches the
+    /// panel as it always did.
+    func wantsEscapeHotkey(isSharePickerOpen: Bool, isMenuTracking: Bool) -> Bool {
+        guard !isSharePickerOpen, !isMenuTracking else { return false }
         switch self {
         case .showing, .main, .archive, .translate, .countdown, .waiting: return true
         case .hidden, .transitioning, .hiding, .scrollCapture, .preSelection, .stale: return false
@@ -1125,14 +1131,20 @@ final class NotchPanelController: NSObject {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            Task { @MainActor [weak self] in self?.isMenuTracking = true }
+            Task { @MainActor [weak self] in
+                self?.isMenuTracking = true
+                self?.syncEscapeHotkey()
+            }
         }
         let t2 = NotificationCenter.default.addObserver(
             forName: NSMenu.didEndTrackingNotification,
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            Task { @MainActor [weak self] in self?.isMenuTracking = false }
+            Task { @MainActor [weak self] in
+                self?.isMenuTracking = false
+                self?.syncEscapeHotkey()
+            }
         }
         // The panel now lives in a dedicated max-level CGS space (see create()),
         // so a Space switch no longer corrupts its binding — it stays correctly
@@ -2346,7 +2358,8 @@ final class NotchPanelController: NSObject {
             TransientHotkeyCenter.shiftTab.releaseAll()
         }
 
-        let wantsEsc = state.wantsEscapeHotkey(isSharePickerOpen: isSharePickerOpen)
+        let wantsEsc = state.wantsEscapeHotkey(isSharePickerOpen: isSharePickerOpen,
+                                               isMenuTracking: isMenuTracking)
         if wantsEsc, escToken == nil {
             escToken = TransientHotkeyCenter.escape.push { [weak self] in
                 guard let self, self.isVisible else { return }
