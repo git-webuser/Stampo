@@ -70,21 +70,24 @@ final class PanelE2ETests: E2ETestCase {
         try app.launch(fixture: true)
         try recordWindowBaseline()
         let trigger = try XCTUnwrap(Input.notchTrigger, "Primary display has no menu-bar trigger")
+        let initial = try XCTUnwrap(required(.fixture).frame, "Fixture has no initial frame")
+        try recordOutsideState(at: CGPoint(x: initial.midX, y: initial.midY), label: "baseline-after-close")
         for cycle in 0..<4 {
+            let label = "cycle-\(cycle + 1)"
+            let (fixture, pid) = try raiseFixtureBeforePanel(label: label)
+            let point = CGPoint(x: fixture.midX, y: fixture.midY)
             let opener = ["hotkey", "notch"][cycle % 2]
             try app.input.park()
             if opener == "hotkey" { try app.input.press("⌃⌥⌘N") }
             else { try app.input.click(at: trigger.point) }
             let panel = try settledPanel()
-            let fixture = try XCTUnwrap(required(.fixture).frame, "Fixture has no outside-click frame")
-            XCTAssertFalse(fixture.isEmpty, "Fixture has an empty outside-click frame")
-            let point = CGPoint(x: fixture.midX, y: fixture.midY)
             XCTAssertFalse(panel.contains(point), "Fixture center must be outside the panel: \(point)")
-            print("P1 outside cycle \(cycle + 1): \(opener), fixture=\(fixture), point=\(point), frontmost=\(NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "none")")
-            let pid = try XCTUnwrap(app.processID, "Missing fixture PID before outside click")
-            try requireFixtureClickTarget(at: point, fixture: fixture, pid: pid, label: "cycle-\(cycle + 1)")
+            print("P1 outside cycle \(cycle + 1): \(opener), fixture=\(fixture), point=\(point)")
+            try recordOutsideState(at: point, label: "\(label)-before-click")
+            try requireFixtureClickTarget(at: point, fixture: fixture, pid: pid, label: label)
             try app.input.click(at: point)
             try expectPanelClosed()
+            try recordOutsideState(at: point, label: "\(label)-after-close")
             expectWindowSetUnchanged()
             XCTAssertEqual(try required(.fixture).frame, fixture, "Outside click displaced or closed the fixture")
             try artifacts.step("outside-\(cycle + 1)-closed")
@@ -94,10 +97,9 @@ final class PanelE2ETests: E2ETestCase {
     func testOutsideClickGuardRefusesForeignWindow() throws {
         try app.launch(fixture: true)
         try recordWindowBaseline()
+        let (fixture, pid) = try raiseFixtureBeforePanel(label: "refusal-start")
         try openPanel()
-        let fixture = try XCTUnwrap(required(.fixture).frame, "Fixture has no guard-probe frame")
         let point = CGPoint(x: fixture.midX, y: fixture.midY)
-        let pid = try XCTUnwrap(app.processID, "Missing fixture PID")
         let primary = try XCTUnwrap(NSScreen.screens.first, "Missing primary screen")
         let small = NSRect(x: point.x - 40, y: primary.frame.maxY - point.y - 30, width: 80, height: 60)
         let covers: [(String, NSRect, NSWindow.Level, CGFloat)] = [
@@ -132,6 +134,42 @@ final class PanelE2ETests: E2ETestCase {
         // Both probes only inspect the blocked point. Remove the runner's
         // windows before ordinary HID cleanup of the panel.
         try closePanel()
+    }
+
+    private func raiseFixtureBeforePanel(label: String) throws -> (CGRect, pid_t) {
+        XCTAssertNil(try app.liveElement(.panel), "Fixture activation must happen while the panel is closed")
+        try app.input.park()
+        let node = try required(.fixture)
+        let fixture = try XCTUnwrap(node.frame, "Fixture has no frame before activation")
+        XCTAssertFalse(fixture.isEmpty, "Fixture has an empty frame before activation")
+        let point = CGPoint(x: fixture.midX, y: fixture.midY)
+        let pid = try XCTUnwrap(app.processID, "Missing fixture PID before activation")
+        // Do this once while the panel is closed: activation cannot satisfy
+        // the subsequent assertion that only the outside click closes it.
+        app.application.activate()
+        let result = AXUIElementPerformAction(node.element, kAXRaiseAction as CFString)
+        guard result == .success else { throw E2EFailure("Fixture AXRaise failed: \(result.rawValue)") }
+        print("Outside preparation \(label): one activate and one AXRaise, panel closed")
+        let raised = try waitUntil(timeout: 1) {
+            let first = try self.clickWindows().first {
+                $0.alpha > 0 && $0.frame.contains(point) && !self.isSystemAutomationOverlay($0)
+            }
+            return first?.processID == Int(pid) && first.map { self.framesMatch($0.frame, fixture) } == true
+        }
+        try recordOutsideState(at: point, label: "\(label)-after-raise")
+        guard raised else { throw E2EFailure("Fixture was not first within 1 s after one activate/AXRaise; no click was sent") }
+        return (fixture, pid)
+    }
+
+    private func recordOutsideState(at point: CGPoint, label: String) throws {
+        let front = NSWorkspace.shared.frontmostApplication
+        let windows = try clickWindows().filter { $0.alpha > 0 && $0.frame.contains(point) }
+        let eligible = windows.first { !isSystemAutomationOverlay($0) }
+        let text = "\(label): uptime=\(ProcessInfo.processInfo.systemUptime), point=\(point)\n" +
+            "frontmost=\(front?.localizedName ?? "none"), PID=\(front?.processIdentifier ?? -1), bundle=\(front?.bundleIdentifier ?? "none")\n" +
+            "First raw hit: \(windows.first?.description ?? "none")\nFirst after system overlay: \(eligible?.description ?? "none")"
+        print("Outside state: \(text)")
+        try artifacts.text(text, name: "outside-state-\(label).txt")
     }
 
     private struct FixtureClickRefusal: Error, CustomStringConvertible {

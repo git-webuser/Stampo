@@ -385,3 +385,17 @@ Both exact PID/window numbers must be rejected, without clicking the covered
 point. Runner windows are removed before ordinary panel cleanup. User windows
 are never used as probes. The test does not distinguish which monitor handled
 the accepted fixture click; both route to `handleGlobalLeftMouseDown`.
+
+
+Before each outside cycle, while the panel is closed, the test calls
+XCUIApplication.activate and AXRaise on its own fixture once. One bounded
+read-only wait (≤1 s) requires the fixture to be the first eligible window.
+Only then does it open the panel and apply the unchanged click guard. No
+activation is retried, and no activation occurs with the panel open. The
+runner-cover probe uses the same closed-panel preparation before opening.
+
+Outside diagnostics record frontmost name/PID/bundle and the first raw and
+first eligible windows after closing, after raise and before clicking. These
+observations distinguish a return to a previous foreground app from window
+ordering during the next opening; the test does not alter application focus
+behavior when closing the panel.
