@@ -61,6 +61,33 @@ final class ArchiveEscapeE2ETests: E2ETestCase {
         expectWindowSetUnchanged()
     }
 
+    func testEscClosesMenuBeforeUnwinding() throws {
+        let frame = try prepareArchive()
+        try click(E2EApp.Control.archiveColorFormat.rawValue)
+        XCTAssertTrue(try waitUntil(timeout: 3) { try self.visibleMenu != nil }, "Archive color-format menu did not open")
+        try artifacts.step("archive-menu-open")
+        try app.input.press("ESC")
+        XCTAssertTrue(try waitUntil(timeout: 3) { try self.visibleMenu == nil }, "First Esc did not close the archive menu")
+        RunLoop.current.run(until: Date().addingTimeInterval(0.4))
+        XCTAssertNotNil(try app.liveElement(.panel), "First Esc closed the panel together with the archive menu after 400 ms")
+        try expectArchiveState(expanded: true, selecting: true, frame: frame, label: "menu-esc-1-layers-retained")
+        try app.input.press("ESC")
+        try observeArchiveState(expanded: false, selecting: true, frame: frame, label: "menu-esc-2-stack-collapsed")
+        try app.input.press("ESC")
+        try observeArchiveState(expanded: false, selecting: false, frame: frame, label: "menu-esc-3-selection-exited")
+        try app.input.press("ESC")
+        RunLoop.current.run(until: Date().addingTimeInterval(0.4))
+        XCTAssertTrue(try waitUntil(timeout: 3) { try self.app.liveElement(.panel) == nil }, "Fourth Esc did not close the panel after the menu and layers")
+        expectWindowSetUnchanged()
+        try artifacts.step("menu-esc-4-panel-closed")
+    }
+
+    private var visibleMenu: AccessibilityNode? {
+        get throws {
+            try app.liveElement { try $0.role == kAXMenuRole && !($0.frame?.isEmpty ?? true) }
+        }
+    }
+
     private func prepareArchive() throws -> CGRect {
         try app.launch(archive: true)
         try recordWindowBaseline()
