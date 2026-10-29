@@ -815,7 +815,11 @@ struct NotchArchiveView: View {
             .frame(width: metrics.cellWidth, height: metrics.iconSize)
             .help(title)
             .accessibilityLabel(title)
+            #if DEBUG
+            .modifier(E2EArchiveCellAccessibility(identifier: "stampo.archive.back", children: .ignore))
+            #else
             .accessibilityIdentifier("stampo.archive.back")
+            #endif
     }
 
 

@@ -151,10 +151,11 @@ struct E2ECanvasAccessibility: ViewModifier {
 /// real cell a bounded AX container only in E2E, without labels or values.
 struct E2EArchiveCellAccessibility: ViewModifier {
     let identifier: String
+    var children: AccessibilityChildBehavior = .contain
     @ViewBuilder
     func body(content: Content) -> some View {
         if E2EHooks.isEnabled {
-            content.accessibilityElement(children: .contain)
+            content.accessibilityElement(children: children)
                 .accessibilityIdentifier(identifier)
         } else {
             content.accessibilityIdentifier(identifier)
