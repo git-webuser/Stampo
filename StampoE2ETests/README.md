@@ -390,25 +390,36 @@ the accepted fixture click; both route to `handleGlobalLeftMouseDown`.
 The outside cycle opens the panel first and records its settled frame. It
 then calls XCUIApplication.activate and AXRaise on its own fixture once, with
 one bounded read-only wait (≤1 s) for the fixture to become the first eligible
-window. The panel must settle again at the same frame (±1 pt): activation
+window. A single 400 ms RunLoop observation outlasts the hide animation;
+the panel must then settle again at the same frame (±1 pt): activation
 cannot stand in for the later outside click. Only then does the unchanged
 strict click guard run and send the click. No activation is repeated. The
 runner-cover probe separately prepares its fixture while its panel is closed.
 
-Temporary D1 observations (not committed as a test) measured foreground state
-at a target 20 ms interval in 12 trials: notch clicks and menu-bar control
-clicks switched to ChatGPT 3/3 each; hotkeys and 1.5 s idle controls did not
-switch 0/3 each. Raw samples and the full point inventories are in the report.
-These observations do not isolate a Stampo-only cause. The post-open raise
-path preserves both outside openers; the hotkey-only fallback was not needed.
+После HID-клика в строке меню система активирует владельца строки меню
+(последнее обычное приложение; E2E-копия — агент без своей строки). Измерено
+в двух точках, (640,15) и (100,15), по 3 повтора. В обоих вариантах переключение
+на ChatGPT было 3/3; hotkey и простой 1,5 с — 0/3 каждый. Sampler имел целевой
+шаг 20 мс; raw samples и полные списки окон сохранены в отчёте. Stampo-специфичная
+передача не установлена. D2 сохраняет оба способа открытия; D3 не потребовался.
 
 Outside diagnostics record frontmost name/PID/bundle and the first raw and
 first eligible windows after closing, after raise and before clicking. They
 record observations without changing the application's activation behavior.
 
 
-AX queries use the PID verified once at launch, rather than rediscovering it
-through NSWorkspace during every activation. The original process/path and
-window invariants still run; native AX root reads still throw for a dead or
-unresponsive PID. The terminated-process probe checks this explicitly. No
-Workspace miss is converted into an absent panel or menu.
+Все проверки, диагностика и teardown используют один PID, привязанный один раз
+в launch(). Только ограниченное ожидание запуска ищет PID через Workspace.
+processID возвращает привязанный PID лишь при kill(pid, 0) == 0 и совпадении
+proc_pidpath с executable appURL после resolvingSymlinksInPath; иначе nil.
+Проба C намеренно запрашивает native AX для того же завершённого PID и требует
+ошибку чтения. Quit проверяет исчезновение через processID, а системный код
+выхода — для того же привязанного PID. Повторный Workspace-поиск вернул nil
+для живого PID на 9eb6548; «при активации» — гипотеза, причина не установлена.
+
+M3b зелёный, причина не установлена. Hover рисуется (NotchPanelView около
+строки 831: белый глиф; около 840: заливка 0,16). Возможное объяснение:
+stableButton уводит указатель до снимка; AppKit доставляет отложенный выход,
+.onHover сбрасывает isHovered, и мутация пропадает до кадра, то есть M3b
+может моделировать недостижимое состояние. Это гипотеза, не установленная
+слепота P2 к hover. Числа отдельного pointer-on/parked контроля — в отчёте.
