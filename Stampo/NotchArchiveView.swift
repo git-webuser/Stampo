@@ -738,7 +738,11 @@ struct NotchArchiveView: View {
                             }
                         }
                     }
+                    #if DEBUG
+                    .modifier(E2EArchiveCellAccessibility(identifier: "stampo.archive.cell.\(archiveModel.items.firstIndex { $0.id == item.id } ?? 0)"))
+                    #else
                     .accessibilityIdentifier("stampo.archive.cell.\(archiveModel.items.firstIndex { $0.id == item.id } ?? 0)")
+                    #endif
                     // Cell exit: shrink + fade out together; neighbours
                     // slide into the gap because the surrounding HStack
                     // re-layouts inside the same withAnimation block.
@@ -2299,7 +2303,11 @@ private struct ExpandedStackGroup: View {
                         }
                     }
                 )
+                #if DEBUG
+                .modifier(E2EArchiveCellAccessibility(identifier: "stampo.archive.stack.member.\(stack.urls.firstIndex(of: url) ?? 0)"))
+                #else
                 .accessibilityIdentifier("stampo.archive.stack.member.\(stack.urls.firstIndex(of: url) ?? 0)")
+                #endif
             }
             if overflow > 0 {
                 OverflowTailCell(count: overflow, height: height,

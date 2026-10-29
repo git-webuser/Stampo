@@ -145,3 +145,20 @@ struct E2ECanvasAccessibility: ViewModifier {
     }
 }
 #endif
+
+#if DEBUG
+/// Shapes such as a color swatch are not AX elements by default. Give the
+/// real cell a bounded AX container only in E2E, without labels or values.
+struct E2EArchiveCellAccessibility: ViewModifier {
+    let identifier: String
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if E2EHooks.isEnabled {
+            content.accessibilityElement(children: .contain)
+                .accessibilityIdentifier(identifier)
+        } else {
+            content.accessibilityIdentifier(identifier)
+        }
+    }
+}
+#endif
