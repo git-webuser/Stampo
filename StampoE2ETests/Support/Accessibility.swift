@@ -60,7 +60,10 @@ struct AccessibilityNode {
 extension E2EApp {
     var accessibilityRoot: AccessibilityNode {
         get throws {
-            guard let pid = accessibilityProcessID ?? processID ?? accessibilityProbeProcessID ?? expectedQuitProcessID else {
+            // Only the deliberate dead-process probe bypasses live validation:
+            // ask native AX about the same bound PID and require its read error.
+            let targetPID = accessibilityProbeExpected ? boundProcessID : processID
+            guard let pid = targetPID else {
                 throw E2EFailure("AX query has no isolated process PID")
             }
             let element = AXUIElementCreateApplication(pid)

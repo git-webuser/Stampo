@@ -15,8 +15,9 @@ final class PanelE2ETests: E2ETestCase {
         try app.launch()
         try recordWindowBaseline(primePanelCache: false)
         let pid = try XCTUnwrap(app.processID, "Missing AX probe PID")
+        try artifacts.text(String(pid), name: "ax-probe-pid.txt")
         try app.terminateForAccessibilityProbe()
-        XCTAssertTrue(waitUntil(timeout: 3) { NSRunningApplication(processIdentifier: pid) == nil },
+        XCTAssertTrue(waitUntil(timeout: 3) { app.processID == nil },
                       "AX probe process did not terminate")
         XCTAssertThrowsError(try app.liveElement(.statusItem)) { error in
             let message = String(describing: error)
@@ -95,6 +96,8 @@ final class PanelE2ETests: E2ETestCase {
             }
             try recordOutsideState(at: point, label: "\(label)-after-open-raise")
             XCTAssertTrue(firstIsFixture, "Post-open fixture raise did not produce the first fixture within 1 s")
+            // Outlast the ~220 ms hide animation, as in the Esc observation.
+            RunLoop.current.run(until: Date().addingTimeInterval(0.4))
             let after = try settledPanel(context: "Fixture activation closed the panel before the outside click")
             XCTAssertTrue(framesMatch(after, before), "Fixture activation changed panel frame: \(before) -> \(after)")
             try artifacts.text("before=\(before)\nafter=\(after)", name: "\(label)-activation-panel-frames.txt")
@@ -409,7 +412,7 @@ final class PanelE2ETests: E2ETestCase {
         try artifacts.text(String(pid), name: "quit-pid.txt")
         try app.expectQuit()
         try app.tap(.statusQuit)
-        XCTAssertTrue(waitUntil(timeout: 5) { NSRunningApplication(processIdentifier: pid) == nil },
+        XCTAssertTrue(waitUntil(timeout: 5) { app.processID == nil },
                       "process still alive 5 s after Quit")
         try artifacts.step("quit")
     }

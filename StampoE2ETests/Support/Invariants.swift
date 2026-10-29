@@ -34,7 +34,7 @@ final class Invariants {
         // Return diagnostics, rather than asserting here: XCTest may abort a
         // teardown assertion before the caller can save evidence or terminate.
         var failures: [String] = []
-        if !app.terminationExpected && app.application.state == .notRunning { failures.append("E2E process died during the scenario") }
+        if !app.terminationExpected && app.processID == nil { failures.append("E2E process died during the scenario") }
         do {
             let newCrashes = try Self.crashReports().subtracting(initialCrashes)
             if !newCrashes.isEmpty { failures.append("New Stampo crash reports: \(newCrashes.sorted())") }
