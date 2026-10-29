@@ -110,11 +110,19 @@ final class ArchiveEscapeE2ETests: E2ETestCase {
         try click("stampo.archive.cell.4")
         for index in 0..<3 { _ = try required("stampo.archive.stack.member.\(index)") }
         let color = try required("stampo.archive.cell.0")
-        let colorLabel = try color.first { node in
-            try node.attribute(kAXDescriptionAttribute) as? String == "Color #FF6B4A"
+        let colorFrame = try XCTUnwrap(color.frame)
+        // The existing Color label is shown on hover. Reveal it by moving over
+        // our AX cell before asserting its identity; no click has been sent.
+        try app.input.move(to: CGPoint(x: colorFrame.midX, y: colorFrame.midY))
+        let labelVisible = try waitUntil(timeout: 1) {
+            let cell = try self.required("stampo.archive.cell.0")
+            return try cell.first { node in
+                try node.attribute(kAXDescriptionAttribute) as? String == "Color #FF6B4A"
+            } != nil
         }
-        XCTAssertNotNil(colorLabel, "Cell 0 is not the expected Color #FF6B4A leaf before Command-click")
-        guard colorLabel != nil else { throw E2EFailure("Command-click target is not the expected color leaf") }
+        XCTAssertTrue(labelVisible, "Cell 0 is not the expected Color #FF6B4A leaf before Command-click")
+        guard labelVisible else { throw E2EFailure("Command-click target is not the expected color leaf") }
+        try artifacts.text(app.application.debugDescription, name: "before-command-click-tree.txt")
         try artifacts.text("Color #FF6B4A", name: "command-click-color-label.txt")
         changeCountBeforeCommandClick = NSPasteboard.general.changeCount
         try click("stampo.archive.cell.0", command: true)
