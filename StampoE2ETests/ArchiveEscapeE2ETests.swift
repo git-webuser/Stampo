@@ -85,7 +85,9 @@ final class ArchiveEscapeE2ETests: E2ETestCase {
                                             label: "archive-\(clickNumber)", artifacts: artifacts, context: "panel")
         if command { try app.input.commandClick(at: point) }
         else { try app.input.click(at: point) }
-        try app.input.park()
+        // The scenario observes the click result before leaving the cell.
+        // Moving outside here is an extra action: the app's async mouse-down
+        // monitor reads the current pointer position, not the event position.
     }
 
     private func observeArchiveState(expanded: Bool, selecting: Bool, frame: CGRect, label: String) throws {
