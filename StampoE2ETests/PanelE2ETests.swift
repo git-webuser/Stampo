@@ -81,11 +81,105 @@ final class PanelE2ETests: E2ETestCase {
             let point = CGPoint(x: fixture.midX, y: fixture.midY)
             XCTAssertFalse(panel.contains(point), "Fixture center must be outside the panel: \(point)")
             print("P1 outside cycle \(cycle + 1): \(opener), fixture=\(fixture), point=\(point), frontmost=\(NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "none")")
+            let pid = try XCTUnwrap(app.processID, "Missing fixture PID before outside click")
+            try requireFixtureClickTarget(at: point, fixture: fixture, pid: pid, label: "cycle-\(cycle + 1)")
             try app.input.click(at: point)
             try expectPanelClosed()
             expectWindowSetUnchanged()
             XCTAssertEqual(try required(.fixture).frame, fixture, "Outside click displaced or closed the fixture")
             try artifacts.step("outside-\(cycle + 1)-closed")
+        }
+    }
+
+    func testOutsideClickGuardRefusesForeignWindow() throws {
+        try app.launch(fixture: true)
+        try recordWindowBaseline()
+        try openPanel()
+        let fixture = try XCTUnwrap(required(.fixture).frame, "Fixture has no guard-probe frame")
+        let point = CGPoint(x: fixture.midX, y: fixture.midY)
+        let pid = try XCTUnwrap(app.processID, "Missing fixture PID")
+        try requireFixtureClickTarget(at: point, fixture: fixture, pid: pid, label: "probe-before-cover")
+
+        let primary = try XCTUnwrap(NSScreen.screens.first, "Missing primary screen")
+        let cover = NSWindow(contentRect: NSRect(x: point.x - 40, y: primary.frame.maxY - point.y - 30,
+                                                width: 80, height: 60),
+                             styleMask: [.borderless], backing: .buffered, defer: false)
+        cover.isReleasedWhenClosed = false
+        cover.level = .floating
+        defer { cover.orderOut(nil); cover.close() }
+        cover.orderFrontRegardless()
+        let number = cover.windowNumber
+        guard waitUntil(timeout: 1, {
+            let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]]
+            return windows?.contains { ($0[kCGWindowNumber as String] as? Int) == number } == true
+        }) else { throw E2EFailure("Runner cover did not reach the on-screen window list") }
+        var refusal: FixtureClickRefusal?
+        do {
+            try requireFixtureClickTarget(at: point, fixture: fixture, pid: pid, label: "probe-runner-cover")
+        } catch let error as FixtureClickRefusal {
+            refusal = error
+            print("Outside guard rejected runner cover; no click was sent: \(error)")
+        }
+        cover.orderOut(nil)
+        cover.close()
+        // The rejection probe never sends a click at the obstructed point.
+        // Close the panel only after removing our runner-owned window.
+        try closePanel()
+        let rejected = try XCTUnwrap(refusal, "Outside guard accepted the runner window; no click was sent")
+        XCTAssertEqual(rejected.processID, Int(ProcessInfo.processInfo.processIdentifier))
+        XCTAssertEqual(rejected.windowNumber, number, "Guard must reject our actual topmost runner window")
+    }
+
+    private struct FixtureClickRefusal: Error, CustomStringConvertible {
+        let processID: Int?
+        let windowNumber: Int?
+        let description: String
+    }
+
+    private func requireFixtureClickTarget(at point: CGPoint, fixture: CGRect, pid: pid_t, label: String) throws {
+        struct Window {
+            let number: Int
+            let processID: Int
+            let owner: String
+            let layer: Int
+            let frame: CGRect
+            let alpha: Double
+            var description: String {
+                "owner=\(owner), PID=\(processID), layer=\(layer), number=\(number), bounds=\(frame), alpha=\(alpha)"
+            }
+        }
+        guard fixture.contains(point),
+              let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] else {
+            throw E2EFailure("Cannot verify the fixture click target at \(point); no click was sent")
+        }
+        let windows = try list.map { info -> Window in
+            guard let number = info[kCGWindowNumber as String] as? Int,
+                  let processID = info[kCGWindowOwnerPID as String] as? Int,
+                  let layer = info[kCGWindowLayer as String] as? Int,
+                  let alpha = info[kCGWindowAlpha as String] as? Double,
+                  let bounds = info[kCGWindowBounds as String] as? [String: Any],
+                  let frame = CGRect(dictionaryRepresentation: bounds as CFDictionary),
+                  [frame.minX, frame.minY, frame.maxX, frame.maxY].allSatisfy(\.isFinite) else {
+                throw E2EFailure("Malformed on-screen window entry; no fixture click was sent: \(info)")
+            }
+            return Window(number: number, processID: processID,
+                          owner: info[kCGWindowOwnerName as String] as? String ?? "unknown",
+                          layer: layer, frame: frame, alpha: alpha)
+        }
+        // WindowServer returns front-to-back order. Never exempt a layer:
+        // a foreign floating window can intercept the click too.
+        let first = windows.first { $0.alpha > 0 && $0.frame.contains(point) }
+        let diagnostics = "point=\(point); expected PID=\(pid), fixture=\(fixture)\nFirst hit: \(first?.description ?? "none")\nFirst 5 windows:\n" +
+            windows.prefix(5).map(\.description).joined(separator: "\n")
+        try artifacts.text(diagnostics, name: "outside-hit-\(label).txt")
+        print("Fixture click target: \(diagnostics)")
+        let sameFrame = first.map { window in
+            zip([window.frame.minX, window.frame.minY, window.frame.maxX, window.frame.maxY],
+                [fixture.minX, fixture.minY, fixture.maxX, fixture.maxY]).allSatisfy { abs($0 - $1) <= 1 }
+        } ?? false
+        guard first?.processID == Int(pid), sameFrame else {
+            throw FixtureClickRefusal(processID: first?.processID, windowNumber: first?.number,
+                                      description: "Outside fixture click refused; no click was sent. \(diagnostics)")
         }
     }
 
