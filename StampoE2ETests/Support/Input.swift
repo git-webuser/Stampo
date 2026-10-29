@@ -50,27 +50,6 @@ final class Input {
 
     func releaseMouse(at point: CGPoint) throws { try mouse(.leftMouseUp, at: point) }
 
-    func drag(from start: CGPoint, to end: CGPoint, steps: Int = 24) throws {
-        guard steps > 0 else { throw E2EFailure("Drag requires at least one step") }
-        try move(to: start)
-        try mouse(.leftMouseDown, at: start)
-        defer { try? mouse(.leftMouseUp, at: end) }
-        for step in 1...steps {
-            let t = CGFloat(step) / CGFloat(steps)
-            try mouse(.leftMouseDragged, at: CGPoint(x: start.x + (end.x - start.x) * t,
-                                                     y: start.y + (end.y - start.y) * t))
-            RunLoop.current.run(until: Date().addingTimeInterval(0.015))
-        }
-    }
-
-    func scroll(vertical: Int32, horizontal: Int32 = 0) throws {
-        guard let event = CGEvent(scrollWheelEvent2Source: source, units: .pixel, wheelCount: 2,
-                                  wheel1: vertical, wheel2: horizontal, wheel3: 0) else {
-            throw E2EFailure("Cannot construct a scroll event")
-        }
-        event.post(tap: .cghidEventTap)
-    }
-
     func press(_ chord: String) throws {
         var flags: CGEventFlags = []
         for (symbol, flag) in [("⌃", CGEventFlags.maskControl), ("⌥", .maskAlternate),
@@ -185,10 +164,6 @@ final class Input {
     static func quartzPoint(fromAppKit point: CGPoint) -> CGPoint {
         CGPoint(x: point.x, y: primaryDisplayHeight - point.y)
     }
-    static func appKitPoint(fromQuartz point: CGPoint) -> CGPoint {
-        CGPoint(x: point.x, y: primaryDisplayHeight - point.y)
-    }
-
     private func mouse(_ type: CGEventType, at point: CGPoint) throws {
         guard point.x.isFinite, point.y.isFinite,
               let event = CGEvent(mouseEventSource: source, mouseType: type,

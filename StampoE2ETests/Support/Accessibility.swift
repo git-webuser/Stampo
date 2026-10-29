@@ -48,10 +48,7 @@ struct AccessibilityNode {
         return nil
     }
 
-    func press() throws {
-        let result = AXUIElementPerformAction(element, kAXPressAction as CFString)
-        guard result == .success else { throw E2EFailure("AXPress failed: \(result.rawValue)") }
-    }
+
 }
 
 extension E2EApp {

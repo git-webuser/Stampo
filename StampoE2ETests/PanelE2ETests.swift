@@ -320,14 +320,6 @@ final class PanelE2ETests: E2ETestCase {
         return frame
     }
 
-    private func selectVisibleMenuItem(_ title: String) throws {
-        try app.input.park()
-        let frame = try visibleMenuItemFrame(title)
-        try app.input.click(at: CGPoint(x: frame.midX, y: frame.midY))
-        XCTAssertTrue(try waitUntil(timeout: 3) { try self.visibleMenu == nil }, "Menu did not close in 3 s after \(title)")
-        try app.input.park()
-    }
-
     private func closeSettingsWindow() throws {
         let settings = app.application.windows["Settings"].firstMatch
         XCTAssertTrue(settings.waitForExistence(timeout: 3), "settings window did not open")
