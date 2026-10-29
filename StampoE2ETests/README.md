@@ -451,11 +451,26 @@ the same checks through wrappers; the only default exemption remains the exact
 system AutomationModeUI identity/level/alpha/frame/path conjunction. New panel
 clicks must match the bound E2E PID and current panel frame as well.
 
-`ArchiveEscapeE2ETests/testEscUnwindsOneLayerPerPress` is the first P5 candidate;
-it has been built, and awaits its first authorized UI run. A plain stack click
-expands it; a Command-click on color cell 0 enters selection. The test preserves
-the user pasteboard in memory and restores it if changed before common teardown.
-Each Esc observation waits 400 ms, compares the surviving panel frame and reads
-stack members, selection mode and the existing selection mark through AX.
-No skips or expected failures are added. Back and menu-first cases follow only
-after checking this first method, then P3 and P7.
+`ArchiveEscapeE2ETests` checks three flows, each in its own method:
+- `testEscUnwindsOneLayerPerPress`: collapse the stack, leave selection, close.
+- `testBackUnwindsTheSameLadder`: collapse, leave selection, return to Main;
+  Main stays visible before a separate cleanup hotkey.
+- `testEscClosesMenuBeforeUnwinding`: close the format menu first without
+  changing any underlying layer, then unwind the same three Esc layers.
+
+A plain stack click expands it; a Command-click on color cell 0 enters
+selection. Every surviving-state observation waits 400 ms, compares the panel
+frame and reads members, selection mode and the existing selected mark via AX.
+The pasteboard is preserved in memory and restored if changed before common
+teardown. The Back target uses a bounded AX element only in DEBUG E2E: its
+explicit cell is 32 x 24 pt, rather than a container covering the archive.
+Normal-launch AX labels, values, layout and actions are unchanged.
+
+Before the ownership read, the pointer is moved to a different point INSIDE
+our panel and one read-only wait of at most 1 s lets WindowServer publish the
+move. The strict guard then runs unchanged; the cursor window is never given
+an exemption. Only after the guard does HID approach and click the target.
+After clicking, the pointer remains there until the resulting state is read;
+an immediate outside park is not part of these archive flows. There are no
+right-click/AXPress fallbacks, retries of Esc, skips or expected failures.
+P3 and P7 follow P5. Current run and mutation evidence is in the step report.
