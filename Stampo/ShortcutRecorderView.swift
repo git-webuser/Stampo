@@ -79,7 +79,7 @@ struct ShortcutRecorderView: View {
                 Text(LocalizedStringKey(rejectionKey))
                     .font(.caption)
                     .foregroundStyle(.red)
-                    .accessibilityIdentifier("\(accessibilityPrefix).status")
+                    .accessibilityIdentifier("\(accessibilityPrefix).rejection")
             }
             if let messageKey = registrationStatus.messageKey {
                 // Through LocalizedStringKey, exactly like the rejection line
