@@ -6,6 +6,7 @@ import XCTest
 final class ArchiveEscapeE2ETests: E2ETestCase {
     private var clipboard: ClipboardSnapshot?
     private var clickNumber = 0
+    private var changeCountBeforeCommandClick: Int?
 
     override func setUpWithError() throws {
         try super.setUpWithError()
@@ -16,7 +17,12 @@ final class ArchiveEscapeE2ETests: E2ETestCase {
         // Restore before common teardown can report a failure. Keep every
         // process/window/AX/log/crash/input invariant from E2ETestCase.
         var restorationError: Error?
-        do { try clipboard?.restoreIfChanged() } catch { restorationError = error }
+        do {
+            if let disposition = try clipboard?.restoreIfChanged() {
+                print("Pasteboard restoration: \(disposition)")
+                try artifacts.text(disposition, name: "pasteboard-restoration.txt")
+            }
+        } catch { restorationError = error }
         try super.tearDownWithError()
         if let restorationError { throw restorationError }
     }
@@ -34,6 +40,9 @@ final class ArchiveEscapeE2ETests: E2ETestCase {
                       "Third Esc did not close the panel")
         expectWindowSetUnchanged()
         try artifacts.step("esc-3-closed")
+        let count = try XCTUnwrap(changeCountBeforeCommandClick)
+        XCTAssertEqual(NSPasteboard.general.changeCount, count, "⌘-click copied to the pasteboard")
+        try artifacts.text("unchanged=\(NSPasteboard.general.changeCount == count)", name: "command-click-pasteboard.txt")
     }
 
     func testBackUnwindsTheSameLadder() throws {
@@ -100,6 +109,14 @@ final class ArchiveEscapeE2ETests: E2ETestCase {
         // without invoking its ordinary Copy action (archiveTapIntent).
         try click("stampo.archive.cell.4")
         for index in 0..<3 { _ = try required("stampo.archive.stack.member.\(index)") }
+        let color = try required("stampo.archive.cell.0")
+        let colorLabel = try color.first { node in
+            try node.attribute(kAXDescriptionAttribute) as? String == "Color #FF6B4A"
+        }
+        XCTAssertNotNil(colorLabel, "Cell 0 is not the expected Color #FF6B4A leaf before Command-click")
+        guard colorLabel != nil else { throw E2EFailure("Command-click target is not the expected color leaf") }
+        try artifacts.text("Color #FF6B4A", name: "command-click-color-label.txt")
+        changeCountBeforeCommandClick = NSPasteboard.general.changeCount
         try click("stampo.archive.cell.0", command: true)
         let frame = try panelFrame()
         try expectArchiveState(expanded: true, selecting: true, frame: frame, label: "prepared")

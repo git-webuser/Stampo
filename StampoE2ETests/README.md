@@ -443,8 +443,9 @@ Expanded members use `stampo.archive.stack.member.<index>` (only one stack can
 be expanded). Global shortcut rows use `stampo.settings.hotkey.<action>.row`,
 `.recorder`, `.clear` and `.status`, where action is its Swift case name.
 There is no global-hotkey toggle: the existing clear button disables the combo;
-recording sets it again. Rejection and registration messages share `.status`
-and are queried within their own row. Labels, values and layout are unchanged.
+recording sets it again. Recorder rejection uses `.rejection`; registration
+messages use `.status`. Child ids under `.row` have not yet been verified in
+a Settings AX dump. Labels, values and layout are unchanged.
 
 The click ownership guard now lives in `Support/WindowHitTest.swift`. P1 calls
 the same checks through wrappers; the only default exemption remains the exact
@@ -461,8 +462,11 @@ clicks must match the bound E2E PID and current panel frame as well.
 A plain stack click expands it; a Command-click on color cell 0 enters
 selection. Every surviving-state observation waits 400 ms, compares the panel
 frame and reads members, selection mode and the existing selected mark via AX.
-The pasteboard is preserved in memory and restored if changed before common
-teardown. The Back target uses a bounded AX element only in DEBUG E2E: its
+The pasteboard is preserved in memory with ordered item/type pairs. Before
+Command-click, cell 0 must contain the existing AX label `Color #FF6B4A`;
+after the third Esc, its changeCount must be unchanged. Common teardown
+restores only a known plain-string fixture payload (FF6B4A or fixture text);
+a concurrent unknown copy by the user or Codex is left untouched and reported. The Back target uses a bounded AX element only in DEBUG E2E: its
 explicit cell is 32 x 24 pt, rather than a container covering the archive.
 Normal-launch AX labels, values, layout and actions are unchanged.
 
@@ -474,3 +478,7 @@ After clicking, the pointer remains there until the resulting state is read;
 an immediate outside park is not part of these archive flows. There are no
 right-click/AXPress fallbacks, retries of Esc, skips or expected failures.
 P3 and P7 follow P5. Current run and mutation evidence is in the step report.
+
+The temporary `StampoE2EArchive-<UUID>` directory remains in the app’s $TMPDIR
+after termination, including forced termination. No automatic termination hook
+is added; generated files are not user files.
