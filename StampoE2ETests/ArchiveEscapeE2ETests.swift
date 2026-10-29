@@ -22,6 +22,44 @@ final class ArchiveEscapeE2ETests: E2ETestCase {
     }
 
     func testEscUnwindsOneLayerPerPress() throws {
+        let frame = try prepareArchive()
+
+        try app.input.press("ESC")
+        try observeArchiveState(expanded: false, selecting: true, frame: frame, label: "esc-1")
+        try app.input.press("ESC")
+        try observeArchiveState(expanded: false, selecting: false, frame: frame, label: "esc-2")
+        try app.input.press("ESC")
+        RunLoop.current.run(until: Date().addingTimeInterval(0.4))
+        XCTAssertTrue(try waitUntil(timeout: 3) { try self.app.liveElement(.panel) == nil },
+                      "Third Esc did not close the panel")
+        expectWindowSetUnchanged()
+        try artifacts.step("esc-3-closed")
+    }
+
+    func testBackUnwindsTheSameLadder() throws {
+        let frame = try prepareArchive()
+        try artifacts.text(app.application.debugDescription, name: "before-back-tree.txt")
+        let backFrame = try XCTUnwrap(required("stampo.archive.back").frame)
+        try artifacts.text("back=\(backFrame)\npanel=\(frame)", name: "back-target-frame.txt")
+        try click("stampo.archive.back")
+        try observeArchiveState(expanded: false, selecting: true, frame: frame, label: "back-1")
+        try click("stampo.archive.back")
+        try observeArchiveState(expanded: false, selecting: false, frame: frame, label: "back-2")
+        try click("stampo.archive.back")
+        RunLoop.current.run(until: Date().addingTimeInterval(0.4))
+        let mainFrame = try panelFrame()
+        _ = try required(E2EApp.Control.panelModeMenu.rawValue)
+        XCTAssertNil(try app.liveElement(.archiveBack), "Third Back did not leave the archive")
+        XCTAssertNil(try app.liveElement(.archiveSelection), "Third Back left selection active")
+        try artifacts.text("archive=\(frame)\nmain=\(mainFrame)", name: "back-3-frames.txt")
+        try artifacts.step("back-3-main-still-visible")
+        // Cleanup is a separate real hotkey, after Main was observed alive.
+        try app.input.press("⌃⌥⌘N")
+        XCTAssertTrue(try waitUntil(timeout: 3) { try self.app.liveElement(.panel) == nil }, "Cleanup hotkey did not close Main")
+        expectWindowSetUnchanged()
+    }
+
+    private func prepareArchive() throws -> CGRect {
         try app.launch(archive: true)
         try recordWindowBaseline()
         try app.input.press("⌃⌥⌘N")
@@ -37,16 +75,7 @@ final class ArchiveEscapeE2ETests: E2ETestCase {
         let frame = try panelFrame()
         try expectArchiveState(expanded: true, selecting: true, frame: frame, label: "prepared")
 
-        try app.input.press("ESC")
-        try observeArchiveState(expanded: false, selecting: true, frame: frame, label: "esc-1")
-        try app.input.press("ESC")
-        try observeArchiveState(expanded: false, selecting: false, frame: frame, label: "esc-2")
-        try app.input.press("ESC")
-        RunLoop.current.run(until: Date().addingTimeInterval(0.4))
-        XCTAssertTrue(try waitUntil(timeout: 3) { try self.app.liveElement(.panel) == nil },
-                      "Third Esc did not close the panel")
-        expectWindowSetUnchanged()
-        try artifacts.step("esc-3-closed")
+        return frame
     }
 
     private func required(_ identifier: String) throws -> AccessibilityNode {
