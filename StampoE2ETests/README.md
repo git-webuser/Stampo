@@ -328,3 +328,11 @@ geometry. Every UI passport records the actual primary display type and size.
 Top-edge checks are properties; the historical 1f1e69f oracle remains retired.
 P1's established bug sensitivity is the late-hide oracle and full window-set
 mutation; native content-offset injection is a separate optional experiment.
+
+
+A successful root traversal can race a closing window invalidating one of its
+children (AX invalidUIElement -25202). Only that descendant error permits one
+fresh root traversal; each traversal retains its 2000-node bound. Root read
+failures, timeout/cannotComplete, traversal limits and a second invalidation
+still throw. An absence result must come from a complete responsive traversal,
+never from treating an AX failure as nil. No delay is added before reopening.

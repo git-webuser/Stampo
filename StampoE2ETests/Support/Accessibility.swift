@@ -1,6 +1,12 @@
 import ApplicationServices
 import Foundation
 
+struct AXReadFailure: Error, CustomStringConvertible {
+    let attribute: String
+    let result: AXError
+    var description: String { "AX attribute \(attribute) failed: \(result.rawValue)" }
+}
+
 /// Fast, bounded AX queries distinguish an absent element from a failed read.
 struct AccessibilityNode {
     let element: AXUIElement
@@ -11,7 +17,7 @@ struct AccessibilityNode {
         if result == .success { return value }
         // Optional attributes are legitimately unsupported by many leaf nodes.
         if !required && (result == .attributeUnsupported || result == .noValue) { return nil }
-        throw E2EFailure("AX attribute \(name) failed: \(result.rawValue)")
+        throw AXReadFailure(attribute: name, result: result)
     }
 
     var identifier: String { get throws { try attribute(kAXIdentifierAttribute) as? String ?? "" } }
@@ -71,6 +77,19 @@ extension E2EApp {
     }
 
     func liveElement(_ control: Control) throws -> AccessibilityNode? {
-        try accessibilityRoot.first { try $0.identifier == control.rawValue }
+        try liveElement { try $0.identifier == control.rawValue }
+    }
+
+    func liveElement(where matches: (AccessibilityNode) throws -> Bool) throws -> AccessibilityNode? {
+        // Root failures are outside the recovery scope and always propagate.
+        let root = try accessibilityRoot
+        do { return try root.first(where: matches) }
+        catch let failure as AXReadFailure where failure.result == .invalidUIElement {
+            // A closing window can invalidate a descendant after enumeration.
+            // Absence is accepted only from a new successful root traversal;
+            // a second failure, timeout or unresponsive root is never hidden.
+            print("AX descendant invalidated during \(failure.attribute); refreshing the root once")
+            return try accessibilityRoot.first(where: matches)
+        }
     }
 }

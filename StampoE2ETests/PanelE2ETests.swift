@@ -281,7 +281,7 @@ final class PanelE2ETests: E2ETestCase {
 
     private var visibleMenu: AccessibilityNode? {
         get throws {
-            try app.accessibilityRoot.first { try $0.role == kAXMenuRole && !($0.frame?.isEmpty ?? true) }
+            try app.liveElement { try $0.role == kAXMenuRole && !($0.frame?.isEmpty ?? true) }
         }
     }
 
