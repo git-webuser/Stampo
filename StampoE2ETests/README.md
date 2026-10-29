@@ -387,15 +387,21 @@ are never used as probes. The test does not distinguish which monitor handled
 the accepted fixture click; both route to `handleGlobalLeftMouseDown`.
 
 
-Before each outside cycle, while the panel is closed, the test calls
-XCUIApplication.activate and AXRaise on its own fixture once. One bounded
-read-only wait (≤1 s) requires the fixture to be the first eligible window.
-Only then does it open the panel and apply the unchanged click guard. No
-activation is retried, and no activation occurs with the panel open. The
-runner-cover probe uses the same closed-panel preparation before opening.
+The outside cycle opens the panel first and records its settled frame. It
+then calls XCUIApplication.activate and AXRaise on its own fixture once, with
+one bounded read-only wait (≤1 s) for the fixture to become the first eligible
+window. The panel must settle again at the same frame (±1 pt): activation
+cannot stand in for the later outside click. Only then does the unchanged
+strict click guard run and send the click. No activation is repeated. The
+runner-cover probe separately prepares its fixture while its panel is closed.
+
+Temporary D1 observations (not committed as a test) measured foreground state
+at a target 20 ms interval in 12 trials: notch clicks and menu-bar control
+clicks switched to ChatGPT 3/3 each; hotkeys and 1.5 s idle controls did not
+switch 0/3 each. Raw samples and the full point inventories are in the report.
+These observations do not isolate a Stampo-only cause. The post-open raise
+path preserves both outside openers; the hotkey-only fallback was not needed.
 
 Outside diagnostics record frontmost name/PID/bundle and the first raw and
-first eligible windows after closing, after raise and before clicking. These
-observations distinguish a return to a previous foreground app from window
-ordering during the next opening; the test does not alter application focus
-behavior when closing the panel.
+first eligible windows after closing, after raise and before clicking. They
+record observations without changing the application's activation behavior.

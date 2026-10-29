@@ -70,19 +70,34 @@ final class PanelE2ETests: E2ETestCase {
         try app.launch(fixture: true)
         try recordWindowBaseline()
         let trigger = try XCTUnwrap(Input.notchTrigger, "Primary display has no menu-bar trigger")
-        let initial = try XCTUnwrap(required(.fixture).frame, "Fixture has no initial frame")
-        try recordOutsideState(at: CGPoint(x: initial.midX, y: initial.midY), label: "baseline-after-close")
         for cycle in 0..<4 {
             let label = "cycle-\(cycle + 1)"
-            let (fixture, pid) = try raiseFixtureBeforePanel(label: label)
-            let point = CGPoint(x: fixture.midX, y: fixture.midY)
             let opener = ["hotkey", "notch"][cycle % 2]
             try app.input.park()
             if opener == "hotkey" { try app.input.press("⌃⌥⌘N") }
             else { try app.input.click(at: trigger.point) }
-            let panel = try settledPanel()
-            XCTAssertFalse(panel.contains(point), "Fixture center must be outside the panel: \(point)")
-            print("P1 outside cycle \(cycle + 1): \(opener), fixture=\(fixture), point=\(point)")
+            let before = try settledPanel()
+            let node = try required(.fixture)
+            let fixture = try XCTUnwrap(node.frame, "Fixture has no outside-click frame")
+            let pid = try XCTUnwrap(app.processID, "Missing fixture PID")
+            let point = CGPoint(x: fixture.midX, y: fixture.midY)
+            XCTAssertFalse(before.contains(point), "Fixture center must be outside the panel")
+            // One post-open activation is valid only if the panel survives it
+            // unchanged; activation must never stand in for the outside click.
+            app.application.activate()
+            let raised = AXUIElementPerformAction(node.element, kAXRaiseAction as CFString)
+            guard raised == .success else { throw E2EFailure("Fixture AXRaise failed: \(raised.rawValue)") }
+            let firstIsFixture = try waitUntil(timeout: 1) {
+                let first = try self.clickWindows().first {
+                    $0.alpha > 0 && $0.frame.contains(point) && !self.isSystemAutomationOverlay($0)
+                }
+                return first?.processID == Int(pid) && first.map { self.framesMatch($0.frame, fixture) } == true
+            }
+            try recordOutsideState(at: point, label: "\(label)-after-open-raise")
+            XCTAssertTrue(firstIsFixture, "Post-open fixture raise did not produce the first fixture within 1 s")
+            let after = try settledPanel(context: "Fixture activation closed the panel before the outside click")
+            XCTAssertTrue(framesMatch(after, before), "Fixture activation changed panel frame: \(before) -> \(after)")
+            try artifacts.text("before=\(before)\nafter=\(after)", name: "\(label)-activation-panel-frames.txt")
             try recordOutsideState(at: point, label: "\(label)-before-click")
             try requireFixtureClickTarget(at: point, fixture: fixture, pid: pid, label: label)
             try app.input.click(at: point)
