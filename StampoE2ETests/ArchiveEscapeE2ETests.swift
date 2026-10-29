@@ -41,6 +41,8 @@ final class ArchiveEscapeE2ETests: E2ETestCase {
         try artifacts.text(app.application.debugDescription, name: "before-back-tree.txt")
         let backFrame = try XCTUnwrap(required("stampo.archive.back").frame)
         try artifacts.text("back=\(backFrame)\npanel=\(frame)", name: "back-target-frame.txt")
+        XCTAssertEqual(backFrame.width, 32, accuracy: 1, "Back target must match its explicit 32 pt cell, not the archive container")
+        XCTAssertEqual(backFrame.height, 24, accuracy: 1, "Back target must match its explicit 24 pt cell")
         try click("stampo.archive.back")
         try observeArchiveState(expanded: false, selecting: true, frame: frame, label: "back-1")
         try click("stampo.archive.back")
@@ -109,6 +111,18 @@ final class ArchiveEscapeE2ETests: E2ETestCase {
         let frame = try panelFrame()
         let point = CGPoint(x: target.midX, y: target.midY)
         let pid = try XCTUnwrap(app.processID, "Missing bound PID before a panel click")
+        // Approach the target only after the unchanged ownership gate. The
+        // cursor has its own WindowServer window; leave it at another point
+        // inside our panel while reading the target's front-to-back list.
+        let away = CGPoint(x: point.x + 48 < frame.maxX ? point.x + 48 : point.x - 48, y: point.y)
+        XCTAssertTrue(frame.contains(away))
+        try app.input.move(to: away)
+        _ = try waitUntil(timeout: 1) {
+            let first = try WindowHitTest.windows().first {
+                $0.alpha > 0 && $0.frame.contains(point) && !WindowHitTest.isSystemAutomationOverlay($0)
+            }
+            return first?.processID == Int(pid) && first.map { WindowHitTest.framesMatch($0.frame, frame) } == true
+        }
         clickNumber += 1
         try WindowHitTest.requireOwnedTarget(at: point, frame: frame, pid: pid,
                                             label: "archive-\(clickNumber)", artifacts: artifacts, context: "panel")
