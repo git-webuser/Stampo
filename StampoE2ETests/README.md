@@ -317,3 +317,14 @@ AirPods. Эти действия выполняет пользователь. Т
 Preferred-position writes were removed after three values left the icon hidden.
 Neither the script nor prepare preserves or sets an NSStatusItem position.
 The fresh-launch guard test remains; the environment must provide enough space.
+
+
+## P1 display limitation
+
+P1's top-edge constants were measured only on a notched primary display:
+window minY 0±1 pt, mode content offset **5±2 pt** (measured 5). P1 fails before
+launch on a non-notched primary display; other panel styles need different
+geometry. Every UI passport records the actual primary display type and size.
+Top-edge checks are properties; the historical 1f1e69f oracle remains retired.
+P1's established bug sensitivity is the late-hide oracle and full window-set
+mutation; native content-offset injection is a separate optional experiment.

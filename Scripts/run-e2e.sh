@@ -139,6 +139,12 @@ finish() {
     echo "WARNING: DEV COPY CHANGED — preferences or signature differ. Inspect $artifacts" >&2
     result=1
   fi
+  if [ -n "$passport" ] && [ -f "$artifacts/primary-display.txt" ]; then
+    local display_detail
+    display_detail="$(tr '\n' ' ' < "$artifacts/primary-display.txt")"
+    passport="$passport · primary display: $display_detail"
+    printf '%s\n' "$passport" > "$artifacts/passport.txt"
+  fi
   [ -z "$passport" ] || echo "$passport"
   echo "Artifacts: $artifacts"
   exit "$result"

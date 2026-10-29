@@ -26,9 +26,11 @@ final class PanelE2ETests: E2ETestCase {
     }
 
     func testOpenCloseCycles() throws {
+        let trigger = try XCTUnwrap(Input.notchTrigger, "Primary display has no menu-bar trigger: \(Input.primaryDisplayDescription)")
+        XCTAssertTrue(trigger.hasNotch,
+                      "P1 top-edge constants were measured only on a notched primary display; primary display is \(Input.primaryDisplayDescription)")
         try app.launch()
         try recordWindowBaseline()
-        let trigger = try XCTUnwrap(Input.notchTrigger, "Primary display has no menu-bar trigger")
         let closers = ["escape", "button", "hotkey", "notch"]
         let pairs = ["hotkey", "notch"].flatMap { opener in closers.map { (opener, $0) } }
         for cycle in 0..<20 {
@@ -44,10 +46,10 @@ final class PanelE2ETests: E2ETestCase {
             let modeFrame = try XCTUnwrap(mode.frame, "Mode button has no frame")
             let offset = modeFrame.minY - frame.minY
             print("P1 cycle \(cycle + 1): \(opener) × \(closer), frame=\(frame), content offset=\(offset) pt")
-            // Measured on the healthy notched primary display. Check content
+            // Measured 5 pt on the healthy notched primary display. Check content
             // placement separately because the window can still start at y=0.
-            XCTAssertEqual(offset, 4, accuracy: 2,
-                           "panel content top offset \(offset) pt, expected 4 (±2)")
+            XCTAssertEqual(offset, 5, accuracy: 2,
+                           "panel content top offset \(offset) pt, expected 5 (±2)")
             try artifacts.step("cycle-\(cycle + 1)-open")
             switch closer {
             case "escape": try app.input.press("ESC")

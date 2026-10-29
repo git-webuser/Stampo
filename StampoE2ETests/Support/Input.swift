@@ -154,6 +154,14 @@ final class Input {
         try move(to: CGPoint(x: display.minX + 20, y: display.maxY - 40))
     }
 
+    static var primaryDisplayDescription: String {
+        guard let screen = NSScreen.screens.first else { return "unavailable (no NSScreen)" }
+        let gap = screen.frame.width - (screen.auxiliaryTopLeftArea?.width ?? screen.frame.width)
+            - (screen.auxiliaryTopRightArea?.width ?? 0)
+        let type = screen.safeAreaInsets.top > 0 && gap > 0 ? "notched" : "non-notched"
+        return "\(type), \(Int(screen.frame.width))×\(Int(screen.frame.height)) pt"
+    }
+
     // NotchHoverController.triggerRect(on:) and handleGlobalLeftMouseDown:
     // the display midpoint and menu-bar mid-height hit either trigger width.
     static var notchTrigger: (point: CGPoint, hasNotch: Bool)? {
