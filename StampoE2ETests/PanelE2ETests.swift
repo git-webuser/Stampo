@@ -98,36 +98,40 @@ final class PanelE2ETests: E2ETestCase {
         let fixture = try XCTUnwrap(required(.fixture).frame, "Fixture has no guard-probe frame")
         let point = CGPoint(x: fixture.midX, y: fixture.midY)
         let pid = try XCTUnwrap(app.processID, "Missing fixture PID")
-        try requireFixtureClickTarget(at: point, fixture: fixture, pid: pid, label: "probe-before-cover")
-
         let primary = try XCTUnwrap(NSScreen.screens.first, "Missing primary screen")
-        let cover = NSWindow(contentRect: NSRect(x: point.x - 40, y: primary.frame.maxY - point.y - 30,
-                                                width: 80, height: 60),
-                             styleMask: [.borderless], backing: .buffered, defer: false)
-        cover.isReleasedWhenClosed = false
-        cover.level = .floating
-        defer { cover.orderOut(nil); cover.close() }
-        cover.orderFrontRegardless()
-        let number = cover.windowNumber
-        guard waitUntil(timeout: 1, {
-            let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]]
-            return windows?.contains { ($0[kCGWindowNumber as String] as? Int) == number } == true
-        }) else { throw E2EFailure("Runner cover did not reach the on-screen window list") }
-        var refusal: FixtureClickRefusal?
-        do {
-            try requireFixtureClickTarget(at: point, fixture: fixture, pid: pid, label: "probe-runner-cover")
-        } catch let error as FixtureClickRefusal {
-            refusal = error
-            print("Outside guard rejected runner cover; no click was sent: \(error)")
+        let small = NSRect(x: point.x - 40, y: primary.frame.maxY - point.y - 30, width: 80, height: 60)
+        let covers: [(String, NSRect, NSWindow.Level, CGFloat)] = [
+            ("floating", small, .floating, 1),
+            ("lookalike", primary.frame, NSWindow.Level(rawValue: 1000), 0.25)
+        ]
+        for (label, frame, level, alpha) in covers {
+            try requireFixtureClickTarget(at: point, fixture: fixture, pid: pid, label: "probe-before-\(label)")
+            let cover = NSWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
+            cover.isReleasedWhenClosed = false
+            cover.level = level
+            cover.alphaValue = alpha
+            defer { cover.orderOut(nil); cover.close() }
+            cover.orderFrontRegardless()
+            let number = cover.windowNumber
+            guard try waitUntil(timeout: 1, {
+                try self.clickWindows().contains { $0.number == number }
+            }) else { throw E2EFailure("Runner \(label) cover did not reach the on-screen window list") }
+            var refusal: FixtureClickRefusal?
+            do {
+                try requireFixtureClickTarget(at: point, fixture: fixture, pid: pid, label: "probe-runner-\(label)")
+            } catch let error as FixtureClickRefusal {
+                refusal = error
+                print("Outside guard rejected runner \(label) cover; no click was sent: \(error)")
+            }
+            cover.orderOut(nil)
+            cover.close()
+            let rejected = try XCTUnwrap(refusal, "Outside guard accepted the runner \(label) window; no click was sent")
+            XCTAssertEqual(rejected.processID, Int(ProcessInfo.processInfo.processIdentifier))
+            XCTAssertEqual(rejected.windowNumber, number, "Guard must reject our actual topmost runner window")
         }
-        cover.orderOut(nil)
-        cover.close()
-        // The rejection probe never sends a click at the obstructed point.
-        // Close the panel only after removing our runner-owned window.
+        // Both probes only inspect the blocked point. Remove the runner's
+        // windows before ordinary HID cleanup of the panel.
         try closePanel()
-        let rejected = try XCTUnwrap(refusal, "Outside guard accepted the runner window; no click was sent")
-        XCTAssertEqual(rejected.processID, Int(ProcessInfo.processInfo.processIdentifier))
-        XCTAssertEqual(rejected.windowNumber, number, "Guard must reject our actual topmost runner window")
     }
 
     private struct FixtureClickRefusal: Error, CustomStringConvertible {
@@ -136,23 +140,24 @@ final class PanelE2ETests: E2ETestCase {
         let description: String
     }
 
-    private func requireFixtureClickTarget(at point: CGPoint, fixture: CGRect, pid: pid_t, label: String) throws {
-        struct Window {
-            let number: Int
-            let processID: Int
-            let owner: String
-            let layer: Int
-            let frame: CGRect
-            let alpha: Double
-            var description: String {
-                "owner=\(owner), PID=\(processID), layer=\(layer), number=\(number), bounds=\(frame), alpha=\(alpha)"
-            }
+    private struct ClickWindow {
+        let number: Int
+        let processID: Int
+        let owner: String
+        let layer: Int
+        let frame: CGRect
+        let alpha: Double
+        let executablePath: String?
+        var description: String {
+            "owner=\(owner), PID=\(processID), layer=\(layer), number=\(number), bounds=\(frame), alpha=\(alpha), executable=\(executablePath ?? "unavailable")"
         }
-        guard fixture.contains(point),
-              let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] else {
-            throw E2EFailure("Cannot verify the fixture click target at \(point); no click was sent")
+    }
+
+    private func clickWindows() throws -> [ClickWindow] {
+        guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] else {
+            throw E2EFailure("Cannot read the on-screen click window list")
         }
-        let windows = try list.map { info -> Window in
+        return try list.map { info in
             guard let number = info[kCGWindowNumber as String] as? Int,
                   let processID = info[kCGWindowOwnerPID as String] as? Int,
                   let layer = info[kCGWindowLayer as String] as? Int,
@@ -160,24 +165,44 @@ final class PanelE2ETests: E2ETestCase {
                   let bounds = info[kCGWindowBounds as String] as? [String: Any],
                   let frame = CGRect(dictionaryRepresentation: bounds as CFDictionary),
                   [frame.minX, frame.minY, frame.maxX, frame.maxY].allSatisfy(\.isFinite) else {
-                throw E2EFailure("Malformed on-screen window entry; no fixture click was sent: \(info)")
+                throw E2EFailure("Malformed on-screen window entry; no click was sent: \(info)")
             }
-            return Window(number: number, processID: processID,
-                          owner: info[kCGWindowOwnerName as String] as? String ?? "unknown",
-                          layer: layer, frame: frame, alpha: alpha)
+            return ClickWindow(number: number, processID: processID,
+                               owner: info[kCGWindowOwnerName as String] as? String ?? "unknown",
+                               layer: layer, frame: frame, alpha: alpha,
+                               executablePath: NSRunningApplication(processIdentifier: pid_t(processID))?.executableURL?.path)
         }
-        // WindowServer returns front-to-back order. Never exempt a layer:
-        // a foreign floating window can intercept the click too.
-        let first = windows.first { $0.alpha > 0 && $0.frame.contains(point) }
-        let diagnostics = "point=\(point); expected PID=\(pid), fixture=\(fixture)\nFirst hit: \(first?.description ?? "none")\nFirst 5 windows:\n" +
+    }
+
+    private func framesMatch(_ actual: CGRect, _ expected: CGRect) -> Bool {
+        zip([actual.minX, actual.minY, actual.maxX, actual.maxY],
+            [expected.minX, expected.minY, expected.maxX, expected.maxY]).allSatisfy { abs($0 - $1) <= 1 }
+    }
+
+    private func isSystemAutomationOverlay(_ window: ClickWindow) -> Bool {
+        window.owner == "AutomationModeUI" && window.layer == 1000 && window.alpha < 1 &&
+            framesMatch(window.frame, CGDisplayBounds(CGMainDisplayID())) &&
+            window.executablePath?.hasPrefix("/System/Library/PrivateFrameworks/AutomationMode.framework/") == true
+    }
+
+    private func requireFixtureClickTarget(at point: CGPoint, fixture: CGRect, pid: pid_t, label: String) throws {
+        guard fixture.contains(point) else { throw E2EFailure("Click point is outside the fixture; no click was sent") }
+        let windows = try clickWindows()
+        var skipped: [ClickWindow] = []
+        var first: ClickWindow?
+        // Preserve front-to-back order and every layer. Only the verified
+        // system automation overlay may be skipped; alpha/layer alone cannot.
+        for window in windows where window.alpha > 0 && window.frame.contains(point) {
+            if isSystemAutomationOverlay(window) { skipped.append(window) }
+            else { first = window; break }
+        }
+        let diagnostics = "point=\(point); expected PID=\(pid), fixture=\(fixture)\n" +
+            skipped.map { "Skipped system overlay: \($0.description)\n" }.joined() +
+            "First hit: \(first?.description ?? "none")\nFirst 5 windows:\n" +
             windows.prefix(5).map(\.description).joined(separator: "\n")
         try artifacts.text(diagnostics, name: "outside-hit-\(label).txt")
         print("Fixture click target: \(diagnostics)")
-        let sameFrame = first.map { window in
-            zip([window.frame.minX, window.frame.minY, window.frame.maxX, window.frame.maxY],
-                [fixture.minX, fixture.minY, fixture.maxX, fixture.maxY]).allSatisfy { abs($0 - $1) <= 1 }
-        } ?? false
-        guard first?.processID == Int(pid), sameFrame else {
+        guard let first, first.processID == Int(pid), framesMatch(first.frame, fixture) else {
             throw FixtureClickRefusal(processID: first?.processID, windowNumber: first?.number,
                                       description: "Outside fixture click refused; no click was sent. \(diagnostics)")
         }
@@ -530,9 +555,15 @@ final class PanelE2ETests: E2ETestCase {
 
     private func openStatusMenu() throws {
         let frame = try verifiedStatusItemFrame()
-        // Click exactly the frame whose pixels were checked, rather than
-        // resolving a potentially moved status item to an unverified target.
-        try app.input.click(at: CGPoint(x: frame.midX, y: frame.midY))
+        let point = CGPoint(x: frame.midX, y: frame.midY)
+        let windows = try clickWindows()
+        let diagnostics = "point=\(point), primary display=\(CGDisplayBounds(CGMainDisplayID()))\nWindows at point (front to back):\n" +
+            windows.filter { $0.alpha > 0 && $0.frame.contains(point) }.map(\.description).joined(separator: "\n")
+        try artifacts.text(diagnostics, name: "status-click-hit.txt")
+        print("Status click windows: \(diagnostics)")
+        // Click exactly the frame whose pixels were checked. The window list
+        // above is diagnostic: opening the menu proves input crossed the veil.
+        try app.input.click(at: point)
         let opened = waitUntil(timeout: 1) { self.statusMenuIsVisible }
         try artifacts.step("status-after-left-click")
         print("Status menu HID left click: \(opened ? "opened" : "did not open")")

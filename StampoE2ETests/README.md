@@ -256,10 +256,10 @@ and notch. Each outside click uses the current AX center of
 `stampo.e2e.fixture`, outside the panel. The panel must disappear, the full
 window set return to baseline and the fixture retain its frame.
 
-Закрытие кликом вне панели проверено только через локальный монитор (клик
-в окно-образец Stampo). Клик в окно другой программы (глобальный монитор)
-автоматическим тестом не покрыт; проверяется вручную.
-Both monitors use `handleGlobalLeftMouseDown`.
+Клик вне панели направляется только в проверенное окно-образец Stampo.
+Какой именно монитор (локальный или глобальный) закрыл панель, тест не
+различает. Закрытие чужим окном и закрытие fixture ведут в один
+`handleGlobalLeftMouseDown`. Клик в окно другой программы не отправляется.
 
 
 ## AX query failures
@@ -360,15 +360,28 @@ current P6 verifies identifiers after the initial open only.
 
 ## Outside-click ownership guard
 
-Before each of the four fixture clicks, the shared helper reads
-CGWindowListCopyWindowInfo with optionOnScreenOnly in front-to-back order.
-The first alpha>0 window containing the point must have the E2E PID and the
-fixture's AX bounds (all edges ±1 pt). No layers are excluded. A mismatch
-throws before input and records the owner name/PID/layer/bounds and first five
-windows. A different window of Stampo also fails this check.
+Before every fixture click, the shared helper reads the front-to-back
+optionOnScreenOnly window list. The first alpha>0 window containing the point
+must have the E2E PID and fixture AX bounds (edges ±1 pt). Another window,
+including an auxiliary Stampo window, causes refusal before input, with its
+owner/PID/layer/bounds and the first five windows recorded.
 
-`testOutsideClickGuardRefusesForeignWindow` puts a borderless floating window
-owned by the XCTest runner over the fixture center. It requires the same
-helper to reject that exact PID/window number and sends no click at the
-obstructed point. The runner window is removed before ordinary panel cleanup;
-no user window supplies this proof.
+Плёнка AutomationModeUI (слой 1000, alpha 0,25, весь дисплей, системный путь)
+лежит над окнами во время UI-прогона. Единственное правило пропуска требует
+одновременно имя AutomationModeUI, слой 1000, alpha<1, рамку основного дисплея
+(±1 pt) и executable path с префиксом
+`/System/Library/PrivateFrameworks/AutomationMode.framework/`. Пропуск отмечен
+строкой `Skipped system overlay:`. Общего исключения для слоя нет.
+
+Доказательство сквозного ввода: Settings и Quit сохраняют `status-click-hit.txt`
+перед левым HID-кликом. В списке над значком та же плёнка, а меню открывается.
+Наличие плёнки проверяется при приёмке обоих прогонов; список здесь диагностический,
+дополнительный fallback или отказ для меню значка не вводится.
+
+`testOutsideClickGuardRefusesForeignWindow` requires refusal of two windows
+owned by the runner: a small floating cover and a full-display borderless
+cover at level 1000, alpha 0.25. The latter cannot pass the owner/path rule.
+Both exact PID/window numbers must be rejected, without clicking the covered
+point. Runner windows are removed before ordinary panel cleanup. User windows
+are never used as probes. The test does not distinguish which monitor handled
+the accepted fixture click; both route to `handleGlobalLeftMouseDown`.
