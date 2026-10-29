@@ -405,3 +405,10 @@ path preserves both outside openers; the hotkey-only fallback was not needed.
 Outside diagnostics record frontmost name/PID/bundle and the first raw and
 first eligible windows after closing, after raise and before clicking. They
 record observations without changing the application's activation behavior.
+
+
+AX queries use the PID verified once at launch, rather than rediscovering it
+through NSWorkspace during every activation. The original process/path and
+window invariants still run; native AX root reads still throw for a dead or
+unresponsive PID. The terminated-process probe checks this explicitly. No
+Workspace miss is converted into an absent panel or menu.

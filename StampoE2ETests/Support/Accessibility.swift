@@ -60,7 +60,7 @@ struct AccessibilityNode {
 extension E2EApp {
     var accessibilityRoot: AccessibilityNode {
         get throws {
-            guard let pid = processID ?? accessibilityProbeProcessID ?? expectedQuitProcessID else {
+            guard let pid = accessibilityProcessID ?? processID ?? accessibilityProbeProcessID ?? expectedQuitProcessID else {
                 throw E2EFailure("AX query has no isolated process PID")
             }
             let element = AXUIElementCreateApplication(pid)

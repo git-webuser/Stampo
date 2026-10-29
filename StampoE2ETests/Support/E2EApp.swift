@@ -23,6 +23,7 @@ final class E2EApp {
     let directory: URL
     private let appURL: URL
     private(set) var launched = false
+    private(set) var accessibilityProcessID: pid_t?
     private(set) var expectedQuitProcessID: pid_t?
     private(set) var accessibilityProbeProcessID: pid_t?
     var terminationExpected: Bool { quitExpected || accessibilityProbeProcessID != nil }
@@ -70,9 +71,12 @@ final class E2EApp {
         launched = true
         // LSUIElement normally stays in background. Its status item, rather
         // than foreground activation or a document window, establishes readiness.
-        guard element(.statusItem).waitForExistence(timeout: 8), processID != nil else {
+        guard element(.statusItem).waitForExistence(timeout: 8), let verifiedPID = processID else {
             throw E2EFailure("E2E launch did not create a status item in 8s (state=\(application.state.rawValue))")
         }
+        // Bind native AX to this verified launch. Workspace enumeration can
+        // briefly omit a live app during activation; that is not an AX result.
+        accessibilityProcessID = verifiedPID
         try input.park()
     }
 
