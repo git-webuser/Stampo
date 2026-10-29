@@ -138,8 +138,9 @@ Quarantine, if authorized, must use XCTSkip with a reason/date and be listed her
 
 `S0/testPanelLifecycle` checks launch, status, the global hotkey, required panel
 controls, close and clean invariants. `S0b` covers fixture pixels and the editor
-hook. `PanelE2ETests` has nine methods: status-item visibility, terminated-process AX
-probe, open/close cycles, owned outside clicks, menus, two Esc deliveries,
+hook. `PanelE2ETests` has ten methods: status-item visibility, terminated-process AX
+probe, open/close cycles, owned outside clicks, refusal of a runner-owned cover,
+menus, two Esc deliveries,
 pointer-dependent Tab, status Settings and status Quit. No skips or quarantined
 scenarios are enabled.
 
@@ -211,13 +212,12 @@ release-state sensitivity; see the oracle limitations below.
 
 ## Известные ограничения оракулов
 
-`daf3bad` и `fabf326`: прежний вывод «не воспроизводится на этой macOS»
-был принят до обнаружения перевёрнутых Y-строк в Files.Bitmap (обновление 7).
-Те сравнения читали другую область экрана: они не доказывают отсутствие
-залипшей подсветки. Старые зелёные логи сохранены в stage3-final/oracles*,
-stage3-update4/oracles/p2-more; переинтерпретировать их как красные нельзя.
-Новых жестов и повторов этих исторических мутаций после открытия причины
-не выполнялось. С исправленным decoder эксперимент M3 на b082ab3 принудительно
+`daf3bad` и `fabf326`: старые сравнения были слепы по построению —
+декодер читал строку h−1−y. Статус старых логов: **не проверено верным
+декодером**. Они сохранены в stage3-final/oracles* и
+stage3-update4/oracles/p2-more; это не измерение исторических сбоев с верным
+decoder. Новые reverse-прогоны, если выполнены, имеют отдельные результаты
+в codex-e2e-3-report.md. С исправленным decoder эксперимент M3 на b082ab3 принудительно
 оставил isPressed=true отдельно у режима, задержки и More: все три красные,
 максимальная разница каналов 255 / 254 / 254 при допуске ±2; все три здоровых
 контроля зелёные. Поэтому оставлены ровно три доказанные release-state проверки
@@ -240,6 +240,8 @@ and this launch: `(0, 0, 0)`. Measured on macOS 27.0.1: normal Quit gives
 identity. A missing system report fails after a bounded 5 s wait; a nonzero
 termination report fails immediately. Raw JSON and the selected exit message
 are attached. The ordinary crash-report invariant remains enabled.
+The runningboardd message format is private. If its format changes, the test
+fails with "No system exit status" rather than silently passing.
 
 
 ## P1 cycle and outside-click coverage
@@ -271,9 +273,12 @@ window/AX liveness after termination; crash, log and input checks still run.
 
 
 Esc coverage checks both sides of menu tracking: first HID Esc closes More
-while preserving the panel; one MainActor delivery turn (100 ms) is allowed
-for didEndTracking to restore the hotkey, then a single second HID Esc must
-close the panel and restore the full window baseline. Esc is never retried.
+while preserving the panel. One fixed 400 ms RunLoop observation outlasts
+its approximately 220 ms hide animation and lets didEndTracking restore the
+hotkey. The panel must settle at its pre-menu frame (±1 pt), then a single
+second HID Esc must close it and restore the full window baseline. Esc is
+never retried. M4 hides the panel when menu tracking ends and must fail before
+the second Esc; M2 and reverse 045b2ff still check their separate steps.
 
 
 Status menu coverage requires the HID left click. A failed click saves the
@@ -351,3 +356,19 @@ P1 appearance failures include the opener, cycle and previous opener/closer
 pair. The failure context adds no input or pause. For future Settings tab-switch
 scenarios, native toolbar identifiers must be reassigned after the tab changes;
 current P6 verifies identifiers after the initial open only.
+
+
+## Outside-click ownership guard
+
+Before each of the four fixture clicks, the shared helper reads
+CGWindowListCopyWindowInfo with optionOnScreenOnly in front-to-back order.
+The first alpha>0 window containing the point must have the E2E PID and the
+fixture's AX bounds (all edges ±1 pt). No layers are excluded. A mismatch
+throws before input and records the owner name/PID/layer/bounds and first five
+windows. A different window of Stampo also fails this check.
+
+`testOutsideClickGuardRefusesForeignWindow` puts a borderless floating window
+owned by the XCTest runner over the fixture center. It requires the same
+helper to reject that exact PID/window number and sends no click at the
+obstructed point. The runner window is removed before ordinary panel cleanup;
+no user window supplies this proof.
