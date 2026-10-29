@@ -138,15 +138,22 @@ final class PanelE2ETests: E2ETestCase {
         try app.launch(fixture: true)
         try recordWindowBaseline()
         try openPanel()
+        let before = try settledPanel()
         try openMenu(.panelMoreMenu)
         try app.input.park()
         try app.input.press("ESC")
         XCTAssertTrue(try waitUntil(timeout: 3) { try self.visibleMenu == nil }, "More menu did not close after Esc")
-        XCTAssertNotNil(try app.liveElement(.panel), "Esc closed the panel together with the menu")
+        // A hide animation reaches orderOut after about 220 ms. Observe past
+        // that point once, also allowing didEndTracking to restore the hotkey.
+        RunLoop.current.run(until: Date().addingTimeInterval(0.4))
+        let after = try settledPanel(context: "Esc closed the panel together with the menu")
+        for (actual, expected) in zip([after.minX, after.minY, after.width, after.height],
+                                      [before.minX, before.minY, before.width, before.height]) {
+            XCTAssertEqual(actual, expected, accuracy: 1,
+                           "Esc closed the panel together with the menu: frame changed from \(before) to \(after)")
+        }
+        try artifacts.text("before=\(before)\nafter 0.4 s=\(after)", name: "first-esc-panel-frames.txt")
         try artifacts.step("menu-closed-by-esc")
-        // didEndTracking schedules syncEscapeHotkey in a MainActor Task.
-        // Give that single delivery turn time to restore the panel's hotkey.
-        RunLoop.current.run(until: Date().addingTimeInterval(0.1))
         try app.input.press("ESC")
         try expectPanelClosed(message: "second Esc did not close the panel")
         expectWindowSetUnchanged()
