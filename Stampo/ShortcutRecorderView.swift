@@ -52,6 +52,8 @@ struct ShortcutRecorderView: View {
 
     private var showsClearButton: Bool { combo != nil && !isRecording }
 
+    private var accessibilityPrefix: String { "stampo.settings.hotkey.\(action)" }
+
     var body: some View {
         VStack(alignment: .trailing, spacing: 4) {
             HStack(spacing: buttonGap) {
@@ -69,6 +71,7 @@ struct ShortcutRecorderView: View {
                     // thing VoiceOver has to go on: unnamed it reads out as
                     // "xmark circle fill".
                     .accessibilityLabel(Text("Remove shortcut"))
+                    .accessibilityIdentifier("\(accessibilityPrefix).clear")
                 }
             }
 
@@ -76,6 +79,7 @@ struct ShortcutRecorderView: View {
                 Text(LocalizedStringKey(rejectionKey))
                     .font(.caption)
                     .foregroundStyle(.red)
+                    .accessibilityIdentifier("\(accessibilityPrefix).status")
             }
             if let messageKey = registrationStatus.messageKey {
                 // Through LocalizedStringKey, exactly like the rejection line
@@ -84,6 +88,7 @@ struct ShortcutRecorderView: View {
                 Text(LocalizedStringKey(messageKey))
                     .font(.caption)
                     .foregroundStyle(registrationStatus.isError ? .red : .secondary)
+                    .accessibilityIdentifier("\(accessibilityPrefix).status")
             }
         }
         .onDisappear(perform: stopRecording)
@@ -154,6 +159,7 @@ struct ShortcutRecorderView: View {
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(accessibilityLabelText)
             .accessibilityValue(accessibilityValueText)
+            .accessibilityIdentifier("\(accessibilityPrefix).recorder")
             .accessibilityHint(Text("Press Space to record a shortcut, Escape to cancel"))
             .accessibilityAddTraits(.isButton)
             // The setting is flipped in System Settings, so the app hears about

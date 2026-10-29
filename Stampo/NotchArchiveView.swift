@@ -811,6 +811,7 @@ struct NotchArchiveView: View {
             .frame(width: metrics.cellWidth, height: metrics.iconSize)
             .help(title)
             .accessibilityLabel(title)
+            .accessibilityIdentifier("stampo.archive.back")
     }
 
 
@@ -1174,6 +1175,7 @@ struct ArchiveSelectionBadge: View {
             // glyph: "button, Select item" alone cannot tell a stack with two
             // members picked from one with none.
             .accessibilityValue(stateDescription)
+            .accessibilityIdentifier("stampo.archive.selectionMark")
             .accessibilityAddTraits(state == .full ? .isSelected : [])
     }
 
@@ -2103,6 +2105,7 @@ private struct ArchiveStackCell: View {
                 .background(Capsule(style: .continuous).fill(Color.black.opacity(0.65)))
                 .padding(2)
                 .allowsHitTesting(false)
+                .accessibilityIdentifier("stampo.archive.stack.\(stack.id).count")
         }
         .overlay(alignment: .bottom) {
             // Source folder name — the discriminator between stacks (each stack
@@ -2296,6 +2299,7 @@ private struct ExpandedStackGroup: View {
                         }
                     }
                 )
+                .accessibilityIdentifier("stampo.archive.stack.member.\(stack.urls.firstIndex(of: url) ?? 0)")
             }
             if overflow > 0 {
                 OverflowTailCell(count: overflow, height: height,
@@ -2365,6 +2369,7 @@ private struct ExpandedStackGroup: View {
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityTitle)
         .accessibilityHint("Tap to collapse")
+        .accessibilityIdentifier("stampo.archive.stack.\(stack.id).header")
         .accessibilityAddTraits(.isButton)
     }
 
@@ -2585,6 +2590,7 @@ struct ArchiveSelectionCountButton: View {
                 includesAppCommands: false,
                 accessibilityKey: "Selected items",
                 accessibilityValue: count > 0 ? NotchMetrics.countLabel(for: count) : nil,
+                accessibilityID: "stampo.archive.selection",
                 onOpen:  { isMenuOpen = true  },
                 onClose: { isMenuOpen = false }
             )
@@ -2671,6 +2677,7 @@ private struct PopUpSchemeButtonWrapper: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSPopUpButton {
         let button = PanelPopUpButton()
+        button.setAccessibilityIdentifier("stampo.archive.colorFormat")
         button.isBordered       = false
         button.isTransparent    = true
         button.pullsDown        = true

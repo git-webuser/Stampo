@@ -253,7 +253,10 @@ private struct PersistedArchiveItem: Codable {
 
     init() {
         #if DEBUG
-        if E2EHooks.isEnabled { return }
+        if E2EHooks.isEnabled {
+            E2EHooks.populateArchive(self)
+            return
+        }
         #endif
         restoreIfNeeded()
         #if DEBUG
