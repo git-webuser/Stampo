@@ -31,6 +31,22 @@ final class Input {
         RunLoop.current.run(until: Date().addingTimeInterval(0.02))
     }
 
+    func commandClick(at point: CGPoint) throws {
+        guard let down = CGEvent(keyboardEventSource: source, virtualKey: 0x37, keyDown: true),
+              let up = CGEvent(keyboardEventSource: source, virtualKey: 0x37, keyDown: false) else {
+            throw E2EFailure("Cannot construct Command events")
+        }
+        down.flags = .maskCommand
+        up.flags = []
+        down.post(tap: .cghidEventTap)
+        defer { up.post(tap: .cghidEventTap) }
+        try mouse(.mouseMoved, at: point, flags: .maskCommand)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        try mouse(.leftMouseDown, at: point, flags: .maskCommand)
+        defer { try? mouse(.leftMouseUp, at: point, flags: .maskCommand) }
+        RunLoop.current.run(until: Date().addingTimeInterval(0.02))
+    }
+
     func holdMouse(at point: CGPoint) throws {
         try move(to: point)
         RunLoop.current.run(until: Date().addingTimeInterval(0.1))
@@ -164,12 +180,13 @@ final class Input {
     static func quartzPoint(fromAppKit point: CGPoint) -> CGPoint {
         CGPoint(x: point.x, y: primaryDisplayHeight - point.y)
     }
-    private func mouse(_ type: CGEventType, at point: CGPoint) throws {
+    private func mouse(_ type: CGEventType, at point: CGPoint, flags: CGEventFlags? = nil) throws {
         guard point.x.isFinite, point.y.isFinite,
               let event = CGEvent(mouseEventSource: source, mouseType: type,
                                   mouseCursorPosition: point, mouseButton: .left) else {
             throw E2EFailure("Cannot construct mouse event at \(point)")
         }
+        if let flags { event.flags = flags }
         event.post(tap: .cghidEventTap)
     }
 }

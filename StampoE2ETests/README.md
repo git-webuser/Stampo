@@ -423,3 +423,39 @@ stableButton уводит указатель до снимка; AppKit дост�
 .onHover сбрасывает isHovered, и мутация пропадает до кадра, то есть M3b
 может моделировать недостижимое состояние. Это гипотеза, не установленная
 слепота P2 к hover. Числа отдельного pointer-on/parked контроля — в отчёте.
+
+
+## E2E-3b preparation
+
+`-StampoE2EArchive` seeds five in-memory entries through the ordinary model:
+colors `#FF6B4A`, `#2D6CDF`, `#12B886` at indices 0..2, one text at 3, and one
+stack of three generated temporary text files at 4. The archive does not persist.
+DemoArchive and normal launches are unchanged. Hotkey defaults are seeded in
+only the `.e2e` persistent domain so the actual Settings recorder can edit them.
+`screen-recording-preflight.txt` records the app's own capture preflight in its
+scenario artifact directory; it never grants a permission.
+
+New ids are `stampo.archive.back`, `.colorFormat`, `.selection` (the existing
+selection menu, only while selecting) and `.selectionMark` (scope to a cell).
+The collapsed stack retains `stampo.archive.cell.4` in this fixture; its count
+and expanded header use `stampo.archive.stack.<UUID>.count` / `.header`.
+Expanded members use `stampo.archive.stack.member.<index>` (only one stack can
+be expanded). Global shortcut rows use `stampo.settings.hotkey.<action>.row`,
+`.recorder`, `.clear` and `.status`, where action is its Swift case name.
+There is no global-hotkey toggle: the existing clear button disables the combo;
+recording sets it again. Rejection and registration messages share `.status`
+and are queried within their own row. Labels, values and layout are unchanged.
+
+The click ownership guard now lives in `Support/WindowHitTest.swift`. P1 calls
+the same checks through wrappers; the only default exemption remains the exact
+system AutomationModeUI identity/level/alpha/frame/path conjunction. New panel
+clicks must match the bound E2E PID and current panel frame as well.
+
+`ArchiveEscapeE2ETests/testEscUnwindsOneLayerPerPress` is the first P5 candidate;
+it has been built, and awaits its first authorized UI run. A plain stack click
+expands it; a Command-click on color cell 0 enters selection. The test preserves
+the user pasteboard in memory and restores it if changed before common teardown.
+Each Esc observation waits 400 ms, compares the surviving panel frame and reads
+stack members, selection mode and the existing selection mark through AX.
+No skips or expected failures are added. Back and menu-first cases follow only
+after checking this first method, then P3 and P7.

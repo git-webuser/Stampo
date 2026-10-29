@@ -17,6 +17,9 @@ final class E2EApp {
         case panelModeMenu = "stampo.panel.modeMenu"
         case panelDelayMenu = "stampo.panel.delayMenu"
         case panelArchiveToggle = "stampo.panel.archiveToggle"
+        case archiveBack = "stampo.archive.back"
+        case archiveColorFormat = "stampo.archive.colorFormat"
+        case archiveSelection = "stampo.archive.selection"
     }
 
     let application: XCUIApplication
@@ -65,12 +68,13 @@ final class E2EApp {
         application = XCUIApplication(url: appURL)
     }
 
-    func launch(fixture: Bool = false, editorPNG: URL? = nil) throws {
+    func launch(fixture: Bool = false, archive: Bool = false, editorPNG: URL? = nil) throws {
         guard !launched else { throw E2EFailure("The E2E application has already been launched") }
         let captures = try Files.folder(directory, "captures")
         application.launchArguments = ["-StampoE2E", "-preferredLanguage", "en",
                                        "-saveDirectory", captures.path, "-hasCompletedOnboarding", "YES"]
         if fixture { application.launchArguments.append("-StampoE2EFixture") }
+        if archive { application.launchArguments.append("-StampoE2EArchive") }
         if let editorPNG { application.launchArguments += ["-StampoE2EOpenEditor", editorPNG.path] }
         application.launchEnvironment["STAMPO_E2E_ARTIFACTS"] = directory.path
         application.launch()
