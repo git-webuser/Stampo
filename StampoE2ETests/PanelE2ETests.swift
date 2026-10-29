@@ -142,6 +142,11 @@ final class PanelE2ETests: E2ETestCase {
             }
             cover.orderOut(nil)
             cover.close()
+            // AppKit closes locally before WindowServer drops the ordered
+            // window. Wait for this exact owned id before the next probe.
+            guard try waitUntil(timeout: 1, {
+                try !self.clickWindows().contains { $0.number == number }
+            }) else { throw E2EFailure("Closed runner \(label) window remained on screen: \(number)") }
             let rejected = try XCTUnwrap(refusal, "Outside guard accepted the runner \(label) window; no click was sent")
             XCTAssertEqual(rejected.processID, Int(ProcessInfo.processInfo.processIdentifier))
             XCTAssertEqual(rejected.windowNumber, number, "Guard must reject our actual topmost runner window")
