@@ -52,18 +52,42 @@ enum E2EHooks {
         window.title = "Stampo E2E Fixture"
         window.setAccessibilityIdentifier("stampo.e2e.fixture")
         window.isReleasedWhenClosed = false
-        window.contentView = FixtureView(frame: bounds)
+        let view = FixtureView(frame: bounds)
+        window.contentView = view
         if let screen = NSScreen.screens.first {
             window.setFrameOrigin(NSPoint(x: screen.frame.midX - window.frame.width / 2,
                                           y: screen.frame.midY - window.frame.height / 2))
         }
         fixture = window
         window.makeKeyAndOrderFront(nil)
+        window.makeFirstResponder(view)
         NSApp.activate(ignoringOtherApps: true)
     }
 
     private final class FixtureView: NSView {
+        private let keyCounter = NSView(frame: .zero)
+        private var keyCount = 0
+
+        override init(frame frameRect: NSRect) {
+            super.init(frame: frameRect)
+            // A zero-sized AX-only child reports delivery without drawing a
+            // label or adding a control over the known fixture pixels.
+            keyCounter.setAccessibilityElement(true)
+            keyCounter.setAccessibilityRole(.staticText)
+            keyCounter.setAccessibilityIdentifier("stampo.e2e.fixture.keys")
+            keyCounter.setAccessibilityValue("0")
+            addSubview(keyCounter)
+        }
+
+        required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+        override var acceptsFirstResponder: Bool { true }
         override var isOpaque: Bool { true }
+
+        override func keyDown(with event: NSEvent) {
+            keyCount += 1
+            keyCounter.setAccessibilityValue(String(keyCount))
+            NSAccessibility.post(element: keyCounter, notification: .valueChanged)
+        }
 
         override func draw(_ dirtyRect: NSRect) {
             NSColor(srgbRed: 1, green: 0, blue: 0, alpha: 1).setFill()

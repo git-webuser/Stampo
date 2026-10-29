@@ -39,8 +39,8 @@ enum Files {
                                               bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
                                                 | CGBitmapInfo.byteOrder32Big.rawValue) else { return false }
                 context.setRenderingIntent(.relativeColorimetric)
-                context.translateBy(x: 0, y: CGFloat(height))
-                context.scaleBy(x: 1, y: -1)
+                // Keep CGImage's row order. Flipping this bitmap context
+                // swaps top/bottom in the stored pixel rows used by rgba.
                 context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
                 return true
             }
@@ -57,10 +57,7 @@ enum Files {
             return Array(bytes[offset..<(offset + 4)])
         }
 
-        func matches(x: Int, y: Int, rgb: [UInt8], tolerance: Int = 2) throws -> Bool {
-            guard rgb.count == 3, tolerance >= 0 else { throw E2EFailure("RGB requires three channels and a nonnegative tolerance") }
-            return try zip(rgba(x: x, y: y).prefix(3), rgb).allSatisfy { abs(Int($0) - Int($1)) <= tolerance }
-        }
+
     }
 
     struct CommandResult {

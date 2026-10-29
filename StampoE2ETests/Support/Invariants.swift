@@ -3,9 +3,15 @@ import XCTest
 
 @MainActor
 final class Invariants {
+    struct WindowBaseline {
+        let processID: pid_t
+        let windows: Set<String>
+    }
+
     private let started = Date()
     private let initialCrashes: Set<String>
     private var initialWindows: Set<String>?
+    private var windowProbe = 0
     private let artifacts: Artifacts
 
     init(artifacts: Artifacts) throws {
@@ -13,44 +19,92 @@ final class Invariants {
         initialCrashes = try Self.crashReports()
     }
 
-    func recordWindowBaseline(app: E2EApp) throws {
+    func captureWindowBaseline(app: E2EApp, name: String) throws -> WindowBaseline {
         guard let pid = app.processID else { throw E2EFailure("Cannot record windows: E2E process is absent") }
-        initialWindows = try Self.windowStates(pid: pid)
-        try artifacts.text(try Self.allWindowDescription(pid: pid), name: "windows-before.txt")
+        let baseline = WindowBaseline(processID: pid, windows: try Self.windowStates(pid: pid))
+        try artifacts.text(try Self.allWindowDescription(pid: pid), name: "windows-\(name).txt")
+        return baseline
+    }
+
+    func recordWindowBaseline(app: E2EApp) throws {
+        initialWindows = try captureWindowBaseline(app: app, name: "before").windows
     }
 
     func check(app: E2EApp) -> [String] {
         // Return diagnostics, rather than asserting here: XCTest may abort a
         // teardown assertion before the caller can save evidence or terminate.
         var failures: [String] = []
-        if app.application.state == .notRunning { failures.append("E2E process died during the scenario") }
+        if !app.terminationExpected && app.processID == nil { failures.append("E2E process died during the scenario") }
         do {
             let newCrashes = try Self.crashReports().subtracting(initialCrashes)
             if !newCrashes.isEmpty { failures.append("New Stampo crash reports: \(newCrashes.sorted())") }
         } catch { failures.append("Cannot inspect crash reports: \(error)") }
-        if let pid = app.processID {
-            if let initialWindows {
-                let settled = waitUntil(timeout: 3) { (try? Self.windowStates(pid: pid)) == initialWindows }
-                do {
-                    try artifacts.text(try Self.allWindowDescription(pid: pid), name: "windows-after.txt")
-                    if !settled {
-                        failures.append("E2E full window set did not return to baseline: \(initialWindows) -> \(try Self.windowStates(pid: pid))")
-                    }
-                } catch { failures.append("Cannot inspect E2E windows: \(error)") }
+        if let pid = app.expectedQuitProcessID {
+            do { failures += try cleanExitFailures(pid: pid) }
+            catch { failures.append("Cannot prove clean Quit for PID \(pid): \(error)") }
+        }
+        if !app.terminationExpected {
+            if let pid = app.processID {
+                failures += windowFailures(app: app)
+                let root = AXUIElementCreateApplication(pid)
+                AXUIElementSetMessagingTimeout(root, 2)
+                var children: CFTypeRef?
+                let before = Date()
+                let result = AXUIElementCopyAttributeValue(root, kAXChildrenAttribute as CFString, &children)
+                let elapsed = Date().timeIntervalSince(before)
+                if result != .success { failures.append("E2E Accessibility tree did not answer: \(result.rawValue)") }
+                if elapsed > 2 { failures.append("E2E Accessibility tree took \(elapsed)s; limit is 2s") }
+            } else {
+                failures.append("The isolated E2E process is absent or its executable path changed")
             }
-            let root = AXUIElementCreateApplication(pid)
-            AXUIElementSetMessagingTimeout(root, 2)
-            var children: CFTypeRef?
-            let before = Date()
-            let result = AXUIElementCopyAttributeValue(root, kAXChildrenAttribute as CFString, &children)
-            let elapsed = Date().timeIntervalSince(before)
-            if result != .success { failures.append("E2E Accessibility tree did not answer: \(result.rawValue)") }
-            if elapsed > 2 { failures.append("E2E Accessibility tree took \(elapsed)s; limit is 2s") }
-        } else {
-            failures.append("The isolated E2E process is absent or its executable path changed")
         }
         do { failures += try checkLog() } catch { failures.append("Cannot check unified log: \(error)") }
         return failures
+    }
+
+    private func cleanExitFailures(pid: pid_t) throws -> [String] {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        let deadline = Date().addingTimeInterval(5)
+        repeat {
+            // Measured system evidence: a voluntary Quit reports (0, 0, 0),
+            // abort reports (2, 6, 6). A disappeared PID alone proves neither.
+            let result = try Files.run("/usr/bin/log", ["show", "--start", formatter.string(from: started),
+                "--info", "--debug", "--style", "json", "--predicate",
+                "process == \"runningboardd\" AND eventMessage CONTAINS \"\(pid)\""],
+                in: artifacts.directory, timeout: 5)
+            try artifacts.text(result.output, name: "quit-system-\(pid).json")
+            guard result.status == 0 else { throw E2EFailure("System exit log failed: \(result.error)") }
+            guard let entries = try JSONSerialization.jsonObject(with: Data(result.output.utf8)) as? [[String: Any]] else {
+                throw E2EFailure("System exit log did not return a JSON array")
+            }
+            let messages = entries.compactMap { $0["eventMessage"] as? String }.filter {
+                // Exclude XPC services whose identity merely contains the parent PID.
+                $0.hasPrefix("[app<application.com.hex000.Stampo.e2e.") &&
+                $0.contains(">:\(pid)] termination reported by launchd ")
+            }
+            if !messages.isEmpty {
+                try artifacts.text(messages.joined(separator: "\n"), name: "quit-exit-status.txt")
+                print("Quit system exit PID \(pid): \(messages)")
+                return messages.allSatisfy { $0.hasSuffix("termination reported by launchd (0, 0, 0)") }
+                    ? [] : ["Quit PID \(pid) did not exit cleanly: \(messages)"]
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        } while Date() < deadline
+        return ["No system exit status for expected Quit PID \(pid) within 5 s"]
+    }
+
+    func windowFailures(app: E2EApp, baseline: WindowBaseline? = nil) -> [String] {
+        guard let expected = baseline?.windows ?? initialWindows else { return ["Window baseline has not been recorded"] }
+        guard let pid = app.processID else { return ["Cannot inspect windows: E2E process is absent"] }
+        if let baseline, baseline.processID != pid { return ["E2E process changed after the window snapshot"] }
+        let settled = waitUntil(timeout: 3) { (try? Self.windowStates(pid: pid)) == expected }
+        do {
+            windowProbe += 1
+            try artifacts.text(try Self.allWindowDescription(pid: pid), name: "windows-after-\(windowProbe).txt")
+            return settled ? [] : ["E2E full window set did not return to baseline: \(expected) -> \(try Self.windowStates(pid: pid))"]
+        } catch { return ["Cannot inspect E2E windows: \(error)"] }
     }
 
     private func checkLog() throws -> [String] {
