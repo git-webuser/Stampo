@@ -102,19 +102,20 @@ final class PanelE2ETests: E2ETestCase {
                                ("5 Seconds", "5 Seconds"), ("10 Seconds", "10 Seconds")])
         ]
         for (control, choices) in menus {
-            for (title, expected) in choices {
-                // Pick a different value once before comparing the same glyph.
-                // The initial Selection/No Delay comparisons start untouched,
-                // so a stuck first interaction cannot become its own baseline.
-                if try required(control).value != expected {
+            for (index, choice) in choices.enumerated() {
+                let (title, expected) = choice
+                // Only the first, untouched default supplies a release-state
+                // baseline. M3 proved these Selection/No Delay comparisons.
+                if index == 0 {
+                    let before = try stableButton(control, label: "\(title)-before")
+                    try select(title, in: control)
+                    try expectValue(control, expected, message: "Menu did not select \(title)")
+                    let after = try stableButton(control, label: "\(title)-released")
+                    expectReleased(before, after, message: "\(control.rawValue) remained highlighted after \(title)")
+                } else {
                     try select(title, in: control)
                     try expectValue(control, expected, message: "Menu did not select \(title)")
                 }
-                let before = try stableButton(control, label: "\(title)-before")
-                try select(title, in: control)
-                try expectValue(control, expected, message: "Menu did not select \(title)")
-                let after = try stableButton(control, label: "\(title)-released")
-                expectReleased(before, after, message: "\(control.rawValue) remained highlighted after \(title)")
                 try closePanel()
                 try openPanel()
                 try expectValue(.panelModeMenu, "Selection", message: "Reopen did not restore the E2E default mode")
@@ -131,10 +132,6 @@ final class PanelE2ETests: E2ETestCase {
         let immediate = try stableButton(.panelMoreMenu, label: "more-immediately-after-settings")
         expectReleased(before, immediate, message: "More button remained highlighted immediately after Settings")
         try normalizePanelAfterSettings()
-        try openPanel()
-        let after = try stableButton(.panelMoreMenu, label: "more-after-settings")
-        expectReleased(before, after, message: "More button remained highlighted after Settings")
-        try closePanel()
     }
 
     func testMoreMenuClosesOnEsc() throws {

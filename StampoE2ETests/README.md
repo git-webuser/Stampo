@@ -198,8 +198,10 @@ For the More → Settings path, current settingsTapped leaves the panel visible.
 After closing Settings, the test first compares More while the panel remains
 visible and verifies the full window set against an immutable phase snapshot.
 It then hides the retained panel through the HID hotkey, verifies the original
-closed-panel baseline, reopens and compares More again. The pointer never
-crosses More during this normalization.
+closed-panel baseline. The pointer never crosses More during this normalization.
+Only Selection, No Delay and More receive release-state pixel comparisons;
+all eight choices still verify their selected values and both defaults after
+reopening. The six other choices never supply a post-selection baseline.
 
 Menu selections use a single held HID gesture: press the popup, drag to its
 item while NSMenu tracks, and release there. This targets the lost release
@@ -215,8 +217,13 @@ release-state sensitivity; see the oracle limitations below.
 залипшей подсветки. Старые зелёные логи сохранены в stage3-final/oracles*,
 stage3-update4/oracles/p2-more; переинтерпретировать их как красные нельзя.
 Новых жестов и повторов этих исторических мутаций после открытия причины
-не выполнялось. M3 и остальные пиксельные проверки предстоят с исправленным
-decoder; чувствительность P2 ещё не доказана.
+не выполнялось. С исправленным decoder эксперимент M3 на b082ab3 принудительно
+оставил isPressed=true отдельно у режима, задержки и More: все три красные,
+максимальная разница каналов 255 / 254 / 254 при допуске ±2; все три здоровых
+контроля зелёные. Поэтому оставлены ровно три доказанные release-state проверки
+(Selection, No Delay, More сразу после Settings), а шесть сравнений после
+предварительного выбора и повтор More после нормализации удалены. Это своя
+мутация состояния нажатия, не исторические daf3bad/fabf326.
 
 `1f1e69f` — оракул снят: его исправление откатили в bc68d99. Проверки
 верхнего края остаются свойствами. Явный native safe-area inset, если
