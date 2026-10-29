@@ -138,8 +138,10 @@ Quarantine, if authorized, must use XCTSkip with a reason/date and be listed her
 
 `S0/testPanelLifecycle` checks launch, status, the global hotkey, required panel
 controls, close and clean invariants. `S0b` covers fixture pixels and the editor
-hook. `PanelE2ETests` has six methods: open/close cycles, panel menus, HID Esc menu closure, pointer-dependent Tab, status Settings, and status Quit. No skips or
-quarantined scenarios are enabled.
+hook. `PanelE2ETests` has nine methods: status-item visibility, terminated-process AX
+probe, open/close cycles, owned outside clicks, menus, two Esc deliveries,
+pointer-dependent Tab, status Settings and status Quit. No skips or quarantined
+scenarios are enabled.
 
 ## S0 behavior oracle
 
@@ -336,3 +338,9 @@ fresh root traversal; each traversal retains its 2000-node bound. Root read
 failures, timeout/cannotComplete, traversal limits and a second invalidation
 still throw. An absence result must come from a complete responsive traversal,
 never from treating an AX failure as nil. No delay is added before reopening.
+
+
+P1 appearance failures include the opener, cycle and previous opener/closer
+pair. The failure context adds no input or pause. For future Settings tab-switch
+scenarios, native toolbar identifiers must be reassigned after the tab changes;
+current P6 verifies identifiers after the initial open only.

@@ -40,7 +40,9 @@ final class PanelE2ETests: E2ETestCase {
             if opener == "hotkey" { try app.input.press("⌃⌥⌘N") }
             else { try app.input.click(at: trigger.point) }
             print("P1 pointer after opening input: \(Input.quartzPoint(fromAppKit: NSEvent.mouseLocation)), HID=\(String(describing: CGEvent(source: nil)?.location))")
-            let frame = try settledPanel()
+            let previous = cycle == 0 ? ("baseline hotkey", "button") : pairs[(cycle - 1) % pairs.count]
+            let context = "Panel did not appear after \(opener) (cycle \(cycle + 1); previous close \(previous.0) × \(previous.1))"
+            let frame = try settledPanel(context: context)
             XCTAssertEqual(frame.minY, 0, accuracy: 1, "Panel window is displaced from the top edge: \(frame)")
             let mode = try required(.panelModeMenu)
             let modeFrame = try XCTUnwrap(mode.frame, "Mode button has no frame")
@@ -231,10 +233,10 @@ final class PanelE2ETests: E2ETestCase {
         try artifacts.step("quit")
     }
 
-    private func required(_ control: E2EApp.Control, file: StaticString = #filePath, line: UInt = #line) throws -> AccessibilityNode {
+    private func required(_ control: E2EApp.Control, message: String? = nil, file: StaticString = #filePath, line: UInt = #line) throws -> AccessibilityNode {
         let exists = try waitUntil(timeout: 3) { try self.app.liveElement(control) != nil }
-        XCTAssertTrue(exists, "Missing \(control.rawValue) before reading its value/frame", file: file, line: line)
-        return try XCTUnwrap(app.liveElement(control), "Missing \(control.rawValue)", file: file, line: line)
+        XCTAssertTrue(exists, message ?? "Missing \(control.rawValue) before reading its value/frame", file: file, line: line)
+        return try XCTUnwrap(app.liveElement(control), message ?? "Missing \(control.rawValue)", file: file, line: line)
     }
 
     private func tapLive(_ control: E2EApp.Control) throws {
@@ -245,8 +247,8 @@ final class PanelE2ETests: E2ETestCase {
     }
 
     @discardableResult
-    private func settledPanel() throws -> CGRect {
-        _ = try required(.panel)
+    private func settledPanel(context: String? = nil) throws -> CGRect {
+        _ = try required(.panel, message: context)
         let deadline = Date().addingTimeInterval(3)
         var previous: CGRect?
         var stable = 0
@@ -258,7 +260,7 @@ final class PanelE2ETests: E2ETestCase {
             }
             RunLoop.current.run(until: Date().addingTimeInterval(0.1))
         } while Date() < deadline
-        XCTFail("Panel frame did not settle in two consecutive 100 ms probes within 3 s")
+        XCTFail("\(context.map { $0 + "; " } ?? "")Panel frame did not settle in two consecutive 100 ms probes within 3 s")
         throw E2EFailure("Unsettled panel: \(String(describing: previous))")
     }
 
