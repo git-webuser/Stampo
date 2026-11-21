@@ -7584,6 +7584,23 @@
         }
       }
     },
+    "Settings…" : {
+      "comment" : "Stampo app menu item (⌘,) that opens the settings window",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Settings…"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Настройки…"
+          }
+        }
+      }
+    },
     "Shade Color" : {
       "comment" : "Decor inspector — colour of the shade the dim effect lays down",
       "extractionState" : "stale",

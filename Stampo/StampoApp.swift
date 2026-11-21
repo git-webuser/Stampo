@@ -5,12 +5,23 @@ struct StampoApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 
     var body: some Scene {
-        // EmptyView — the window is managed by SettingsWindowController so we
-        // never call showSettingsWindow: and avoid the SwiftUI warning.
-        // The scene exists solely so SwiftUI registers ⌘, in the app menu;
-        // the menu item itself is intercepted and redirected in AppDelegate.
+        // An App needs at least one scene, and `Settings` is the one that opens
+        // no window by itself — the real window is SettingsWindowController's.
+        // Left alone, though, the scene also puts its own "Settings…" (⌘,) in
+        // the app menu, and that item opens the scene's window: an empty one.
+        // So the command group below replaces that item with ours. It is the
+        // public way to own the item — the old fix went looking for the scene's
+        // item by its action selector, and macOS 27 changed the selector.
         Settings {
             EmptyView()
+        }
+        .commands {
+            CommandGroup(replacing: .appSettings) {
+                Button("Settings…") {
+                    SettingsWindowController.shared.open()
+                }
+                .keyboardShortcut(",")
+            }
         }
     }
 }

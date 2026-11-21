@@ -86,7 +86,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ) { _ in
             Task { @MainActor in await TranslationLanguages.shared.refresh() }
         }
-        interceptSettingsMenuItem()
         UpdateChecker.shared.startAutomaticChecks()
         NotificationCenter.default.addObserver(
             self,
@@ -102,27 +101,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         #if DEBUG
         E2EHooks.start()
         #endif
-    }
-
-    /// Intercepts the "Settings…" (⌘,) menu item that SwiftUI automatically
-    /// adds via the Settings scene, and redirects it to SettingsWindowController
-    /// — without invoking showSettingsWindow:.
-    private func interceptSettingsMenuItem() {
-        DispatchQueue.main.async {
-            for topItem in NSApp.mainMenu?.items ?? [] {
-                guard let submenu = topItem.submenu else { continue }
-                for item in submenu.items {
-                    if item.action == Selector(("showSettingsWindow:")) {
-                        item.action = #selector(self.openSettings)
-                        item.target = self
-                    }
-                }
-            }
-        }
-    }
-
-    @objc func openSettings() {
-        SettingsWindowController.shared.open()
     }
 
     /// Observer for .requestOpenSettings — the notification may carry a target
