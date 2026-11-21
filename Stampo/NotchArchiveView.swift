@@ -3047,15 +3047,22 @@ final class ArchiveDragShimView: NSView, NSDraggingSource {
         }
         if let start {
             let current = convert(event.locationInWindow, from: nil)
-            // NSEvent.startDragDistance is not exposed to Swift; 4 pt matches
-            // the AppKit internal threshold used by NSWindow drag detection.
-            if hypot(current.x - start.x, current.y - start.y) < 4 {
+            if !archiveDragHasStarted(from: start, to: current) {
                 onTap(mouseDownModifiers)
             }
         }
     }
 
     override func mouseDragged(with event: NSEvent) {
+        // The first drag event is not the start of a drag: a hand pressing a
+        // cell moves a point or two on its own. Starting the session here would
+        // take the release away from the view — `mouseUp` never arrives once it
+        // runs — and with it the tap, so the click would carry the file out
+        // instead of opening it. Events short of the threshold are swallowed;
+        // the payload is not even built for them.
+        guard let start = mouseDownPoint,
+              archiveDragHasStarted(from: start,
+                                    to: convert(event.locationInWindow, from: nil)) else { return }
         let payload = makePayload()
         guard !payload.isEmpty else { return }
         prepareDrag(with: payload)
