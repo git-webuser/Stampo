@@ -69,12 +69,15 @@ final class NotchHoverController: NSObject {
             name: .mascotCursorMoved,
             object: nil
         )
-        NotificationCenter.default.addObserver(
-            forName: .hotkeyRecordingChanged, object: nil, queue: .main
+        // Delivered on the posting thread (queue nil), which is the main one:
+        // the registrations must be lifted before the recorder adds its
+        // monitor and the first key can arrive, not a run-loop turn after.
+        hotkeyRecordingObserver = NotificationCenter.default.addObserver(
+            forName: .hotkeyRecordingChanged, object: nil, queue: nil
         ) { [weak self] note in
             let isRecording = (note.object as? Bool) ?? false
-            Task { @MainActor [weak self] in
-                self?.isRecordingHotkey = isRecording
+            MainActor.assumeIsolated {
+                self?.hotkeyRecordingDidChange(isRecording)
             }
         }
         // NSEvent-мониторы не могут «умереть» от смены сигнатуры или отзыва
@@ -87,10 +90,33 @@ final class NotchHoverController: NSObject {
         )
     }
 
-    /// True while the shortcut recorder is armed — suppresses hotkey actions.
-    private var isRecordingHotkey = false
+    /// Whether a shortcut field is recording, and so whether the Carbon
+    /// registrations are lifted. See `HotkeyRegistrationPause` for why.
+    private var hotkeyPause = HotkeyRegistrationPause()
+    private var hotkeyRecordingObserver: NSObjectProtocol?
+
+    /// A shortcut field armed or disarmed.
+    private func hotkeyRecordingDidChange(_ isRecording: Bool) {
+        apply(isRecording ? hotkeyPause.recordingBegan() : hotkeyPause.recordingEnded())
+    }
+
+    private func apply(_ transition: HotkeyRegistrationPause.Transition) {
+        switch transition {
+        case .unchanged:
+            break
+        case .lift:
+            liftHotKeys()
+        case .restore:
+            installHotKey()
+        }
+    }
 
     func stop() {
+        if let hotkeyRecordingObserver {
+            NotificationCenter.default.removeObserver(hotkeyRecordingObserver)
+            self.hotkeyRecordingObserver = nil
+        }
+        hotkeyPause.reset()
         NotificationCenter.default.removeObserver(self, name: .settingsWindowDidClose, object: nil)
         NotificationCenter.default.removeObserver(self, name: UserDefaults.didChangeNotification, object: nil)
         NotificationCenter.default.removeObserver(self, name: .mascotStateChanged, object: nil)
@@ -102,6 +128,10 @@ final class NotchHoverController: NSObject {
     }
 
     @objc private func onSettingsDidClose() {
+        // Safety net: a recording that did not end normally (the window closed
+        // under it, its view never reported "stopped") must not leave the
+        // global hotkeys dead until quit.
+        apply(hotkeyPause.settingsDidClose())
         reinstallHotKeysIfNeeded()
     }
 
@@ -113,6 +143,9 @@ final class NotchHoverController: NSObject {
             uninstallEventTap()
             installEventTap()
         }
+        // While a field records the registrations are lifted on purpose; the
+        // restore at the end of the recording runs the same check.
+        guard hotkeyPause.allowsRegistrationChanges else { return }
         // A conflicting Carbon shortcut may become available while the app is
         // asleep (for example after the owning utility quits). Re-run the
         // registration check even when the desired combinations themselves
@@ -148,6 +181,10 @@ final class NotchHoverController: NSObject {
     private var lastHotkeyState: [HotkeyAction: HotkeyCombo?] = [:]
 
     private func reinstallHotKeysIfNeeded() {
+        // A recording writes the new combination to the defaults before it
+        // stops; registering it now would take the keys back from the field.
+        // The restore at the end of the recording picks the change up.
+        guard hotkeyPause.allowsRegistrationChanges else { return }
         let current = HotkeyAction.allCases.reduce(into: [HotkeyAction: HotkeyCombo?]()) {
             $0[$1] = $1.combo
         }
@@ -263,22 +300,27 @@ final class NotchHoverController: NSObject {
             return noErr
         }
 
-        let handlerStatus = InstallEventHandler(
-            GetApplicationEventTarget(),
-            callback,
-            1,
-            &eventSpec,
-            UnsafeMutableRawPointer(Unmanaged.passUnretained(self).toOpaque()),
-            &hotKeyHandlerRef
-        )
-        guard handlerStatus == noErr else {
-            let statuses = HotkeyAction.allCases.reduce(into: [HotkeyAction: HotkeyRegistrationStatus]()) {
-                $0[$1] = $1.combo == nil ? .disabled : .handlerUnavailable
+        // Coming back from a recording the handler is still installed — only
+        // the registrations were lifted. A second handler would run every
+        // action twice.
+        if hotKeyHandlerRef == nil {
+            let handlerStatus = InstallEventHandler(
+                GetApplicationEventTarget(),
+                callback,
+                1,
+                &eventSpec,
+                UnsafeMutableRawPointer(Unmanaged.passUnretained(self).toOpaque()),
+                &hotKeyHandlerRef
+            )
+            guard handlerStatus == noErr else {
+                let statuses = HotkeyAction.allCases.reduce(into: [HotkeyAction: HotkeyRegistrationStatus]()) {
+                    $0[$1] = $1.combo == nil ? .disabled : .handlerUnavailable
+                }
+                HotkeyRegistrationCenter.shared.update(statuses)
+                lastHotkeyState = emptyHotkeyState()
+                Log.input.error("hotkey handler unavailable, OSStatus=\(handlerStatus)")
+                return
             }
-            HotkeyRegistrationCenter.shared.update(statuses)
-            lastHotkeyState = emptyHotkeyState()
-            Log.input.error("hotkey handler unavailable, OSStatus=\(handlerStatus)")
-            return
         }
 
         let sig = fourCharCode("STMP")
@@ -330,6 +372,17 @@ final class NotchHoverController: NSObject {
         return .registered
     }
 
+    /// Unregisters every live hotkey for the length of a recording and leaves
+    /// everything else alone: the handler stays, and so do the statuses and
+    /// `lastHotkeyState`. `uninstallHotKey()` would mark every row "Shortcut
+    /// disabled" and the rows would flash it.
+    private func liftHotKeys() {
+        for ref in hotKeyRefs.values {
+            UnregisterEventHotKey(ref)
+        }
+        hotKeyRefs.removeAll()
+    }
+
     private func uninstallHotKey() {
         for ref in hotKeyRefs.values {
             UnregisterEventHotKey(ref)
@@ -348,10 +401,12 @@ final class NotchHoverController: NSObject {
     }
 
     private func handleHotKey(_ hotKeyID: EventHotKeyID) {
-        // While the user is recording a new shortcut, Carbon hotkeys still fire
-        // (they dispatch below the recorder's local NSEvent monitor). Ignore them
-        // so pressing an existing combo doesn't trigger its action mid-record.
-        guard !isRecordingHotkey else { return }
+        // A registered hotkey is delivered here INSTEAD of reaching the
+        // recorder's local NSEvent monitor — Carbon takes the key first — so
+        // recording lifts the registrations (`HotkeyRegistrationPause`). This
+        // guard only catches a press that was already queued at that moment:
+        // no action fires mid-recording.
+        guard !hotkeyPause.isPaused else { return }
         guard let screen = preferredScreenForOpen() else { return }
         switch hotKeyID.id {
         case 1:
@@ -580,7 +635,9 @@ extension Notification.Name {
     static let notchClickStatusChanged = Notification.Name("Stampo.notchClickStatusChanged")
 
     /// Posted by ShortcutRecorderView with `object: Bool` (true = recording).
-    /// NotchHoverController suppresses hotkey actions while recording.
+    /// NotchHoverController lifts the Carbon hotkey registrations while any
+    /// field records, so the key reaches the field (see
+    /// `HotkeyRegistrationPause`).
     static let hotkeyRecordingChanged  = Notification.Name("Stampo.hotkeyRecordingChanged")
 
     /// Posted after Carbon registration is reconciled so Settings can show the

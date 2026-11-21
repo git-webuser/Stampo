@@ -204,6 +204,9 @@ struct ShortcutRecorderView: View {
     private func startRecording() {
         isRecording = true
         rejectionKey = nil
+        // Synchronous: NotchHoverController lifts the global hotkeys here, so
+        // a combination another action holds reaches the monitor below
+        // instead of being consumed by Carbon first.
         NotificationCenter.default.post(name: .hotkeyRecordingChanged, object: true)
         monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .flagsChanged]) { event in
             handle(event)
