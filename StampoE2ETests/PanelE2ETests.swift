@@ -368,13 +368,46 @@ final class PanelE2ETests: E2ETestCase {
         try closeHotkeySettings(settings)
     }
 
+    func testHotkeySettingsRejectDuplicateShortcut() throws {
+        let settings = try openHotkeySettings()
+        let recorder = toggleShortcutControl("recorder", in: settings)
+        XCTAssertEqual(recorder.value as? String, "Control Option Command N")
+        try armShortcutRecorder(recorder, in: settings)
+        try app.input.press("⌃⌥⌘P")
+        let openedPanel = try waitUntil(timeout: 1) {
+            try WindowHitTest.requireNoUserNotificationWindow()
+            return try app.liveElement(.panel) != nil
+        }
+        XCTAssertFalse(openedPanel, "Pin Panel opened while Toggle Panel was recording")
+        let rejection = toggleShortcutControl("rejection", in: settings)
+        let duplicateMessage = "Already used by another Stampo action"
+        XCTAssertTrue(waitUntil(timeout: 3) {
+            rejection.exists && (rejection.value as? String == duplicateMessage || rejection.label == duplicateMessage)
+        }, "Recorder did not show ‘Already used by another Stampo action’ for the existing Pin Panel shortcut")
+        XCTAssertEqual(recorder.value as? String, "Press keys…", "A duplicate ended recording")
+        try artifacts.text(app.application.debugDescription, name: "hotkeys-conflict-tree.txt")
+
+        try app.input.press("ESC")
+        try expectRecordedShortcut("Control Option Command N", recorder: recorder, in: settings)
+        XCTAssertFalse(rejection.exists, "The inline rejection stayed after cancelling recording")
+        try expectShortcutOpensPanel("⌃⌥⌘N")
+        try expectShortcutOpensPanel("⌃⌥⌘P", archive: true)
+        try closeHotkeySettings(settings)
+    }
+
     private var toggleShortcutPrefix: String { "stampo.settings.hotkey.togglePanel" }
 
     private func openHotkeySettings() throws -> XCUIElement {
         try app.launch(fixture: true)
-        try recordWindowBaseline()
+        try expectShortcutOpensPanel("⌃⌥⌘N")
+        try recordWindowBaseline(primePanelCache: false)
         try openStatusMenu()
-        try app.tap(.statusSettings)
+        let item = try required(.statusSettings)
+        try WindowHitTest.requireNoUserNotificationWindow()
+        let result = AXUIElementPerformAction(item.element, kAXPressAction as CFString)
+        guard result == .success else {
+            throw AXReadFailure(attribute: "status Settings AXPress", result: result)
+        }
         let settings = app.application.windows["Settings"].firstMatch
         XCTAssertTrue(settings.waitForExistence(timeout: 3), "Settings window did not open")
         try clickSettingsControl(hotkeysTab(in: settings), in: settings, label: "hotkeys-tab")
@@ -445,8 +478,12 @@ final class PanelE2ETests: E2ETestCase {
             _ = try required(.panelModeMenu, message: "\(chord) did not open Main")
         }
         try WindowHitTest.requireNoUserNotificationWindow()
-        try app.input.press("ESC")
-        try expectPanelClosed(message: "Esc did not close the panel opened by \(chord)")
+        // Back can be visible with a stable window frame while the archive
+        // morph is still in progress. Esc is not registered in that state.
+        // Use Pin Panel's toggle to clean up the archive.
+        let closeChord = archive ? chord : "ESC"
+        try app.input.press(closeChord)
+        try expectPanelClosed(message: "\(closeChord) did not close the panel opened by \(chord)")
     }
 
     private func closeHotkeySettings(_ settings: XCUIElement) throws {
@@ -680,8 +717,23 @@ final class PanelE2ETests: E2ETestCase {
             windows.filter { $0.alpha > 0 && $0.frame.contains(point) }.map(\.description).joined(separator: "\n")
         try artifacts.text(diagnostics, name: "status-click-hit.txt")
         print("Status click windows: \(diagnostics)")
-        // Click exactly the frame whose pixels were checked. The window list
-        // above is diagnostic: opening the menu proves input crossed the veil.
+        try WindowHitTest.requireNoUserNotificationWindow()
+        let first = try XCTUnwrap(try clickWindows().first {
+            $0.alpha > 0 && $0.frame.contains(point) && !WindowHitTest.isSystemAutomationOverlay($0)
+        }, "No host window under the Stampo status item")
+        let pid = try XCTUnwrap(app.processID)
+        let display = CGDisplayBounds(CGMainDisplayID())
+        let ownedItem = first.processID == Int(pid) && WindowHitTest.framesMatch(first.frame, frame)
+        // macOS composites status items in its menu-bar surface. Accept that
+        // exact host only for the verified frame of Stampo's own status item.
+        let menuBarHost = first.owner == "Window Server"
+            && first.layer == Int(CGWindowLevelForKey(.mainMenuWindow))
+            && WindowHitTest.framesMatch(first.frame, CGRect(x: display.minX, y: display.minY,
+                                                              width: display.width, height: first.frame.height))
+            && first.frame.contains(frame) && first.frame.height <= frame.height + 8
+        guard ownedItem || menuBarHost else {
+            throw E2EFailure("Foreign window covers the Stampo status item; no click was sent: \(first.description)")
+        }
         try app.input.click(at: point)
         let opened = waitUntil(timeout: 1) { self.statusMenuIsVisible }
         try artifacts.step("status-after-left-click")
