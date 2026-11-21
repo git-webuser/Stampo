@@ -50,6 +50,14 @@ enum WindowHitTest {
             [expected.minX, expected.minY, expected.maxX, expected.maxY]).allSatisfy { abs($0 - $1) <= 1 }
     }
 
+    static func requireNoUserNotificationWindow() throws {
+        if let window = try windows().first(where: {
+            $0.owner == "UserNotificationCenter" && $0.alpha > 0 && !$0.frame.isEmpty
+        }) {
+            throw E2EFailure("System permission dialog requires the user; no input was sent: \(window.description)")
+        }
+    }
+
     static func isSystemAutomationOverlay(_ window: Window) -> Bool {
         window.owner == "AutomationModeUI" && window.layer == 1000 && window.alpha < 1 &&
             framesMatch(window.frame, CGDisplayBounds(CGMainDisplayID())) &&

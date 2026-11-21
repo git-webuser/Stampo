@@ -117,6 +117,53 @@ final class HotkeyE2ETests: E2ETestCase {
         XCTAssertEqual(NSPasteboard.general.changeCount, pasteboardCount, "Window capture changed the pasteboard")
     }
 
+    func testOverlayHotkeysAndEscCancel() throws {
+        try app.launch(fixture: true)
+        try app.requireScreenRecording()
+        try WindowHitTest.requireNoUserNotificationWindow()
+        try recordWindowBaseline()
+        let (fixture, pid) = try raiseFixture()
+        try app.input.move(to: CGPoint(x: fixture.minX + fixture.width / 4, y: fixture.midY))
+
+        // The color HUD retains its hidden panel after the first session.
+        // Establish its cache while proving Esc leaves the visible set intact.
+        try openAndCancelOverlay("C", pid: pid, label: "color-hud-warmup")
+        try recordWindowBaseline(primePanelCache: false)
+
+        for key in ["R", "S", "F", "C"] {
+            try openAndCancelOverlay(key, pid: pid, label: "overlay-\(key)")
+            expectWindowSetUnchanged()
+        }
+    }
+
+    private func openAndCancelOverlay(_ key: String, pid: pid_t, label: String) throws {
+        let display = CGDisplayBounds(CGMainDisplayID())
+        let before = try WindowHitTest.windows().filter { $0.processID == Int(pid) }
+        let ids = Set(before.map(\.number))
+        try WindowHitTest.requireNoUserNotificationWindow()
+        try app.input.press("⌃⌥⌘\(key)")
+        var overlay: WindowHitTest.Window?
+        XCTAssertTrue(try waitUntil(timeout: 5) {
+            try WindowHitTest.requireNoUserNotificationWindow()
+            overlay = try WindowHitTest.windows().first {
+                $0.processID == Int(pid) && $0.alpha > 0 && !ids.contains($0.number)
+                    && WindowHitTest.framesMatch($0.frame, display)
+            }
+            return overlay != nil
+        }, "\(key) did not open a new full-display overlay owned by Stampo")
+        let window = try XCTUnwrap(overlay)
+        try artifacts.text(window.description, name: "\(label)-open.txt")
+
+        try WindowHitTest.requireNoUserNotificationWindow()
+        try app.input.press("ESC")
+        XCTAssertTrue(try waitUntil(timeout: 3) {
+            try WindowHitTest.requireNoUserNotificationWindow()
+            let current = try WindowHitTest.windows().filter { $0.processID == Int(pid) }
+            return Set(current.map(\.number)) == ids
+        }, "Esc did not remove the \(key) overlay and restore the visible window set")
+        try artifacts.text("removed window \(window.number)", name: "\(label)-cancelled.txt")
+    }
+
     private struct WindowCapture {
         let png: URL
         let fixture: CGRect
