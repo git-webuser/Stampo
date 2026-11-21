@@ -89,6 +89,23 @@ func archiveTapIntent(kind: ArchiveCellKind,
     return .activate
 }
 
+/// How far the pointer has to travel from the press point before a press stops
+/// being a click and becomes a drag, in points.
+///
+/// `NSEvent.startDragDistance` is not exposed to Swift; 4 pt matches the AppKit
+/// internal threshold used by NSWindow drag detection. One constant for both
+/// ends of the press, so they cannot disagree: a release short of it is a tap,
+/// and a drag that starts any earlier would swallow the release that decides it.
+let archiveDragStartDistance: CGFloat = 4
+
+/// Whether a press that began at `start` has become a drag by the time the
+/// pointer is at `current`. The shim asks this on every drag event and, on
+/// release, takes the opposite answer to mean "this was a click" — so a hand
+/// that wobbles a point or two still opens the capture instead of lifting it.
+func archiveDragHasStarted(from start: CGPoint, to current: CGPoint) -> Bool {
+    hypot(current.x - start.x, current.y - start.y) >= archiveDragStartDistance
+}
+
 // MARK: - Selection state
 
 /// The archive's multi-select mode, held outside the view for the same reason
