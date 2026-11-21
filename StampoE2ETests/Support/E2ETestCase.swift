@@ -42,6 +42,11 @@ class E2ETestCase: XCTestCase {
         return try invariants.captureWindowBaseline(app: app, name: name)
     }
 
+    func recordExpectedCachedWindow(_ number: Int) throws {
+        guard let invariants else { throw E2EFailure("Missing invariant recorder") }
+        try invariants.recordExpectedCachedWindow(number, app: app)
+    }
+
     func expectWindowSetUnchanged(baseline: Invariants.WindowBaseline? = nil,
                                  file: StaticString = #filePath, line: UInt = #line) {
         let failures = invariants?.windowFailures(app: app, baseline: baseline) ?? ["Missing invariant recorder"]

@@ -18,14 +18,15 @@ enum WindowHitTest {
         let layer: Int
         let frame: CGRect
         let alpha: Double
+        let isOnScreen: Bool
         let executablePath: String?
         var description: String {
             "owner=\(owner), PID=\(processID), layer=\(layer), number=\(number), bounds=\(frame), alpha=\(alpha), executable=\(executablePath ?? "unavailable")"
         }
     }
 
-    static func windows() throws -> [Window] {
-        guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] else {
+    static func windows(options: CGWindowListOption = [.optionOnScreenOnly]) throws -> [Window] {
+        guard let list = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] else {
             throw E2EFailure("Cannot read the on-screen click window list")
         }
         return try list.map { info in
@@ -41,6 +42,7 @@ enum WindowHitTest {
             return Window(number: number, processID: processID,
                                owner: info[kCGWindowOwnerName as String] as? String ?? "unknown",
                                layer: layer, frame: frame, alpha: alpha,
+                               isOnScreen: info[kCGWindowIsOnscreen as String] as? Bool == true,
                                executablePath: NSRunningApplication(processIdentifier: pid_t(processID))?.executableURL?.path)
         }
     }

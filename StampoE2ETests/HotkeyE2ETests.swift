@@ -54,34 +54,38 @@ final class HotkeyE2ETests: E2ETestCase {
         try recordWindowBaseline()
         let pasteboardCount = NSPasteboard.general.changeCount
 
-        // The HUD caches its panel after it goes off screen. Prime that cache
-        // and take the full window baseline with its hidden window included.
-        _ = try captureWindowBaseline(name: "before-thumbnail-warmup")
+        // The first capture retains its HUD as one hidden window. Keep the
+        // original baseline and require exactly that addition.
         let first = try captureFixture(excluding: [], label: "first")
         try expectThumbnailDismissed(first, label: "first")
-        try recordWindowBaseline(primePanelCache: false)
+        try recordExpectedCachedWindow(first.thumbnail)
 
         // A second G also checks preSelection was cleared. N can reopen Main
         // even when that state is stale and would mask the blocked second G.
         let capture = try captureFixture(excluding: [first.png], label: "second")
+        try expectThumbnailDismissed(capture, label: "second")
         let bitmap = try Files.Bitmap(png: capture.png)
         let scale = try XCTUnwrap(NSScreen.screens.first).backingScaleFactor
         let leftX = bitmap.width / 4
         let row = bitmap.height * 2 / 3
         let left = try bitmap.rgba(x: leftX, y: row)
         let right = try bitmap.rgba(x: bitmap.width * 3 / 4, y: row)
+        let cornerAlpha = try bitmap.rgba(x: 0, y: 0)[3]
         // A window PNG can include its translucent shadow. Scan through the
         // opaque client area and title bar to measure the window itself.
         let width = try (0..<bitmap.width).count { try bitmap.rgba(x: $0, y: row)[3] == 255 }
         let height = try (0..<bitmap.height).count { try bitmap.rgba(x: leftX, y: $0)[3] == 255 }
         let measurements = "fixture=\(capture.fixture), scale=\(scale)\n" +
-            "PNG=\(bitmap.width)×\(bitmap.height), opaque=\(width)×\(height), left=\(left), right=\(right)"
+            "PNG=\(bitmap.width)×\(bitmap.height), opaque=\(width)×\(height), corner alpha=\(cornerAlpha), left=\(left), right=\(right)"
         print(measurements)
         try artifacts.text(measurements, name: "window-capture-pixels.txt")
         XCTAssertEqual(CGFloat(width), capture.fixture.width * scale, accuracy: 2,
                        "Captured PNG opaque width does not match the fixture")
         XCTAssertEqual(CGFloat(height), capture.fixture.height * scale, accuracy: 2,
                        "Captured PNG opaque height does not match the fixture")
+        XCTAssertGreaterThan(bitmap.width, width, "Captured PNG width has no translucent shadow margin")
+        XCTAssertGreaterThan(bitmap.height, height, "Captured PNG height has no translucent shadow margin")
+        XCTAssertLessThan(cornerAlpha, 255, "Captured PNG corner is opaque")
         for (side, actual, expected) in [("left", left, [255, 0, 0]), ("right", right, [0, 0, 255])] {
             for (index, channel) in expected.enumerated() {
                 XCTAssertLessThanOrEqual(abs(Int(actual[index]) - channel), 3,
@@ -109,7 +113,6 @@ final class HotkeyE2ETests: E2ETestCase {
         }
         XCTAssertTrue(savedInArchive, "The first archive cell does not contain \(expectedLabel)")
         try artifacts.text(app.application.debugDescription, name: "window-capture-archive-tree.txt")
-        try expectThumbnailDismissed(capture, label: "second")
         // Close via the same collectFiles toggle used to inspect the archive.
         // Esc on the recovered Main panel has already been verified above.
         try app.input.press("⌃⌥⌘P")
@@ -172,19 +175,13 @@ final class HotkeyE2ETests: E2ETestCase {
     }
 
     private func captureFixture(excluding existingPNGs: Set<URL>, label: String) throws -> WindowCapture {
+        try WindowHitTest.requireNoUserNotificationWindow()
         let (fixture, pid) = try raiseFixture()
         let center = CGPoint(x: fixture.midX, y: fixture.midY)
-        var onScreenBefore = Set<Int>()
         var diagnostic = ""
         let ownsCaptureTarget = try waitUntil(timeout: 1) {
             let windows = try WindowHitTest.windows()
-            let owned = windows.filter { $0.processID == Int(pid) }
-            // Match FrontmostWindowResolver's first eligible layer-zero window.
-            let target = owned.first { window in
-                let frame = window.frame
-                return window.layer == 0 && !frame.isEmpty &&
-                    (frame.width >= 60 || frame.height >= 60) && frame.width * frame.height >= 3600
-            }
+            let target = try self.firstCaptureWindow(pid: pid)
             let hit = windows.first {
                 $0.alpha > 0 && $0.frame.contains(center) && !WindowHitTest.isSystemAutomationOverlay($0)
             }
@@ -194,20 +191,24 @@ final class HotkeyE2ETests: E2ETestCase {
                 "capture target=\(target?.description ?? "none")\nfirst hit=\(hit?.description ?? "none")"
             guard frontmost?.processIdentifier == pid, let target, hit?.number == target.number,
                   WindowHitTest.framesMatch(target.frame, fixture) else { return false }
-            onScreenBefore = Set(owned.map(\.number))
             return true
         }
         try artifacts.text(diagnostic, name: "window-capture-\(label)-guard.txt")
         XCTAssertTrue(ownsCaptureTarget, "Fixture is not the active owned capture target; G was not sent. \(diagnostic)")
         try WindowHitTest.requireOwnedTarget(at: center, frame: fixture, pid: pid, label: "window-capture-\(label)", artifacts: artifacts)
-        guard NSWorkspace.shared.frontmostApplication?.processIdentifier == pid else {
-            throw E2EFailure("Fixture lost activation during the ownership check; G was not sent")
+        try WindowHitTest.requireNoUserNotificationWindow()
+        let onScreenBefore = Set(try WindowHitTest.windows().filter { $0.processID == Int(pid) }.map(\.number))
+        let target = try firstCaptureWindow(pid: pid)
+        guard NSWorkspace.shared.frontmostApplication?.processIdentifier == pid,
+              let target, WindowHitTest.framesMatch(target.frame, fixture) else {
+            throw E2EFailure("Fixture is no longer the first capture window of the active app; G was not sent")
         }
         try app.input.press("⌃⌥⌘G")
 
         let captures = app.directory.appendingPathComponent("captures", isDirectory: true)
         var capture: WindowCapture?
         let ready = try waitUntil(timeout: 5) {
+            try WindowHitTest.requireNoUserNotificationWindow()
             let pngs = try FileManager.default.contentsOfDirectory(at: captures, includingPropertiesForKeys: nil)
                 .filter { $0.pathExtension == "png" && !existingPNGs.contains($0) }
             let newWindows = try WindowHitTest.windows().filter {
@@ -223,14 +224,30 @@ final class HotkeyE2ETests: E2ETestCase {
         return try XCTUnwrap(capture)
     }
 
-    private func expectThumbnailDismissed(_ capture: WindowCapture, label: String) throws {
-        let dismissed = try waitUntil(timeout: 5) {
-            try !WindowHitTest.windows().contains { $0.number == capture.thumbnail }
+    private func firstCaptureWindow(pid: pid_t) throws -> WindowHitTest.Window? {
+        // Use the same WindowServer options, ordering and size gate as
+        // FrontmostWindowResolver.
+        try WindowHitTest.windows(options: [.optionOnScreenOnly, .excludeDesktopElements]).first { window in
+            let frame = window.frame
+            return window.processID == Int(pid) && window.layer == 0 && window.isOnScreen && !frame.isEmpty
+                && (frame.width >= 60 || frame.height >= 60) && frame.width * frame.height >= 3600
         }
-        XCTAssertTrue(dismissed, "Screenshot thumbnail \(capture.thumbnail) did not go off screen")
+    }
+
+    private func expectThumbnailDismissed(_ capture: WindowCapture, label: String) throws {
+        // AppSettings.thumbnailDismissDelay defaults to 3 s. ScreenshotThumbnailHUD
+        // starts its fade after that delay. Observe from the first visible sample.
+        let remaining = max(0, 5 - (ProcessInfo.processInfo.systemUptime - capture.observedAt))
+        let dismissed = try waitUntil(timeout: remaining) {
+            try WindowHitTest.requireNoUserNotificationWindow()
+            return try !WindowHitTest.windows().contains { $0.number == capture.thumbnail }
+        }
         let elapsed = ProcessInfo.processInfo.systemUptime - capture.observedAt
         try artifacts.text("thumbnail=\(capture.thumbnail)\nobserved off screen after \(elapsed) s",
                            name: "window-capture-\(label)-thumbnail.txt")
+        XCTAssertTrue(dismissed, "Screenshot thumbnail \(capture.thumbnail) did not go off screen")
+        XCTAssertGreaterThanOrEqual(elapsed, 3, "Screenshot thumbnail disappeared before its 3 s delay")
+        XCTAssertLessThanOrEqual(elapsed, 5, "Screenshot thumbnail remained on screen longer than 5 s")
     }
 
     @discardableResult
