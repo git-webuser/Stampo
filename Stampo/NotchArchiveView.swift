@@ -967,7 +967,9 @@ struct NotchArchiveView: View {
     /// `ArchiveDragShimView` pairs them by index, so this switch has to fan a
     /// stack out exactly the way `dragPayload` does, one image per member.
     private func selectionDragImages() -> [NSImage?] {
-        selection.selectedItems(in: archiveModel.items).flatMap { item -> [NSImage?] in
+        let cell = NSSize(width: cellH * 1.6, height: cellH)
+        let radius = metrics.buttonRadius
+        return selection.selectedItems(in: archiveModel.items).flatMap { item -> [NSImage?] in
             switch item {
             case .color(let c):
                 return [archiveColorDragImage(c.color, side: cellH,
@@ -977,9 +979,13 @@ struct NotchArchiveView: View {
                                              size: NSSize(width: cellH * 1.6, height: cellH),
                                              cornerRadius: metrics.buttonRadius)]
             case .screenshot(let s):
-                return [archiveModel.thumbnailLoader(for: s).image]
+                return [archiveThumbnailDragImage(archiveModel.thumbnailLoader(for: s).image,
+                                                  size: cell, cornerRadius: radius)]
             case .stack(let stack):
-                return stack.urls.map { archiveModel.stackThumbnailLoader(for: $0).image }
+                return stack.urls.map {
+                    archiveThumbnailDragImage(archiveModel.stackThumbnailLoader(for: $0).image,
+                                              size: cell, cornerRadius: radius)
+                }
             }
         }
     }
@@ -1839,7 +1845,11 @@ private struct ArchiveFileCell<Menu: View>: View {
                 dragImages: {
                     archiveDragContents(selection, from: selectionKey,
                                         fromSelection: selectionActions.dragImages,
-                                        fromCell: { [preview] })
+                                        fromCell: {
+                                            [archiveThumbnailDragImage(preview,
+                                                                       size: CGSize(width: width, height: height),
+                                                                       cornerRadius: cornerRadius)]
+                                        })
                 },
                 cellSize: CGSize(width: width, height: height),
                 isPressed: $isPressed,
@@ -2126,7 +2136,13 @@ private struct ArchiveStackCell: View {
                 dragImages: {
                     archiveDragContents(selection, fromMembers: stack.urls,
                                         fromSelection: selectionActions.dragImages,
-                                        fromCell: { (0..<fanCount).map { previewImage(at: $0) } })
+                                        fromCell: {
+                                            (0..<fanCount).map {
+                                                archiveThumbnailDragImage(previewImage(at: $0),
+                                                                          size: CGSize(width: width, height: height),
+                                                                          cornerRadius: cornerRadius)
+                                            }
+                                        })
                 },
                 cellSize: CGSize(width: width, height: height),
                 isPressed: $isPressed,
