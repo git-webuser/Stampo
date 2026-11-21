@@ -156,9 +156,7 @@ final class HotkeyE2ETests: E2ETestCase {
     private func openAndCancelOverlay(_ key: String, pid: pid_t, label: String,
                                       allowColorHUDCache: Bool = false) throws {
         let display = CGDisplayBounds(CGMainDisplayID())
-        // Some overlays inset the window to prevent macOS from treating it
-        // as a fullscreen window. Every edge must still reach within 2 pt.
-        let requiredCoverage = display.insetBy(dx: 2, dy: 2)
+        let overlayLayer = key == "C" ? Int(CGWindowLevelForKey(.cursorWindow)) - 2 : NSWindow.Level.screenSaver.rawValue
         let before = try WindowHitTest.windows().filter { $0.processID == Int(pid) }
         let ids = Set(before.map(\.number))
         try WindowHitTest.requireNoUserNotificationWindow()
@@ -168,12 +166,43 @@ final class HotkeyE2ETests: E2ETestCase {
             try WindowHitTest.requireNoUserNotificationWindow()
             overlay = try WindowHitTest.windows().first {
                 $0.processID == Int(pid) && $0.alpha > 0 && !ids.contains($0.number)
-                    && $0.frame.contains(requiredCoverage)
+                    && $0.layer == overlayLayer
             }
             return overlay != nil
         }, "\(key) did not open a new full-display overlay owned by Stampo (\(label))")
         let window = try XCTUnwrap(overlay)
-        try artifacts.text(window.description, name: "\(label)-open.txt")
+        try artifacts.text(window.description, name: "\(label)-first-frame.txt")
+
+        // The app requests the display frame. WindowServer can report an
+        // intermediate frame when the new window first appears.
+        func currentOverlay() throws -> WindowHitTest.Window? {
+            try WindowHitTest.requireNoUserNotificationWindow()
+            return try WindowHitTest.windows().first {
+                $0.number == window.number && $0.processID == Int(pid) && $0.alpha > 0
+            }
+        }
+        var matchingOverlay: WindowHitTest.Window?
+        let reachedDisplay = try waitUntil(timeout: 1) {
+            guard let current = try currentOverlay(), WindowHitTest.framesMatch(current.frame, display) else { return false }
+            matchingOverlay = current
+            return true
+        }
+        if !reachedDisplay {
+            var previousFrame: CGRect?
+            var stableFrame: CGRect?
+            _ = try waitUntil(timeout: 0.5) {
+                let frame = try currentOverlay()?.frame
+                if let frame, frame == previousFrame { stableFrame = frame }
+                previousFrame = frame
+                return stableFrame != nil
+            }
+            let diagnostic = "\(label): expected \(display) ±1 pt within 1 s; first=\(window.frame), "
+                + "last=\(String(describing: previousFrame)), stable=\(String(describing: stableFrame))"
+            try artifacts.text(diagnostic, name: "\(label)-frame-timeout.txt")
+            throw E2EFailure(diagnostic)
+        }
+        let matched = try XCTUnwrap(matchingOverlay)
+        try artifacts.text(matched.description, name: "\(label)-open.txt")
 
         var colorHUD: WindowHitTest.Window?
         if allowColorHUDCache {
