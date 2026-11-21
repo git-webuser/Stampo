@@ -143,6 +143,270 @@ final class HotkeyE2ETests: E2ETestCase {
         }
     }
 
+    func testPipetteEscCancelsAndAddsNothing() throws {
+        try app.launch(fixture: true, archive: true)
+        try preparePipette()
+        try openPipetteArchive()
+        let before = try archiveCellIDs()
+        XCTAssertFalse(before.isEmpty, "Pipette cancellation requires the seeded archive")
+        let first = try archiveColor(at: 0, missing: "The seeded first archive cell is missing")
+        try closePipetteArchive()
+
+        let pid = try positionForPipette(fraction: 0.25, label: "esc").pid
+        let pasteboardCount = NSPasteboard.general.changeCount
+        try openAndCancelOverlay("C", pid: pid, label: "pipette-esc-warmup", allowColorHUDCache: true)
+        try openAndCancelOverlay("C", pid: pid, label: "pipette-esc")
+        expectWindowSetUnchanged()
+        XCTAssertEqual(NSPasteboard.general.changeCount, pasteboardCount, "Esc in the pipette changed the pasteboard")
+
+        try openPipetteArchive()
+        XCTAssertEqual(try archiveCellIDs(), before, "Esc in the pipette changed the archive cells")
+        XCTAssertEqual(try archiveColor(at: 0, missing: "The first archive cell disappeared after pipette Esc"),
+                       first, "Esc in the pipette changed the first archive color")
+        try closePipetteArchive()
+    }
+
+    func testPipettePicksFixtureColors() throws {
+        try app.launch(fixture: true)
+        try preparePipette()
+        try openPipetteArchive()
+        XCTAssertTrue(try archiveCellIDs().isEmpty, "The isolated archive already contains cells before the picks")
+        try closePipetteArchive()
+
+        let red = try pickFixtureColor(fraction: 0.25, label: "red", allowColorHUDCache: true)
+        let blue = try pickFixtureColor(fraction: 0.75, label: "blue", allowColorHUDCache: false)
+
+        try openPipetteArchive()
+        let first = try archiveColor(at: 0, missing: "Pipette did not add a new color entry to the archive")
+        let second = try archiveColor(at: 1, missing: "Pipette did not add a second color entry to the archive")
+        XCTAssertEqual(try archiveCellIDs(), ["stampo.archive.cell.0", "stampo.archive.cell.1"],
+                       "Expected exactly two archive entries after the picks")
+
+        // AutomationModeUI was on screen (alpha 0.25 from CGWindowList). The
+        // pipette (ScreenCaptureKit, whole display, excludingWindows: []) read
+        // the fixture RGB at the sampled points on 2026-11-21: (255,0,0) and
+        // (0,0,255). The mechanism was not measured.
+        try expectArchiveColor(first, rgb: [0, 0, 255], from: blue)
+        try expectArchiveColor(second, rgb: [255, 0, 0], from: red)
+        try closePipetteArchive()
+    }
+
+    private struct PipetteSample {
+        let label: String
+        let point: CGPoint
+        let copiedHex: String
+        let overlay: WindowHitTest.Window?
+    }
+
+    private func preparePipette() throws {
+        try app.requireScreenRecording()
+        try WindowHitTest.requireNoUserNotificationWindow()
+        try app.input.press("⌃⌥⌘N")
+        _ = try settledPanel()
+        try WindowHitTest.requireNoUserNotificationWindow()
+        try app.input.press("⌃⌥⌘N")
+        XCTAssertTrue(try waitUntil(timeout: 3) { try self.app.liveElement(.panel) == nil },
+                      "Panel cache warmup did not close the panel")
+        try recordWindowBaseline(primePanelCache: false)
+    }
+
+    private func positionForPipette(fraction: CGFloat, label: String) throws -> (point: CGPoint, pid: pid_t) {
+        try WindowHitTest.requireNoUserNotificationWindow()
+        let (fixture, pid) = try raiseFixture()
+        let point = CGPoint(x: fixture.minX + fixture.width * fraction, y: fixture.maxY - 100)
+        _ = try waitUntil(timeout: 2) {
+            try WindowHitTest.requireNoUserNotificationWindow()
+            let window = try self.firstPipetteHit(at: point)
+            return window?.processID == Int(pid) && window.map { WindowHitTest.framesMatch($0.frame, fixture) } == true
+        }
+        try WindowHitTest.requireOwnedTarget(at: point, frame: fixture, pid: pid,
+                                            label: "pipette-fixture-\(label)", artifacts: artifacts)
+        try app.input.move(to: point)
+        return (point, pid)
+    }
+
+    private func firstPipetteHit(at point: CGPoint) throws -> WindowHitTest.Window? {
+        try WindowHitTest.windows().first {
+            $0.alpha > 0 && $0.frame.contains(point) && !WindowHitTest.isSystemAutomationOverlay($0)
+        }
+    }
+
+    private func pickFixtureColor(fraction: CGFloat, label: String, allowColorHUDCache: Bool) throws -> PipetteSample {
+        let (point, pid) = try positionForPipette(fraction: fraction, label: label)
+        let before = try visibleWindowIDs(pid: pid)
+        let cursor = try openOverlay("C", pid: pid, label: "pipette-\(label)", excluding: before)
+        let hud = try colorHUD(pid: pid, cursor: cursor.number, excluding: before)
+        var preview = ""
+        XCTAssertTrue(try waitUntil(timeout: 3) {
+            try WindowHitTest.requireNoUserNotificationWindow()
+            return try self.app.liveElement { node in
+                let value = try node.value
+                guard self.pipetteRGB(value) != nil else { return false }
+                preview = value
+                return true
+            } != nil
+        }, "Pipette HUD did not publish a sampled HEX value at \(point)")
+
+        // Uncover the sample point for WindowServer's ownership check. The
+        // real click moves the pointer back before it posts mouse-down.
+        try app.input.move(to: CGPoint(x: point.x + 38, y: point.y))
+        _ = try waitUntil(timeout: 1) {
+            try WindowHitTest.requireNoUserNotificationWindow()
+            return try self.firstPipetteHit(at: point)?.number == cursor.number
+        }
+        _ = try settledPipetteFrame(cursor, label: label)
+        let display = CGDisplayBounds(CGMainDisplayID())
+        let hit = try WindowHitTest.requireOwnedTarget(at: point, frame: display, pid: pid,
+                                                       label: "pipette-\(label)", artifacts: artifacts, context: "pipette")
+        guard hit.number == cursor.number, hit.layer == cursor.layer else {
+            throw E2EFailure("Pipette click refused at \(point); expected \(cursor.description), first hit \(hit.description)")
+        }
+        let film = try WindowHitTest.windows().first {
+            WindowHitTest.isSystemAutomationOverlay($0) && $0.frame.contains(point)
+        }
+        let hex = try clickAndRestoreClipboard(at: point, preview: preview, label: label)
+        try artifacts.text("point=\(point), HEX=\(hex), overlay=\(film?.description ?? "no window")",
+                           name: "pipette-\(label)-sample.txt")
+        try expectVisibleWindows(before, pid: pid, "Pipette pick at \(point) did not restore the visible window set")
+        if allowColorHUDCache {
+            try recordExpectedCachedWindow(hud.number, name: "pipette-after-pick-expected")
+        } else {
+            expectWindowSetUnchanged()
+        }
+        return PipetteSample(label: label, point: point, copiedHex: hex, overlay: film)
+    }
+
+    private func settledPipetteFrame(_ cursor: WindowHitTest.Window, label: String) throws -> CGRect {
+        let display = CGDisplayBounds(CGMainDisplayID())
+        let deadline = Date().addingTimeInterval(3)
+        var previous: CGRect?
+        var settled: CGRect?
+        var readings: [String] = []
+        repeat {
+            try WindowHitTest.requireNoUserNotificationWindow()
+            let frame = try WindowHitTest.windows().first {
+                $0.processID == cursor.processID && $0.number == cursor.number && $0.layer == cursor.layer && $0.alpha > 0
+            }?.frame
+            readings.append(frame.map { String(describing: $0) } ?? "missing")
+            if let frame, WindowHitTest.framesMatch(frame, display) {
+                if frame == previous {
+                    settled = frame
+                    break
+                }
+                previous = frame
+            } else {
+                previous = nil
+            }
+            RunLoop.current.run(until: min(deadline, Date().addingTimeInterval(0.1)))
+        } while Date() < deadline
+
+        let diagnostic = "\(label): PID=\(cursor.processID), ID=\(cursor.number), layer=\(cursor.layer), " +
+            "display=\(display) ±1 pt, frame readings 100 ms apart: \(readings.joined(separator: " -> "))"
+        try artifacts.text(diagnostic, name: "pipette-\(label)-frame-readings.txt")
+        guard let settled else {
+            throw E2EFailure("Pipette frame did not settle within 3 s; no click was sent. \(diagnostic)")
+        }
+        return settled
+    }
+
+    private func clickAndRestoreClipboard(at point: CGPoint, preview: String, label: String) throws -> String {
+        let pasteboard = NSPasteboard.general
+        let snapshot = try ClipboardSnapshot()
+        let count = pasteboard.changeCount
+        var copied = ""
+        do {
+            try WindowHitTest.requireNoUserNotificationWindow()
+            try app.input.click(at: point)
+            guard try waitUntil(timeout: 3, {
+                try WindowHitTest.requireNoUserNotificationWindow()
+                guard pasteboard.changeCount != count, let hex = pasteboard.string(forType: .string),
+                      self.pipetteRGB(hex) != nil else { return false }
+                copied = hex
+                return true
+            }) else { throw E2EFailure("Pipette did not copy a HEX value at \(point)") }
+        } catch {
+            let restored = try snapshot.restoreIfChanged(allowing: preview)
+            try artifacts.text(restored, name: "clipboard-pipette-\(label).txt")
+            throw error
+        }
+        let delta = pasteboard.changeCount - count
+        let restored = try snapshot.restoreIfChanged(allowing: delta == 1 || delta == 2 ? copied : preview)
+        try artifacts.text(restored, name: "clipboard-pipette-\(label).txt")
+        XCTAssertTrue(restored.hasPrefix("restored known Stampo payload"), "Pipette clipboard was not restored: \(restored)")
+        return copied
+    }
+
+    private func openPipetteArchive() throws {
+        try WindowHitTest.requireNoUserNotificationWindow()
+        try app.input.press("⌃⌥⌘P")
+        _ = try required(.archiveBack)
+        _ = try settledPanel()
+    }
+
+    private func closePipetteArchive() throws {
+        try WindowHitTest.requireNoUserNotificationWindow()
+        try app.input.press("⌃⌥⌘P")
+        try expectClosed("Second collectFiles hotkey did not close the pipette archive")
+    }
+
+    private func archiveCellIDs() throws -> Set<String> {
+        var pending = [try required(.panel)]
+        var identifiers: Set<String> = []
+        var visited = 0
+        while let node = pending.popLast() {
+            visited += 1
+            guard visited <= 2000 else { throw E2EFailure("Archive AX traversal exceeded the 2000-node limit") }
+            let id = try node.identifier
+            if id.hasPrefix("stampo.archive.cell.") { identifiers.insert(id) }
+            pending.append(contentsOf: try node.children)
+        }
+        return identifiers
+    }
+
+    private func archiveColor(at index: Int, missing: String) throws -> String {
+        let identifier = "stampo.archive.cell.\(index)"
+        let hasCell = try waitUntil(timeout: 3) {
+            try WindowHitTest.requireNoUserNotificationWindow()
+            return try self.app.liveElement { try $0.identifier == identifier } != nil
+        }
+        XCTAssertTrue(hasCell, missing)
+        let cell = try XCTUnwrap(app.liveElement { try $0.identifier == identifier })
+        let frame = try XCTUnwrap(cell.frame, "Missing frame for \(identifier)")
+        // The color's existing label can be revealed by hover, with no click.
+        try app.input.move(to: CGPoint(x: frame.midX, y: frame.midY))
+        var hex = ""
+        let found = try waitUntil(timeout: 3) {
+            try WindowHitTest.requireNoUserNotificationWindow()
+            guard let cell = try self.app.liveElement(where: { try $0.identifier == identifier }) else {
+                return false
+            }
+            return try cell.first { node in
+                guard let text = try node.attribute(kAXDescriptionAttribute) as? String,
+                      text.hasPrefix("Color ") else { return false }
+                hex = String(text.dropFirst("Color ".count))
+                return true
+            } != nil
+        }
+        XCTAssertTrue(found, missing)
+        return hex
+    }
+
+    private func pipetteRGB(_ hex: String) -> [Int]? {
+        guard hex.range(of: "^#[0-9A-Fa-f]{6}$", options: .regularExpression) != nil,
+              let rgb = Int(hex.dropFirst(), radix: 16) else { return nil }
+        return [(rgb >> 16) & 255, (rgb >> 8) & 255, rgb & 255]
+    }
+
+    private func expectArchiveColor(_ hex: String, rgb expected: [Int], from sample: PipetteSample) throws {
+        let actual = pipetteRGB(hex)
+        let film = sample.overlay.map { "alpha=\($0.alpha), frame=\($0.frame)" } ?? "no window"
+        let diagnostic = "\(sample.label) point=\(sample.point), expected RGB=\(expected), " +
+            "actual RGB=\(actual.map { String(describing: $0) } ?? "unreadable (\(hex))"), " +
+            "tolerance=±3 per channel, AutomationModeUI: \(film), clipboard=\(sample.copiedHex)"
+        try artifacts.text(diagnostic, name: "pipette-\(sample.label)-archive-color.txt")
+        XCTAssertTrue(actual.map { zip($0, expected).allSatisfy { abs($0 - $1) <= 3 } } == true, diagnostic)
+    }
+
     private func prepareCaptureOverlays() throws -> pid_t {
         try app.launch(fixture: true)
         try app.requireScreenRecording()
@@ -155,10 +419,53 @@ final class HotkeyE2ETests: E2ETestCase {
 
     private func openAndCancelOverlay(_ key: String, pid: pid_t, label: String,
                                       allowColorHUDCache: Bool = false) throws {
+        let ids = try visibleWindowIDs(pid: pid)
+        let overlay = try openOverlay(key, pid: pid, label: label, excluding: ids)
+        let hud = try allowColorHUDCache ? colorHUD(pid: pid, cursor: overlay.number, excluding: ids) : nil
+        if let hud { try artifacts.text(hud.description, name: "\(label)-hud.txt") }
+
+        try WindowHitTest.requireNoUserNotificationWindow()
+        try app.input.press("ESC")
+        try expectVisibleWindows(ids, pid: pid, "Esc did not remove the \(key) overlay and restore the visible window set (\(label))")
+        try artifacts.text("removed window \(overlay.number)", name: "\(label)-cancelled.txt")
+        if let hud {
+            do {
+                try recordExpectedCachedWindow(hud.number, name: "pipette-after-cycle-1-expected")
+            } catch {
+                throw E2EFailure("\(label): \(error)")
+            }
+        }
+    }
+
+    private func visibleWindowIDs(pid: pid_t) throws -> Set<Int> {
+        Set(try WindowHitTest.windows().filter { $0.processID == Int(pid) }.map(\.number))
+    }
+
+    private func expectVisibleWindows(_ ids: Set<Int>, pid: pid_t, _ message: String,
+                                      file: StaticString = #filePath, line: UInt = #line) throws {
+        XCTAssertTrue(try waitUntil(timeout: 3) {
+            try WindowHitTest.requireNoUserNotificationWindow()
+            return try self.visibleWindowIDs(pid: pid) == ids
+        }, message, file: file, line: line)
+    }
+
+    private func colorHUD(pid: pid_t, cursor: Int, excluding ids: Set<Int>) throws -> WindowHitTest.Window {
+        var hud: WindowHitTest.Window?
+        XCTAssertTrue(try waitUntil(timeout: 3) {
+            try WindowHitTest.requireNoUserNotificationWindow()
+            hud = try WindowHitTest.windows().first {
+                $0.processID == Int(pid) && $0.alpha > 0 && $0.layer == NSWindow.Level.statusBar.rawValue
+                    && $0.number != cursor && !ids.contains($0.number)
+            }
+            return hud != nil
+        }, "Pipette did not show its color HUD")
+        return try XCTUnwrap(hud)
+    }
+
+    private func openOverlay(_ key: String, pid: pid_t, label: String,
+                             excluding ids: Set<Int>) throws -> WindowHitTest.Window {
         let display = CGDisplayBounds(CGMainDisplayID())
         let overlayLayer = key == "C" ? Int(CGWindowLevelForKey(.cursorWindow)) - 2 : NSWindow.Level.screenSaver.rawValue
-        let before = try WindowHitTest.windows().filter { $0.processID == Int(pid) }
-        let ids = Set(before.map(\.number))
         try WindowHitTest.requireNoUserNotificationWindow()
         try app.input.press("⌃⌥⌘\(key)")
         var overlay: WindowHitTest.Window?
@@ -203,36 +510,7 @@ final class HotkeyE2ETests: E2ETestCase {
         }
         let matched = try XCTUnwrap(matchingOverlay)
         try artifacts.text(matched.description, name: "\(label)-open.txt")
-
-        var colorHUD: WindowHitTest.Window?
-        if allowColorHUDCache {
-            XCTAssertTrue(try waitUntil(timeout: 3) {
-                try WindowHitTest.requireNoUserNotificationWindow()
-                colorHUD = try WindowHitTest.windows().first {
-                    $0.processID == Int(pid) && $0.alpha > 0 && $0.layer == NSWindow.Level.statusBar.rawValue
-                    && $0.number != window.number && !ids.contains($0.number)
-                }
-                return colorHUD != nil
-            }, "The first pipette cycle did not show a new color HUD")
-            let hud = try XCTUnwrap(colorHUD)
-            try artifacts.text(hud.description, name: "\(label)-hud.txt")
-        }
-
-        try WindowHitTest.requireNoUserNotificationWindow()
-        try app.input.press("ESC")
-        XCTAssertTrue(try waitUntil(timeout: 3) {
-            try WindowHitTest.requireNoUserNotificationWindow()
-            let current = try WindowHitTest.windows().filter { $0.processID == Int(pid) }
-            return Set(current.map(\.number)) == ids
-        }, "Esc did not remove the \(key) overlay and restore the visible window set (\(label))")
-        try artifacts.text("removed window \(window.number)", name: "\(label)-cancelled.txt")
-        if let colorHUD {
-            do {
-                try recordExpectedCachedWindow(colorHUD.number, name: "pipette-after-cycle-1-expected")
-            } catch {
-                throw E2EFailure("\(label): \(error)")
-            }
-        }
+        return matched
     }
 
     private struct WindowCapture {
