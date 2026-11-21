@@ -35,6 +35,10 @@ struct NotchArchiveView: View {
     let onHidePanel: () -> Void
     let onTogglePin: () -> Void
     let onPreviewText: (String) -> Void
+    /// Tells the panel when one of the cells is being dragged out, so that it
+    /// can let the pointer through over the part of its window that draws
+    /// nothing (see `PanelMouseRegion`).
+    let onInternalDragChange: (Bool) -> Void
 
     @AppStorage(AppSettings.Keys.defaultColorFormat) private var scheme: ColorSchemeType = .hex
     /// Whether Space over a cell opens a preview. Read here rather than from
@@ -212,7 +216,10 @@ struct NotchArchiveView: View {
             if effectiveExpandedID == nil { expandedStackID = nil }
         }
         // Aggregate drag state from every ArchiveDragShim-backed cell below.
-        .onPreferenceChange(InternalDraggingKey.self) { isInternalDragging = $0 }
+        .onPreferenceChange(InternalDraggingKey.self) {
+            isInternalDragging = $0
+            onInternalDragChange($0)
+        }
         .onPreferenceChange(HoveredPreviewKey.self) { urls in
             hoveredPreviewURLs = urls
             updateSpaceHotkey()
@@ -3098,7 +3105,12 @@ final class ArchiveDragShimView: NSView, NSDraggingSource {
                          endedAt screenPoint: NSPoint, operation: NSDragOperation) {
         // A drop back onto our own panel (e.g. the stack dragged an inch and
         // released over the archive) must not count as a completed drag-out.
-        let insideOwnWindow = window?.frame.contains(screenPoint) == true
+        // The window's empty lower part is not "our own window" here: while a
+        // drag is out, the panel stops taking the pointer there (see
+        // `PanelMouseRegion`), so a drop in it lands on whatever is underneath.
+        let insideOwnWindow = window.map {
+            $0.frame.contains(screenPoint) && !$0.ignoresMouseEvents
+        } == true
         DispatchQueue.main.async {
             self.isDragging = false
             if operation != [], !insideOwnWindow {
