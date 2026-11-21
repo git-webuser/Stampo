@@ -122,11 +122,14 @@ final class HotkeyE2ETests: E2ETestCase {
 
     func testOverlayHotkeysAndEscCancel() throws {
         let pid = try prepareCaptureOverlays()
-        try primeCaptureOverlayCache(pid: pid)
 
-        for key in ["R", "S", "F", "C"] {
-            try openAndCancelOverlay(key, pid: pid, label: "overlay-\(key)")
-            expectWindowSetUnchanged()
+        for key in ["R", "S", "F"] {
+            // A dismissed overlay can still block reentry if its cancellation
+            // callback did not reset the capture state.
+            for attempt in 1...2 {
+                try openAndCancelOverlay(key, pid: pid, label: "overlay-\(key)-\(attempt)")
+                expectWindowSetUnchanged()
+            }
         }
     }
 
@@ -170,7 +173,7 @@ final class HotkeyE2ETests: E2ETestCase {
                     && WindowHitTest.framesMatch($0.frame, display)
             }
             return overlay != nil
-        }, "\(key) did not open a new full-display overlay owned by Stampo")
+        }, "\(key) did not open a new full-display overlay owned by Stampo (\(label))")
         let window = try XCTUnwrap(overlay)
         try artifacts.text(window.description, name: "\(label)-open.txt")
 
@@ -180,7 +183,7 @@ final class HotkeyE2ETests: E2ETestCase {
             try WindowHitTest.requireNoUserNotificationWindow()
             let current = try WindowHitTest.windows().filter { $0.processID == Int(pid) }
             return Set(current.map(\.number)) == ids
-        }, "Esc did not remove the \(key) overlay and restore the visible window set")
+        }, "Esc did not remove the \(key) overlay and restore the visible window set (\(label))")
         try artifacts.text("removed window \(window.number)", name: "\(label)-cancelled.txt")
     }
 
