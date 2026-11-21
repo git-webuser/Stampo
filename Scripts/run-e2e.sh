@@ -139,6 +139,12 @@ finish() {
     echo "WARNING: DEV COPY CHANGED — preferences or signature differ. Inspect $artifacts" >&2
     result=1
   fi
+  if [ -n "$passport" ] && [ -f "$artifacts/primary-display.txt" ]; then
+    local display_detail
+    display_detail="$(tr '\n' ' ' < "$artifacts/primary-display.txt")"
+    passport="$passport · primary display: $display_detail"
+    printf '%s\n' "$passport" > "$artifacts/passport.txt"
+  fi
   [ -z "$passport" ] || echo "$passport"
   echo "Artifacts: $artifacts"
   exit "$result"
@@ -275,8 +281,12 @@ python3 - "$artifacts/summary.json" <<'PY'
 import json, sys
 with open(sys.argv[1]) as f: s=json.load(f)
 total, failed = s.get('totalTestCount',0), s.get('failedTests',0)
+expected = s.get('expectedFailures',0)
 print(f'E2E tests reported: {total}, failed {failed}')
-if not isinstance(total,int) or total <= 0 or failed or s.get('passedTests',0) <= 0 or s.get('skippedTests',0) or s.get('result') != 'Passed': sys.exit(1)
+print(f'E2E expected failure tests: {expected}')
+# The Esc regression is ordinary coverage after 045b2ff. A leftover expected
+# failure must not turn a current regression into a successful run.
+if not isinstance(total,int) or total <= 0 or failed or expected or s.get('passedTests',0) <= 0 or s.get('skippedTests',0) or s.get('result') != 'Passed': sys.exit(1)
 PY
 summary_status=$?
 set -e

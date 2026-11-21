@@ -19,15 +19,27 @@ final class Input {
 
     func click(at point: CGPoint) throws {
         try move(to: point)
+        // The nonactivating panel passes through input until its mouse-move
+        // monitor enables hit testing. Separate HID delivery turns as a real
+        // pointer approach does, before WindowServer routes mouse-down.
+        RunLoop.current.run(until: Date().addingTimeInterval(0.1))
         try mouse(.leftMouseDown, at: point)
         defer { try? mouse(.leftMouseUp, at: point) }
+        // NSEvent's monitor forwards mouse-down to the main actor, reading the
+        // current pointer there. Let it arrive before a mouse-up action moves
+        // or hides the target; a zero-duration click races that delivery.
+        RunLoop.current.run(until: Date().addingTimeInterval(0.02))
     }
 
-    func drag(from start: CGPoint, to end: CGPoint, steps: Int = 24) throws {
+    func holdMouse(at point: CGPoint) throws {
+        try move(to: point)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        try mouse(.leftMouseDown, at: point)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.02))
+    }
+
+    func dragHeldMouse(from start: CGPoint, to end: CGPoint, steps: Int = 24) throws {
         guard steps > 0 else { throw E2EFailure("Drag requires at least one step") }
-        try move(to: start)
-        try mouse(.leftMouseDown, at: start)
-        defer { try? mouse(.leftMouseUp, at: end) }
         for step in 1...steps {
             let t = CGFloat(step) / CGFloat(steps)
             try mouse(.leftMouseDragged, at: CGPoint(x: start.x + (end.x - start.x) * t,
@@ -36,13 +48,7 @@ final class Input {
         }
     }
 
-    func scroll(vertical: Int32, horizontal: Int32 = 0) throws {
-        guard let event = CGEvent(scrollWheelEvent2Source: source, units: .pixel, wheelCount: 2,
-                                  wheel1: vertical, wheel2: horizontal, wheel3: 0) else {
-            throw E2EFailure("Cannot construct a scroll event")
-        }
-        event.post(tap: .cghidEventTap)
-    }
+    func releaseMouse(at point: CGPoint) throws { try mouse(.leftMouseUp, at: point) }
 
     func press(_ chord: String) throws {
         var flags: CGEventFlags = []
@@ -53,7 +59,8 @@ final class Input {
         let key = chord.filter { !"⌃⌥⌘⇧".contains($0) }.uppercased()
         let codes: [String: CGKeyCode] = ["N": 0x2D, "R": 0x0F, "B": 0x0B, "G": 0x05,
                                         "C": 0x08, "S": 0x01, "L": 0x25, "P": 0x23,
-                                        "D": 0x02, "T": 0x11, "F": 0x03, "ESC": 0x35]
+                                        "D": 0x02, "T": 0x11, "F": 0x03, "ESC": 0x35,
+                                        "TAB": 0x30, "W": 0x0D]
         guard let code = codes[key] else { throw E2EFailure("Unsupported key chord: \(chord)") }
         // A key-up carrying chord flags leaves those flags in HID state.
         // Pair them with modifier key-ups even though delivery uses event flags.
@@ -90,11 +97,12 @@ final class Input {
         ]
         let held = modifiers.filter { flags.contains($0.1) }
         let leftDown = CGEventSource.buttonState(.hidSystemState, button: .left)
-        guard !held.isEmpty || leftDown else {
+        let rightDown = CGEventSource.buttonState(.hidSystemState, button: .right)
+        guard !held.isEmpty || leftDown || rightDown else {
             print("input state clean")
             return []
         }
-        let names = held.map { $0.0 } + (leftDown ? ["left mouse"] : [])
+        let names = held.map { $0.0 } + (leftDown ? ["left mouse"] : []) + (rightDown ? ["right mouse"] : [])
         var failures = ["input left pressed: \(names.joined(separator: ", "))"]
         print(failures[0])
         for (_, _, codes) in held {
@@ -110,12 +118,40 @@ final class Input {
             do { try mouse(.leftMouseUp, at: point) }
             catch { failures.append("Cannot release left mouse: \(error)") }
         }
+        if rightDown {
+            let point = CGEvent(source: source)?.location ?? Self.quartzPoint(fromAppKit: NSEvent.mouseLocation)
+            if let event = CGEvent(mouseEventSource: source, mouseType: .rightMouseUp,
+                                   mouseCursorPosition: point, mouseButton: .right) {
+                event.post(tap: .cghidEventTap)
+            } else { failures.append("Cannot release right mouse") }
+        }
         return failures
     }
 
     func park() throws {
         let display = CGDisplayBounds(CGMainDisplayID())
         try move(to: CGPoint(x: display.minX + 20, y: display.maxY - 40))
+    }
+
+    static var primaryDisplayDescription: String {
+        guard let screen = NSScreen.screens.first else { return "unavailable (no NSScreen)" }
+        let gap = screen.frame.width - (screen.auxiliaryTopLeftArea?.width ?? screen.frame.width)
+            - (screen.auxiliaryTopRightArea?.width ?? 0)
+        let type = screen.safeAreaInsets.top > 0 && gap > 0 ? "notched" : "non-notched"
+        return "\(type), \(Int(screen.frame.width))×\(Int(screen.frame.height)) pt"
+    }
+
+    // NotchHoverController.triggerRect(on:) and handleGlobalLeftMouseDown:
+    // the display midpoint and menu-bar mid-height hit either trigger width.
+    static var notchTrigger: (point: CGPoint, hasNotch: Bool)? {
+        guard let screen = NSScreen.screens.first else { return nil }
+        let menuHeight = max(0, screen.frame.maxY - screen.visibleFrame.maxY)
+        guard menuHeight > 0 else { return nil }
+        let gap = screen.frame.width - (screen.auxiliaryTopLeftArea?.width ?? screen.frame.width)
+            - (screen.auxiliaryTopRightArea?.width ?? 0)
+        return (quartzPoint(fromAppKit: CGPoint(x: screen.frame.midX,
+                                                y: screen.frame.maxY - menuHeight / 2)),
+                screen.safeAreaInsets.top > 0 && gap > 0)
     }
 
     // Formulas from Stampo/CaptureOverlayShared.swift (6919d04). AppKit and
@@ -128,10 +164,6 @@ final class Input {
     static func quartzPoint(fromAppKit point: CGPoint) -> CGPoint {
         CGPoint(x: point.x, y: primaryDisplayHeight - point.y)
     }
-    static func appKitPoint(fromQuartz point: CGPoint) -> CGPoint {
-        CGPoint(x: point.x, y: primaryDisplayHeight - point.y)
-    }
-
     private func mouse(_ type: CGEventType, at point: CGPoint) throws {
         guard point.x.isFinite, point.y.isFinite,
               let event = CGEvent(mouseEventSource: source, mouseType: type,

@@ -13,6 +13,11 @@ final class Artifacts {
         self.test = test
         directory = try Files.folder(URL(fileURLWithPath: path, isDirectory: true),
                                      "\(test.name.replacingOccurrences(of: "/", with: "-"))-\(UUID().uuidString)")
+        let display = Input.primaryDisplayDescription
+        try display.write(to: URL(fileURLWithPath: path).appendingPathComponent("primary-display.txt"),
+                          atomically: true, encoding: .utf8)
+        try text(display, name: "primary-display.txt")
+        print("E2E primary display: \(display)")
         let seed = ProcessInfo.processInfo.environment["STAMPO_E2E_SEED"] ?? "missing"
         print("E2E seed: \(seed); scenario artifacts: \(directory.path)")
     }

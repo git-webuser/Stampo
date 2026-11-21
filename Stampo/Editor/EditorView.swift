@@ -227,7 +227,6 @@ struct EditorView: View {
             imageScreenGeometry: $imageScreenGeometry,
             windowContext: windowContext
         )
-        .accessibilityIdentifier("stampo.editor.canvas")
         #if DEBUG
         .modifier(E2ECanvasAccessibility())
         #endif
