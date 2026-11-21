@@ -30,6 +30,81 @@ final class ArchiveEscapeE2ETests: E2ETestCase {
         if let restorationError { throw restorationError }
     }
 
+    func testArchiveStackClickToleratesTwoPointJitter() throws {
+        try app.launch(archive: true)
+        try WindowHitTest.requireNoUserNotificationWindow()
+        try app.input.press("⌃⌥⌘N")
+        _ = try settledPanel()
+        try app.input.press("⌃⌥⌘N")
+        XCTAssertTrue(try waitUntil(timeout: 3) { try app.liveElement(.panel) == nil },
+                      "Panel cache warmup did not close the panel")
+        try recordWindowBaseline(primePanelCache: false)
+
+        try WindowHitTest.requireNoUserNotificationWindow()
+        try app.input.press("⌃⌥⌘N")
+        try click("stampo.panel.archiveToggle")
+        let stack = "stampo.archive.cell.4"
+        let initial = try settledPanel()
+        try expectArchiveState(expanded: false, selecting: false, frame: initial, label: "before-jitter")
+        let (start, window) = try guardedPressTarget(stack)
+        let jitterEnd = CGPoint(x: start.x + 2, y: start.y)
+        XCTAssertTrue(window.frame.contains(jitterEnd), "Jitter must end inside the archive panel")
+        try app.input.clickWithJitter(from: start, to: jitterEnd)
+        XCTAssertTrue(try waitUntil(timeout: 3) {
+            try WindowHitTest.requireNoUserNotificationWindow()
+            return try app.liveElement { try $0.identifier == "stampo.archive.stack.member.0" } != nil
+        }, "stack did not expand after a 2 pt jitter click")
+        let expanded = try observeRetainedPanel(missingMessage: "Jitter click closed the archive panel")
+        try expectSameArchiveWindow(window, at: expanded)
+        try expectArchiveState(expanded: true, selecting: false, frame: expanded, label: "two-point-click")
+
+        try WindowHitTest.requireNoUserNotificationWindow()
+        try app.input.press("ESC")
+        let collapsed = try observeRetainedPanel(missingMessage: "Esc closed the panel instead of collapsing the stack")
+        try expectSameArchiveWindow(window, at: collapsed)
+        try expectArchiveState(expanded: false, selecting: false, frame: collapsed, label: "before-drag")
+
+        let (dragStart, dragWindow) = try guardedPressTarget(stack)
+        let dragEnd = CGPoint(x: dragStart.x + 16, y: dragStart.y)
+        XCTAssertTrue(dragWindow.frame.contains(dragEnd), "Drag must be released over the archive panel")
+        let pasteboard = NSPasteboard(name: .drag)
+        let beforeDrag = pasteboard.changeCount
+        try app.input.holdMouse(at: dragStart)
+        try app.input.dragHeldMouse(from: dragStart, to: dragEnd, steps: 8)
+        let dragStarted = try waitUntil(timeout: 1) {
+            try WindowHitTest.requireNoUserNotificationWindow()
+            return pasteboard.changeCount != beforeDrag
+        }
+        try app.input.releaseMouse(at: dragEnd)
+        XCTAssertTrue(dragStarted, "16 pt pull did not start an AppKit drag session")
+        let distances = "2 pt: \(start) -> \(jitterEnd)\n16 pt: \(dragStart) -> \(dragEnd)\n"
+            + "drag pasteboard: \(beforeDrag) -> \(pasteboard.changeCount)"
+        try artifacts.text(distances, name: "stack-gesture-distances.txt")
+
+        let openedDuringObservation = try waitUntil(timeout: archiveHideBound) {
+            try WindowHitTest.requireNoUserNotificationWindow()
+            guard try app.liveElement(.panel) != nil else { throw E2EFailure("Drag closed the archive panel") }
+            return try app.liveElement { try $0.identifier.hasPrefix("stampo.archive.stack.member.") } != nil
+        }
+        XCTAssertFalse(openedDuringObservation, "stack expanded after a 16 pt drag")
+        let afterDrag = try settledPanel(missingMessage: "Missing archive panel after drag")
+        XCTAssertTrue(WindowHitTest.framesMatch(afterDrag, dragWindow.frame), "Drag changed the archive panel frame")
+        try expectSameArchiveWindow(window, at: afterDrag)
+        try expectArchiveState(expanded: false, selecting: false, frame: afterDrag, label: "sixteen-point-drag")
+        try WindowHitTest.requireNoUserNotificationWindow()
+        try app.input.press("ESC")
+        XCTAssertTrue(try waitUntil(timeout: 3) { try app.liveElement(.panel) == nil },
+                      "Esc did not close the collapsed archive after drag")
+        expectWindowSetUnchanged()
+    }
+
+    private func expectSameArchiveWindow(_ window: WindowHitTest.Window, at frame: CGRect) throws {
+        let live = try WindowHitTest.windows().first { $0.number == window.number && $0.processID == window.processID }
+        let actual = try XCTUnwrap(live, "Archive panel with ID \(window.number) is no longer visible")
+        XCTAssertTrue(WindowHitTest.framesMatch(actual.frame, frame),
+                      "Archive panel AX frame differs from WindowServer: \(frame) vs \(actual.frame)")
+    }
+
     func testEscUnwindsOneLayerPerPress() throws {
         let frame = try prepareArchive()
 
@@ -161,9 +236,21 @@ final class ArchiveEscapeE2ETests: E2ETestCase {
     }
 
     private func click(_ identifier: String, command: Bool = false) throws {
+        let (point, _) = try guardedPressTarget(identifier)
+        if command { try app.input.commandClick(at: point) }
+        else { try app.input.click(at: point) }
+        // Both mouse-down monitors defer handling to a Task, which reads the
+        // current pointer position. Leaving immediately can classify this
+        // inside click as outside. Keep the pointer here until AX confirms
+        // the result because the race depends on main-thread timing.
+    }
+
+    private func guardedPressTarget(_ identifier: String) throws -> (CGPoint, WindowHitTest.Window) {
+        // A control can slide during panel appearance even when its AX node
+        // already exists. Read the hit target after the panel has settled.
+        let frame = try settledPanel()
         let target = try XCTUnwrap(required(identifier).frame, "Missing hit target \(identifier)")
         XCTAssertFalse(target.isEmpty)
-        let frame = try settledPanel()
         let point = CGPoint(x: target.midX, y: target.midY)
         let pid = try XCTUnwrap(app.processID, "Missing bound PID before a panel click")
         // Approach the target only after the unchanged ownership gate. The
@@ -171,6 +258,7 @@ final class ArchiveEscapeE2ETests: E2ETestCase {
         // inside our panel while reading the target's front-to-back list.
         let away = CGPoint(x: point.x + 48 < frame.maxX ? point.x + 48 : point.x - 48, y: point.y)
         XCTAssertTrue(frame.contains(away))
+        try WindowHitTest.requireNoUserNotificationWindow()
         try app.input.move(to: away)
         _ = try waitUntil(timeout: 1) {
             let first = try WindowHitTest.windows().first {
@@ -179,14 +267,10 @@ final class ArchiveEscapeE2ETests: E2ETestCase {
             return first?.processID == Int(pid) && first.map { WindowHitTest.framesMatch($0.frame, frame) } == true
         }
         clickNumber += 1
-        try WindowHitTest.requireOwnedTarget(at: point, frame: frame, pid: pid,
-                                            label: "archive-\(clickNumber)", artifacts: artifacts, context: "panel")
-        if command { try app.input.commandClick(at: point) }
-        else { try app.input.click(at: point) }
-        // Both mouse-down monitors defer handling to a Task, which reads the
-        // current pointer position. Leaving immediately can classify this
-        // inside click as outside. Keep the pointer here until AX confirms
-        // the result because the race depends on main-thread timing.
+        try WindowHitTest.requireNoUserNotificationWindow()
+        let window = try WindowHitTest.requireOwnedTarget(at: point, frame: frame, pid: pid,
+                                                          label: "archive-\(clickNumber)", artifacts: artifacts, context: "panel")
+        return (point, window)
     }
 
     private func observeArchiveState(expanded: Bool, selecting: Bool, frame: CGRect, label: String,

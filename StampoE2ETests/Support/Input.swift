@@ -66,6 +66,12 @@ final class Input {
 
     func releaseMouse(at point: CGPoint) throws { try mouse(.leftMouseUp, at: point) }
 
+    func clickWithJitter(from start: CGPoint, to end: CGPoint) throws {
+        try holdMouse(at: start)
+        try dragHeldMouse(from: start, to: end, steps: 2)
+        try releaseMouse(at: end)
+    }
+
     func press(_ chord: String) throws {
         var flags: CGEventFlags = []
         for (symbol, flag) in [("⌃", CGEventFlags.maskControl), ("⌥", .maskAlternate),

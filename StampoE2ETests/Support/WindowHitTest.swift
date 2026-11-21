@@ -66,7 +66,9 @@ enum WindowHitTest {
             window.executablePath?.hasPrefix("/System/Library/PrivateFrameworks/AutomationMode.framework/") == true
     }
 
-    static func requireOwnedTarget(at point: CGPoint, frame fixture: CGRect, pid: pid_t, label: String, artifacts: Artifacts, context: String = "fixture") throws {
+    @discardableResult
+    static func requireOwnedTarget(at point: CGPoint, frame fixture: CGRect, pid: pid_t,
+                                   label: String, artifacts: Artifacts, context: String = "fixture") throws -> Window {
         guard fixture.contains(point) else { throw E2EFailure("Click point is outside the \(context); no click was sent") }
         let windows = try windows()
         var skipped: [Window] = []
@@ -87,6 +89,7 @@ enum WindowHitTest {
             throw Refusal(processID: first?.processID, windowNumber: first?.number,
                                       description: "Outside \(context) click refused; no click was sent. \(diagnostics)")
         }
+        return first
     }
 
 }
