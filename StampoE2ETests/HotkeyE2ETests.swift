@@ -109,9 +109,11 @@ final class HotkeyE2ETests: E2ETestCase {
         }
         XCTAssertTrue(savedInArchive, "The first archive cell does not contain \(expectedLabel)")
         try artifacts.text(app.application.debugDescription, name: "window-capture-archive-tree.txt")
-        try app.input.press("ESC")
         try expectThumbnailDismissed(capture, label: "second")
-        try expectClosed("Esc did not close the captured screenshot archive")
+        // Close via the same collectFiles toggle used to inspect the archive.
+        // Esc on the recovered Main panel has already been verified above.
+        try app.input.press("⌃⌥⌘P")
+        try expectClosed("Second collectFiles hotkey did not close the captured screenshot archive")
         XCTAssertEqual(NSPasteboard.general.changeCount, pasteboardCount, "Window capture changed the pasteboard")
     }
 
