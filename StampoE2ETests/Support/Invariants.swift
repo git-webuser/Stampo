@@ -30,7 +30,7 @@ final class Invariants {
         initialWindows = try captureWindowBaseline(app: app, name: "before").windows
     }
 
-    func recordExpectedCachedWindow(_ number: Int, app: E2EApp) throws {
+    func recordExpectedCachedWindow(_ number: Int, app: E2EApp, name: String) throws {
         guard let initialWindows, let pid = app.processID else {
             throw E2EFailure("A live process and window baseline are required before warming a cache")
         }
@@ -39,10 +39,10 @@ final class Invariants {
             throw E2EFailure("Expected a new cached window, but window \(number) was already recorded")
         }
         let expected = WindowBaseline(processID: pid, windows: initialWindows.union([hidden]))
+        try artifacts.text(expected.windows.sorted().joined(separator: "\n"), name: "windows-\(name).txt")
         let failures = windowFailures(app: app, baseline: expected)
         guard failures.isEmpty else { throw E2EFailure(failures.joined(separator: "\n")) }
         self.initialWindows = expected.windows
-        try artifacts.text(expected.windows.sorted().joined(separator: "\n"), name: "windows-expected-cached.txt")
     }
 
     func check(app: E2EApp) -> [String] {

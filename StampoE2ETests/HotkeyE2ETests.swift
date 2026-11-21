@@ -135,7 +135,7 @@ final class HotkeyE2ETests: E2ETestCase {
 
     func testPipetteDoesNotAccumulateWindows() throws {
         let pid = try prepareCaptureOverlays()
-        try primeCaptureOverlayCache(pid: pid)
+        try openAndCancelOverlay("C", pid: pid, label: "pipette-cycle-1", allowColorHUDCache: true)
 
         for cycle in 2...4 {
             try openAndCancelOverlay("C", pid: pid, label: "pipette-cycle-\(cycle)")
@@ -153,13 +153,8 @@ final class HotkeyE2ETests: E2ETestCase {
         return pid
     }
 
-    private func primeCaptureOverlayCache(pid: pid_t) throws {
-        // The reusable color HUD retains its hidden panel after the first session.
-        try openAndCancelOverlay("C", pid: pid, label: "color-hud-warmup")
-        try recordWindowBaseline(primePanelCache: false)
-    }
-
-    private func openAndCancelOverlay(_ key: String, pid: pid_t, label: String) throws {
+    private func openAndCancelOverlay(_ key: String, pid: pid_t, label: String,
+                                      allowColorHUDCache: Bool = false) throws {
         let display = CGDisplayBounds(CGMainDisplayID())
         let before = try WindowHitTest.windows().filter { $0.processID == Int(pid) }
         let ids = Set(before.map(\.number))
@@ -177,6 +172,20 @@ final class HotkeyE2ETests: E2ETestCase {
         let window = try XCTUnwrap(overlay)
         try artifacts.text(window.description, name: "\(label)-open.txt")
 
+        var colorHUD: WindowHitTest.Window?
+        if allowColorHUDCache {
+            XCTAssertTrue(try waitUntil(timeout: 3) {
+                try WindowHitTest.requireNoUserNotificationWindow()
+                colorHUD = try WindowHitTest.windows().first {
+                    $0.processID == Int(pid) && $0.alpha > 0 && $0.layer == NSWindow.Level.statusBar.rawValue
+                    && $0.number != window.number && !ids.contains($0.number)
+                }
+                return colorHUD != nil
+            }, "The first pipette cycle did not show a new color HUD")
+            let hud = try XCTUnwrap(colorHUD)
+            try artifacts.text(hud.description, name: "\(label)-hud.txt")
+        }
+
         try WindowHitTest.requireNoUserNotificationWindow()
         try app.input.press("ESC")
         XCTAssertTrue(try waitUntil(timeout: 3) {
@@ -185,6 +194,13 @@ final class HotkeyE2ETests: E2ETestCase {
             return Set(current.map(\.number)) == ids
         }, "Esc did not remove the \(key) overlay and restore the visible window set (\(label))")
         try artifacts.text("removed window \(window.number)", name: "\(label)-cancelled.txt")
+        if let colorHUD {
+            do {
+                try recordExpectedCachedWindow(colorHUD.number, name: "pipette-after-cycle-1-expected")
+            } catch {
+                throw E2EFailure("\(label): \(error)")
+            }
+        }
     }
 
     private struct WindowCapture {

@@ -124,11 +124,9 @@ the baseline, the harness opens and closes the panel once via real HID input
 primes the ordinary cache without exempting subsequent hidden window leaks.
 The thumbnail HUD also retains a hidden panel. Its capture scenario records
 the specific cached window observed during capture. The pipette scenario uses
-the first of four C → Esc cycles to warm the color HUD, then compares every
-later full window set with that baseline. A window retained only on the first
-cycle is outside that check. The pipette's full-display cursor window is
-retained by its overlay until the sampler is released, so subsequent hidden
-cursor windows count as leaks.
+the first of four C → Esc cycles to identify the color HUD while it is visible.
+Only that HUD may remain hidden in addition to the original window set. All
+four cycles check the full set, including hidden cursor windows.
 `Fixtures/log-allowlist.txt` accepts `message substring | specific reason`;
 there are currently no exceptions. A failed log read or malformed allowlist
 fails the scenario. The app terminates only after invariants are checked.
