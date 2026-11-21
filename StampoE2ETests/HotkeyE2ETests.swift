@@ -254,8 +254,9 @@ final class HotkeyE2ETests: E2ETestCase {
             try WindowHitTest.requireNoUserNotificationWindow()
             return try self.firstPipetteHit(at: point)?.number == cursor.number
         }
-        let frame = try settledPipetteFrame(cursor, label: label)
-        let hit = try WindowHitTest.requireOwnedTarget(at: point, frame: frame, pid: pid,
+        _ = try settledPipetteFrame(cursor, label: label)
+        let display = CGDisplayBounds(CGMainDisplayID())
+        let hit = try WindowHitTest.requireOwnedTarget(at: point, frame: display, pid: pid,
                                                        label: "pipette-\(label)", artifacts: artifacts, context: "pipette")
         guard hit.number == cursor.number, hit.layer == cursor.layer else {
             throw E2EFailure("Pipette click refused at \(point); expected \(cursor.description), first hit \(hit.description)")
