@@ -20,7 +20,7 @@ struct ClipboardSnapshot {
         }
     }
 
-    func restoreIfChanged() throws -> String {
+    func restoreIfChanged(allowing extraPayload: String? = nil) throws -> String {
         let pasteboard = NSPasteboard.general
         guard pasteboard.changeCount != changeCount else { return "unchanged" }
         let observedCount = pasteboard.changeCount
@@ -29,7 +29,7 @@ struct ClipboardSnapshot {
         let current = pasteboard.pasteboardItems ?? []
         guard current.count == 1, current[0].types == [.string],
               let text = current[0].string(forType: .string),
-              ["#FF6B4A", "FF6B4A", "Stampo E2E archive text"].contains(text) else {
+              text == extraPayload || ["#FF6B4A", "FF6B4A", "Stampo E2E archive text"].contains(text) else {
             return "changed to an unknown payload; left untouched"
         }
         let restored = try items.map { values in

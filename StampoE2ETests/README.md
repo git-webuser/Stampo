@@ -378,6 +378,12 @@ owner/PID/layer/bounds and the first five windows recorded.
 `/System/Library/PrivateFrameworks/AutomationMode.framework/`. Пропуск отмечен
 строкой `Skipped system overlay:`. Общего исключения для слоя нет.
 
+Плёнка AutomationModeUI была на экране (alpha 0,25 по CGWindowList). Снимок
+пипетки (ScreenCaptureKit, весь дисплей, `excludingWindows: []`) в точке
+fixture дал цвет fixture: красная (255,0,0), синяя (0,0,255), замер
+2026-11-21. Механизм не замерен. T3 проверяет оба цвета в архиве в порядке
+«синяя, красная» с допуском ±3 на канал при любом состоянии плёнки.
+
 Доказательство сквозного ввода: Settings и Quit сохраняют `status-click-hit.txt`
 перед левым HID-кликом. В списке над значком та же плёнка, а меню открывается.
 Наличие плёнки проверяется при приёмке обоих прогонов; список здесь диагностический,
