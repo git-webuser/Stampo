@@ -256,6 +256,7 @@ struct PopUpMoreButtonWrapper: NSViewRepresentable {
     /// count. nil for a menu that is a list of commands rather than a choice,
     /// which is what the "⋯" is.
     var accessibilityValue: String? = nil
+    var accessibilityID: String = "stampo.panel.moreMenu"
     var onOpen:  () -> Void
     var onClose: () -> Void
     /// Called once the menu has closed, with whether the pointer is over the
@@ -268,7 +269,7 @@ struct PopUpMoreButtonWrapper: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSPopUpButton {
         let button = PanelPopUpButton()
-        button.setAccessibilityIdentifier("stampo.panel.moreMenu")
+        button.setAccessibilityIdentifier(accessibilityID)
         context.coordinator.button = button
         button.isBordered       = false
         button.isTransparent    = true

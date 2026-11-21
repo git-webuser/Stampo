@@ -27,16 +27,50 @@ enum E2EHooks {
         }
         for action in HotkeyAction.allCases {
             let combo = action.defaultCombo
-            arguments["hotkey.combo.\(action.rawValue)"] = try? JSONSerialization.data(withJSONObject: [
+            // Seed only the isolated persistent domain: unlike argument-domain
+            // overrides, these defaults can be edited by the real recorder.
+            defaults.set(try? JSONSerialization.data(withJSONObject: [
                 "combo": ["keyCode": Int(combo.keyCode), "carbonModifiers": Int(combo.carbonModifiers)]
-            ])
+            ]), forKey: "hotkey.combo.\(action.rawValue)")
         }
         defaults.setVolatileDomain(arguments, forName: UserDefaults.argumentDomain)
+    }
+
+    /// Uses the ordinary model entry points and never persists the archive.
+    /// All three files share one temporary parent, hence one stack.
+    static func populateArchive(_ model: NotchArchiveModel) {
+        guard isEnabled, ProcessInfo.processInfo.arguments.contains("-StampoE2EArchive") else { return }
+        do {
+            let folder = FileManager.default.temporaryDirectory
+                .appendingPathComponent("StampoE2EArchive-\(UUID().uuidString)", isDirectory: true)
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            let files = try ["01-alpha.txt", "02-beta.txt", "03-gamma.txt"].map { name in
+                let url = folder.appendingPathComponent(name)
+                try Data("Stampo E2E fixture: \(name)\n".utf8).write(to: url, options: .atomic)
+                return url
+            }
+            // add inserts at the front: colors 0..2, text 3, stack 4.
+            model.add(droppedFiles: files)
+            model.add(text: "Stampo E2E archive text")
+            for hex in ["#FF6B4A", "#2D6CDF", "#12B886"].reversed() {
+                guard let color = NSColor(hexString: hex) else { preconditionFailure("Invalid E2E fixture color") }
+                model.add(color: color)
+            }
+        } catch {
+            preconditionFailure("Cannot create the E2E archive fixture: \(error)")
+        }
     }
 
     static func start() {
         guard isEnabled else { return }
         let arguments = ProcessInfo.processInfo.arguments
+        if let path = ProcessInfo.processInfo.environment["STAMPO_E2E_ARTIFACTS"] {
+            let output = URL(fileURLWithPath: path).appendingPathComponent("screen-recording-preflight.txt")
+            do {
+                try (CGPreflightScreenCaptureAccess() ? "granted" : "denied")
+                    .write(to: output, atomically: true, encoding: .utf8)
+            } catch { preconditionFailure("Cannot record E2E capture permission: \(error)") }
+        }
         if arguments.contains("-StampoE2EFixture") { showFixture() }
         if let index = arguments.firstIndex(of: "-StampoE2EOpenEditor"),
            arguments.indices.contains(index + 1) {
@@ -107,6 +141,24 @@ struct E2ECanvasAccessibility: ViewModifier {
                 .accessibilityIdentifier("stampo.editor.canvas")
         } else {
             content
+        }
+    }
+}
+#endif
+
+#if DEBUG
+/// Shapes such as a color swatch are not AX elements by default. Give the
+/// real cell a bounded AX container only in E2E, without labels or values.
+struct E2EArchiveCellAccessibility: ViewModifier {
+    let identifier: String
+    var children: AccessibilityChildBehavior = .contain
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if E2EHooks.isEnabled {
+            content.accessibilityElement(children: children)
+                .accessibilityIdentifier(identifier)
+        } else {
+            content.accessibilityIdentifier(identifier)
         }
     }
 }

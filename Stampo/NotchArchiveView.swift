@@ -738,7 +738,11 @@ struct NotchArchiveView: View {
                             }
                         }
                     }
+                    #if DEBUG
+                    .modifier(E2EArchiveCellAccessibility(identifier: "stampo.archive.cell.\(archiveModel.items.firstIndex { $0.id == item.id } ?? 0)"))
+                    #else
                     .accessibilityIdentifier("stampo.archive.cell.\(archiveModel.items.firstIndex { $0.id == item.id } ?? 0)")
+                    #endif
                     // Cell exit: shrink + fade out together; neighbours
                     // slide into the gap because the surrounding HStack
                     // re-layouts inside the same withAnimation block.
@@ -811,6 +815,11 @@ struct NotchArchiveView: View {
             .frame(width: metrics.cellWidth, height: metrics.iconSize)
             .help(title)
             .accessibilityLabel(title)
+            #if DEBUG
+            .modifier(E2EArchiveCellAccessibility(identifier: "stampo.archive.back", children: .ignore))
+            #else
+            .accessibilityIdentifier("stampo.archive.back")
+            #endif
     }
 
 
@@ -1174,6 +1183,7 @@ struct ArchiveSelectionBadge: View {
             // glyph: "button, Select item" alone cannot tell a stack with two
             // members picked from one with none.
             .accessibilityValue(stateDescription)
+            .accessibilityIdentifier("stampo.archive.selectionMark")
             .accessibilityAddTraits(state == .full ? .isSelected : [])
     }
 
@@ -2103,6 +2113,7 @@ private struct ArchiveStackCell: View {
                 .background(Capsule(style: .continuous).fill(Color.black.opacity(0.65)))
                 .padding(2)
                 .allowsHitTesting(false)
+                .accessibilityIdentifier("stampo.archive.stack.\(stack.id).count")
         }
         .overlay(alignment: .bottom) {
             // Source folder name — the discriminator between stacks (each stack
@@ -2296,6 +2307,11 @@ private struct ExpandedStackGroup: View {
                         }
                     }
                 )
+                #if DEBUG
+                .modifier(E2EArchiveCellAccessibility(identifier: "stampo.archive.stack.member.\(stack.urls.firstIndex(of: url) ?? 0)"))
+                #else
+                .accessibilityIdentifier("stampo.archive.stack.member.\(stack.urls.firstIndex(of: url) ?? 0)")
+                #endif
             }
             if overflow > 0 {
                 OverflowTailCell(count: overflow, height: height,
@@ -2365,6 +2381,7 @@ private struct ExpandedStackGroup: View {
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityTitle)
         .accessibilityHint("Tap to collapse")
+        .accessibilityIdentifier("stampo.archive.stack.\(stack.id).header")
         .accessibilityAddTraits(.isButton)
     }
 
@@ -2585,6 +2602,7 @@ struct ArchiveSelectionCountButton: View {
                 includesAppCommands: false,
                 accessibilityKey: "Selected items",
                 accessibilityValue: count > 0 ? NotchMetrics.countLabel(for: count) : nil,
+                accessibilityID: "stampo.archive.selection",
                 onOpen:  { isMenuOpen = true  },
                 onClose: { isMenuOpen = false }
             )
@@ -2671,6 +2689,7 @@ private struct PopUpSchemeButtonWrapper: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSPopUpButton {
         let button = PanelPopUpButton()
+        button.setAccessibilityIdentifier("stampo.archive.colorFormat")
         button.isBordered       = false
         button.isTransparent    = true
         button.pullsDown        = true

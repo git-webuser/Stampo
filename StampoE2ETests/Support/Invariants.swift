@@ -30,6 +30,21 @@ final class Invariants {
         initialWindows = try captureWindowBaseline(app: app, name: "before").windows
     }
 
+    func recordExpectedCachedWindow(_ number: Int, app: E2EApp, name: String) throws {
+        guard let initialWindows, let pid = app.processID else {
+            throw E2EFailure("A live process and window baseline are required before warming a cache")
+        }
+        let hidden = "\(number):onScreen=false"
+        guard !initialWindows.contains(hidden), !initialWindows.contains("\(number):onScreen=true") else {
+            throw E2EFailure("Expected a new cached window, but window \(number) was already recorded")
+        }
+        let expected = WindowBaseline(processID: pid, windows: initialWindows.union([hidden]))
+        try artifacts.text(expected.windows.sorted().joined(separator: "\n"), name: "windows-\(name).txt")
+        let failures = windowFailures(app: app, baseline: expected)
+        guard failures.isEmpty else { throw E2EFailure(failures.joined(separator: "\n")) }
+        self.initialWindows = expected.windows
+    }
+
     func check(app: E2EApp) -> [String] {
         // Return diagnostics, rather than asserting here: XCTest may abort a
         // teardown assertion before the caller can save evidence or terminate.

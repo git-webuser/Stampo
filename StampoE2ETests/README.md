@@ -122,6 +122,11 @@ inventories are saved before and after, including hidden windows. Before taking
 the baseline, the harness opens and closes the panel once via real HID input
 (with screenshots): AppKit creates it lazily and retains it after hiding. This
 primes the ordinary cache without exempting subsequent hidden window leaks.
+The thumbnail HUD also retains a hidden panel. Its capture scenario records
+the specific cached window observed during capture. The pipette scenario uses
+the first of four C → Esc cycles to identify the color HUD while it is visible.
+Only that HUD may remain hidden in addition to the original window set. All
+four cycles check the full set, including hidden cursor windows.
 `Fixtures/log-allowlist.txt` accepts `message substring | specific reason`;
 there are currently no exceptions. A failed log read or malformed allowlist
 fails the scenario. The app terminates only after invariants are checked.
@@ -423,3 +428,67 @@ stableButton уводит указатель до снимка; AppKit дост�
 .onHover сбрасывает isHovered, и мутация пропадает до кадра, то есть M3b
 может моделировать недостижимое состояние. Это гипотеза, не установленная
 слепота P2 к hover. Числа отдельного pointer-on/parked контроля — в отчёте.
+
+
+## E2E-3b preparation
+
+`-StampoE2EArchive` seeds five in-memory entries through the ordinary model:
+colors `#FF6B4A`, `#2D6CDF`, `#12B886` at indices 0..2, one text at 3, and one
+stack of three generated temporary text files at 4. The archive does not persist.
+DemoArchive and normal launches are unchanged. Hotkey defaults are seeded in
+only the `.e2e` persistent domain so the actual Settings recorder can edit them.
+`screen-recording-preflight.txt` records the app's own capture preflight in its
+scenario artifact directory; it never grants a permission.
+
+New ids are `stampo.archive.back`, `.colorFormat`, `.selection` (the existing
+selection menu, only while selecting) and `.selectionMark` (scope to a cell).
+The collapsed stack retains `stampo.archive.cell.4` in this fixture; its count
+and expanded header use `stampo.archive.stack.<UUID>.count` / `.header`.
+Expanded members use `stampo.archive.stack.member.<index>` (only one stack can
+be expanded). Global shortcuts expose `stampo.settings.hotkey.<action>.recorder`,
+`.clear` and `.status`, where action is its Swift case name.
+There is no global-hotkey toggle: the existing clear button disables the combo;
+recording sets it again. Recorder rejection uses `.rejection`; registration
+messages use `.status`. The Settings scenario captures the AX tree before
+clearing a shortcut, after clearing it, and after assigning a new chord.
+
+The click ownership guard now lives in `Support/WindowHitTest.swift`. P1 calls
+the same checks through wrappers; the only default exemption remains the exact
+system AutomationModeUI identity/level/alpha/frame/path conjunction. New panel
+clicks must match the bound E2E PID and current panel frame as well.
+
+`ArchiveEscapeE2ETests` checks three flows, each in its own method:
+- `testEscUnwindsOneLayerPerPress`: collapse the stack, leave selection, close.
+- `testBackUnwindsTheSameLadder`: collapse, leave selection, return to Main;
+  Main stays visible before a separate cleanup hotkey.
+- `testEscClosesMenuBeforeUnwinding`: close the format menu first without
+  changing any underlying layer, then unwind the same three Esc layers.
+
+A plain stack click expands it; a Command-click on color cell 0 enters
+selection. `archiveHideBound` observes the panel for 900 ms, covering the
+120 ms dissolve, 220 ms morph, 220 ms frame animation, and scheduling margin.
+If the panel disappears, the test fails at the current action. If it survives,
+the test compares its settled frame within 1 pt and reads members, selection
+mode and the existing selected mark via AX.
+The pasteboard is preserved in memory with ordered item/type pairs. Before
+Command-click, cell 0 must contain the existing AX label `Color #FF6B4A`;
+after the third Esc, its changeCount must be unchanged. Common teardown
+restores only a known plain-string fixture payload (FF6B4A or fixture text);
+a concurrent unknown copy by the user or Codex is left untouched and reported. The Back target uses a bounded AX element only in DEBUG E2E: its
+explicit cell is 32 x 24 pt, rather than a container covering the archive.
+Normal-launch AX labels, values, layout and actions are unchanged.
+
+Before the ownership read, the pointer is moved to a different point INSIDE
+our panel and one read-only wait of at most 1 s lets WindowServer publish the
+move. The strict guard then runs unchanged; the cursor window is never given
+an exemption. Only after the guard does HID approach and click the target.
+After clicking, the pointer remains there until AX confirms the result. Both
+mouse-down monitors defer handling to a Task that reads the current pointer
+position. An immediate move outside can misclassify the original inside click
+and hide the panel, depending on main-thread timing. There are no
+right-click/AXPress fallbacks, retries of Esc, skips or expected failures.
+P3 and P7 follow P5. Current run and mutation evidence is in the step report.
+
+The temporary `StampoE2EArchive-<UUID>` directory remains in the app’s $TMPDIR
+after termination, including forced termination. No automatic termination hook
+is added; generated files are not user files.
