@@ -460,8 +460,10 @@ clicks must match the bound E2E PID and current panel frame as well.
   changing any underlying layer, then unwind the same three Esc layers.
 
 A plain stack click expands it; a Command-click on color cell 0 enters
-selection. Every surviving-state observation waits 400 ms, compares the panel
-frame and reads members, selection mode and the existing selected mark via AX.
+selection. Every surviving-state observation waits 600 ms for the 120 ms
+content dissolve, 220 ms hide animation, and scheduling margin. The test
+checks that the panel survives, compares its settled frame within 1 pt, and
+reads members, selection mode and the existing selected mark via AX.
 The pasteboard is preserved in memory with ordered item/type pairs. Before
 Command-click, cell 0 must contain the existing AX label `Color #FF6B4A`;
 after the third Esc, its changeCount must be unchanged. Common teardown
@@ -474,8 +476,10 @@ Before the ownership read, the pointer is moved to a different point INSIDE
 our panel and one read-only wait of at most 1 s lets WindowServer publish the
 move. The strict guard then runs unchanged; the cursor window is never given
 an exemption. Only after the guard does HID approach and click the target.
-After clicking, the pointer remains there until the resulting state is read;
-an immediate outside park is not part of these archive flows. There are no
+After clicking, the pointer remains there until AX confirms the result. Both
+mouse-down monitors defer handling to a Task that reads the current pointer
+position. An immediate move outside can misclassify the original inside click
+and hide the panel, depending on main-thread timing. There are no
 right-click/AXPress fallbacks, retries of Esc, skips or expected failures.
 P3 and P7 follow P5. Current run and mutation evidence is in the step report.
 

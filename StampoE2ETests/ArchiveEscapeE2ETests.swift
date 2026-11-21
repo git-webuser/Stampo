@@ -4,6 +4,9 @@ import XCTest
 
 @MainActor
 final class ArchiveEscapeE2ETests: E2ETestCase {
+    // Archive hide uses 0.12 s of content dissolve + 0.22 s of hide animation.
+    // The rest of this interval allows for the intervening Task and orderOut.
+    private let archiveLayerObservation: TimeInterval = 0.6
     private var clipboard: ClipboardSnapshot?
     private var clickNumber = 0
     private var changeCountBeforeCommandClick: Int?
@@ -35,7 +38,7 @@ final class ArchiveEscapeE2ETests: E2ETestCase {
         try app.input.press("ESC")
         try observeArchiveState(expanded: false, selecting: false, frame: frame, label: "esc-2")
         try app.input.press("ESC")
-        RunLoop.current.run(until: Date().addingTimeInterval(0.4))
+        RunLoop.current.run(until: Date().addingTimeInterval(archiveLayerObservation))
         XCTAssertTrue(try waitUntil(timeout: 3) { try self.app.liveElement(.panel) == nil },
                       "Third Esc did not close the panel")
         expectWindowSetUnchanged()
@@ -57,8 +60,8 @@ final class ArchiveEscapeE2ETests: E2ETestCase {
         try click("stampo.archive.back")
         try observeArchiveState(expanded: false, selecting: false, frame: frame, label: "back-2")
         try click("stampo.archive.back")
-        RunLoop.current.run(until: Date().addingTimeInterval(0.4))
-        let mainFrame = try panelFrame()
+        RunLoop.current.run(until: Date().addingTimeInterval(archiveLayerObservation))
+        let mainFrame = try settledPanel()
         _ = try required(E2EApp.Control.panelModeMenu.rawValue)
         XCTAssertNil(try app.liveElement(.archiveBack), "Third Back did not leave the archive")
         XCTAssertNil(try app.liveElement(.archiveSelection), "Third Back left selection active")
@@ -77,15 +80,14 @@ final class ArchiveEscapeE2ETests: E2ETestCase {
         try artifacts.step("archive-menu-open")
         try app.input.press("ESC")
         XCTAssertTrue(try waitUntil(timeout: 3) { try self.visibleMenu == nil }, "First Esc did not close the archive menu")
-        RunLoop.current.run(until: Date().addingTimeInterval(0.4))
-        XCTAssertNotNil(try app.liveElement(.panel), "First Esc closed the panel together with the archive menu after 400 ms")
-        try expectArchiveState(expanded: true, selecting: true, frame: frame, label: "menu-esc-1-layers-retained")
+        try observeArchiveState(expanded: true, selecting: true, frame: frame, label: "menu-esc-1-layers-retained",
+                                missingPanel: "First Esc closed the panel together with the archive menu")
         try app.input.press("ESC")
         try observeArchiveState(expanded: false, selecting: true, frame: frame, label: "menu-esc-2-stack-collapsed")
         try app.input.press("ESC")
         try observeArchiveState(expanded: false, selecting: false, frame: frame, label: "menu-esc-3-selection-exited")
         try app.input.press("ESC")
-        RunLoop.current.run(until: Date().addingTimeInterval(0.4))
+        RunLoop.current.run(until: Date().addingTimeInterval(archiveLayerObservation))
         XCTAssertTrue(try waitUntil(timeout: 3) { try self.app.liveElement(.panel) == nil }, "Fourth Esc did not close the panel after the menu and layers")
         expectWindowSetUnchanged()
         try artifacts.step("menu-esc-4-panel-closed")
@@ -101,7 +103,7 @@ final class ArchiveEscapeE2ETests: E2ETestCase {
         try app.launch(archive: true)
         try recordWindowBaseline()
         try app.input.press("⌃⌥⌘N")
-        _ = try panelFrame()
+        _ = try settledPanel()
         try click("stampo.panel.archiveToggle")
         _ = try required("stampo.archive.back")
         for index in 0..<5 { _ = try required("stampo.archive.cell.\(index)") }
@@ -126,7 +128,7 @@ final class ArchiveEscapeE2ETests: E2ETestCase {
         try artifacts.text("Color #FF6B4A", name: "command-click-color-label.txt")
         changeCountBeforeCommandClick = NSPasteboard.general.changeCount
         try click("stampo.archive.cell.0", command: true)
-        let frame = try panelFrame()
+        let frame = try settledPanel()
         try expectArchiveState(expanded: true, selecting: true, frame: frame, label: "prepared")
 
         return frame
@@ -138,7 +140,7 @@ final class ArchiveEscapeE2ETests: E2ETestCase {
         return try XCTUnwrap(app.liveElement { try $0.identifier == identifier })
     }
 
-    private func panelFrame() throws -> CGRect {
+    private func settledPanel() throws -> CGRect {
         _ = try required(E2EApp.Control.panel.rawValue)
         var previous: CGRect?
         var stable = 0
@@ -160,7 +162,7 @@ final class ArchiveEscapeE2ETests: E2ETestCase {
     private func click(_ identifier: String, command: Bool = false) throws {
         let target = try XCTUnwrap(required(identifier).frame, "Missing hit target \(identifier)")
         XCTAssertFalse(target.isEmpty)
-        let frame = try panelFrame()
+        let frame = try settledPanel()
         let point = CGPoint(x: target.midX, y: target.midY)
         let pid = try XCTUnwrap(app.processID, "Missing bound PID before a panel click")
         // Approach the target only after the unchanged ownership gate. The
@@ -180,20 +182,22 @@ final class ArchiveEscapeE2ETests: E2ETestCase {
                                             label: "archive-\(clickNumber)", artifacts: artifacts, context: "panel")
         if command { try app.input.commandClick(at: point) }
         else { try app.input.click(at: point) }
-        // The scenario observes the click result before leaving the cell.
-        // Moving outside here is an extra action: the app's async mouse-down
-        // monitor reads the current pointer position, not the event position.
+        // Both mouse-down monitors defer handling to a Task, which reads the
+        // current pointer position. Leaving immediately can classify this
+        // inside click as outside. Keep the pointer here until AX confirms
+        // the result because the race depends on main-thread timing.
     }
 
-    private func observeArchiveState(expanded: Bool, selecting: Bool, frame: CGRect, label: String) throws {
-        // Observe beyond the 0.22 s hide animation: an about-to-hide panel
-        // cannot satisfy the assertion that the surviving layers stay put.
-        RunLoop.current.run(until: Date().addingTimeInterval(0.4))
+    private func observeArchiveState(expanded: Bool, selecting: Bool, frame: CGRect, label: String,
+                                     missingPanel: String? = nil) throws {
+        RunLoop.current.run(until: Date().addingTimeInterval(archiveLayerObservation))
+        XCTAssertNotNil(try app.liveElement(.panel),
+                        missingPanel ?? "Missing stampo.panel.window at \(label): an archive layer should remain")
         try expectArchiveState(expanded: expanded, selecting: selecting, frame: frame, label: label)
     }
 
     private func expectArchiveState(expanded: Bool, selecting: Bool, frame: CGRect, label: String) throws {
-        let current = try panelFrame()
+        let current = try settledPanel()
         XCTAssertTrue(WindowHitTest.framesMatch(current, frame), "\(label): surviving panel changed frame: \(frame) -> \(current)")
         _ = try required("stampo.archive.back")
         XCTAssertNil(try app.liveElement(.panelModeMenu), "\(label): archive returned to Main")
