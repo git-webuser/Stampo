@@ -63,6 +63,8 @@ final class ArchiveEscapeE2ETests: E2ETestCase {
         let collapsed = try observeRetainedPanel(missingMessage: "Esc closed the panel instead of collapsing the stack")
         try expectSameArchiveWindow(window, at: collapsed)
         try expectArchiveState(expanded: false, selecting: false, frame: collapsed, label: "before-drag")
+        let cellsBeforeDrag = try archiveCellIdentifiers()
+        XCTAssertEqual(cellsBeforeDrag.count, 5, "Expected five archive fixture cells before dragging")
 
         let (dragStart, dragWindow) = try guardedPressTarget(stack)
         let dragEnd = CGPoint(x: dragStart.x + 16, y: dragStart.y)
@@ -91,6 +93,10 @@ final class ArchiveEscapeE2ETests: E2ETestCase {
         XCTAssertTrue(WindowHitTest.framesMatch(afterDrag, dragWindow.frame), "Drag changed the archive panel frame")
         try expectSameArchiveWindow(window, at: afterDrag)
         try expectArchiveState(expanded: false, selecting: false, frame: afterDrag, label: "sixteen-point-drag")
+        let cellsAfterDrag = try archiveCellIdentifiers()
+        XCTAssertEqual(cellsAfterDrag, cellsBeforeDrag, "Dropping the stack on its own panel changed the archive cells")
+        try artifacts.text("cells before: \(cellsBeforeDrag.sorted())\ncells after: \(cellsAfterDrag.sorted())",
+                           name: "archive-cells-after-self-drop.txt")
         try WindowHitTest.requireNoUserNotificationWindow()
         try app.input.press("ESC")
         XCTAssertTrue(try waitUntil(timeout: 3) { try app.liveElement(.panel) == nil },
@@ -103,6 +109,20 @@ final class ArchiveEscapeE2ETests: E2ETestCase {
         let actual = try XCTUnwrap(live, "Archive panel with ID \(window.number) is no longer visible")
         XCTAssertTrue(WindowHitTest.framesMatch(actual.frame, frame),
                       "Archive panel AX frame differs from WindowServer: \(frame) vs \(actual.frame)")
+    }
+
+    private func archiveCellIdentifiers() throws -> Set<String> {
+        var pending = [try required(E2EApp.Control.panel.rawValue)]
+        var identifiers: Set<String> = []
+        var visited = 0
+        while let node = pending.popLast() {
+            visited += 1
+            guard visited <= 2000 else { throw E2EFailure("Archive AX traversal exceeded the 2000-node limit") }
+            let identifier = try node.identifier
+            if identifier.hasPrefix("stampo.archive.cell.") { identifiers.insert(identifier) }
+            pending.append(contentsOf: try node.children)
+        }
+        return identifiers
     }
 
     func testEscUnwindsOneLayerPerPress() throws {
@@ -246,11 +266,23 @@ final class ArchiveEscapeE2ETests: E2ETestCase {
     }
 
     private func guardedPressTarget(_ identifier: String) throws -> (CGPoint, WindowHitTest.Window) {
-        // A control can slide during panel appearance even when its AX node
-        // already exists. Read the hit target after the panel has settled.
+        // Controls can move within an unchanged panel frame during a morph.
+        // Require the target's own frame to settle before choosing its center.
         let frame = try settledPanel()
-        let target = try XCTUnwrap(required(identifier).frame, "Missing hit target \(identifier)")
-        XCTAssertFalse(target.isEmpty)
+        var previousTarget: CGRect?
+        var settledTarget: CGRect?
+        let deadline = Date().addingTimeInterval(3)
+        repeat {
+            let node = try app.liveElement { try $0.identifier == identifier }
+            let current = try node?.frame
+            if let current, !current.isEmpty, current == previousTarget {
+                settledTarget = current
+                break
+            }
+            previousTarget = current
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        } while Date() < deadline
+        let target = try XCTUnwrap(settledTarget, "Hit target \(identifier) did not settle across two 100 ms reads")
         let point = CGPoint(x: target.midX, y: target.midY)
         let pid = try XCTUnwrap(app.processID, "Missing bound PID before a panel click")
         // Approach the target only after the unchanged ownership gate. The

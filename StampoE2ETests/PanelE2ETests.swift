@@ -478,7 +478,9 @@ final class PanelE2ETests: E2ETestCase {
             _ = try required(.panelModeMenu, message: "\(chord) did not open Main")
         }
         try WindowHitTest.requireNoUserNotificationWindow()
-        // Pin Panel toggles globally even while the Settings window is key.
+        // Back can be visible with a stable window frame while the archive
+        // morph is still in progress. Esc is not registered in that state.
+        // Use Pin Panel's toggle to clean up the archive.
         let closeChord = archive ? chord : "ESC"
         try app.input.press(closeChord)
         try expectPanelClosed(message: "\(closeChord) did not close the panel opened by \(chord)")
