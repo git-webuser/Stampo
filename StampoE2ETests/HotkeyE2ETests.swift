@@ -254,9 +254,12 @@ final class HotkeyE2ETests: E2ETestCase {
             try WindowHitTest.requireNoUserNotificationWindow()
             return try self.firstPipetteHit(at: point)?.number == cursor.number
         }
-        let hit = try WindowHitTest.requireOwnedTarget(at: point, frame: cursor.frame, pid: pid,
+        let frame = try settledPipetteFrame(cursor, label: label)
+        let hit = try WindowHitTest.requireOwnedTarget(at: point, frame: frame, pid: pid,
                                                        label: "pipette-\(label)", artifacts: artifacts, context: "pipette")
-        XCTAssertEqual(hit.number, cursor.number, "Sampling point \(point) is not owned by pipette window \(cursor.number)")
+        guard hit.number == cursor.number, hit.layer == cursor.layer else {
+            throw E2EFailure("Pipette click refused at \(point); expected \(cursor.description), first hit \(hit.description)")
+        }
         let film = try WindowHitTest.windows().first {
             WindowHitTest.isSystemAutomationOverlay($0) && $0.frame.contains(point)
         }
@@ -270,6 +273,39 @@ final class HotkeyE2ETests: E2ETestCase {
             expectWindowSetUnchanged()
         }
         return PipetteSample(label: label, point: point, copiedHex: hex, overlay: film)
+    }
+
+    private func settledPipetteFrame(_ cursor: WindowHitTest.Window, label: String) throws -> CGRect {
+        let display = CGDisplayBounds(CGMainDisplayID())
+        let deadline = Date().addingTimeInterval(3)
+        var previous: CGRect?
+        var settled: CGRect?
+        var readings: [String] = []
+        repeat {
+            try WindowHitTest.requireNoUserNotificationWindow()
+            let frame = try WindowHitTest.windows().first {
+                $0.processID == cursor.processID && $0.number == cursor.number && $0.layer == cursor.layer && $0.alpha > 0
+            }?.frame
+            readings.append(frame.map { String(describing: $0) } ?? "missing")
+            if let frame, WindowHitTest.framesMatch(frame, display) {
+                if frame == previous {
+                    settled = frame
+                    break
+                }
+                previous = frame
+            } else {
+                previous = nil
+            }
+            RunLoop.current.run(until: min(deadline, Date().addingTimeInterval(0.1)))
+        } while Date() < deadline
+
+        let diagnostic = "\(label): PID=\(cursor.processID), ID=\(cursor.number), layer=\(cursor.layer), " +
+            "display=\(display) ±1 pt, frame readings 100 ms apart: \(readings.joined(separator: " -> "))"
+        try artifacts.text(diagnostic, name: "pipette-\(label)-frame-readings.txt")
+        guard let settled else {
+            throw E2EFailure("Pipette frame did not settle within 3 s; no click was sent. \(diagnostic)")
+        }
+        return settled
     }
 
     private func clickAndRestoreClipboard(at point: CGPoint, preview: String, label: String) throws -> String {
