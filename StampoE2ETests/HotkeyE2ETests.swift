@@ -121,22 +121,39 @@ final class HotkeyE2ETests: E2ETestCase {
     }
 
     func testOverlayHotkeysAndEscCancel() throws {
+        let pid = try prepareCaptureOverlays()
+        try primeCaptureOverlayCache(pid: pid)
+
+        for key in ["R", "S", "F", "C"] {
+            try openAndCancelOverlay(key, pid: pid, label: "overlay-\(key)")
+            expectWindowSetUnchanged()
+        }
+    }
+
+    func testPipetteDoesNotAccumulateWindows() throws {
+        let pid = try prepareCaptureOverlays()
+        try primeCaptureOverlayCache(pid: pid)
+
+        for cycle in 2...4 {
+            try openAndCancelOverlay("C", pid: pid, label: "pipette-cycle-\(cycle)")
+            expectWindowSetUnchanged()
+        }
+    }
+
+    private func prepareCaptureOverlays() throws -> pid_t {
         try app.launch(fixture: true)
         try app.requireScreenRecording()
         try WindowHitTest.requireNoUserNotificationWindow()
         try recordWindowBaseline()
         let (fixture, pid) = try raiseFixture()
         try app.input.move(to: CGPoint(x: fixture.minX + fixture.width / 4, y: fixture.midY))
+        return pid
+    }
 
-        // The color HUD retains its hidden panel after the first session.
-        // Establish its cache while proving Esc leaves the visible set intact.
+    private func primeCaptureOverlayCache(pid: pid_t) throws {
+        // The reusable color HUD retains its hidden panel after the first session.
         try openAndCancelOverlay("C", pid: pid, label: "color-hud-warmup")
         try recordWindowBaseline(primePanelCache: false)
-
-        for key in ["R", "S", "F", "C"] {
-            try openAndCancelOverlay(key, pid: pid, label: "overlay-\(key)")
-            expectWindowSetUnchanged()
-        }
     }
 
     private func openAndCancelOverlay(_ key: String, pid: pid_t, label: String) throws {
