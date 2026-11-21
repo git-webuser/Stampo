@@ -460,6 +460,7 @@ private struct NotchPanelRootView: View {
     let onPickLanguage: (String, Locale.Language) -> Void
     let onHidePanel: () -> Void
     let onTogglePin: () -> Void
+    let onArchiveDragChange: (Bool) -> Void
     let onStopCountdown: () -> Void
     let onCaptureNow: () -> Void
     let onTogglePause: () -> Void
@@ -700,7 +701,8 @@ private struct NotchPanelRootView: View {
                 onBack: onBack,
                 onHidePanel: onHidePanel,
                 onTogglePin: onTogglePin,
-                onPreviewText: onPreviewText
+                onPreviewText: onPreviewText,
+                onInternalDragChange: onArchiveDragChange
             )
             .opacity(rootState.routeContentVisible)
             .opacity(rootState.route == .archive ? p : 0)
@@ -2254,15 +2256,59 @@ final class NotchPanelController: NSObject {
     /// A button held down means a drag may be in flight, and a file arriving
     /// from Finder is a dragging session rather than events we can see —
     /// `ignoresMouseEvents` would drop that drop too. So the pass-through is
-    /// only ever armed with every button up.
+    /// only ever armed with every button up — except while the archive's own
+    /// cell is the thing being dragged, when nothing can arrive from outside
+    /// and the window gives way over its empty part (`PanelMouseRegion`).
     private func updateMouseRegion() {
         guard let panel, panel.isVisible else { return }
         let onContent = drawnContentRect.contains(NSEvent.mouseLocation)
         let buttonsDown = NSEvent.pressedMouseButtons != 0
-        panel.ignoresMouseEvents = !(onContent || buttonsDown)
+        panel.ignoresMouseEvents = PanelMouseRegion.ignoresMouse(
+            onDrawnContent: onContent, buttonsDown: buttonsDown,
+            archiveDragInFlight: archiveDragInFlight)
         // The view hears the pointer leave only while the window takes it; this
         // is where it is known that it has left the drawing.
         if rootState.pointerOnDrawnPanel != onContent { rootState.pointerOnDrawnPanel = onContent }
+    }
+
+    /// One of the archive's cells is being dragged out.
+    private var archiveDragInFlight = false
+    private var archiveDragTimer: Timer?
+
+    /// Called by the archive as its cells start and stop a drag-out.
+    ///
+    /// The monitors below hear nothing while a drag session runs, so the window
+    /// would keep whatever state it had when the cell was picked up — taking
+    /// the pointer over its empty part, where a drop lands on the panel's own
+    /// window, which refuses its own drags. A timer stands in for the monitors
+    /// for the length of the drag, and only that: it is not a poll the panel
+    /// carries around.
+    func setArchiveDragInFlight(_ inFlight: Bool) {
+        guard archiveDragInFlight != inFlight else { return }
+        archiveDragInFlight = inFlight
+        archiveDragTimer?.invalidate()
+        archiveDragTimer = nil
+        if inFlight {
+            let timer = Timer(timeInterval: 1.0 / 60, repeats: true) { [weak self] _ in
+                MainActor.assumeIsolated { self?.archiveDragTick() }
+            }
+            // `.common`: a drag session runs the loop in event-tracking mode,
+            // which the default mode does not include.
+            RunLoop.main.add(timer, forMode: .common)
+            archiveDragTimer = timer
+        }
+        updateMouseRegion()
+    }
+
+    private func archiveDragTick() {
+        // The cell reports the end of the drag a beat after the button is up,
+        // and not at all if its view went away mid-drag. The button is the
+        // authority on whether one is still going.
+        guard NSEvent.pressedMouseButtons != 0 else {
+            setArchiveDragInFlight(false)
+            return
+        }
+        updateMouseRegion()
     }
 
     private func installMouseRegionTracking() {
@@ -2291,6 +2337,9 @@ final class NotchPanelController: NSObject {
     private func uninstallMouseRegionTracking() {
         mouseRegionMonitors.forEach { NSEvent.removeMonitor($0) }
         mouseRegionMonitors.removeAll()
+        archiveDragInFlight = false
+        archiveDragTimer?.invalidate()
+        archiveDragTimer = nil
         panel?.ignoresMouseEvents = false
         rootState.pointerOnDrawnPanel = false
     }
@@ -2484,6 +2533,7 @@ final class NotchPanelController: NSObject {
             },
             onHidePanel: { [weak self] in self?.hideAnimated(reason: .closeButton) },
             onTogglePin: { [weak self] in self?.rootState.isArchivePinned.toggle() },
+            onArchiveDragChange: { [weak self] in self?.setArchiveDragInFlight($0) },
             onStopCountdown: { [weak self] in self?.stopFromStrip() },
             onCaptureNow: { [weak self] in self?.captureFromStrip() },
             onTogglePause: { [weak self] in self?.screenshot.toggleScrollingPause() },
