@@ -48,6 +48,142 @@ final class HotkeyE2ETests: E2ETestCase {
         try expectClosed("Esc did not close the pinned archive with no inner layers")
     }
 
+    func testWindowHotkeyCapturesFixture() throws {
+        try app.launch(fixture: true)
+        try app.requireScreenRecording()
+        try recordWindowBaseline()
+        let pasteboardCount = NSPasteboard.general.changeCount
+
+        // The HUD caches its panel after it goes off screen. Prime that cache
+        // and take the full window baseline with its hidden window included.
+        _ = try captureWindowBaseline(name: "before-thumbnail-warmup")
+        let first = try captureFixture(excluding: [], label: "first")
+        try expectThumbnailDismissed(first, label: "first")
+        try recordWindowBaseline(primePanelCache: false)
+
+        // A second G also checks preSelection was cleared. N can reopen Main
+        // even when that state is stale and would mask the blocked second G.
+        let capture = try captureFixture(excluding: [first.png], label: "second")
+        let bitmap = try Files.Bitmap(png: capture.png)
+        let scale = try XCTUnwrap(NSScreen.screens.first).backingScaleFactor
+        let leftX = bitmap.width / 4
+        let row = bitmap.height * 2 / 3
+        let left = try bitmap.rgba(x: leftX, y: row)
+        let right = try bitmap.rgba(x: bitmap.width * 3 / 4, y: row)
+        // A window PNG can include its translucent shadow. Scan through the
+        // opaque client area and title bar to measure the window itself.
+        let width = try (0..<bitmap.width).count { try bitmap.rgba(x: $0, y: row)[3] == 255 }
+        let height = try (0..<bitmap.height).count { try bitmap.rgba(x: leftX, y: $0)[3] == 255 }
+        let measurements = "fixture=\(capture.fixture), scale=\(scale)\n" +
+            "PNG=\(bitmap.width)×\(bitmap.height), opaque=\(width)×\(height), left=\(left), right=\(right)"
+        print(measurements)
+        try artifacts.text(measurements, name: "window-capture-pixels.txt")
+        XCTAssertEqual(CGFloat(width), capture.fixture.width * scale, accuracy: 2,
+                       "Captured PNG opaque width does not match the fixture")
+        XCTAssertEqual(CGFloat(height), capture.fixture.height * scale, accuracy: 2,
+                       "Captured PNG opaque height does not match the fixture")
+        for (side, actual, expected) in [("left", left, [255, 0, 0]), ("right", right, [0, 0, 255])] {
+            for (index, channel) in expected.enumerated() {
+                XCTAssertLessThanOrEqual(abs(Int(actual[index]) - channel), 3,
+                                         "Wrong fixture color on the \(side): \(actual)")
+            }
+        }
+
+        try app.input.press("⌃⌥⌘N")
+        _ = try settledPanel()
+        _ = try required(.panelModeMenu)
+        try app.input.press("ESC")
+        XCTAssertTrue(try waitUntil(timeout: 3) { try self.app.liveElement(.panel) == nil },
+                      "Esc did not close Main after the window capture")
+
+        try app.input.press("⌃⌥⌘P")
+        _ = try required(.archiveBack)
+        let expectedLabel = "Screenshot \(capture.png.deletingPathExtension().lastPathComponent)"
+        let savedInArchive = try waitUntil(timeout: 3) {
+            guard let first = try self.app.liveElement(where: { try $0.identifier == "stampo.archive.cell.0" }) else {
+                return false
+            }
+            return try first.first { node in
+                try node.attribute(kAXDescriptionAttribute) as? String == expectedLabel
+            } != nil
+        }
+        XCTAssertTrue(savedInArchive, "The first archive cell does not contain \(expectedLabel)")
+        try artifacts.text(app.application.debugDescription, name: "window-capture-archive-tree.txt")
+        try app.input.press("ESC")
+        try expectThumbnailDismissed(capture, label: "second")
+        try expectClosed("Esc did not close the captured screenshot archive")
+        XCTAssertEqual(NSPasteboard.general.changeCount, pasteboardCount, "Window capture changed the pasteboard")
+    }
+
+    private struct WindowCapture {
+        let png: URL
+        let fixture: CGRect
+        let thumbnail: Int
+        let observedAt: TimeInterval
+    }
+
+    private func captureFixture(excluding existingPNGs: Set<URL>, label: String) throws -> WindowCapture {
+        let (fixture, pid) = try raiseFixture()
+        let center = CGPoint(x: fixture.midX, y: fixture.midY)
+        var onScreenBefore = Set<Int>()
+        var diagnostic = ""
+        let ownsCaptureTarget = try waitUntil(timeout: 1) {
+            let windows = try WindowHitTest.windows()
+            let owned = windows.filter { $0.processID == Int(pid) }
+            // Match FrontmostWindowResolver's first eligible layer-zero window.
+            let target = owned.first { window in
+                let frame = window.frame
+                return window.layer == 0 && !frame.isEmpty &&
+                    (frame.width >= 60 || frame.height >= 60) && frame.width * frame.height >= 3600
+            }
+            let hit = windows.first {
+                $0.alpha > 0 && $0.frame.contains(center) && !WindowHitTest.isSystemAutomationOverlay($0)
+            }
+            let frontmost = NSWorkspace.shared.frontmostApplication
+            diagnostic = "frontmost=\(frontmost?.bundleIdentifier ?? "unknown") PID=\(frontmost?.processIdentifier ?? -1)\n" +
+                "fixture=\(fixture), expected PID=\(pid)\n" +
+                "capture target=\(target?.description ?? "none")\nfirst hit=\(hit?.description ?? "none")"
+            guard frontmost?.processIdentifier == pid, let target, hit?.number == target.number,
+                  WindowHitTest.framesMatch(target.frame, fixture) else { return false }
+            onScreenBefore = Set(owned.map(\.number))
+            return true
+        }
+        try artifacts.text(diagnostic, name: "window-capture-\(label)-guard.txt")
+        XCTAssertTrue(ownsCaptureTarget, "Fixture is not the active owned capture target; G was not sent. \(diagnostic)")
+        try WindowHitTest.requireOwnedTarget(at: center, frame: fixture, pid: pid, label: "window-capture-\(label)", artifacts: artifacts)
+        guard NSWorkspace.shared.frontmostApplication?.processIdentifier == pid else {
+            throw E2EFailure("Fixture lost activation during the ownership check; G was not sent")
+        }
+        try app.input.press("⌃⌥⌘G")
+
+        let captures = app.directory.appendingPathComponent("captures", isDirectory: true)
+        var capture: WindowCapture?
+        let ready = try waitUntil(timeout: 5) {
+            let pngs = try FileManager.default.contentsOfDirectory(at: captures, includingPropertiesForKeys: nil)
+                .filter { $0.pathExtension == "png" && !existingPNGs.contains($0) }
+            let newWindows = try WindowHitTest.windows().filter {
+                $0.processID == Int(pid) && !onScreenBefore.contains($0.number) && $0.alpha > 0
+            }
+            guard pngs.count == 1, let png = pngs.first,
+                  newWindows.count == 1, let hud = newWindows.first else { return false }
+            capture = WindowCapture(png: png, fixture: fixture, thumbnail: hud.number,
+                                    observedAt: ProcessInfo.processInfo.systemUptime)
+            return true
+        }
+        XCTAssertTrue(ready, "The \(label) window hotkey did not produce a new PNG and thumbnail within 5 s")
+        return try XCTUnwrap(capture)
+    }
+
+    private func expectThumbnailDismissed(_ capture: WindowCapture, label: String) throws {
+        let dismissed = try waitUntil(timeout: 5) {
+            try !WindowHitTest.windows().contains { $0.number == capture.thumbnail }
+        }
+        XCTAssertTrue(dismissed, "Screenshot thumbnail \(capture.thumbnail) did not go off screen")
+        let elapsed = ProcessInfo.processInfo.systemUptime - capture.observedAt
+        try artifacts.text("thumbnail=\(capture.thumbnail)\nobserved off screen after \(elapsed) s",
+                           name: "window-capture-\(label)-thumbnail.txt")
+    }
+
     @discardableResult
     private func expectPinnedArchive(label: String) throws -> CGRect {
         _ = try required(.archiveBack)
@@ -67,16 +203,9 @@ final class HotkeyE2ETests: E2ETestCase {
     }
 
     private func clickFixtureOutsidePanel(frame: CGRect, label: String) throws {
-        try app.input.park()
-        let fixture = try required(.fixture)
-        let fixtureFrame = try XCTUnwrap(fixture.frame, "Fixture has no outside-click frame")
+        let (fixtureFrame, pid) = try raiseFixture()
         let point = CGPoint(x: fixtureFrame.midX, y: fixtureFrame.midY)
         XCTAssertFalse(frame.contains(point), "Fixture center must be outside the panel")
-        let pid = try XCTUnwrap(app.processID, "Missing fixture PID")
-
-        app.application.activate()
-        let raised = AXUIElementPerformAction(fixture.element, kAXRaiseAction as CFString)
-        guard raised == .success else { throw E2EFailure("Fixture AXRaise failed: \(raised.rawValue)") }
         let firstIsFixture = try waitUntil(timeout: 1) {
             let first = try WindowHitTest.windows().first {
                 $0.alpha > 0 && $0.frame.contains(point) && !WindowHitTest.isSystemAutomationOverlay($0)
@@ -89,6 +218,17 @@ final class HotkeyE2ETests: E2ETestCase {
                       "Fixture activation changed the panel before outside click: \(frame) -> \(afterActivation)")
         try WindowHitTest.requireOwnedTarget(at: point, frame: fixtureFrame, pid: pid, label: label, artifacts: artifacts)
         try app.input.click(at: point)
+    }
+
+    private func raiseFixture() throws -> (CGRect, pid_t) {
+        try app.input.park()
+        let fixture = try required(.fixture)
+        let frame = try XCTUnwrap(fixture.frame, "Fixture has no window frame")
+        let pid = try XCTUnwrap(app.processID, "Missing fixture PID")
+        app.application.activate()
+        let raised = AXUIElementPerformAction(fixture.element, kAXRaiseAction as CFString)
+        guard raised == .success else { throw E2EFailure("Fixture AXRaise failed: \(raised.rawValue)") }
+        return (frame, pid)
     }
 
     private func required(_ control: E2EApp.Control) throws -> AccessibilityNode {

@@ -99,6 +99,14 @@ final class E2EApp {
         try input.park()
     }
 
+    func requireScreenRecording() throws {
+        let preflight = directory.appendingPathComponent("screen-recording-preflight.txt")
+        let result = try String(contentsOf: preflight, encoding: .utf8)
+        guard result == "granted" else {
+            throw E2EFailure("Grant Screen Recording to Stampo-E2E.app before sending capture input (preflight: \(result))")
+        }
+    }
+
     var processID: pid_t? {
         guard let boundProcessID, isOwnedLiveProcess(boundProcessID) else { return nil }
         return boundProcessID
