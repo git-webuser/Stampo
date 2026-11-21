@@ -221,7 +221,6 @@ private struct EditableHotkeyRow: View {
                 onChange: onChange
             )
         }
-        .accessibilityIdentifier("stampo.settings.hotkey.\(action).row")
     }
 }
 

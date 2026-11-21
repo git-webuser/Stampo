@@ -338,6 +338,128 @@ final class PanelE2ETests: E2ETestCase {
         try artifacts.step("settings-closed")
     }
 
+    func testHotkeysFollowSettings() throws {
+        let settings = try openHotkeySettings()
+        let recorder = toggleShortcutControl("recorder", in: settings)
+        let clear = toggleShortcutControl("clear", in: settings)
+        XCTAssertEqual(recorder.value as? String, "Control Option Command N")
+        XCTAssertTrue(clear.exists, "Toggle Panel clear button is absent")
+        try artifacts.text(app.application.debugDescription, name: "hotkeys-initial-tree.txt")
+
+        try clickSettingsControl(clear, in: settings, label: "clear-toggle-shortcut")
+        let status = toggleShortcutControl("status", in: settings)
+        XCTAssertTrue(waitUntil(timeout: 3) { !clear.exists && recorder.value as? String == "None" && status.exists },
+                      "Clearing Toggle Panel did not empty the recorder and show its disabled status")
+        XCTAssertEqual(status.value as? String, "Shortcut disabled")
+        try artifacts.text(app.application.debugDescription, name: "hotkeys-cleared-tree.txt")
+        try expectShortcutQuiet("⌃⌥⌘N")
+
+        try armShortcutRecorder(recorder, in: settings)
+        try app.input.press("⌃⌥⌘N")
+        try expectRecordedShortcut("Control Option Command N", recorder: recorder, in: settings)
+        try expectShortcutOpensPanel("⌃⌥⌘N")
+
+        try armShortcutRecorder(recorder, in: settings)
+        try app.input.press("⌃⌥⌘W")
+        try expectRecordedShortcut("Control Option Command W", recorder: recorder, in: settings)
+        try artifacts.text(app.application.debugDescription, name: "hotkeys-reassigned-tree.txt")
+        try expectShortcutQuiet("⌃⌥⌘N")
+        try expectShortcutOpensPanel("⌃⌥⌘W")
+        try closeHotkeySettings(settings)
+    }
+
+    private var toggleShortcutPrefix: String { "stampo.settings.hotkey.togglePanel" }
+
+    private func openHotkeySettings() throws -> XCUIElement {
+        try app.launch(fixture: true)
+        try recordWindowBaseline()
+        try openStatusMenu()
+        try app.tap(.statusSettings)
+        let settings = app.application.windows["Settings"].firstMatch
+        XCTAssertTrue(settings.waitForExistence(timeout: 3), "Settings window did not open")
+        try clickSettingsControl(hotkeysTab(in: settings), in: settings, label: "hotkeys-tab")
+        let recorder = toggleShortcutControl("recorder", in: settings)
+        XCTAssertTrue(recorder.waitForExistence(timeout: 3), "Toggle Panel recorder missing from Hotkeys")
+        return settings
+    }
+
+    private func hotkeysTab(in settings: XCUIElement) -> XCUIElement {
+        settings.descendants(matching: .any)["stampo.settings.tab.hotkeys"].firstMatch
+    }
+
+    private func toggleShortcutControl(_ suffix: String, in settings: XCUIElement) -> XCUIElement {
+        settings.descendants(matching: .any)["\(toggleShortcutPrefix).\(suffix)"].firstMatch
+    }
+
+    private func clickSettingsControl(_ control: XCUIElement, in settings: XCUIElement, label: String) throws {
+        XCTAssertTrue(control.waitForExistence(timeout: 3), "Missing Settings control \(label)")
+        let frame = control.frame
+        let point = CGPoint(x: frame.midX, y: frame.midY)
+        try WindowHitTest.requireNoUserNotificationWindow()
+        try WindowHitTest.requireOwnedTarget(at: point, frame: settings.frame, pid: XCTUnwrap(app.processID),
+                                             label: label, artifacts: artifacts, context: "settings")
+        try app.input.click(at: point)
+    }
+
+    private func armShortcutRecorder(_ recorder: XCUIElement, in settings: XCUIElement) throws {
+        try clickSettingsControl(recorder, in: settings, label: "toggle-shortcut-recorder")
+        XCTAssertTrue(waitUntil(timeout: 3) { recorder.value as? String == "Press keys…" },
+                      "Toggle Panel recorder did not enter recording mode")
+        XCTAssertEqual(NSWorkspace.shared.frontmostApplication?.processIdentifier, app.processID,
+                       "Settings must be frontmost before recording a chord")
+        try WindowHitTest.requireNoUserNotificationWindow()
+    }
+
+    private func expectRecordedShortcut(_ value: String, recorder: XCUIElement, in settings: XCUIElement) throws {
+        XCTAssertTrue(waitUntil(timeout: 3) { recorder.value as? String == value },
+                      "Toggle Panel recorder did not show \(value)")
+        XCTAssertTrue(toggleShortcutControl("clear", in: settings).exists)
+        XCTAssertFalse(toggleShortcutControl("status", in: settings).exists,
+                       "Registered Toggle Panel showed a status message")
+    }
+
+    private func expectShortcutQuiet(_ chord: String) throws {
+        try app.input.park()
+        let pid = Int(try XCTUnwrap(app.processID))
+        func visibleWindows() throws -> Set<Int> {
+            Set(try WindowHitTest.windows().filter { $0.processID == pid && $0.alpha > 0 }.map(\.number))
+        }
+        let before = try visibleWindows()
+        try WindowHitTest.requireNoUserNotificationWindow()
+        try app.input.press(chord)
+        let changed = try waitUntil(timeout: 1) {
+            try WindowHitTest.requireNoUserNotificationWindow()
+            return try visibleWindows() != before
+        }
+        XCTAssertFalse(changed, "\(chord) changed Stampo's on-screen window set after being removed")
+    }
+
+    private func expectShortcutOpensPanel(_ chord: String, archive: Bool = false) throws {
+        try app.input.park()
+        try WindowHitTest.requireNoUserNotificationWindow()
+        try app.input.press(chord)
+        _ = try settledPanel(context: "\(chord) did not open the panel")
+        if archive {
+            _ = try required(.archiveBack, message: "\(chord) did not open Archive")
+        } else {
+            _ = try required(.panelModeMenu, message: "\(chord) did not open Main")
+        }
+        try WindowHitTest.requireNoUserNotificationWindow()
+        try app.input.press("ESC")
+        try expectPanelClosed(message: "Esc did not close the panel opened by \(chord)")
+    }
+
+    private func closeHotkeySettings(_ settings: XCUIElement) throws {
+        try clickSettingsControl(hotkeysTab(in: settings), in: settings, label: "refocus-hotkeys-tab")
+        XCTAssertEqual(NSWorkspace.shared.frontmostApplication?.processIdentifier, app.processID,
+                       "Settings must be frontmost before closing it")
+        try WindowHitTest.requireNoUserNotificationWindow()
+        try app.input.press("⌘W")
+        try app.input.park()
+        XCTAssertTrue(waitUntil(timeout: 3) { !settings.exists }, "Settings window remained after ⌘W")
+        expectWindowSetUnchanged()
+    }
+
     func testStatusMenuQuit() throws {
         // A key fixture window establishes AppKit's activation/menu-bar cache
         // before the baseline, independently of the Settings action under test.

@@ -445,12 +445,12 @@ selection menu, only while selecting) and `.selectionMark` (scope to a cell).
 The collapsed stack retains `stampo.archive.cell.4` in this fixture; its count
 and expanded header use `stampo.archive.stack.<UUID>.count` / `.header`.
 Expanded members use `stampo.archive.stack.member.<index>` (only one stack can
-be expanded). Global shortcut rows use `stampo.settings.hotkey.<action>.row`,
-`.recorder`, `.clear` and `.status`, where action is its Swift case name.
+be expanded). Global shortcuts expose `stampo.settings.hotkey.<action>.recorder`,
+`.clear` and `.status`, where action is its Swift case name.
 There is no global-hotkey toggle: the existing clear button disables the combo;
 recording sets it again. Recorder rejection uses `.rejection`; registration
-messages use `.status`. Child ids under `.row` have not yet been verified in
-a Settings AX dump. Labels, values and layout are unchanged.
+messages use `.status`. The Settings scenario captures the AX tree before
+clearing a shortcut, after clearing it, and after assigning a new chord.
 
 The click ownership guard now lives in `Support/WindowHitTest.swift`. P1 calls
 the same checks through wrappers; the only default exemption remains the exact
