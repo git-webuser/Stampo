@@ -156,6 +156,9 @@ final class HotkeyE2ETests: E2ETestCase {
     private func openAndCancelOverlay(_ key: String, pid: pid_t, label: String,
                                       allowColorHUDCache: Bool = false) throws {
         let display = CGDisplayBounds(CGMainDisplayID())
+        // Some overlays inset the window to prevent macOS from treating it
+        // as a fullscreen window. Every edge must still reach within 2 pt.
+        let requiredCoverage = display.insetBy(dx: 2, dy: 2)
         let before = try WindowHitTest.windows().filter { $0.processID == Int(pid) }
         let ids = Set(before.map(\.number))
         try WindowHitTest.requireNoUserNotificationWindow()
@@ -165,7 +168,7 @@ final class HotkeyE2ETests: E2ETestCase {
             try WindowHitTest.requireNoUserNotificationWindow()
             overlay = try WindowHitTest.windows().first {
                 $0.processID == Int(pid) && $0.alpha > 0 && !ids.contains($0.number)
-                    && WindowHitTest.framesMatch($0.frame, display)
+                    && $0.frame.contains(requiredCoverage)
             }
             return overlay != nil
         }, "\(key) did not open a new full-display overlay owned by Stampo (\(label))")
