@@ -4,9 +4,9 @@ import XCTest
 
 @MainActor
 final class ArchiveEscapeE2ETests: E2ETestCase {
-    // Archive hide uses 0.12 s of content dissolve + 0.22 s of hide animation.
-    // The rest of this interval allows for the intervening Task and orderOut.
-    private let archiveLayerObservation: TimeInterval = 0.6
+    // PanelTiming and hideExpandedThenMain/hideMainPanel in NotchPanelController:
+    // 0.12 s dissolve + 0.22 s morph + 0.22 s frame animation + 0.34 s margin.
+    private let archiveHideBound: TimeInterval = 0.9
     private var clipboard: ClipboardSnapshot?
     private var clickNumber = 0
     private var changeCountBeforeCommandClick: Int?
@@ -38,7 +38,6 @@ final class ArchiveEscapeE2ETests: E2ETestCase {
         try app.input.press("ESC")
         try observeArchiveState(expanded: false, selecting: false, frame: frame, label: "esc-2")
         try app.input.press("ESC")
-        RunLoop.current.run(until: Date().addingTimeInterval(archiveLayerObservation))
         XCTAssertTrue(try waitUntil(timeout: 3) { try self.app.liveElement(.panel) == nil },
                       "Third Esc did not close the panel")
         expectWindowSetUnchanged()
@@ -60,8 +59,9 @@ final class ArchiveEscapeE2ETests: E2ETestCase {
         try click("stampo.archive.back")
         try observeArchiveState(expanded: false, selecting: false, frame: frame, label: "back-2")
         try click("stampo.archive.back")
-        RunLoop.current.run(until: Date().addingTimeInterval(archiveLayerObservation))
-        let mainFrame = try settledPanel()
+        let mainFrame = try observeRetainedPanel(
+            missingMessage: "Missing stampo.panel.window at back-3: Main should remain visible"
+        )
         _ = try required(E2EApp.Control.panelModeMenu.rawValue)
         XCTAssertNil(try app.liveElement(.archiveBack), "Third Back did not leave the archive")
         XCTAssertNil(try app.liveElement(.archiveSelection), "Third Back left selection active")
@@ -87,7 +87,6 @@ final class ArchiveEscapeE2ETests: E2ETestCase {
         try app.input.press("ESC")
         try observeArchiveState(expanded: false, selecting: false, frame: frame, label: "menu-esc-3-selection-exited")
         try app.input.press("ESC")
-        RunLoop.current.run(until: Date().addingTimeInterval(archiveLayerObservation))
         XCTAssertTrue(try waitUntil(timeout: 3) { try self.app.liveElement(.panel) == nil }, "Fourth Esc did not close the panel after the menu and layers")
         expectWindowSetUnchanged()
         try artifacts.step("menu-esc-4-panel-closed")
@@ -140,14 +139,16 @@ final class ArchiveEscapeE2ETests: E2ETestCase {
         return try XCTUnwrap(app.liveElement { try $0.identifier == identifier })
     }
 
-    private func settledPanel() throws -> CGRect {
-        _ = try required(E2EApp.Control.panel.rawValue)
+    private func settledPanel(missingMessage: String? = nil) throws -> CGRect {
+        if missingMessage == nil { _ = try required(E2EApp.Control.panel.rawValue) }
         var previous: CGRect?
         var stable = 0
         var frame: CGRect?
         let deadline = Date().addingTimeInterval(3)
         repeat {
-            frame = try app.liveElement(.panel)?.frame
+            let panel = try app.liveElement(.panel)
+            if let missingMessage { XCTAssertNotNil(panel, missingMessage) }
+            frame = try panel?.frame
             if let current = frame, !current.isEmpty {
                 stable = current == previous ? stable + 1 : 0
                 previous = current
@@ -190,15 +191,25 @@ final class ArchiveEscapeE2ETests: E2ETestCase {
 
     private func observeArchiveState(expanded: Bool, selecting: Bool, frame: CGRect, label: String,
                                      missingPanel: String? = nil) throws {
-        RunLoop.current.run(until: Date().addingTimeInterval(archiveLayerObservation))
-        XCTAssertNotNil(try app.liveElement(.panel),
-                        missingPanel ?? "Missing stampo.panel.window at \(label): an archive layer should remain")
-        try expectArchiveState(expanded: expanded, selecting: selecting, frame: frame, label: label)
+        let current = try observeRetainedPanel(
+            missingMessage: missingPanel ?? "Missing stampo.panel.window at \(label): the panel closed while a layer should remain"
+        )
+        XCTAssertTrue(WindowHitTest.framesMatch(current, frame), "\(label): surviving panel changed frame: \(frame) -> \(current)")
+        try expectArchiveState(expanded: expanded, selecting: selecting, frame: current, label: label)
+    }
+
+    private func observeRetainedPanel(missingMessage: String) throws -> CGRect {
+        let started = ProcessInfo.processInfo.systemUptime
+        let disappeared = try waitUntil(timeout: archiveHideBound) { try self.app.liveElement(.panel) == nil }
+        if disappeared {
+            print("Archive panel disappeared after \(ProcessInfo.processInfo.systemUptime - started) s of observation")
+            XCTFail(missingMessage)
+            throw E2EFailure(missingMessage)
+        }
+        return try settledPanel(missingMessage: missingMessage)
     }
 
     private func expectArchiveState(expanded: Bool, selecting: Bool, frame: CGRect, label: String) throws {
-        let current = try settledPanel()
-        XCTAssertTrue(WindowHitTest.framesMatch(current, frame), "\(label): surviving panel changed frame: \(frame) -> \(current)")
         _ = try required("stampo.archive.back")
         XCTAssertNil(try app.liveElement(.panelModeMenu), "\(label): archive returned to Main")
         for index in 0..<3 {
@@ -214,7 +225,7 @@ final class ArchiveEscapeE2ETests: E2ETestCase {
             let mark = try XCTUnwrap(cell.first { try $0.identifier == "stampo.archive.selectionMark" }, "Selected color has no AX selection mark")
             XCTAssertEqual(try mark.value, "Selected", "\(label): color selection mark lost its value")
         }
-        try artifacts.text("expanded=\(expanded)\nselecting=\(selecting)\nframe=\(current)", name: "\(label)-state.txt")
+        try artifacts.text("expanded=\(expanded)\nselecting=\(selecting)\nframe=\(frame)", name: "\(label)-state.txt")
         try artifacts.step(label)
     }
 }

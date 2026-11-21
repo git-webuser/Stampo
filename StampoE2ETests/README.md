@@ -460,10 +460,11 @@ clicks must match the bound E2E PID and current panel frame as well.
   changing any underlying layer, then unwind the same three Esc layers.
 
 A plain stack click expands it; a Command-click on color cell 0 enters
-selection. Every surviving-state observation waits 600 ms for the 120 ms
-content dissolve, 220 ms hide animation, and scheduling margin. The test
-checks that the panel survives, compares its settled frame within 1 pt, and
-reads members, selection mode and the existing selected mark via AX.
+selection. `archiveHideBound` observes the panel for 900 ms, covering the
+120 ms dissolve, 220 ms morph, 220 ms frame animation, and scheduling margin.
+If the panel disappears, the test fails at the current action. If it survives,
+the test compares its settled frame within 1 pt and reads members, selection
+mode and the existing selected mark via AX.
 The pasteboard is preserved in memory with ordered item/type pairs. Before
 Command-click, cell 0 must contain the existing AX label `Color #FF6B4A`;
 after the third Esc, its changeCount must be unchanged. Common teardown
