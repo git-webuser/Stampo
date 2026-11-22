@@ -434,10 +434,12 @@ extension NSView {
     /// `PopUpMoreButtonWrapper.afterClose`). A view in a hidden window counts
     /// as not under it: a pick that hides the panel leaves the view mounted,
     /// and no exit would ever arrive.
-    var isUnderPointer: Bool {
+    var isUnderPointer: Bool { covers(screenPoint: NSEvent.mouseLocation) }
+
+    /// The same question for any point on the screen.
+    func covers(screenPoint: NSPoint) -> Bool {
         guard let window, window.isVisible else { return false }
-        let frame = window.convertToScreen(convert(bounds, to: nil))
-        return frame.contains(NSEvent.mouseLocation)
+        return window.convertToScreen(convert(bounds, to: nil)).contains(screenPoint)
     }
 }
 
@@ -542,13 +544,18 @@ struct PanelButtonStyle: ButtonStyle {
 /// pointer is inside gets no enter and cannot be lit. Throwing the belief away
 /// when a menu opened left a button unlit under a pointer that had come back
 /// onto it (6 of 25 menus).
+///
+/// SwiftUI's reports are not the only source of that belief. They also come
+/// late between neighbouring buttons, so the hub (`PanelPointerHub`) tells each
+/// button where the pointer is by position, and the last word wins.
 nonisolated struct PanelHoverState: Equatable {
     private(set) var pointerIsOver = false
     private(set) var menuIsTracking = false
+    private(set) var routeTakesPointer = true
 
-    var isLit: Bool { pointerIsOver && !menuIsTracking }
+    var isLit: Bool { pointerIsOver && !menuIsTracking && routeTakesPointer }
 
-    /// SwiftUI's own report.
+    /// Where the pointer is: SwiftUI's own report, or the hub's.
     mutating func pointer(isOver: Bool) { pointerIsOver = isOver }
 
     /// Nothing is lit while a menu is open: the pointer is on the menu, and
@@ -562,6 +569,36 @@ nonisolated struct PanelHoverState: Equatable {
     /// 0.7–1.7 s after a click on the archive button). When it does come it
     /// finds nothing left to turn off.
     mutating func anotherButtonWasPressed() { pointerIsOver = false }
+
+    /// Whether the route this button is on takes the pointer. The routes are
+    /// all mounted at once, one over another, and the ones not showing have
+    /// their hit-testing off — but their buttons lie under the pointer all the
+    /// same, and a button no one can reach must not light. The belief is kept
+    /// for when the route comes back.
+    mutating func route(takesPointer: Bool) { routeTakesPointer = takesPointer }
+}
+
+private struct PanelTakesPointerKey: EnvironmentKey {
+    static let defaultValue = true
+}
+
+extension EnvironmentValues {
+    /// False below a view whose hit-testing is off (see `panelHitTesting`).
+    fileprivate(set) var panelTakesPointer: Bool {
+        get { self[PanelTakesPointerKey.self] }
+        set { self[PanelTakesPointerKey.self] = newValue }
+    }
+}
+
+extension View {
+    /// `allowsHitTesting` that also tells the panel buttons below it, so they
+    /// stay unlit under a pointer they cannot be clicked by.
+    ///
+    /// Nested uses add up: a route inside a disabled panel is disabled.
+    func panelHitTesting(_ enabled: Bool) -> some View {
+        allowsHitTesting(enabled)
+            .transformEnvironment(\.panelTakesPointer) { $0 = $0 && enabled }
+    }
 }
 
 extension View {
@@ -589,22 +626,61 @@ private extension Notification.Name {
     static let panelButtonPressed = Notification.Name("StampoPanelButtonPressed")
 }
 
+/// Where a button's anchor lives, for the button to ask it outright.
+private final class AnchorHandle {
+    weak var view: PanelHoverAnchor?
+}
+
+/// The anchor itself, behind a button. Its reports are the hub's.
+private struct PanelHoverAnchorView: NSViewRepresentable {
+    let handle: AnchorHandle
+    let onPointer: (Bool) -> Void
+
+    func makeNSView(context: Context) -> PanelHoverAnchor {
+        let view = PanelHoverAnchor()
+        view.onPointer = onPointer
+        handle.view = view
+        return view
+    }
+
+    func updateNSView(_ view: PanelHoverAnchor, context: Context) {
+        view.onPointer = onPointer
+        handle.view = view
+    }
+}
+
 private struct PanelHover: ViewModifier {
     @Binding var isHovered: Bool
     let pressed: Bool
 
+    @Environment(\.panelTakesPointer) private var routeTakesPointer
     @State private var state = PanelHoverState()
     @State private var identity = UUID()
+    @State private var anchor = AnchorHandle()
 
     func body(content: Content) -> some View {
         let center = NotificationCenter.default
         content
+            // Two sources for where the pointer is. The anchor's reports come
+            // from the hub, by position, and are the ones to trust: SwiftUI's
+            // `onHover` is the fallback while no monitor is running, and it is
+            // what the anchor's next report corrects when it is late.
+            .background(PanelHoverAnchorView(handle: anchor) { inside in
+                apply { $0.pointer(isOver: inside) }
+            })
             .onHover { inside in apply { $0.pointer(isOver: inside) } }
             .onReceive(center.publisher(for: NSMenu.didBeginTrackingNotification)) { _ in
                 apply { $0.menuBeganTracking() }
             }
             .onReceive(center.publisher(for: NSMenu.didEndTrackingNotification)) { _ in
                 apply { $0.menuEndedTracking() }
+                // The pointer moved while the menu was up and nothing was told.
+                askWhereThePointerIs()
+            }
+            .onChange(of: routeTakesPointer, initial: true) { was, takes in
+                apply { $0.route(takesPointer: takes) }
+                // A route that comes back under a parked pointer gets no move.
+                if takes && !was { askWhereThePointerIs() }
             }
             .onChange(of: pressed) { _, isPressed in
                 guard isPressed else { return }
@@ -616,8 +692,18 @@ private struct PanelHover: ViewModifier {
             }
     }
 
+    private func askWhereThePointerIs() {
+        guard let view = anchor.view else { return }
+        let inside = PanelPointerHub.shared.contains(view)
+        apply { $0.pointer(isOver: inside) }
+    }
+
+    /// Writes only what changed: the hub reports on every mouse event, for
+    /// every button.
     private func apply(_ change: (inout PanelHoverState) -> Void) {
-        change(&state)
-        isHovered = state.isLit
+        var next = state
+        change(&next)
+        if next != state { state = next }
+        if isHovered != next.isLit { isHovered = next.isLit }
     }
 }

@@ -115,7 +115,7 @@ import Testing
         let flag = Flag(lit)
         let hosting = NSHostingView(rootView: AnyView(button(flag)))
         hosting.frame = NSRect(x: 0, y: 0, width: 40, height: 40)
-        let window = NSWindow(contentRect: hosting.frame, styleMask: [.borderless],
+        let window = NSWindow(contentRect: hosting.frame.offsetBy(dx: 400, dy: 400), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView = hosting
@@ -168,7 +168,7 @@ import Testing
         let flag = Flag(false)
         let hosting = NSHostingView(rootView: AnyView(button(flag, pressed: false)))
         hosting.frame = NSRect(x: 0, y: 0, width: 40, height: 40)
-        let window = NSWindow(contentRect: hosting.frame, styleMask: [.borderless],
+        let window = NSWindow(contentRect: hosting.frame.offsetBy(dx: 400, dy: 400), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView = hosting
