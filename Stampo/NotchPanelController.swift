@@ -908,12 +908,14 @@ final class NotchPanelController: NSObject {
     /// animation completions die on the closed window and would drop it).
     /// Single point of truth: every path delivers via
     /// `firePendingHideCompletion()`, never by calling a captured closure.
-    private var pendingHideCompletion: (() -> Void)?
+    ///
+    /// The queue also decides whether a second close joins the hide in flight
+    /// (see `PanelHideQueue`), so the waiting action is never erased by a close
+    /// that carries none.
+    private var hideQueue = PanelHideQueue()
 
     private func firePendingHideCompletion() {
-        let completion = pendingHideCompletion
-        pendingHideCompletion = nil
-        completion?()
+        hideQueue.take()?()
     }
 
     // MARK: - Mascot notifications
@@ -1471,7 +1473,7 @@ final class NotchPanelController: NSObject {
         // Overlay sessions below are cancelled outright, so a hide completion
         // waiting to start one must be dropped, not delivered (a capture
         // overlay popping up right after wake would be a surprise).
-        pendingHideCompletion = nil
+        hideQueue.discard()
 
         // Отменяем любые активные overlay-сессии: если sleep/wake случился во время
         // выбора области, окна или цвета, preSelection / colorPicker.isInFlight
@@ -1878,7 +1880,7 @@ final class NotchPanelController: NSObject {
         let transitionToken = PanelTransitionToken(generation: gen, bindingID: panelBindingID)
         // A show interrupting an in-flight hide aborts it: the panel never
         // finished disappearing, so the hide's caller completion must not fire.
-        pendingHideCompletion = nil
+        hideQueue.discard()
         interactionState.isEnabled = false
         interactionState.contentVisibility = 0.0
         panel.alphaValue = 1
@@ -1983,6 +1985,24 @@ final class NotchPanelController: NSObject {
             completion?()
             return
         }
+
+        // A close while one is already running joins it. Starting the animation
+        // again would also erase the action the first close carries — a capture
+        // begun a moment before a click outside the panel never started — and,
+        // were the action kept, the second animation's report would set
+        // `.hidden` over the capture overlay the first one handed over to.
+        var isHiding = false
+        if case .hiding = state { isHiding = true }
+        let request = hideQueue.request(isHiding: isHiding,
+                                        now: ProcessInfo.processInfo.systemUptime,
+                                        completion: completion)
+        if request == .join {
+            // Everything below ran for the close that owns this hide.
+            trace("hideAnimated.joined by=\(reason.rawValue)")
+            return
+        }
+        if request == .restart { trace("hideAnimated.restart reason=\(reason.rawValue)") }
+
         endScrollRun(.panelClosed(reason))
         rootState.isArchivePinned = false
         // The panel is going away with the sheet's anchor: drop the hold so a
@@ -2020,7 +2040,6 @@ final class NotchPanelController: NSObject {
         state = .hiding
         interactionState.isEnabled = false
         bumpGeneration()
-        pendingHideCompletion = completion
         if cancelsScrolling { screenshot.cancelScrolling() }
 
         guard let screen = (currentScreen ?? NSScreen.main ?? NSScreen.screens.first) else {
@@ -2103,14 +2122,16 @@ final class NotchPanelController: NSObject {
                 // Synchronously where possible, never through a bare `Task`:
                 // hopping to the next runloop turn opened a gap between the
                 // animation ending and the completion below. A show landing in
-                // that gap clears `pendingHideCompletion` by design — "a show
+                // that gap discards the waiting action by design — "a show
                 // interrupting a hide aborts it" — so a capture waiting on this
                 // hide was dropped roughly once in three delayed shots, with
                 // nothing to say why.
                 onMainActorNow {
                     // An interrupted animation reports as well. Two closes of
-                    // one panel — the close button and the click on the notch
-                    // arrive together — cut the first hide short, and it
+                    // one panel that did not join — the second came after
+                    // `PanelHideQueue.joinWindow`, when closes that arrive
+                    // together, the close button and the click on the notch,
+                    // now share one hide — cut the first hide short, and it
                     // orders the window out at once; a show that follows is
                     // let through while the second hide is still animating,
                     // and that hide's report lands on the new panel: tracking
@@ -2167,14 +2188,16 @@ final class NotchPanelController: NSObject {
                 // Synchronously where possible, never through a bare `Task`:
                 // hopping to the next runloop turn opened a gap between the
                 // animation ending and the completion below. A show landing in
-                // that gap clears `pendingHideCompletion` by design — "a show
+                // that gap discards the waiting action by design — "a show
                 // interrupting a hide aborts it" — so a capture waiting on this
                 // hide was dropped roughly once in three delayed shots, with
                 // nothing to say why.
                 onMainActorNow {
                     // An interrupted animation reports as well. Two closes of
-                    // one panel — the close button and the click on the notch
-                    // arrive together — cut the first hide short, and it
+                    // one panel that did not join — the second came after
+                    // `PanelHideQueue.joinWindow`, when closes that arrive
+                    // together, the close button and the click on the notch,
+                    // now share one hide — cut the first hide short, and it
                     // orders the window out at once; a show that follows is
                     // let through while the second hide is still animating,
                     // and that hide's report lands on the new panel: tracking
