@@ -498,10 +498,16 @@ final class NotchHoverController: NSObject {
         // Global: клики в других приложениях и системных областях (меню-бар,
         // мёртвая зона челки). Хендлер приходит на главном потоке; события
         // read-only — консьюмить их (как listenOnly-tap) и не требовалось.
+        //
+        // The click point is read from the event here, before the hop below. The
+        // hop lets the main thread finish what it is doing first, and by then
+        // the pointer may have moved: a click inside the panel would count as an
+        // outside click, and one outside it as inside.
         globalClickMonitor = NSEvent.addGlobalMonitorForEvents(
             matching: .leftMouseDown
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in self?.handleGlobalLeftMouseDown() }
+        ) { [weak self] event in
+            let point = MainActor.assumeIsolated { NotchClick.screenPoint(of: event) }
+            Task { @MainActor [weak self] in self?.handleLeftMouseDown(at: point) }
         }
 
         // Local: клики по окнам самого Stampo (панель, настройки, редактор) —
@@ -511,7 +517,8 @@ final class NotchHoverController: NSObject {
         localClickMonitor = NSEvent.addLocalMonitorForEvents(
             matching: .leftMouseDown
         ) { [weak self] event in
-            Task { @MainActor [weak self] in self?.handleGlobalLeftMouseDown() }
+            let point = MainActor.assumeIsolated { NotchClick.screenPoint(of: event) }
+            Task { @MainActor [weak self] in self?.handleLeftMouseDown(at: point) }
             return event
         }
 
@@ -535,48 +542,45 @@ final class NotchHoverController: NSObject {
         NotificationCenter.default.post(name: .notchClickStatusChanged, object: nil)
     }
 
-    private func handleGlobalLeftMouseDown() {
-        let mouse = NSEvent.mouseLocation
-        guard let screen = screenForPoint(mouse) else { return }
+    /// - Parameter point: where the click landed, in screen coordinates, taken
+    ///   from the event itself (`NotchClick.screenPoint(of:)`). Never read the
+    ///   pointer here: this runs after a hop, and the pointer may have moved.
+    private func handleLeftMouseDown(at point: NSPoint) {
+        guard let screen = screenForPoint(point) else { return }
 
         // На экранах без челки триггер — зона в центре меню-бара (см. triggerRect).
         // Раньше здесь стоял `guard screen.notchGapWidth > 0`, из-за чего на
         // безчелочных дисплеях не работали ни открытие кликом, ни авто-закрытие
-        // по клику снаружи. Теперь обе ветви ниже отрабатывают везде.
-        let trigger = triggerRect(on: screen)
-        guard !trigger.isNull else { return }
-
-        let inTrigger = trigger.contains(mouse)
-        let insidePanel = panel.isPointInsidePanel(mouse)
+        // по клику снаружи. Теперь обе ветви решения (`NotchClick.decide`)
+        // отрабатывают везде.
+        let action = NotchClick.decide(
+            at: point,
+            screen: NotchClick.ScreenSnapshot(
+                triggerRect: triggerRect(on: screen),
+                hasPhysicalNotch: screen.notchGapWidth > 0
+            ),
+            panel: NotchClick.PanelSnapshot(
+                isVisible: panel.isVisible,
+                needsSpaceRebind: panel.needsSpaceRebind,
+                suppressesAutoHide: panel.suppressesGlobalAutoHide,
+                drawnRect: panel.drawnContentRect
+            )
+        )
         DebugTrace.add(
-            "globalMouseDown " +
-            "inTrigger=\(inTrigger) insidePanel=\(insidePanel) " +
+            "globalMouseDown action=\(action) " +
             "panelVisible=\(panel.isVisible) needsRebind=\(panel.needsSpaceRebind) " +
             "suppress=\(panel.suppressesGlobalAutoHide) " +
-            "\(PanelTrace.mouseSummary(mouse))"
+            "\(PanelTrace.mouseSummary(point))"
         )
 
-        // После sleep/wake/Space-switch AppKit может считать панель isVisible==true,
-        // хотя на текущем рабочем столе пользователь её не видит. Проверяем флаг
-        // needsSpaceRebind, чтобы не уйти в ветку «закрыть невидимую панель».
-        if panel.isVisible && !panel.needsSpaceRebind {
-            if panel.suppressesGlobalAutoHide { return }
-            // «Клик по триггеру = закрыть» применим только к физической челке, где
-            // триггер — это мёртвая зона выреза без кнопок. На безчелочных экранах
-            // зона-триггер в меню-баре перекрывает кнопки панели (notch-стиль
-            // прижимает панель к меню-бару), поэтому закрытие — только по клику ВНЕ
-            // панели; иначе нажатие, например, кнопки трея просто прятало бы панель.
-            if screen.notchGapWidth > 0 && inTrigger {
-                panel.hideAnimated(reason: .notchClick)
-                return
-            }
-            if !insidePanel {
-                panel.hideAnimated(reason: .outsideClick)
-            }
-            return
-        }
-
-        if inTrigger {
+        switch action {
+        case .ignore:
+            break
+        case .hideOnNotchClick:
+            panel.hideAnimated(reason: .notchClick)
+        case .hideOnOutsideClick:
+            panel.hideAnimated(reason: .outsideClick)
+        case .show:
             panel.showAnimated(on: screen, forceRebind: panel.needsSpaceRebind)
         }
     }
@@ -598,7 +602,11 @@ final class NotchHoverController: NSObject {
     }
 
     private func screenForPoint(_ p: NSPoint) -> NSScreen? {
-        NSScreen.screens.first(where: { $0.frame.contains(p) }) ?? NSScreen.main
+        let screens = NSScreen.screens
+        if let i = NotchClick.screenIndex(containing: p, in: screens.map(\.frame)) {
+            return screens[i]
+        }
+        return NSScreen.main
     }
 
     /// Ширина зоны-триггера в центре меню-бара на экранах без физической челки.
