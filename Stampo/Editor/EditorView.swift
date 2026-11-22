@@ -141,7 +141,17 @@ struct EditorView: View {
         .frame(minWidth: arcFrame ? arcMinimumWidth : Self.minimumContentSize.width,
                minHeight: Self.minimumContentSize.height)
         .onChange(of: presentationInspectorPresented) { _, presented in
-            if !arcFrame { presentationInspectorChanged?(presented) }
+            if !arcFrame {
+                presentationInspectorChanged?(presented)
+            } else if presented {
+                // The Arc panel is a collapsible split item, so a drag on its
+                // edge can open it as well as the Decor buttons, and those two
+                // start the decoration themselves. Whichever way the panel
+                // opened, the page must be decorated by now, or it opens over
+                // a bare picture. A no-op when the decoration already exists,
+                // which is also what makes the buttons' own call harmless.
+                document.startDecorationIfNeeded()
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didChangeScreenNotification)) { notification in
             updateArcMinimumWidth(for: notification)
