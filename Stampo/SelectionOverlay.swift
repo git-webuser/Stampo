@@ -176,13 +176,9 @@ final class SelectionOverlay {
             // ended up.
             let origin = self.panel?.frame.origin ?? frame.origin
             let cgRect = viewRectToCGRect(nsRect, panelOrigin: origin, screen: screen)
-            self.dismiss()
-            self.onSelected?(cgRect)
+            self.finish(with: cgRect)
         }
-        view.onCancelled = { [weak self] in
-            self?.dismiss()
-            self?.onCancelled?()
-        }
+        view.onCancelled = { [weak self] in self?.cancel() }
         // Only wired when an owner asked for it, so a drag over the full-screen
         // overlay still always means "select".
         if onPan != nil {
@@ -233,9 +229,21 @@ final class SelectionOverlay {
         panel.contentView?.needsDisplay = true
     }
 
-    func cancel() {
+    /// A selection was completed: tears the overlay down, then tells the owner.
+    ///
+    /// The owner's callback is read *before* `dismiss()`, because `dismiss()`
+    /// lets go of every callback (see there) — reading it afterwards would
+    /// find nothing and the selection would vanish silently.
+    func finish(with cgRect: CGRect) {
+        let completion = onSelected
         dismiss()
-        onCancelled?()
+        completion?(cgRect)
+    }
+
+    func cancel() {
+        let cancellation = onCancelled
+        dismiss()
+        cancellation?()
     }
 
     func resetCursorState() {
@@ -258,6 +266,19 @@ final class SelectionOverlay {
     }
 
     private func dismiss() {
+        // The session is over, so the owner's callbacks go with it — before the
+        // `panel` guard, so an overlay that never armed lets go too. The
+        // editor's closures capture its view, and the view's `@State` holds
+        // this overlay: left in place they are a retain cycle that keeps a
+        // closed editor window's whole document alive. Every owner sets its
+        // callbacks again before each `start`; `finish(with:)` and `cancel()`
+        // read theirs before calling this.
+        onSelected = nil
+        onCancelled = nil
+        onScanModeChanged = nil
+        onMagnify = nil
+        onPan = nil
+
         guard panel != nil else { return }
 
         removeCursorMaintenance()
