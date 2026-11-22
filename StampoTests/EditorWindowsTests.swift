@@ -1104,6 +1104,68 @@ import Testing
         }
     }
 
+    // MARK: Decoration starts whenever the Arc panel opens
+
+    /// The Arc panel is a collapsible split item, so AppKit lets the divider's
+    /// drag reopen it, not only the Decor button. Whichever way it opens, the
+    /// document must be decorated by then — otherwise the panel sits open on a
+    /// bare picture (no margins, no default page colour) and the first edit
+    /// starts the decoration from a white page.
+    @Test func draggingTheCollapsedEdgeOpensAPanelOverADecoratedPage() async throws {
+        guard #available(macOS 26, *) else { return }
+        let restore = configureArc(true)
+        let (window, document) = try await hostArcEditor()
+        defer { closeHostedEditor(window); restore() }
+        let split = try #require(frameSplit(in: window))
+        try #require(split.panelItem.isCollapsed)
+        try #require(document.presentation == nil)
+
+        dragDivider(in: window, split: split, from: 0, to: 450)
+        await settle(window)
+
+        #expect(!split.panelItem.isCollapsed, "the drag from the collapsed edge must open the panel")
+        #expect(document.presentation != nil, "the panel opened over an undecorated page")
+        #expect(document.undoStack.count == 1, "starting the decoration is one undo step")
+    }
+
+    /// The button starts the decoration before the panel opens; the same start
+    /// is also made when the panel's state reaches SwiftUI. The second call
+    /// must find the decoration there and do nothing.
+    @Test func theDecorButtonStartsTheDecorationOnceAndReopeningChangesNothing() async throws {
+        guard #available(macOS 26, *) else { return }
+        let restore = configureArc(true)
+        let (window, document) = try await hostArcEditor()
+        defer { closeHostedEditor(window); restore() }
+        let split = try #require(frameSplit(in: window))
+        try #require(document.presentation == nil)
+
+        try pressDecor(in: window)
+        await settle(window)
+        #expect(!split.panelItem.isCollapsed)
+        let decorated = try #require(document.presentation)
+        #expect(document.undoStack.count == 1, "the button and the open panel started it twice")
+
+        // Closed and opened again by the button, then by the drag: the page,
+        // the margins and the history stay exactly as they were.
+        try pressDecor(in: window)
+        await settle(window)
+        try #require(split.panelItem.isCollapsed)
+        try pressDecor(in: window)
+        await settle(window)
+        try #require(!split.panelItem.isCollapsed)
+        #expect(document.presentation == decorated)
+        #expect(document.undoStack.count == 1)
+
+        try pressDecor(in: window)
+        await settle(window)
+        try #require(split.panelItem.isCollapsed)
+        dragDivider(in: window, split: split, from: 0, to: 450)
+        await settle(window)
+        #expect(!split.panelItem.isCollapsed)
+        #expect(document.presentation == decorated)
+        #expect(document.undoStack.count == 1)
+    }
+
     /// The window's width floor on its own display: 1140, or the visible width
     /// where the screen is narrower — a CI runner's is 1024. The product's rule,
     /// asked of the window's screen, not a number that holds only on a big one.
@@ -1243,6 +1305,66 @@ import Testing
             eventNumber: 1, clickCount: 1, pressure: 0))
         window.postEvent(up, atStart: false)
         window.sendEvent(down)
+    }
+
+    /// The real editor in an Arc window around a document the test holds on
+    /// to, so what the window does to the document can be read back.
+    private func hostArcEditor() async throws -> (NSWindow, EditorDocument) {
+        let document = EditorDocument(baseImage: TestImages.make(width: 1600, height: 800),
+                                      sourceURL: URL(fileURLWithPath: "/tmp/editor-arc-decoration-start.png"))
+        weak var editorWindow: NSWindow?
+        let context = EditorWindowContext(isKeyWindow: { editorWindow?.isKeyWindow == true },
+                                          overlayParent: { editorWindow })
+        let hosting = NSHostingController(rootView: EditorView(
+            document: document, windowContext: context, arcFrame: true,
+            arcMinimumWidth: 1140).managedLocale())
+        hosting.sceneBridgingOptions = [.toolbars]
+        let window = NSWindow(contentViewController: hosting)
+        editorWindow = window
+        window.isReleasedWhenClosed = false
+        window.styleMask = [.titled, .closable, .resizable]
+        window.toolbarStyle = .unified
+        window.titleVisibility = .hidden
+        window.contentMinSize = NSSize(width: 1140, height: 360)
+        window.setContentSize(NSSize(width: 1300, height: 720))
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        await settle(window)
+        return (window, document)
+    }
+
+    private func closeHostedEditor(_ window: NSWindow) {
+        window.orderOut(nil)
+        window.contentViewController = nil
+        window.close()
+    }
+
+    /// A real press, drag and release on the split view's divider, through the
+    /// window's own event path. The release and the drags are queued first:
+    /// the split view tracks the drag inside `mouseDown`, which returns only
+    /// once it has read the release.
+    private func dragDivider(in window: NSWindow, split: FrameSplitController,
+                             from startX: CGFloat, to endX: CGFloat) {
+        let splitView = split.splitView
+        let y = splitView.bounds.midY
+        func windowPoint(_ x: CGFloat) -> NSPoint {
+            splitView.convert(NSPoint(x: x, y: y), to: nil)
+        }
+        func event(_ type: NSEvent.EventType, _ x: CGFloat, number: Int) -> NSEvent {
+            NSEvent.mouseEvent(
+                with: type, location: windowPoint(x), modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber, context: nil,
+                eventNumber: number, clickCount: 1,
+                pressure: type == .leftMouseUp ? 0 : 1)!
+        }
+        let steps = 12
+        for step in 1...steps {
+            let x = startX + (endX - startX) * CGFloat(step) / CGFloat(steps)
+            window.postEvent(event(.leftMouseDragged, x, number: step), atStart: false)
+        }
+        window.postEvent(event(.leftMouseUp, endX, number: steps + 1), atStart: false)
+        window.sendEvent(event(.leftMouseDown, startX, number: 0))
     }
 
     private func imageRect(in split: FrameSplitController, window: NSWindow) throws -> NSRect {

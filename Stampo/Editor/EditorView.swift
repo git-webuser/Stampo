@@ -141,7 +141,17 @@ struct EditorView: View {
         .frame(minWidth: arcFrame ? arcMinimumWidth : Self.minimumContentSize.width,
                minHeight: Self.minimumContentSize.height)
         .onChange(of: presentationInspectorPresented) { _, presented in
-            if !arcFrame { presentationInspectorChanged?(presented) }
+            if !arcFrame {
+                presentationInspectorChanged?(presented)
+            } else if presented {
+                // The Arc panel is a collapsible split item, so a drag on its
+                // edge can open it as well as the Decor buttons, and those two
+                // start the decoration themselves. Whichever way the panel
+                // opened, the page must be decorated by now, or it opens over
+                // a bare picture. A no-op when the decoration already exists,
+                // which is also what makes the buttons' own call harmless.
+                document.startDecorationIfNeeded()
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didChangeScreenNotification)) { notification in
             updateArcMinimumWidth(for: notification)
@@ -154,7 +164,10 @@ struct EditorView: View {
               let visibleWidth = visibleScreenWidth(window) else { return }
         // SwiftUI's width floor and AppKit's minimum must change together;
         // keeping either at 1140 prevents a narrower display from containing
-        // the editor. Panel visibility does not participate in this policy.
+        // the editor. The floor does not follow the panel, but the panel does
+        // change what fits: an open panel needs 320 + 8 + 787 = 1115 pt, so on
+        // a display narrower than that it does not fit and the card runs past
+        // the window's right edge (by 91 pt at 1024). Known limitation.
         let minimumWidth = ArcFrameLayout.minimumContentWidth(visibleScreenWidth: visibleWidth)
         arcMinimumWidth = minimumWidth
         window.contentMinSize = NSSize(width: minimumWidth, height: Self.minimumContentSize.height)
