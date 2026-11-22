@@ -511,7 +511,11 @@ private struct TranslateLanguageMenuButton: View {
                 onSelect: onSelect,
                 onAddLanguage: onAddLanguage,
                 onOpen:  { isMenuOpen = true  },
-                onClose: { isMenuOpen = false }
+                onClose: { isMenuOpen = false },
+                afterClose: { inside in
+                    isPressed = false
+                    isHovered = inside
+                }
             )
         }
         .fixedSize()
@@ -519,7 +523,7 @@ private struct TranslateLanguageMenuButton: View {
         .animation(.spring(response: 0.18, dampingFraction: 0.7), value: isPressed)
         .contentShape(Rectangle())
         .clipped()
-        .onHover { isHovered = $0 }
+        .panelHover($isHovered)
         .simultaneousGesture(
             DragGesture(minimumDistance: 0)
                 .onChanged { _ in isPressed = true  }
@@ -577,6 +581,8 @@ private struct PopUpLanguageButtonWrapper: NSViewRepresentable {
     let onAddLanguage: () -> Void
     var onOpen:  () -> Void
     var onClose: () -> Void
+    /// See `PopUpMoreButtonWrapper.afterClose`.
+    var afterClose: (_ pointerIsInside: Bool) -> Void = { _ in }
     @Environment(\.locale) private var locale
 
     func makeNSView(context: Context) -> NSPopUpButton {
@@ -681,6 +687,12 @@ private struct PopUpLanguageButtonWrapper: NSViewRepresentable {
                     guard let self, self.isTrackingMenu else { return }
                     self.isTrackingMenu = false
                     self.parent.onClose()
+                    // Not in this call: the hover modifier answers the same
+                    // notification, and the pointer's position is the last word.
+                    Task { @MainActor [weak self] in
+                        guard let self else { return }
+                        self.parent.afterClose(self.button?.isUnderPointer ?? false)
+                    }
                 }
             })
         }

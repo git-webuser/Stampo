@@ -482,7 +482,7 @@ struct PanelMoreMenuButton: View {
         .frame(width: metrics.cellWidth, height: metrics.iconSize)
         .contentShape(Rectangle())
         .clipped()
-        .onHover { isHovered = $0 }
+        .panelHover($isHovered)
         .simultaneousGesture(
             DragGesture(minimumDistance: 0)
                 .onChanged { _ in isPressed = true  }
@@ -518,7 +518,106 @@ struct PanelButtonStyle: ButtonStyle {
         configuration.label
             .scaleEffect(configuration.isPressed ? 0.88 : 1.0)
             .animation(.spring(response: 0.18, dampingFraction: 0.7), value: configuration.isPressed)
-            .onHover { isHovered = $0 }
+            .panelHover($isHovered, pressed: configuration.isPressed)
             .onChange(of: configuration.isPressed) { _, v in isPressed = v }
+    }
+}
+
+// MARK: - panelHover
+
+/// What a panel button believes about the pointer, and what it shows.
+///
+/// SwiftUI reports the pointer entering and leaving a button, and the reports
+/// go missing around a click. The move that led to the click is not heard until
+/// the pointer moves again, and while a menu tracks nothing is heard at all:
+/// the exit from the button just left, and the enter on the one clicked, both
+/// arrive after the menu has closed (measured: 7–26 ms after). A button that
+/// trusts every report to arrive stays lit beside an open menu.
+///
+/// So the button keeps what SwiftUI last said (`pointerIsOver`) apart from what
+/// it shows (`isLit`). `pointerIsOver` is only ever changed by what SwiftUI
+/// says, or by the pointer being known to be elsewhere. It is not replaced with
+/// a guess in the other direction: a button that believes the pointer is
+/// outside gets no exit and cannot be unlit, and a button that believes the
+/// pointer is inside gets no enter and cannot be lit. Throwing the belief away
+/// when a menu opened left a button unlit under a pointer that had come back
+/// onto it (6 of 25 menus).
+nonisolated struct PanelHoverState: Equatable {
+    private(set) var pointerIsOver = false
+    private(set) var menuIsTracking = false
+
+    var isLit: Bool { pointerIsOver && !menuIsTracking }
+
+    /// SwiftUI's own report.
+    mutating func pointer(isOver: Bool) { pointerIsOver = isOver }
+
+    /// Nothing is lit while a menu is open: the pointer is on the menu, and
+    /// whatever SwiftUI believed about the buttons is not to be trusted until
+    /// it has caught up. The belief itself is kept for when the menu closes.
+    mutating func menuBeganTracking() { menuIsTracking = true }
+    mutating func menuEndedTracking() { menuIsTracking = false }
+
+    /// A press is on one button, so the pointer is not over any other. The
+    /// exit from the one it left may not have come yet (measured: "…" stayed lit
+    /// 0.7–1.7 s after a click on the archive button). When it does come it
+    /// finds nothing left to turn off.
+    mutating func anotherButtonWasPressed() { pointerIsOver = false }
+}
+
+extension View {
+    /// Hover for a panel button, in place of a bare `.onHover`.
+    ///
+    /// - Parameters:
+    ///   - isHovered: the button's own flag, which this keeps equal to
+    ///     `PanelHoverState.isLit`.
+    ///   - pressed: pass the button's pressed state if its press is an ordinary
+    ///     click. A press then clears the others' belief. A button that opens a
+    ///     menu leaves it out: the menu hides every button while it is open, and
+    ///     a pointer that comes back onto one during it is still over it.
+    ///
+    /// The button that opened a menu is told where the pointer is once the menu
+    /// has closed by its own `afterClose`: its enter may be one of the reports
+    /// that went missing.
+    func panelHover(_ isHovered: Binding<Bool>, pressed: Bool = false) -> some View {
+        modifier(PanelHover(isHovered: isHovered, pressed: pressed))
+    }
+}
+
+private extension Notification.Name {
+    /// Posted by a panel button when it is pressed; its `object` is that
+    /// button's identity.
+    static let panelButtonPressed = Notification.Name("StampoPanelButtonPressed")
+}
+
+private struct PanelHover: ViewModifier {
+    @Binding var isHovered: Bool
+    let pressed: Bool
+
+    @State private var state = PanelHoverState()
+    @State private var identity = UUID()
+
+    func body(content: Content) -> some View {
+        let center = NotificationCenter.default
+        content
+            .onHover { inside in apply { $0.pointer(isOver: inside) } }
+            .onReceive(center.publisher(for: NSMenu.didBeginTrackingNotification)) { _ in
+                apply { $0.menuBeganTracking() }
+            }
+            .onReceive(center.publisher(for: NSMenu.didEndTrackingNotification)) { _ in
+                apply { $0.menuEndedTracking() }
+            }
+            .onChange(of: pressed) { _, isPressed in
+                guard isPressed else { return }
+                center.post(name: .panelButtonPressed, object: identity)
+            }
+            .onReceive(center.publisher(for: .panelButtonPressed)) { note in
+                guard (note.object as? UUID) != identity else { return }
+                apply { $0.anotherButtonWasPressed() }
+            }
+    }
+
+    private func apply(_ change: (inout PanelHoverState) -> Void) {
+        change(&state)
+        isHovered = state.isLit
     }
 }

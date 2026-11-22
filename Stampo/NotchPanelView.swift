@@ -813,7 +813,8 @@ private struct PanelModeMenuButton: View {
         .clipped()
         // Leaving re-arms the highlight: the release applies to the interaction
         // that just ended, not to the cell forever.
-        .onHover { isHovered = $0; if !$0 { highlightSuppressed = false } }
+        .panelHover($isHovered)
+        .onHover { if !$0 { highlightSuppressed = false } }
         .simultaneousGesture(
             DragGesture(minimumDistance: 0)
                 .onChanged { _ in isPressed = true  }
@@ -917,7 +918,8 @@ private struct PanelTimerMenuButton: View {
         .clipped()
         // Leaving re-arms the highlight: the release applies to the interaction
         // that just ended, not to the cell forever.
-        .onHover { isHovered = $0; if !$0 { highlightSuppressed = false } }
+        .panelHover($isHovered)
+        .onHover { if !$0 { highlightSuppressed = false } }
         .simultaneousGesture(
             DragGesture(minimumDistance: 0)
                 .onChanged { _ in isPressed = true  }
