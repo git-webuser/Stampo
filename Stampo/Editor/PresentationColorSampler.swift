@@ -28,10 +28,19 @@ enum PresentationColorSampler {
         }
     }
 
-    private static func averageColor(in pixels: UnsafeRawBufferPointer,
-                                     bytesPerRow: Int,
-                                     xRange: Range<Int>,
-                                     yRange: Range<Int>) -> Presentation.Color? {
+    /// Average of a block of premultiplied RGBA8 pixels (internal for tests).
+    static func averageColor(in pixels: UnsafeRawBufferPointer,
+                             bytesPerRow: Int,
+                             xRange: Range<Int>,
+                             yRange: Range<Int>) -> Presentation.Color? {
+        // Premultiplied channels and alpha are summed separately and divided
+        // once at the end: Σ(colour × alpha) / Σ alpha is the average of the
+        // *colours*, each weighted by how much of it there is. A transparent
+        // pixel weighs nothing, and a faint shadow pixel weighs its alpha.
+        // Dividing by the number of pixels instead — or un-premultiplying each
+        // pixel first — turns the see-through margin of a window screenshot
+        // into black, and the page's default colour came out darker than the
+        // window it was taken from.
         var red: CGFloat = 0
         var green: CGFloat = 0
         var blue: CGFloat = 0
@@ -42,21 +51,20 @@ enum PresentationColorSampler {
                 // The thumbnail is sRGB RGBA. Read its bytes directly: colorAt
                 // labels these numbers Generic RGB and shifts them on conversion.
                 let offset = y * bytesPerRow + x * 4
-                let a = CGFloat(pixels[offset + 3])
-                if a > 0 {
-                    red += CGFloat(pixels[offset]) / a
-                    green += CGFloat(pixels[offset + 1]) / a
-                    blue += CGFloat(pixels[offset + 2]) / a
-                }
-                alpha += a / 255
+                red += CGFloat(pixels[offset])
+                green += CGFloat(pixels[offset + 1])
+                blue += CGFloat(pixels[offset + 2])
+                alpha += CGFloat(pixels[offset + 3])
                 count += 1
             }
         }
         guard count > 0 else { return nil }
-        return Presentation.Color(red: red / count,
-                                 green: green / count,
-                                 blue: blue / count,
-                                 alpha: alpha / count)
+        // Nothing visible in the block: there is no colour to report.
+        guard alpha > 0 else { return Presentation.Color(red: 0, green: 0, blue: 0, alpha: 0) }
+        return Presentation.Color(red: min(1, red / alpha),
+                                 green: min(1, green / alpha),
+                                 blue: min(1, blue / alpha),
+                                 alpha: alpha / (255 * count))
     }
 
     private static func downsample(_ image: CGImage,
