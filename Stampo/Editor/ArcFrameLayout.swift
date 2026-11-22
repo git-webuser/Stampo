@@ -31,7 +31,11 @@ struct ArcFrameLayout {
     }
 
     /// A screen narrower than the normal floor must still be able to contain
-    /// the editor. Opening or closing the panel does not change this minimum.
+    /// the editor. This is the window's minimum with the panel *closed*; it
+    /// does not follow the panel. An open panel adds its 320 and the 8 pt gap
+    /// to the card's own 787 (1115 pt in all), so on a screen narrower than
+    /// that the open panel does not fit — the card runs past the window's
+    /// right edge by the difference. Known limitation, not handled here.
     static func minimumContentWidth(visibleScreenWidth: CGFloat) -> CGFloat {
         min(minimumWidth, visibleScreenWidth)
     }
