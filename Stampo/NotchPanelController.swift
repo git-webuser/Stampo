@@ -654,9 +654,9 @@ private struct NotchPanelRootView: View {
                      * (rootState.route == .translate ? 0.0 : 1.0))
             .animation(.easeOut(duration: PanelTiming.crossfade), value: rootState.countdownVisible)
             .animation(.easeOut(duration: PanelTiming.crossfade), value: rootState.waitingStripVisible)
-            .allowsHitTesting(p < 0.5 && rootState.countdownVisible < 0.5
-                              && !rootState.waitingStripVisible
-                              && rootState.route != .translate)
+            .panelHitTesting(p < 0.5 && rootState.countdownVisible < 0.5
+                             && !rootState.waitingStripVisible
+                             && rootState.route != .translate)
 
             // Countdown — crossfades over Main without resizing the panel
             CountdownView(
@@ -669,7 +669,7 @@ private struct NotchPanelRootView: View {
             )
             .opacity(rootState.countdownVisible)
             .animation(.easeOut(duration: PanelTiming.crossfade), value: rootState.countdownVisible)
-            .allowsHitTesting(rootState.countdownVisible >= 0.5)
+            .panelHitTesting(rootState.countdownVisible >= 0.5)
             .frame(height: m.panelHeight)
 
             // The wait — same crossfade, same strip, no morph.
@@ -706,7 +706,7 @@ private struct NotchPanelRootView: View {
             )
             .opacity(rootState.routeContentVisible)
             .opacity(rootState.route == .archive ? p : 0)
-            .allowsHitTesting(rootState.route == .archive && p >= 0.5)
+            .panelHitTesting(rootState.route == .archive && p >= 0.5)
             // Reveal the archive content in step with the growing panel: clip it to
             // the current panel height so the lower rows don't show before the
             // background has expanded to cover them. revealH is a hair shorter
@@ -734,7 +734,7 @@ private struct NotchPanelRootView: View {
             // for the whole morph and dissolves in once the shape has arrived
             // — `routeContentVisible` is driven by the transition, both ways.
             .opacity(rootState.route == .translate ? rootState.routeContentVisible : 0)
-            .allowsHitTesting(rootState.route == .translate && p >= 0.5)
+            .panelHitTesting(rootState.route == .translate && p >= 0.5)
             .mask(
                 Color.black
                     .frame(height: revealH)
@@ -753,7 +753,7 @@ private struct NotchPanelRootView: View {
             }
         }
         .frame(height: windowH, alignment: .top)
-        .allowsHitTesting(interaction.isEnabled)
+        .panelHitTesting(interaction.isEnabled)
         // The pointer being parked on the panel is what makes claiming Tab
         // acceptable — the same rule Space is held under, and for the same
         // reason. A registered hotkey takes the key from every app on the
@@ -2292,6 +2292,11 @@ final class NotchPanelController: NSObject {
         // The view hears the pointer leave only while the window takes it; this
         // is where it is known that it has left the drawing.
         if rootState.pointerOnDrawnPanel != onContent { rootState.pointerOnDrawnPanel = onContent }
+        // The buttons are lit by this position, not by what SwiftUI heard of
+        // the pointer (see `PanelPointerHub`). A cell dragged out of the
+        // archive lights nothing it passes over, held button or not.
+        PanelPointerHub.shared.pointerMoved(to: NSEvent.mouseLocation,
+                                            buttonsDown: buttonsDown || archiveDragInFlight)
     }
 
     /// One of the archive's cells is being dragged out.
@@ -2365,6 +2370,7 @@ final class NotchPanelController: NSObject {
         archiveDragTimer = nil
         panel?.ignoresMouseEvents = false
         rootState.pointerOnDrawnPanel = false
+        PanelPointerHub.shared.pointerGone()
     }
 
     // MARK: - Panel lifecycle

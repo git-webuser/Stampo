@@ -147,7 +147,7 @@ struct NotchPanelView: View {
             }
         }
         .frame(height: metrics.panelHeight)
-        .allowsHitTesting(interaction.isEnabled)
+        .panelHitTesting(interaction.isEnabled)
         .animation(nil, value: interaction.isEnabled)
         .onChange(of: model.delay) { _, newDelay in stageDelayChange(to: newDelay) }
         .onChange(of: model.mode)  { _, newMode in
@@ -1041,7 +1041,7 @@ struct CountdownView: View {
             }
         }
         .frame(height: metrics.panelHeight)
-        .allowsHitTesting(interaction.isEnabled)
+        .panelHitTesting(interaction.isEnabled)
         .animation(nil, value: interaction.isEnabled)
     }
 
