@@ -2568,7 +2568,7 @@ private struct CollapseButton: View {
         }
         .frame(width: height, height: height)
         .contentShape(Rectangle())
-        .onHover { isHovered = $0 }
+        .panelHover($isHovered)
         .onTapGesture { onCollapse() }
         .animation(.spring(response: 0.2, dampingFraction: 0.8), value: isHovered)
         .help("Collapse")
@@ -2604,7 +2604,11 @@ struct ArchiveSelectionCountButton: View {
                 accessibilityValue: count > 0 ? NotchMetrics.countLabel(for: count) : nil,
                 accessibilityID: "stampo.archive.selection",
                 onOpen:  { isMenuOpen = true  },
-                onClose: { isMenuOpen = false }
+                onClose: { isMenuOpen = false },
+                afterClose: { inside in
+                    isPressed = false
+                    isHovered = inside
+                }
             )
             .frame(width: metrics.cellWidth, height: metrics.iconSize)
 
@@ -2627,7 +2631,7 @@ struct ArchiveSelectionCountButton: View {
         }
         .frame(width: metrics.cellWidth, height: metrics.iconSize)
         .contentShape(Rectangle())
-        .onHover { isHovered = $0 }
+        .panelHover($isHovered)
         .simultaneousGesture(
             DragGesture(minimumDistance: 0)
                 .onChanged { _ in isPressed = true  }
@@ -2685,10 +2689,13 @@ private struct PopUpSchemeButtonWrapper: NSViewRepresentable {
     @Binding var selection: ColorSchemeType
     var onOpen:  () -> Void
     var onClose: () -> Void
+    /// See `PopUpMoreButtonWrapper.afterClose`.
+    var afterClose: (_ pointerIsInside: Bool) -> Void = { _ in }
     @Environment(\.locale) private var locale
 
     func makeNSView(context: Context) -> NSPopUpButton {
         let button = PanelPopUpButton()
+        context.coordinator.button = button
         button.setAccessibilityIdentifier("stampo.archive.colorFormat")
         button.isBordered       = false
         button.isTransparent    = true
@@ -2741,6 +2748,7 @@ private struct PopUpSchemeButtonWrapper: NSViewRepresentable {
 
     final class Coordinator: NSObject {
         var parent: PopUpSchemeButtonWrapper
+        weak var button: NSPopUpButton?
 
         init(_ parent: PopUpSchemeButtonWrapper) { self.parent = parent }
 
@@ -2759,7 +2767,10 @@ private struct PopUpSchemeButtonWrapper: NSViewRepresentable {
         }
 
         @objc func menuDidClose(_ notification: Notification) {
-            DispatchQueue.main.async { self.parent.onClose() }
+            DispatchQueue.main.async {
+                self.parent.onClose()
+                self.parent.afterClose(self.button?.isUnderPointer ?? false)
+            }
         }
     }
 }
@@ -2793,7 +2804,11 @@ private struct ArchiveSchemeMenuButton: View {
             PopUpSchemeButtonWrapper(
                 selection: $scheme,
                 onOpen:  { isMenuOpen = true  },
-                onClose: { isMenuOpen = false }
+                onClose: { isMenuOpen = false },
+                afterClose: { inside in
+                    isPressed = false
+                    isHovered = inside
+                }
             )
         }
         .fixedSize()
@@ -2801,7 +2816,7 @@ private struct ArchiveSchemeMenuButton: View {
         .animation(.spring(response: 0.18, dampingFraction: 0.7), value: isPressed)
         .contentShape(Rectangle())
         .clipped()
-        .onHover { isHovered = $0 }
+        .panelHover($isHovered)
         .simultaneousGesture(
             DragGesture(minimumDistance: 0)
                 .onChanged { _ in isPressed = true  }
