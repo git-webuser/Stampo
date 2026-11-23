@@ -25,6 +25,13 @@ nonisolated enum ScrollDirectionHint {
         chosenByUser ? setting : shown(possible: possible, setting: setting)
     }
 
+    /// The direction ⇥ turns to: the other one than the arrow on the hint. The hint can show a direction other than
+    /// the setting (a vertical-only area shows ↓ whatever the setting is), so counting from the setting could leave
+    /// the same arrow after the first ⇥.
+    static func turned(chosenByUser: Bool, possible: Set<ScrollAxis>?, setting: ScrollDirection) -> ScrollDirection {
+        displayed(chosenByUser: chosenByUser, possible: possible, setting: setting).other
+    }
+
     /// Browser AX trees can be partial and report a bar for content that cannot
     /// move that way. The setting is a better hint until the capture probes it.
     static func usesAccessibility(bundleIdentifier: String?) -> Bool {

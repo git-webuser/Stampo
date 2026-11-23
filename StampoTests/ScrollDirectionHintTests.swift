@@ -68,6 +68,30 @@ import Testing
         }
     }
 
+    /// ⇥ must change the arrow the user sees. The hint can show a direction other than the setting (a vertical-only
+    /// area shows ↓ whatever the setting is), so the turn starts from the arrow shown, not from the setting.
+    @Test(arguments: [ScrollDirection.down, .right])
+    func theFirstTurnChangesTheArrowThatIsShown(setting: ScrollDirection) {
+        let possibilities: [Set<ScrollAxis>?] = [[.vertical], [.horizontal], [.vertical, .horizontal], [], nil]
+        for possible in possibilities {
+            let shownBefore = ScrollDirectionHint.displayed(chosenByUser: false, possible: possible, setting: setting)
+            let turned = ScrollDirectionHint.turned(chosenByUser: false, possible: possible, setting: setting)
+            // The turn is stored as the setting and marked as chosen: that is what the hint shows next.
+            let shownAfter = ScrollDirectionHint.displayed(chosenByUser: true, possible: possible, setting: turned)
+            #expect(shownAfter == shownBefore.other, "possible \(String(describing: possible)), setting \(setting)")
+        }
+    }
+
+    /// After the user's own choice the arrow shown is the setting itself: ⇥ goes to the other one.
+    @Test(arguments: [ScrollDirection.down, .right])
+    func everyLaterTurnGoesToTheOtherDirection(setting: ScrollDirection) {
+        let possibilities: [Set<ScrollAxis>?] = [[.vertical], [.horizontal], [.vertical, .horizontal], [], nil]
+        for possible in possibilities {
+            #expect(ScrollDirectionHint.turned(chosenByUser: true, possible: possible, setting: setting)
+                    == setting.other)
+        }
+    }
+
     @Test func browsersUseTheSettingAndOtherApplicationsUseAccessibility() {
         for bundle in ScrollWebPage.browserBundles {
             #expect(!ScrollDirectionHint.usesAccessibility(bundleIdentifier: bundle))
