@@ -1162,6 +1162,10 @@ final class ScrollingCaptureSession {
             let change = meanDifference(try cropped(lastLook, to: first.viewport), try cropped(before, to: first.viewport))
             lastLook = before
             let goesOn = ScrollProbeRetry.keepsTrying(changeSinceLastLook: change)
+            // The look above waits for the page to settle (up to ~2 s), and the checks after it cover only the
+            // window and focus: another window may have stopped over the point since the backward wheel.
+            diagnosticStage = .validateTarget
+            try validateCurrentScrollTarget(at: point, axis: first.axis)
             diagnosticStage = .probeMotion
             try sendWheel(axis: first.axis, lines: first.lines, at: point)
             let after = try await ScrollCaptureCancellationBoundary.awaitActive {
