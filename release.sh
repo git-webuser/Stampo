@@ -180,9 +180,10 @@ NOTES="## Stampo $VERSION
 > Right-click → Open does not help here: macOS 15 removed that shortcut, and
 > Stampo requires macOS 15.7 or later.
 >
-> If you are at home in a terminal, Homebrew skips the block outright:
-> \`brew tap git-webuser/stampo https://github.com/git-webuser/Stampo\` and
-> \`brew install --cask --no-quarantine stampo\`.
+> If you are at home in a terminal, install with Homebrew
+> (\`brew tap git-webuser/stampo https://github.com/git-webuser/Stampo\` and
+> \`brew install --cask stampo\`), then clear the block with
+> \`xattr -dr com.apple.quarantine /Applications/Stampo.app\`.
 
 > ⚠️ Этот билд не нотаризован, поэтому macOS заблокирует первый запуск.
 >
@@ -194,9 +195,10 @@ NOTES="## Stampo $VERSION
 > Правый клик → «Открыть» здесь не поможет: в macOS 15 Apple убрала этот обход,
 > а Stampo требует macOS 15.7 и новее.
 >
-> Если привычен терминал, установка через Homebrew обходит блокировку сразу:
-> \`brew tap git-webuser/stampo https://github.com/git-webuser/Stampo\` и
-> \`brew install --cask --no-quarantine stampo\`.
+> Если привычен терминал, поставьте через Homebrew
+> (\`brew tap git-webuser/stampo https://github.com/git-webuser/Stampo\` и
+> \`brew install --cask stampo\`), затем снимите блокировку командой
+> \`xattr -dr com.apple.quarantine /Applications/Stampo.app\`.
 
 $CHANGES
 
