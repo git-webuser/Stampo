@@ -156,7 +156,8 @@ final class WindowPickerOverlay {
 
     private func turnDirection(view: WindowPickerView?) {
         guard let current = scrollDirection else { return }
-        let next = current.other
+        let next = ScrollDirectionHint.turned(chosenByUser: directionChosenByUser, possible: possibleAxes,
+                                              setting: current)
         directionChosenByUser = true
         scrollDirection = next
         // The same setting the panel reads: one answer to "which way?".
