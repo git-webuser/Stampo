@@ -70,6 +70,15 @@ nonisolated enum ScrollResume {
         ledger.mayHaveMovedPage || stepWasInFlight
     }
 
+    /// What a pause makes of "a step is in flight". A push that changed the frame and waits for its check is
+    /// not laid: the pause keeps the frame before it, but the page has gone on by the push since then, with no
+    /// step in flight at that moment (the check is the next step, and the loop was waiting for the pointer).
+    /// Without this the capture would not look for its place and would compare the next frame with the one
+    /// before the push.
+    static func stepInFlightAfterPause(stepInFlight: Bool, pushCheckPending: Bool) -> Bool {
+        stepInFlight || pushCheckPending
+    }
+
     /// The next move, from what the frames say and what the user did. The
     /// user's scrolls are undone once, and only if the frames could not say.
     /// With the user having done nothing and the frames still saying nothing,

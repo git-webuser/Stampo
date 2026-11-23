@@ -390,7 +390,11 @@ final class ScrollingCaptureSession {
         pushMode = .none
         pushAfterReliableSteps = 0
         // A push waiting to be checked is not laid: the frame kept is the one
-        // before it, and the pause finds the place from there.
+        // before it, and the pause finds the place from there. The page is past
+        // that frame by the push, so the place has to be looked for even though
+        // no wheel event is in flight now (`ScrollResume.stepInFlightAfterPause`).
+        stepInFlight = ScrollResume.stepInFlightAfterPause(stepInFlight: stepInFlight,
+                                                           pushCheckPending: pushCheck != nil)
         if let check = pushCheck {
             previous = check.before
             pushCheck = nil
