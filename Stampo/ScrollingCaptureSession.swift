@@ -2539,9 +2539,17 @@ final class ScrollingCaptureSession {
     }
 
     private func pixelRect(of viewport: ScrollViewport) -> CGRect {
+        Self.pixelRect(of: viewport, scale: scale)
+    }
+
+    /// The viewport's region of a whole-window frame, in whole pixels: the start rounded down, the length to the
+    /// nearest. A fractional edge (Accessibility says x = 10.5 pt, on a 1× screen) would be widened by
+    /// `CaptureFrame.cropped` (floor of the start, ceil of the end), and again by every viewport derived from the
+    /// probe, which keeps the fraction: no two frames would have the same size, and no step would match.
+    static func pixelRect(of viewport: ScrollViewport, scale: CGFloat) -> CGRect {
         let points = viewport.cropRectInWindowPoints
-        return CGRect(x: points.minX * scale, y: points.minY * scale,
-                      width: points.width * scale, height: points.height * scale)
+        return CGRect(x: (points.minX * scale).rounded(.down), y: (points.minY * scale).rounded(.down),
+                      width: (points.width * scale).rounded(), height: (points.height * scale).rounded())
     }
 
     /// The viewport for one direction. The scrollbar to leave out is the one
