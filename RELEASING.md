@@ -166,7 +166,7 @@ Users install with:
 
 ```bash
 brew tap git-webuser/stampo https://github.com/git-webuser/Stampo
-brew install --cask --no-quarantine stampo
+brew install --cask stampo
 ```
 
 ---

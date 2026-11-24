@@ -34,8 +34,12 @@ macOS 15.7 or later.
 
 ```bash
 brew tap git-webuser/stampo https://github.com/git-webuser/Stampo
-brew install --cask --no-quarantine stampo
+brew install --cask stampo
 ```
+
+macOS blocks the first launch because the app isn't notarized yet: open
+**System Settings → Privacy & Security**, click **Open Anyway** and confirm.
+Or run `xattr -dr com.apple.quarantine /Applications/Stampo.app` in Terminal.
 
 <details>
 <summary>Or download the DMG</summary>

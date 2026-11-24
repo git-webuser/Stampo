@@ -221,12 +221,12 @@
         <article class="card">
           <span class="tag"><span lang="en">Easiest</span><span lang="ru">Проще всего</span></span>
           <h3>Homebrew</h3>
-          <p lang="en">Run these two commands to install Stampo. The <code>--no-quarantine</code> flag skips the Gatekeeper warning on first launch.</p>
-          <p lang="ru">Установи Stampo двумя командами. Флаг <code>--no-quarantine</code> убирает предупреждение Gatekeeper при первом запуске.</p>
+          <p lang="en">Run these two commands to install Stampo. macOS blocks the first launch because the app is not notarized yet: open <b>System Settings → Privacy &amp; Security</b> and click <b>Open Anyway</b>.</p>
+          <p lang="ru">Установи Stampo двумя командами. macOS заблокирует первый запуск, потому что приложение пока не нотаризовано: открой <b>Системные настройки → Конфиденциальность и безопасность</b> и нажми <b>«Всё равно открыть»</b>.</p>
           <div class="code">
-            <pre><code><span class="cmd">brew tap git-webuser/stampo https://github.com/git-webuser/Stampo</span><span class="cmd">brew install --cask --no-quarantine stampo</span></code></pre>
+            <pre><code><span class="cmd">brew tap git-webuser/stampo https://github.com/git-webuser/Stampo</span><span class="cmd">brew install --cask stampo</span></code></pre>
             <button class="copy" type="button" hidden data-copy="brew tap git-webuser/stampo https://github.com/git-webuser/Stampo
-brew install --cask --no-quarantine stampo">
+brew install --cask stampo">
               <span lang="en">Copy</span><span lang="ru">Копировать</span>
             </button>
           </div>
@@ -239,12 +239,12 @@ brew install --cask --no-quarantine stampo">
         <h3><span lang="en">Or download the DMG</span><span lang="ru">Или скачай DMG</span></h3>
         <ol class="steps" lang="en">
           <li>Download <code>Stampo-@VERSION@.dmg</code> from <a href="https://github.com/git-webuser/Stampo/releases">Releases</a>. Open the DMG and drag <b>Stampo.app</b> to Applications.</li>
-          <li>Launch Stampo. macOS blocks the first launch because Apple has not notarized the app yet. Stampo has a Developer ID signature.</li>
+          <li>Launch Stampo. macOS blocks the first launch because Apple has not notarized the app yet.</li>
           <li>Open <b>System Settings → Privacy &amp; Security</b>, click <b>Open Anyway</b>, and confirm. You only need to do this once.</li>
         </ol>
         <ol class="steps" lang="ru">
           <li>Скачай <code>Stampo-@VERSION@.dmg</code> со страницы <a href="https://github.com/git-webuser/Stampo/releases">релизов</a>. Открой DMG и перетащи <b>Stampo.app</b> в «Программы».</li>
-          <li>Запусти Stampo. macOS заблокирует первый запуск, потому что Apple пока не провела нотаризацию приложения. У Stampo есть подпись Developer ID.</li>
+          <li>Запусти Stampo. macOS заблокирует первый запуск, потому что Apple пока не провела нотаризацию приложения.</li>
           <li>Открой <b>Системные настройки → Конфиденциальность и безопасность</b>. Нажми <b>«Всё равно открыть»</b> и подтверди запуск. Повторять это не придётся.</li>
         </ol>
         <a class="btn" href="https://github.com/git-webuser/Stampo/releases">

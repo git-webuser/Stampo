@@ -12,13 +12,11 @@ cask "stampo" do
   app "Stampo.app"
 
   caveats <<~EOS
-    Stampo is not notarized yet. Install with --no-quarantine to skip the
-    Gatekeeper warning:
+    Stampo is not notarized yet, so macOS blocks the first launch. Allow it
+    via System Settings -> Privacy & Security -> Open Anyway,
+    or remove the quarantine mark in Terminal:
 
-      brew install --cask --no-quarantine stampo
-
-    Or allow it after the first blocked launch via
-    System Settings -> Privacy & Security -> Open Anyway.
+      xattr -dr com.apple.quarantine /Applications/Stampo.app
   EOS
 
   zap trash: [

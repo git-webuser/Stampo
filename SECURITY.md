@@ -85,8 +85,9 @@ security-scoped bookmarks.
 
 ## Distribution
 
-Releases are signed with a Developer ID but are **not yet notarized**, which
-is why macOS asks you to confirm the first launch. Install only from the
+Releases are signed with an Apple Development certificate (not a Developer ID
+one) and are **not yet notarized**, which is why macOS asks you to confirm the
+first launch. Install only from the
 [Releases](https://github.com/git-webuser/Stampo/releases) page or the
 project's Homebrew tap — a Stampo build from anywhere else is not one this
 project produced.
